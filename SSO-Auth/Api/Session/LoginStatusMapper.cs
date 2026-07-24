@@ -44,6 +44,14 @@ internal static class LoginStatusMapper
     internal const string RateLimitedMessage = "Too many attempts. Please wait a moment and try again.";
 
     /// <summary>
+    /// The body for an unusable authorization state (unknown, expired, cross-provider, or cross-browser).
+    /// Shared with the OpenID callback's direct pre-mint state rejection so the wording is defined once —
+    /// the browser error page localizes a rejection body by matching it to its catalog key (#913), so a
+    /// duplicated literal that drifted from this one would silently stop localizing.
+    /// </summary>
+    internal const string InvalidStateMessage = "Invalid or expired state";
+
+    /// <summary>
     /// Translates a login outcome into its HTTP result, mapping success to the session body and each refusal
     /// to its fail-closed public status/message. A <see cref="LoginOutcome.Throttled"/> cannot be rendered
     /// here because it needs the response for its Retry-After header — it throws, forcing callers through the
@@ -84,7 +92,7 @@ internal static class LoginStatusMapper
     private static ContentResult ToActionResult(PublicReason reason) => reason switch
     {
         PublicReason.UnknownProvider => Emit(StatusCodes.Status400BadRequest, NoMatchingProviderMessage),
-        PublicReason.InvalidState => Emit(StatusCodes.Status400BadRequest, "Invalid or expired state"),
+        PublicReason.InvalidState => Emit(StatusCodes.Status400BadRequest, InvalidStateMessage),
         PublicReason.AccountLinkForbidden => Emit(StatusCodes.Status403Forbidden, "SSO login is not permitted for this account."),
         PublicReason.SsoResponseInvalid => Emit(StatusCodes.Status400BadRequest, "SSO response validation failed"),
         PublicReason.SamlResponseInvalid => Emit(StatusCodes.Status400BadRequest, "SAML response validation failed"),
