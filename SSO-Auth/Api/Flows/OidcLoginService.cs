@@ -306,7 +306,9 @@ internal sealed class OidcLoginService
         {
             // Unknown, expired, minted for a different provider, or from a different browser than the
             // one that started the flow (#326) — reject (details on PeekCurrent / AuthorizeStateBinding).
-            return new BadRequestObjectResult("Invalid or expired state");
+            // The shared constant keeps this wording identical to the mapper's InvalidState body, so the
+            // browser error page localizes it and it cannot drift out of the catalog (#913).
+            return new BadRequestObjectResult(LoginStatusMapper.InvalidStateMessage);
         }
 
         if (TryReveal(() => CreateCallbackOidcClient(config, provider, request, pending.ProviderInformation), provider, out var oidcClient) is { } secretError)

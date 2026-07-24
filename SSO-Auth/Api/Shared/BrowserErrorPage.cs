@@ -103,7 +103,11 @@ internal static class BrowserErrorPage
         + "  a { color: #00a4dc; }\n"
         + "</style>\n"
         + "</head><body>\n"
-        + "<p>" + HtmlEncoder.Default.Encode(message) + "</p>\n"
+        // The rejection body is emitted in canonical English on the wire (byte-identical for the XHR/API
+        // leg); on the browser re-render it is localized from the catalog when it is a known message (#913),
+        // and left as-is when it is not (an identity-provider-interpolated error). It stays HTML-encoded
+        // because a few messages carry interpolated IdP text that must not break out of the markup.
+        + "<p>" + HtmlEncoder.Default.Encode(SsoLocalizer.LocalizeEnglish(message, culture)) + "</p>\n"
         // The link label comes from the localization catalog (#913), in the culture resolved from the
         // request's Accept-Language header (English until a matching catalog is loaded).
         + "<a href='/web/index.html'>" + HtmlEncoder.Default.Encode(SsoLocalizer.GetString("error.return_to_login", culture)) + "</a>\n"

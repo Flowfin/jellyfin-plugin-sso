@@ -65,6 +65,58 @@ internal static class SsoLocalizer
         return key;
     }
 
+    /// <summary>
+    /// Localizes a canonical English message into <paramref name="culture"/> by finding its catalog key.
+    /// Returns the message unchanged when it is not a catalog value (for example an identity-provider-
+    /// interpolated error), so a non-catalog string is never dropped. This localizes a message that has
+    /// already been produced in English — the wire form stays English; only a re-render (the browser error
+    /// page) swaps in the translation.
+    /// </summary>
+    /// <param name="englishMessage">The English message to localize.</param>
+    /// <param name="culture">The requested culture, or null/empty to keep English.</param>
+    /// <returns>The localized message, or the input unchanged when it is not a known English catalog value.</returns>
+    internal static string LocalizeEnglish(string englishMessage, string? culture)
+    {
+        ArgumentNullException.ThrowIfNull(englishMessage);
+
+        if (string.IsNullOrEmpty(culture))
+        {
+            return englishMessage;
+        }
+
+        var key = KeyForEnglishValue(englishMessage);
+        return key is null ? englishMessage : GetString(key, culture);
+    }
+
+    /// <summary>Whether <paramref name="englishMessage"/> is a known English catalog value (so it will localize).</summary>
+    /// <param name="englishMessage">The candidate English message.</param>
+    /// <returns>True when the message is present as an English catalog value.</returns>
+    internal static bool IsLocalizableEnglish(string englishMessage)
+    {
+        ArgumentNullException.ThrowIfNull(englishMessage);
+        return KeyForEnglishValue(englishMessage) is not null;
+    }
+
+    // Reverse-map an English message to its catalog key by scanning the English baseline. The catalog is a
+    // handful of entries and this runs only on an error re-render, so a linear scan is cheaper than carrying
+    // a second index; the catalog conformance test forbids duplicate English values, so the first match is
+    // the only match.
+    private static string? KeyForEnglishValue(string englishMessage)
+    {
+        if (CatalogsByCulture.TryGetValue(FallbackCulture, out var english))
+        {
+            foreach (var (key, value) in english)
+            {
+                if (string.Equals(value, englishMessage, StringComparison.Ordinal))
+                {
+                    return key;
+                }
+            }
+        }
+
+        return null;
+    }
+
     // The requested culture, then its base language ("de-CH" -> "de"), then English — lower-invariant,
     // de-duplicated in order.
     private static IEnumerable<string> CultureFallbackChain(string? culture)
