@@ -41,6 +41,27 @@ internal static class SsoLocalizer
     internal static IReadOnlyCollection<string> AvailableCultures => CatalogsByCulture.Keys.ToArray();
 
     /// <summary>
+    /// Resolves every catalog key into <paramref name="culture"/> and returns the complete key→value map,
+    /// for a client that renders a page's own text (#913): the server owns the culture fallback, the client
+    /// just applies concrete strings. Keyed on the English baseline, which holds every key.
+    /// </summary>
+    /// <param name="culture">The requested culture, or null for English.</param>
+    /// <returns>Every key resolved to a concrete string in the requested culture.</returns>
+    internal static IReadOnlyDictionary<string, string> ResolvedCatalog(string? culture)
+    {
+        var resolved = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (CatalogsByCulture.TryGetValue(FallbackCulture, out var english))
+        {
+            foreach (var key in english.Keys)
+            {
+                resolved[key] = GetString(key, culture);
+            }
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
     /// Gets the localized value for <paramref name="key"/> in <paramref name="culture"/>, falling back to
     /// the base language, then English, then the key itself. Never returns null or empty for a key present
     /// in the English catalog; returns the key verbatim when it is defined nowhere.

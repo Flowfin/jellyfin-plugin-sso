@@ -188,6 +188,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Page("style.css", "Web.style.css"),
             Page("linking", "Web.linking.html"),
             Page("linking.js", "Web.linking.js"),
+            Page("i18n.js", "Web.i18n.js"),
             Page("ApiClient.js", "Web.ApiClient.js"),
             Page("emby-restyle.css", "Web.emby-restyle.css"),
             Page("jellyfin-apiClient.esm.min.js", "Web.jellyfin-apiClient.esm.min.js"),

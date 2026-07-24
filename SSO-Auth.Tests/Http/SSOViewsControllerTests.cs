@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Generic;
 using System.IO;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Serialization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -107,6 +109,25 @@ public class SSOViewsControllerTests
         var file = Assert.IsType<FileStreamResult>(result);
         Assert.NotNull(file.FileStream);
         Assert.Contains("javascript", file.ContentType, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetLocalizationCatalog_ResolvesUiStrings_AndSetsVaryAcceptLanguage()
+    {
+        var controller = CreateController();
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        controller.Request.Headers.AcceptLanguage = "de-DE,de;q=0.9,en;q=0.5";
+
+        var result = controller.GetLocalizationCatalog();
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var catalog = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(ok.Value);
+        // English is the only loaded catalog today, so every key resolves to its English value; the point
+        // is that the endpoint returns the concrete resolved strings a client applies, not keys.
+        Assert.Equal("Home", catalog["link.home"]);
+        Assert.Equal("Return to login", catalog["error.return_to_login"]);
+        // Per-language response, so caches must key on the request language.
+        Assert.Equal("Accept-Language", controller.Response.Headers.Vary.ToString());
     }
 
     [Fact]

@@ -34,15 +34,16 @@
           <div class="sectionTitleContainer flex align-items-center">
             <a class="raised emby-button home" style="display: none">
               <span class="material-icons home" aria-hidden="true"></span
-              ><span>Home</span>
+              ><span data-i18n="link.home">Home</span>
             </a>
-            <h2 class="sectionTitle">SSO Linking:</h2>
+            <h2 class="sectionTitle" data-i18n="link.title">SSO Linking:</h2>
             <a
               is="emby-button"
               class="raised button-alt headerHelpButton"
               target="_blank"
               rel="noopener noreferrer"
               href="https://github.com/iderex/jellyfin-plugin-sso/wiki"
+              data-i18n="link.help"
               >Help</a
             >
           </div>
@@ -51,6 +52,7 @@
             class="sso-linking-error"
             role="alert"
             hidden
+            data-i18n="link.load_error"
           >
             Something went wrong loading or updating your links. Please reload
             the page and try again.
@@ -84,9 +86,13 @@
           </p>
           <label class="checkbox-wrapper">
             <input is="emby-checkbox" id="enable-delete" type="checkbox" />
-            <span class="checkbox-label">Enable "Delete" button.</span>
+            <span class="checkbox-label" data-i18n="link.enable_delete"
+              >Enable "Delete" button.</span
+            >
           </label>
-          <h1 class="sectionTitle">Link a provider</h1>
+          <h1 class="sectionTitle" data-i18n="link.section_link_provider">
+            Link a provider
+          </h1>
           <div class="verticalSection" title="Link a provider">
             <h2 class="sectionTitle">SAML</h2>
             <div id="sso-provider-list-saml" data-id="saml"></div>
@@ -100,7 +106,7 @@
             disabled="true"
           >
             <span class="material-icons delete" aria-hidden="true"></span>
-            <span>Delete Selected</span>
+            <span data-i18n="link.delete_selected">Delete Selected</span>
           </button>
         </div>
       </div>

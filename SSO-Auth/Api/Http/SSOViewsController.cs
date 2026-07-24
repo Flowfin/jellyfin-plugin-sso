@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net.Mime;
+using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using MediaBrowser.Model;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
@@ -68,5 +72,26 @@ public class SSOViewsController : ControllerBase
         }
 
         return File(stream, MimeTypes.GetMimeType(view.EmbeddedResourcePath), lastModified: null, entityTag: AssetETag);
+    }
+
+    /// <summary>
+    /// Gets the plugin's user-interface strings (#913) resolved into the culture requested by the caller's
+    /// Accept-Language header. The client-rendered pages (the linking page, the admin config page) fetch
+    /// this once and apply the strings to their DOM, so the server owns the culture fallback and the pages
+    /// carry only keys. Anonymous and non-sensitive: it returns first-party UI labels only — no user data,
+    /// no configuration, no secrets — the same strings already embedded in the served pages.
+    /// </summary>
+    /// <returns>Every UI string key resolved to a concrete value in the request's culture.</returns>
+    [HttpGet("i18n")]
+    [AllowAnonymous]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<IReadOnlyDictionary<string, string>> GetLocalizationCatalog()
+    {
+        var culture = AcceptLanguage.Resolve(Request.Headers.AcceptLanguage.ToString());
+
+        // The resolved set differs per requested language, so caches must key on it.
+        Response.Headers.Vary = HeaderNames.AcceptLanguage;
+
+        return Ok(SsoLocalizer.ResolvedCatalog(culture));
     }
 }
