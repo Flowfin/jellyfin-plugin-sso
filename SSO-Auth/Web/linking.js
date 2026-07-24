@@ -52,9 +52,11 @@ const ssoConfigLinking = {
     }
     const placeholder = document.createElement("p");
     placeholder.classList.add("sso-provider-empty");
-    placeholder.textContent = t("link.no_providers", {
-      mode: provider_mode.toUpperCase(),
-    });
+    placeholder.textContent = t(
+      "link.no_providers",
+      { mode: provider_mode.toUpperCase() },
+      "No {mode} providers are available.",
+    );
     container.appendChild(placeholder);
   },
   loadProviderList: (container, providers, provider_mode) => {
@@ -173,7 +175,11 @@ const ssoConfigLinking = {
     } else {
       const disabled_note = document.createElement("span");
       disabled_note.classList.add("sso-provider-disabled-note");
-      disabled_note.textContent = t("link.disabled_note");
+      disabled_note.textContent = t(
+        "link.disabled_note",
+        undefined,
+        " (disabled)",
+      );
       title.appendChild(disabled_note);
       provider_config.append(title, existing_links);
     }

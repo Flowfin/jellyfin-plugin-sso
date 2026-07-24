@@ -21,11 +21,14 @@ function format(text, params) {
   );
 }
 
-// Look up a key, falling back to the key itself so a missing translation is visible, never blank.
-export function t(key, params) {
+// Look up a key. When it is not in the loaded catalog — most importantly when the fetch failed and the
+// catalog is empty — fall back to the caller's built-in English default (the same role the hard-coded text
+// on data-i18n markup plays), and only to the key itself if no default was given, so a missing string is
+// never blank. Placeholders are substituted in either case.
+export function t(key, params, fallback) {
   const value = Object.prototype.hasOwnProperty.call(catalog, key)
     ? catalog[key]
-    : key;
+    : (fallback ?? key);
   return format(value, params);
 }
 
