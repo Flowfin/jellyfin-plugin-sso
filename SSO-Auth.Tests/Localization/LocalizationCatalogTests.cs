@@ -63,6 +63,22 @@ public class LocalizationCatalogTests
     }
 
     [Fact]
+    public void EnglishCatalog_HasNoDuplicateValues()
+    {
+        // The browser error page localizes a canonical English message by reverse-mapping it to its key
+        // (SsoLocalizer.LocalizeEnglish). A duplicate English value would make that mapping ambiguous, so
+        // the English baseline must keep its values one-to-one with its keys.
+        var english = ReadCatalog(EnglishResource);
+        var duplicates = english.Values
+            .GroupBy(value => value, System.StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToList();
+
+        Assert.True(duplicates.Count == 0, "duplicate English values: " + string.Join(" | ", duplicates));
+    }
+
+    [Fact]
     public void EveryNonEnglishCatalog_HasExactlyTheEnglishKeySet()
     {
         var englishKeys = ReadCatalog(EnglishResource).Keys.ToHashSet();

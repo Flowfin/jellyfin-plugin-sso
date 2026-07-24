@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using MediaBrowser.Controller.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -48,6 +50,30 @@ public class LoginStatusMapperTests
             Assert.Equal(status, result.StatusCode);
             Assert.Equal(body, result.Content);
             Assert.Equal("text/plain", result.ContentType);
+        }
+    }
+
+    [Fact]
+    public void EveryRejectionBody_IsALocalizableCatalogValue()
+    {
+        // #913: the browser error page localizes a rejection body by reverse-mapping it to a catalog key.
+        // Every message the mapper can emit must therefore be a known English catalog value, or it would
+        // silently stay English on a translated page. A new reason or a reworded body without a matching
+        // catalog entry fails here before it can ship.
+        var response = new DefaultHttpContext().Response;
+        var bodies = new List<string>();
+
+        foreach (var reason in Enum.GetValues<PublicReason>())
+        {
+            bodies.Add(Assert.IsType<ContentResult>(LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(reason))).Content!);
+        }
+
+        bodies.Add(Assert.IsType<ContentResult>(LoginStatusMapper.ToActionResult(new LoginOutcome.Denied())).Content!);
+        bodies.Add(Assert.IsType<ContentResult>(LoginStatusMapper.ToActionResult(new LoginOutcome.Throttled(1), response)).Content!);
+
+        foreach (var body in bodies)
+        {
+            Assert.True(SsoLocalizer.IsLocalizableEnglish(body), $"rejection body is not a catalog value: '{body}'");
         }
     }
 

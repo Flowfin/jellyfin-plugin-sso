@@ -63,4 +63,31 @@ public class SsoLocalizerTests
     {
         Assert.Contains(SsoLocalizer.FallbackCulture, SsoLocalizer.AvailableCultures);
     }
+
+    [Fact]
+    public void LocalizeEnglish_KnownEnglishValue_IsRecognized()
+    {
+        // "Invalid or expired state" is the English value of error.invalid_state; it must reverse-map.
+        Assert.True(SsoLocalizer.IsLocalizableEnglish("Invalid or expired state"));
+        // With only English loaded it round-trips to the same text, never a blank or the key.
+        Assert.Equal("Invalid or expired state", SsoLocalizer.LocalizeEnglish("Invalid or expired state", "en"));
+    }
+
+    [Fact]
+    public void LocalizeEnglish_UnknownMessage_IsReturnedUnchanged()
+    {
+        // An identity-provider-interpolated error is not a catalog value; it must pass through verbatim,
+        // never be dropped or turned into a key.
+        const string idpError = "Error preparing login: upstream said no";
+        Assert.False(SsoLocalizer.IsLocalizableEnglish(idpError));
+        Assert.Equal(idpError, SsoLocalizer.LocalizeEnglish(idpError, "de-DE"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void LocalizeEnglish_NullOrEmptyCulture_KeepsEnglish(string? culture)
+    {
+        Assert.Equal("No matching provider found", SsoLocalizer.LocalizeEnglish("No matching provider found", culture));
+    }
 }
