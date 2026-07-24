@@ -1,3 +1,5 @@
+import { loadCatalog, applyTo, t } from "./i18n.js";
+
 const ssoConfigLinking = {
   pluginUniqueId: "505ce9d1-d916-42fa-86ca-673ef241d7df",
 
@@ -50,7 +52,9 @@ const ssoConfigLinking = {
     }
     const placeholder = document.createElement("p");
     placeholder.classList.add("sso-provider-empty");
-    placeholder.textContent = `No ${provider_mode.toUpperCase()} providers are available.`;
+    placeholder.textContent = t("link.no_providers", {
+      mode: provider_mode.toUpperCase(),
+    });
     container.appendChild(placeholder);
   },
   loadProviderList: (container, providers, provider_mode) => {
@@ -169,7 +173,7 @@ const ssoConfigLinking = {
     } else {
       const disabled_note = document.createElement("span");
       disabled_note.classList.add("sso-provider-disabled-note");
-      disabled_note.textContent = " (disabled)";
+      disabled_note.textContent = t("link.disabled_note");
       title.appendChild(disabled_note);
       provider_config.append(title, existing_links);
     }
@@ -274,8 +278,6 @@ const ssoConfigLinking = {
 };
 
 export default function initLinkingView(view) {
-  ssoConfigLinking.loadProviders(view);
-
   view.querySelector("#enable-delete").addEventListener("change", (e) => {
     view.querySelector("#btn-delete-selected-links").disabled =
       !e.target.checked;
@@ -286,4 +288,12 @@ export default function initLinkingView(view) {
     .addEventListener("click", (e) =>
       ssoConfigLinking.handleDeleteButtonPressed(e, view),
     );
+
+  // Load the UI strings before rendering: the static markup is localized in place and the dynamically
+  // built rows (provider empty-state, disabled note) read their text through t(). loadCatalog always
+  // resolves, so a fetch failure just leaves the built-in English.
+  loadCatalog().then(() => {
+    applyTo(document);
+    ssoConfigLinking.loadProviders(view);
+  });
 }

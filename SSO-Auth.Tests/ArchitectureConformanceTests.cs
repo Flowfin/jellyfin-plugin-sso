@@ -188,7 +188,7 @@ public class ArchitectureConformanceTests
     [InlineData("Session", "Authz", "Avatar", "Linking")] // session mint + login outcomes — applies grants (Authz), sets avatars (Avatar), reconciles links (Linking)
     [InlineData("Shared", "Avatar", "Linking", "Localization", "RateLimit", "Routing", "Session")] // shared served-page / flow-response + rate-limit-gate helpers — depend downward on the session/linking/avatar/throttle/route/localization tiers, never on a protocol or the boundary
     [InlineData("Flows", "Audit", "Identity", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "RateLimit", "Saml", "Session", "Shared")] // per-protocol login orchestration — drives both protocol modules (Oidc/Saml) and the downstream mint/link/session tiers; localizes the served auth-completion page (Localization, #913); persists the captured logout state at the mint (Logout, #727); nothing above the boundary imports it
-    [InlineData("Http", "Audit", "Avatar", "Flows", "Linking", "Logout", "Net", "Oidc", "Provider", "Saml", "Session", "Shared")] // the web boundary (SSOController + request helpers + the admin test-connection probe): the composition top of the DAG — it fronts every flow, so its import list is deliberately wide (incl. the RP-initiated logout store, #727); nothing imports it back (#790/#807)
+    [InlineData("Http", "Audit", "Avatar", "Flows", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "Saml", "Session", "Shared")] // the web boundary (SSOController + request helpers + the admin test-connection probe + the UI-string endpoint, #913): the composition top of the DAG — it fronts every flow, so its import list is deliberately wide (incl. the RP-initiated logout store, #727); nothing imports it back (#790/#807)
     public void ApiModule_ImportsOnlyItsAllowedApiModules(string module, params string[] allowed)
     {
         var moduleDir = Path.Combine(RepoRoot(), "SSO-Auth", "Api", module);
@@ -2428,6 +2428,7 @@ public class ArchitectureConformanceTests
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "saml/links/{jellyfinUserId}", "oid/links/{jellyfinUserId}", // authenticated link listings
         "{viewName}", // SSOViewsController: read-only embedded static asset (ETag/304), no I/O, no login path
+        "i18n", // SSOViewsController: anonymous read-only UI-string catalog (#913), in-memory, no I/O, no login path
     };
 
     [Fact]

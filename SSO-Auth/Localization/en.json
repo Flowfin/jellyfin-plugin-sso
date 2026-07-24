@@ -17,5 +17,14 @@
   "page.enable_javascript": "Please enable Javascript to complete the login",
   "page.account_linked": "Account linked. You can now log in with SSO.",
   "page.link_failed": "Could not link this account. The provider may be disabled, or linking is not permitted.",
-  "page.login_failed": "Login failed. Please try again."
+  "page.login_failed": "Login failed. Please try again.",
+  "link.home": "Home",
+  "link.title": "SSO Linking:",
+  "link.help": "Help",
+  "link.load_error": "Something went wrong loading or updating your links. Please reload the page and try again.",
+  "link.enable_delete": "Enable \"Delete\" button.",
+  "link.section_link_provider": "Link a provider",
+  "link.delete_selected": "Delete Selected",
+  "link.no_providers": "No {mode} providers are available.",
+  "link.disabled_note": " (disabled)"
 }

@@ -65,6 +65,7 @@ public class SSOPluginPageManifestTests
                 ("style.css", $"{ns}.Web.style.css"),
                 ("linking", $"{ns}.Web.linking.html"),
                 ("linking.js", $"{ns}.Web.linking.js"),
+                ("i18n.js", $"{ns}.Web.i18n.js"),
                 ("ApiClient.js", $"{ns}.Web.ApiClient.js"),
                 ("emby-restyle.css", $"{ns}.Web.emby-restyle.css"),
                 ("jellyfin-apiClient.esm.min.js", $"{ns}.Web.jellyfin-apiClient.esm.min.js"),
