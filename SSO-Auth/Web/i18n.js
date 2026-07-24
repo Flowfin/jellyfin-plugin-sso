@@ -32,14 +32,32 @@ export function t(key, params, fallback) {
   return format(value, params);
 }
 
-// Apply the loaded catalog to every [data-i18n] element under `root` (default: the whole document),
-// replacing its text content. Elements whose key is not in the catalog keep their built-in text.
+// The attributes a data-i18n-<attr> marker may localize. Deliberately an allowlist of inert,
+// user-visible attributes rather than a generic setter: a generic one would let a markup typo (or a
+// future edit) drive href, src, or an event handler through the same path.
+const LOCALIZABLE_ATTRIBUTES = ["title", "placeholder", "aria-label"];
+
+// Apply the loaded catalog under `root` (default: the whole document): `data-i18n="key"` replaces an
+// element's text content, and `data-i18n-<attr>="key"` replaces one of the allowlisted attributes above
+// (e.g. data-i18n-title). A key that is not in the catalog leaves the built-in English in place.
 export function applyTo(root) {
-  (root || document).querySelectorAll("[data-i18n]").forEach((el) => {
+  const scope = root || document;
+
+  scope.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     if (Object.prototype.hasOwnProperty.call(catalog, key)) {
       el.textContent = catalog[key];
     }
+  });
+
+  LOCALIZABLE_ATTRIBUTES.forEach((attribute) => {
+    const marker = "data-i18n-" + attribute;
+    scope.querySelectorAll("[" + marker + "]").forEach((el) => {
+      const key = el.getAttribute(marker);
+      if (Object.prototype.hasOwnProperty.call(catalog, key)) {
+        el.setAttribute(attribute, catalog[key]);
+      }
+    });
   });
 }
 

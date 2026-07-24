@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Xunit;
 
@@ -32,6 +33,30 @@ public class LocalizationCatalogTests
             .Where(name => name.StartsWith(ResourcePrefix, System.StringComparison.Ordinal)
                 && name.EndsWith(ResourceSuffix, System.StringComparison.Ordinal));
 
+    // `data-i18n="key"` and the allowlisted attribute form `data-i18n-title="key"`.
+    private static readonly Regex MarkupKeyPattern = new(@"data-i18n(?:-[a-z-]+)?=""(?<key>[^""]+)""", RegexOptions.Compiled);
+
+    // t("key", …) / tr("key", …) — the lookbehind keeps it off identifiers that merely end in t (parseInt(…)).
+    private static readonly Regex ScriptKeyPattern = new(@"(?<![A-Za-z0-9_.])tr?\(\s*""(?<key>[^""]+)""", RegexOptions.Compiled);
+
+    // The assets that CONSUME the catalog. Excluded are the vendored Jellyfin client bundles (third-party
+    // code that never carries our markers, and a minified bundle only invites false positives) and i18n.js
+    // itself — it DEFINES the mechanism, so its documentation spells out the marker forms literally.
+    private static readonly string[] NonConsumingAssets = ["Web.ApiClient.js", "Web.jellyfin-apiClient.esm.min.js", "Web.i18n.js"];
+
+    private static IEnumerable<string> FirstPartyWebAssets() =>
+        PluginAssembly.GetManifestResourceNames()
+            .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal) || name.EndsWith(".js", System.StringComparison.Ordinal))
+            .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)));
+
+    private static string ReadResourceText(string resourceName)
+    {
+        using var stream = PluginAssembly.GetManifestResourceStream(resourceName);
+        Assert.NotNull(stream);
+        using var reader = new StreamReader(stream!);
+        return reader.ReadToEnd();
+    }
+
     private static Dictionary<string, string> ReadCatalog(string resourceName)
     {
         using var stream = PluginAssembly.GetManifestResourceStream(resourceName);
@@ -40,6 +65,33 @@ public class LocalizationCatalogTests
         var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.ReadToEnd());
         Assert.NotNull(parsed);
         return parsed!;
+    }
+
+    [Fact]
+    public void EveryKeyReferencedByTheWebAssets_ExistsInTheEnglishCatalog()
+    {
+        // #913: the client-rendered pages carry only KEYS — `data-i18n="key"` / `data-i18n-<attr>="key"` in
+        // the markup, and t("key", …) / tr("key", …) in the scripts. A key with no catalog entry silently
+        // degrades (the element keeps its built-in English, or t() falls back), so the drift is invisible in
+        // review and in the browser. This scans the EMBEDDED assets — exactly what ships — so a renamed
+        // catalog key or a typo'd marker is a red build rather than a page that quietly stops localizing.
+        var englishKeys = ReadCatalog(EnglishResource).Keys.ToHashSet(System.StringComparer.Ordinal);
+        var missing = new List<string>();
+
+        foreach (var resource in FirstPartyWebAssets())
+        {
+            var content = ReadResourceText(resource);
+            var referenced = MarkupKeyPattern.Matches(content)
+                .Concat(ScriptKeyPattern.Matches(content))
+                .Select(match => match.Groups["key"].Value);
+
+            foreach (var key in referenced.Where(key => !englishKeys.Contains(key)))
+            {
+                missing.Add($"{resource}: '{key}'");
+            }
+        }
+
+        Assert.True(missing.Count == 0, "These i18n keys are referenced by a web asset but absent from the English catalog: " + string.Join(" | ", missing));
     }
 
     [Fact]

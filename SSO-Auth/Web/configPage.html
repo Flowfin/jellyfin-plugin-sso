@@ -13,7 +13,7 @@
       <div data-role="content">
         <div class="content-primary">
           <div class="sectionTitleContainer flex align-items-center">
-            <h2 class="sectionTitle">SSO Settings:</h2>
+            <h2 class="sectionTitle" data-i18n="config.title">SSO Settings:</h2>
             <a
               is="emby-button"
               class="raised button-alt headerHelpButton"
@@ -33,6 +33,7 @@
             class="verticalSection"
             is="emby-collapse"
             title="About this plugin"
+            data-i18n-title="config.about"
           >
             <div class="collapseContent">
               <p>
@@ -84,7 +85,9 @@
 
           <details class="sso-onlylogin-note" style="margin: 1em 0">
             <summary>
-              <strong>SSO-only login (disable password login)</strong>
+              <strong data-i18n="config.sso_only_summary"
+                >SSO-only login (disable password login)</strong
+              >
             </summary>
             <div class="fieldDescription">
               <p>
@@ -330,7 +333,12 @@
           <form id="sso-load-config" class="esqConfigurationForm">
             <div class="verticalSection">
               <div class="sso-workspace-header">
-                <h3 class="sso-workspace-title">SSO providers</h3>
+                <h3
+                  class="sso-workspace-title"
+                  data-i18n="config.oidc_providers"
+                >
+                  SSO providers
+                </h3>
                 <button
                   id="AddProvider"
                   is="emby-button"
@@ -338,12 +346,19 @@
                   class="raised button-submit sso-add-provider emby-button"
                 >
                   <span class="material-icons add" aria-hidden="true"></span>
-                  <span>Add OIDC provider</span>
+                  <span data-i18n="config.add_oidc_provider"
+                    >Add OIDC provider</span
+                  >
                 </button>
               </div>
 
               <div id="sso-provider-empty" class="sso-empty-state" hidden>
-                <p class="sso-empty-state-title">No SSO providers yet</p>
+                <p
+                  class="sso-empty-state-title"
+                  data-i18n="config.no_oidc_providers"
+                >
+                  No SSO providers yet
+                </p>
                 <p class="fieldDescription">
                   Add an OpenID Connect provider to let users sign in through
                   your identity provider. See the
@@ -362,7 +377,9 @@
                   class="raised button-submit sso-add-provider emby-button"
                 >
                   <span class="material-icons add" aria-hidden="true"></span>
-                  <span>Add OIDC provider</span>
+                  <span data-i18n="config.add_oidc_provider"
+                    >Add OIDC provider</span
+                  >
                 </button>
               </div>
 
@@ -377,7 +394,10 @@
                 field: config.js reads and writes its value only to remember which provider is loaded. It is
                 visually hidden, not removed, because saveProvider assigns to it after a successful save.
               -->
-              <label for="selectProvider" class="sso-visually-hidden"
+              <label
+                for="selectProvider"
+                class="sso-visually-hidden"
+                data-i18n="config.loaded_provider"
                 >Loaded provider</label
               >
               <select
@@ -409,7 +429,11 @@
           <form id="sso-new-oidc-provider" class="esqConfigurationForm">
             <div class="sso-editor" id="sso-editor" hidden>
               <div class="sso-editor-header">
-                <h3 class="sso-editor-title" id="sso-editor-title">
+                <h3
+                  class="sso-editor-title"
+                  id="sso-editor-title"
+                  data-i18n="config.new_provider"
+                >
                   New provider
                 </h3>
                 <div class="sso-editor-header-actions">
@@ -1792,7 +1816,12 @@
           <form id="sso-load-saml-config" class="esqConfigurationForm">
             <div class="verticalSection">
               <div class="sso-workspace-header">
-                <h3 class="sso-workspace-title">SAML providers</h3>
+                <h3
+                  class="sso-workspace-title"
+                  data-i18n="config.saml_providers"
+                >
+                  SAML providers
+                </h3>
                 <button
                   id="saml-AddProvider"
                   is="emby-button"
@@ -1800,12 +1829,19 @@
                   class="raised button-submit sso-add-provider emby-button"
                 >
                   <span class="material-icons add" aria-hidden="true"></span>
-                  <span>Add SAML provider</span>
+                  <span data-i18n="config.add_saml_provider"
+                    >Add SAML provider</span
+                  >
                 </button>
               </div>
 
               <div id="saml-provider-empty" class="sso-empty-state" hidden>
-                <p class="sso-empty-state-title">No SAML providers yet</p>
+                <p
+                  class="sso-empty-state-title"
+                  data-i18n="config.no_saml_providers"
+                >
+                  No SAML providers yet
+                </p>
                 <p class="fieldDescription">
                   Add a SAML 2.0 provider to let users sign in through your
                   identity provider. You can import the endpoint and signing
@@ -1818,7 +1854,9 @@
                   class="raised button-submit sso-add-provider emby-button"
                 >
                   <span class="material-icons add" aria-hidden="true"></span>
-                  <span>Add SAML provider</span>
+                  <span data-i18n="config.add_saml_provider"
+                    >Add SAML provider</span
+                  >
                 </button>
               </div>
 
@@ -1843,7 +1881,11 @@
           <form id="sso-new-saml-provider" class="esqConfigurationForm">
             <div class="sso-editor" id="saml-editor" hidden>
               <div class="sso-editor-header">
-                <h3 class="sso-editor-title" id="saml-editor-title">
+                <h3
+                  class="sso-editor-title"
+                  id="saml-editor-title"
+                  data-i18n="config.new_provider"
+                >
                   New provider
                 </h3>
                 <div class="sso-editor-header-actions">
