@@ -2751,21 +2751,77 @@ public class ArchitectureConformanceTests
 
         // The bypass ban, over the whole module rather than just the parsers: a NEW file could load a document
         // the unhardened way without constructing one in the shape the discovery recognises.
-        // LoadXml is allowed on a SignedXml receiver ONLY: that overload takes an XmlElement already inside the
-        // verified DOM and parses no text. On any other receiver it means "build a document from a string",
-        // which is the bypass. Load is allowed only with the hardened reader as its argument.
+        // The bypass ban, over the whole module rather than just the parsers: a NEW file could load a document
+        // the unhardened way without constructing one in the shape the discovery recognises. See
+        // UnhardenedDocumentLoads for the two spellings this must catch and why a line regex could not.
         var bypasses = samlSources
-            .SelectMany(path => CodeLines(path)
-                .Where(l => Regex.Matches(l.Text, @"(?<receiver>\w+)\.LoadXml\(")
-                        .Any(m => !m.Groups["receiver"].Value.Contains("signedXml", StringComparison.OrdinalIgnoreCase))
-                    || Regex.Matches(l.Text, @"\w+\.Load\((?<argument>[^),]*)\)")
-                        .Any(m => !m.Groups["argument"].Value.Contains("reader", StringComparison.OrdinalIgnoreCase)))
-                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .SelectMany(path => UnhardenedDocumentLoads(File.ReadAllText(path))
+                .Select(offender => $"{Path.GetFileName(path)}:{offender}"))
             .ToList();
 
         Assert.True(
             bypasses.Count == 0,
             "An XmlDocument in the SAML module may be populated only through XmlReader.Create + Load(reader) — LoadXml or Load on anything else skips the DTD/resolver/size hardening while still looking like the allowlisted stack (#1003): " + string.Join(" | ", bypasses));
+    }
+
+    [Theory]
+    // The two spellings a line-level regex let through, and which a file-level "the settings appear somewhere"
+    // check cannot catch either — a SECOND parse method added inside an existing hardened file would satisfy
+    // every other arm of the rule while parsing with the reader's own defaults.
+    [InlineData("xmlDoc.Load(new StringReader(xml));")] // "StringReader" contains "reader", so a substring carve-out admits it
+    [InlineData("xmlDoc.Load(new StreamReader(stream));")] // same trick, other reader
+    [InlineData("signedXmlDocument.LoadXml(raw);")] // a receiver whose NAME merely contains "signedXml"
+    [InlineData("xmlDoc.Load(stream);")] // the plain unhardened load
+    [InlineData("doc.Load(File.OpenText(path));")] // and via a factory call
+    public void UnhardenedDocumentLoad_IsRejectedByTheHardenedReaderBan(string statement)
+    {
+        // Negative fixtures for the ban itself. The rule's own predicate is the thing under test here: a ban
+        // whose failure message promises "only XmlReader.Create + Load(reader)" has to actually mean it, or a
+        // future parse seam passes a rule written specifically to stop it.
+        Assert.NotEmpty(UnhardenedDocumentLoads(statement));
+    }
+
+    [Theory]
+    [InlineData("xmlDoc.Load(reader);")] // the hardened seam
+    [InlineData("signedXml.LoadXml(signatureElement);")] // SignedXml's element overload — parses no text
+    public void HardenedDocumentLoad_IsAcceptedByTheHardenedReaderBan(string statement)
+    {
+        // The positive controls: the ban must not reject the two forms the module legitimately uses, or it
+        // would be satisfied only by code that does not exist and would say nothing about code that does.
+        Assert.Empty(UnhardenedDocumentLoads(statement));
+    }
+
+    [Fact]
+    public void SamlDocumentParsing_HappensOnlyInsideTheSamlModule()
+    {
+        // #1003. The hardened-reader rule and the one-stack rule are both scoped to Api/Saml, and that scope
+        // is only sound while nothing OUTSIDE the module can parse a SAML document. That was previously
+        // asserted in prose — true when written, mechanically checkable, so now checked: no file under
+        // SSO-Auth/ outside Api/Saml may name an XML document or reader type at all.
+        //
+        // Two config files are allowlisted, and neither can reach the signature path: the plugin
+        // configuration and the serializable dictionary are the Jellyfin-side persistence model, driven by the
+        // host's IXmlSerializer over the plugin's OWN configuration file — never over an inbound assertion.
+        var banned = new[] { "XmlDocument", "XDocument", "XmlReader", "XPathDocument", "XmlTextReader" };
+        var allowlist = new[]
+        {
+            Path.Combine("Config", "PluginConfiguration.cs"),
+            Path.Combine("Config", "SerializableDictionary.cs"),
+        };
+
+        var samlModule = Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Saml") + Path.DirectorySeparatorChar;
+        var offenders = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path) && !path.StartsWith(samlModule, StringComparison.Ordinal))
+            .Where(path => !allowlist.Any(a => path.EndsWith(a, StringComparison.Ordinal)))
+            .SelectMany(path => CodeLines(path)
+                .Where(l => banned.Any(t => Regex.IsMatch(l.Text, @"\b" + Regex.Escape(t) + @"\b")))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "Only the SAML module may parse XML — a parse seam elsewhere would feed the signature path while sitting outside the scope of the one-stack and hardened-reader rules (#1003). Found: " + string.Join(" | ", offenders));
     }
 
     [Fact]
@@ -2862,10 +2918,46 @@ public class ArchitectureConformanceTests
     private static IEnumerable<string> StringLiterals(string line) =>
         Regex.Matches(line, "\"(?:[^\"\\\\]|\\\\.)*\"").Select(m => m.Value);
 
-    // Every invocation of the named methods in a source file, with its balanced argument text. Matching the
-    // balanced parentheses (rather than the line) is what lets the namespace-aware rule judge a call that
-    // wraps across lines or nests another call in its arguments.
-    private static IEnumerable<(int Line, string Method, string Arguments)> CallsTo(string source, params string[] methodNames)
+    // Every unhardened way of populating an XmlDocument in a source text. Deliberately built on CallsTo +
+    // BalancedArguments rather than on a line regex: a regex over the line cannot tell
+    // `Load(new StringReader(xml))` from `Load(reader)` without excluding nested parentheses, and a substring
+    // carve-out for "reader" ADMITS the former — "StringReader" contains "reader" — which is precisely the
+    // most natural unhardened spelling, going through XmlDocument.Load(TextReader) with that reader's own
+    // defaults instead of the hardened XmlReaderSettings. Likewise the LoadXml exemption is ordinal-EQUAL on
+    // the receiver, not a substring: a variable merely NAMED signedXmlDocument is not a SignedXml.
+    private static IEnumerable<string> UnhardenedDocumentLoads(string source)
+    {
+        foreach (var call in CallsTo(source, "Load", "LoadXml"))
+        {
+            if (call.Method == "LoadXml")
+            {
+                // The SignedXml overload takes an XmlElement already inside the verified DOM and parses no
+                // text. On anything else, LoadXml means "build a document from a string" — the bypass.
+                if (!string.Equals(call.Receiver, "signedXml", StringComparison.Ordinal))
+                {
+                    yield return $"{call.Line}: {call.Receiver}.LoadXml({call.Arguments})";
+                }
+
+                continue;
+            }
+
+            // Load is the hardened seam only when its argument IS the hardened reader — an identifier, not a
+            // freshly constructed one, and not a factory call that returns some other reader or stream.
+            var argument = call.Arguments.Trim();
+            if (argument.Contains("new ", StringComparison.Ordinal)
+                || argument.Contains('(', StringComparison.Ordinal)
+                || !argument.Contains("reader", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return $"{call.Line}: {call.Receiver}.Load({call.Arguments})";
+            }
+        }
+    }
+
+    // Every invocation of the named methods in a source file, with its receiver and balanced argument text.
+    // Matching the balanced parentheses (rather than the line) is what lets the namespace-aware rule judge a
+    // call that wraps across lines or nests another call in its arguments, and what lets the hardened-reader
+    // ban see the whole argument instead of the text up to the first comma or parenthesis.
+    private static IEnumerable<(int Line, string Receiver, string Method, string Arguments)> CallsTo(string source, params string[] methodNames)
     {
         foreach (var method in methodNames)
         {
@@ -2882,10 +2974,30 @@ public class ArchitectureConformanceTests
                 var arguments = BalancedArguments(source, index + method.Length);
                 if (arguments is not null && !IsOnACommentLine(source, index))
                 {
-                    yield return (line, method, arguments);
+                    yield return (line, ReceiverBefore(source, index), method, arguments);
                 }
             }
         }
+    }
+
+    // The identifier a call is made on: the word immediately before the dot preceding the method name, or the
+    // empty string for an unqualified call. Only the last segment is returned (a.b.C() yields "b"), which is
+    // all the receiver-identity checks need.
+    private static string ReceiverBefore(string source, int methodIndex)
+    {
+        if (methodIndex == 0 || source[methodIndex - 1] != '.')
+        {
+            return string.Empty;
+        }
+
+        var end = methodIndex - 1;
+        var start = end;
+        while (start > 0 && (char.IsLetterOrDigit(source[start - 1]) || source[start - 1] == '_'))
+        {
+            start--;
+        }
+
+        return source[start..end];
     }
 
     // The text between the parenthesis at openIndex and its match, string and char literals skipped so a

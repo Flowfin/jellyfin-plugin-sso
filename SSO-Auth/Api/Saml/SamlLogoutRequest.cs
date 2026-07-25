@@ -287,14 +287,15 @@ internal sealed class SamlLogoutRequest : IDisposable
 
         var reference = (Reference)signedInfo.References[0]!;
 
-        // A same-document ID reference only ("#id"); an empty (whole-document "") or external URI is rejected.
-        var referenceUri = reference.Uri;
-        if (string.IsNullOrEmpty(referenceUri) || referenceUri[0] != '#')
+        // The SAME reference rule the login path enforces, from the one shared home (SamlSignatureReference):
+        // a "#id" shorthand pointer with an NCName fragment only. Sharing it is the point — the two validators
+        // must never drift on the question of WHAT a signature covers.
+        if (!SamlSignatureReference.TryGetSameDocumentId(reference.Uri, out var referenceId))
         {
             return false;
         }
 
-        var idElement = signedXml.GetIdElement(_xmlDoc, referenceUri.Substring(1));
+        var idElement = signedXml.GetIdElement(_xmlDoc, referenceId);
         if (idElement == null || idElement != _xmlDoc.DocumentElement)
         {
             return false;

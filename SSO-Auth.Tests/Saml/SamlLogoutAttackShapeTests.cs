@@ -132,6 +132,20 @@ public class SamlLogoutAttackShapeTests
         Assert.True(publicKey.VerifyData(canonical.ToArray(), signatureValue, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
     }
 
+    [Theory]
+    [InlineData("#_a\" or \"1\"=\"1")]
+    [InlineData("#_a\"]|//*[@x=\"")]
+    public void IsValid_ReferenceFragmentCarriesXPathMetacharacters_ReturnsFalse(string referenceUri)
+    {
+        // The logout twin: the shared reference rule refuses a non-NCName fragment on this path too, so the
+        // unauthenticated, session-destructive endpoint does not depend on the host's compatibility
+        // configuration to keep a crafted XPath payload out of reference resolution either.
+        var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestWithCraftedReference(referenceUri);
+
+        Assert.True(SamlLogoutRequest.TryParse(fixture.CertificateBase64, null, fixture.EncodeRequest(), out var request));
+        Assert.False(request.IsValid());
+    }
+
     [Fact]
     public void IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse()
     {

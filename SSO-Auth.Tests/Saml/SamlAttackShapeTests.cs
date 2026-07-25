@@ -488,6 +488,22 @@ public class SamlAttackShapeTests
         Assert.True(verifier.CheckSignature(certificate, true));
     }
 
+    [Theory]
+    [InlineData("#_a\" or \"1\"=\"1")]
+    [InlineData("#_a\"]|//*[@x=\"")]
+    public void IsValid_ReferenceFragmentCarriesXPathMetacharacters_ReturnsFalse(string referenceUri)
+    {
+        // End-to-end companion to SamlSignatureReferenceTests: a signature whose reference fragment is a
+        // crafted XPath payload is rejected on the real validation path. Below .NET's own NCName guard,
+        // reference resolution interpolates the fragment into "//*[@Id=\"...\"]" unescaped, so on a host with
+        // that guard relaxed by a compatibility switch this would be XPath injection inside the signature
+        // check itself. The plugin now refuses a non-NCName fragment before the lookup, which makes the
+        // rejection independent of the host's compatibility configuration.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithCraftedReference(referenceUri);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
     [Fact]
     public void IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse()
     {
