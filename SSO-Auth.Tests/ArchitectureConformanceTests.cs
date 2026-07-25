@@ -2601,6 +2601,287 @@ public class ArchitectureConformanceTests
             "Every C# source file must open with the SPDX copyright + GPL-3.0-only header (#747). Missing or incorrect in: " + string.Join(", ", offenders));
     }
 
+    [Fact]
+    public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
+    {
+        // #1003. XML signature wrapping against a SAML assertion is a full authentication bypass, and the way
+        // it becomes reachable is ALWAYS the same: the document that gets VERIFIED and the document that gets
+        // CONSUMED stop being the same object graph. Every library in the 2025/26 wave that fell — ruby-saml
+        // (CVE-2025-25291/25292, then CVE-2025-66567/66568 as incomplete fixes), samlify (CVE-2025-47949),
+        // authentik (CVE-2026-47201) — had two views of the same bytes; the ones that held had one.
+        //
+        // The surviving stack here is System.Xml: an XmlDocument loaded through a hardened XmlReader
+        // (DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument, PreserveWhitespace), navigated
+        // with namespace-bound XPath through an XmlNamespaceManager, and verified by SignedXml over THAT SAME
+        // XmlDocument instance — SignedXml resolves Reference/@URI against the very instance it was
+        // constructed with, which is what makes "verified" and "consumed" the same graph by construction.
+        // Nothing else can hold the whole path: XDocument, XPathDocument and XmlSerializer cannot verify a
+        // signature at all, so reaching for one necessarily introduces a second parse of the same bytes.
+        //
+        // All three parsers already use only that stack; this rule is the ratchet that keeps it true. It is a
+        // source-text scan (like the controller rules above) because the property is about which types a call
+        // site reaches for, not about a type's shape. It is NOT a proof of current correctness — the negative
+        // tests in SamlAttackShapeTests / SamlLogoutAttackShapeTests carry that load.
+        //
+        // Scoping the scan to the module IS scoping it to the signature path: the raw, untrusted SAML body has
+        // exactly two entry points (SamlAssertionValidator and SamlLogoutValidator, both in this module) and no
+        // file outside it references System.Xml at all except the unrelated config serializer, so nothing
+        // downstream ever sees the bytes again — it sees the validated object's getters.
+        var samlSources = SamlModuleSourceFiles();
+
+        // A comment can mention any of these without introducing anything, so comment/XML-doc lines are out of
+        // scope — including this test's own prose were it ever moved into the module.
+        var bannedStacks = new[]
+        {
+            "System.Xml.Linq", "System.Xml.XPath", "System.Xml.Serialization",
+            "XDocument", "XElement", "XAttribute", "XNamespace",
+            "XPathDocument", "XPathNavigator", "XPathExpression", "CreateNavigator",
+            "XmlSerializer", "DataContractSerializer", "XmlTextReader",
+            "Regex",
+        };
+        var stackOffenders = samlSources
+            .SelectMany(path => CodeLines(path)
+                .Where(l => bannedStacks.Any(t => Regex.IsMatch(l.Text, @"\b" + Regex.Escape(t) + @"\b")))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .ToList();
+
+        Assert.True(
+            stackOffenders.Count == 0,
+            "The SAML module must read and navigate a SAML document through ONE XML stack (XmlDocument/XmlReader/XmlNamespaceManager + SignedXml). A second stack gives the verifier and the consumer different views of the same bytes — the 2025/26 SAML bypass wave's root cause (#1003). Offending lines: " + string.Join(" | ", stackOffenders));
+
+        // The other way to grow a second view is string surgery on the markup — scraping an ID, a Reference
+        // URI, or an element name out of the raw text instead of resolving it through the DOM. Scoped to the
+        // files that actually parse an inbound document (SamlResponse, SamlLogoutRequest, SamlMetadataParser
+        // today), discovered by their hardened-reader construction rather than hardcoded, so a NEW parser is
+        // covered the moment it is written; the outbound BUILDERS in the same module legitimately assemble XML
+        // from strings and are therefore out of scope by construction.
+        var inboundParsers = samlSources
+            .Where(path => File.ReadAllText(path).Contains("XmlReader.Create(", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(
+            inboundParsers.Count > 0,
+            "No inbound SAML parser was found to scan (nothing in Api/Saml constructs a hardened XmlReader any more), so the markup-scraping scan would pass vacuously — point it at the new parse seam (#1003).");
+
+        var stringOperations = new[] { "IndexOf(", "Substring(", "Contains(", "Split(", "Replace(", "StartsWith(", "EndsWith(" };
+        var markupMarkers = new[] { "ID=", "URI=", "<saml", "<samlp", "<ds:", "Assertion", "Signature" };
+        var scrapeOffenders = inboundParsers
+            .SelectMany(path => CodeLines(path)
+                .Where(l => stringOperations.Any(op => l.Text.Contains(op, StringComparison.Ordinal)))
+                .Where(l => StringLiterals(l.Text).Any(literal => markupMarkers.Any(m => literal.Contains(m, StringComparison.Ordinal))))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .ToList();
+
+        Assert.True(
+            scrapeOffenders.Count == 0,
+            "An inbound SAML parser must not extract an ID, a Reference URI, or an element name by string surgery on the markup — resolve it through the DOM, or the verified and the consumed document drift apart (#1003). Offending lines: " + string.Join(" | ", scrapeOffenders));
+
+        // Sentinel against a vacuous pass: the bans above only mean something while the allowlisted stack is
+        // still what the module uses. If the SAML core were rewritten onto something else entirely, every ban
+        // would keep "passing" against a module that no longer parses XML this way — this is the assertion
+        // that would catch it and force a conscious update of the rule.
+        var moduleText = string.Concat(samlSources.Select(File.ReadAllText));
+        var missing = new[] { "XmlDocument", "XmlReader", "XmlNamespaceManager", "SignedXml" }
+            .Where(marker => !moduleText.Contains(marker, StringComparison.Ordinal))
+            .ToList();
+        Assert.True(
+            missing.Count == 0,
+            "The allowlisted XML stack is no longer present in Api/Saml, so the second-stack bans would pass vacuously — update SamlSignaturePath_UsesOneXmlStackEndToEnd to the stack the module actually uses (#1003). Missing: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void SamlSignaturePath_ResolvesElementsNamespaceAware()
+    {
+        // #1003. The second half of "one view of the bytes": within a single stack, a namespace-AGNOSTIC
+        // lookup reintroduces the same ambiguity a second parser would. GetElementsByTagName("Assertion")
+        // matches an Assertion in ANY namespace, so an attacker-declared foreign-namespace look-alike becomes
+        // a second candidate for an element the namespace-bound signature check never covered; the same holds
+        // for SelectNodes/SelectSingleNode called without an XmlNamespaceManager, where an unprefixed XPath
+        // name matches only no-namespace elements and so silently selects NOTHING in a namespaced SAML
+        // document — a lookup that fails open into "absent" instead of "present but unverified".
+        //
+        // Every such call in the module must therefore carry its namespace argument. Checked by extracting the
+        // call's balanced argument list and requiring a top-level comma, not by matching the line text, so a
+        // wrapped or nested call cannot slip through. XmlElement.GetAttribute(string) is deliberately NOT in
+        // scope: its single-argument overload matches the attribute's QUALIFIED name, so a foreign-namespaced
+        // evil:ID can never alias an unprefixed ID — that property is pinned behaviourally by
+        // SamlAttackShapeTests.IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates.
+        var samlSources = SamlModuleSourceFiles();
+        var inspected = 0;
+        var offenders = new List<string>();
+
+        foreach (var path in samlSources)
+        {
+            var source = File.ReadAllText(path);
+            foreach (var call in CallsTo(source, "GetElementsByTagName", "SelectNodes", "SelectSingleNode"))
+            {
+                inspected++;
+                if (!HasTopLevelComma(call.Arguments))
+                {
+                    offenders.Add($"{Path.GetFileName(path)}:{call.Line}: {call.Method}({call.Arguments})");
+                }
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Every element lookup on a SAML document must be namespace-aware: pass the XmlNamespaceManager to SelectNodes/SelectSingleNode and the namespace URI to GetElementsByTagName (#1003). Namespace-agnostic lookups: " + string.Join(" | ", offenders));
+
+        // Sentinel against a vacuous pass: the module resolves every element through these three calls, so a
+        // scan that inspected almost none of them would mean the lookups moved somewhere this rule no longer
+        // sees. The floor is deliberately well below today's count (24) so an honest refactor does not trip it,
+        // while a wholesale move away from these APIs does.
+        Assert.True(
+            inspected >= 10,
+            $"Only {inspected} element lookups were inspected in Api/Saml — the SAML core no longer resolves elements through GetElementsByTagName/SelectNodes/SelectSingleNode, so this rule is close to a no-op; point it at the lookup API the module actually uses (#1003).");
+    }
+
+    // The SAML module's hand-written sources, with the non-empty sentinel both #1003 rules depend on: a scan
+    // over an empty file set would pass every ban vacuously.
+    private static IReadOnlyList<string> SamlModuleSourceFiles()
+    {
+        var files = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Saml"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            files.Count > 0,
+            "No source file was found under SSO-Auth/Api/Saml — the SAML module was renamed or moved, so the #1003 one-XML-stack rules would pass vacuously; point them at its new location.");
+        return files;
+    }
+
+    // A file's numbered CODE lines: comment and XML-doc lines are excluded, because prose can name a banned
+    // type or quote a piece of markup without any call site reaching for it.
+    private static IEnumerable<(int Number, string Text)> CodeLines(string path) =>
+        File.ReadAllLines(path)
+            .Select((line, index) => (Number: index + 1, Text: line.Trim()))
+            .Where(l => !l.Text.StartsWith("//", StringComparison.Ordinal)
+                && !l.Text.StartsWith("/*", StringComparison.Ordinal)
+                && !l.Text.StartsWith("*", StringComparison.Ordinal));
+
+    // The double-quoted string literals on a line, escapes honoured so a \" cannot end one early. Verbatim
+    // (@"...") literals are not modelled: the SAML module uses none, and a markup literal spelled that way
+    // would still have to be consumed by one of the scanned string operations to matter.
+    private static IEnumerable<string> StringLiterals(string line) =>
+        Regex.Matches(line, "\"(?:[^\"\\\\]|\\\\.)*\"").Select(m => m.Value);
+
+    // Every invocation of the named methods in a source file, with its balanced argument text. Matching the
+    // balanced parentheses (rather than the line) is what lets the namespace-aware rule judge a call that
+    // wraps across lines or nests another call in its arguments.
+    private static IEnumerable<(int Line, string Method, string Arguments)> CallsTo(string source, params string[] methodNames)
+    {
+        foreach (var method in methodNames)
+        {
+            var token = method + "(";
+            for (var index = source.IndexOf(token, StringComparison.Ordinal); index >= 0; index = source.IndexOf(token, index + 1, StringComparison.Ordinal))
+            {
+                // Not a call to this method if the token is only the tail of a longer identifier.
+                if (index > 0 && (char.IsLetterOrDigit(source[index - 1]) || source[index - 1] == '_'))
+                {
+                    continue;
+                }
+
+                var line = source.Take(index).Count(c => c == '\n') + 1;
+                var arguments = BalancedArguments(source, index + method.Length);
+                if (arguments is not null && !IsOnACommentLine(source, index))
+                {
+                    yield return (line, method, arguments);
+                }
+            }
+        }
+    }
+
+    // The text between the parenthesis at openIndex and its match, string and char literals skipped so a
+    // parenthesis inside one cannot close the call early. Null when the parentheses are unbalanced.
+    private static string? BalancedArguments(string source, int openIndex)
+    {
+        var depth = 0;
+        for (var i = openIndex; i < source.Length; i++)
+        {
+            var c = source[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(source, i);
+                continue;
+            }
+
+            if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return source[(openIndex + 1)..i];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Whether an argument list holds more than one argument — a comma outside any nested call, collection or
+    // literal. This is what "the lookup carries its namespace argument" reduces to.
+    private static bool HasTopLevelComma(string arguments)
+    {
+        var depth = 0;
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var c = arguments[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(arguments, i);
+            }
+            else if (c is '(' or '[' or '{')
+            {
+                depth++;
+            }
+            else if (c is ')' or ']' or '}')
+            {
+                // Angle brackets are deliberately not counted: '<' and '>' are ambiguous between generic
+                // arguments and comparison/lambda operators, and mis-tracking them would corrupt the depth.
+                depth--;
+            }
+            else if (c == ',' && depth == 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // The index of the closing quote of the literal starting at start, escapes honoured.
+    private static int SkipLiteral(string text, int start)
+    {
+        var quote = text[start];
+        for (var i = start + 1; i < text.Length; i++)
+        {
+            if (text[i] == '\\')
+            {
+                i++;
+            }
+            else if (text[i] == quote)
+            {
+                return i;
+            }
+        }
+
+        return text.Length - 1;
+    }
+
+    // Whether the call at index sits on a line whose code has already been commented out — the argument-level
+    // scan reads the whole file, so it needs the same comment exclusion CodeLines applies.
+    private static bool IsOnACommentLine(string source, int index)
+    {
+        var lineStart = source.LastIndexOf('\n', Math.Min(index, source.Length - 1)) + 1;
+        var prefix = source[lineStart..index].TrimStart();
+        return prefix.StartsWith("//", StringComparison.Ordinal) || prefix.StartsWith("*", StringComparison.Ordinal);
+    }
+
     // obj/bin hold generated and compiled output; the source scans read hand-written source only.
     private static bool IsBuildOutput(string path) =>
         path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
