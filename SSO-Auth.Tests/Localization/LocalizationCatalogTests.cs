@@ -51,6 +51,9 @@ public class LocalizationCatalogTests
     // it is compared.
     private static readonly Regex MarkupTextPattern = new(@"data-i18n=""(?<key>[^""]+)""[^>]*>(?<text>[^<]*)<", RegexOptions.Compiled);
 
+    // A text-marked element together with its tag name, so the element's own content can be located.
+    private static readonly Regex MarkedElementPattern = new(@"<(?<tag>[a-z0-9]+)(?:\s[^>]*?)?\sdata-i18n=""(?<key>[^""]+)""[^>]*>", RegexOptions.Compiled);
+
     // The catalog namespaces the web assets own; everything else is server-side (see the orphan test).
     private static readonly string[] UiKeyPrefixes = ["config.", "link."];
 
@@ -165,6 +168,37 @@ public class LocalizationCatalogTests
         }
 
         Assert.True(mismatches.Count == 0, "These built-in English strings have drifted from the catalog: " + string.Join(" | ", mismatches));
+    }
+
+    [Fact]
+    public void TextMarkers_OnlySitOnElementsWithoutChildMarkup()
+    {
+        // `data-i18n` REPLACES the element's textContent, so every child element inside a marked element is
+        // destroyed the moment the catalog resolves — and on the configuration page those children are
+        // load-bearing: the required asterisk and the "(optional)" hint live INSIDE their field label, and a
+        // link or a <code> sample carries meaning of its own inside a description. Such a marker renders
+        // correctly while the catalog is unreachable and silently strips the markup once it loads, which is
+        // exactly the kind of drift review does not catch. A text marker therefore belongs only on an
+        // element whose content is a single text node; a label that wraps child markup needs the marker on
+        // the text-bearing child, not on the label.
+        var offenders = new List<string>();
+
+        foreach (var resource in FirstPartyWebAssets().Where(name => name.EndsWith(".html", System.StringComparison.Ordinal)))
+        {
+            var content = ReadResourceText(resource);
+            foreach (Match match in MarkedElementPattern.Matches(content))
+            {
+                var contentStart = match.Index + match.Length;
+                var closing = content.IndexOf("</" + match.Groups["tag"].Value, contentStart, System.StringComparison.Ordinal);
+                var inner = closing < 0 ? content[contentStart..] : content[contentStart..closing];
+                if (inner.Contains('<'))
+                {
+                    offenders.Add($"{resource}: '{match.Groups["key"].Value}'");
+                }
+            }
+        }
+
+        Assert.True(offenders.Count == 0, "These text markers would replace child markup with plain text: " + string.Join(" | ", offenders));
     }
 
     [Fact]
