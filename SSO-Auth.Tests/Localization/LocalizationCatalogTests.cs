@@ -66,10 +66,38 @@ public class LocalizationCatalogTests
     // itself — it DEFINES the mechanism, so its documentation spells out the marker forms literally.
     private static readonly string[] NonConsumingAssets = ["Web.ApiClient.js", "Web.jellyfin-apiClient.esm.min.js", "Web.i18n.js"];
 
-    private static IEnumerable<string> FirstPartyWebAssets() =>
-        PluginAssembly.GetManifestResourceNames()
+    // Every scan below asserts the ABSENCE of offenders, so an empty asset list would make all of them
+    // trivially green while inspecting nothing — a dropped EmbeddedResource entry or a renamed file would
+    // silently retire the guards instead of failing. The floor is asserted here, once, for every consumer.
+    private static List<string> FirstPartyWebAssets()
+    {
+        var assets = PluginAssembly.GetManifestResourceNames()
             .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal) || name.EndsWith(".js", System.StringComparison.Ordinal))
-            .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)));
+            .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)))
+            .ToList();
+
+        Assert.True(assets.Count > 0, "no first-party web asset is embedded — the scans below would pass without inspecting anything");
+        return assets;
+    }
+
+    // The markup scans additionally need the HTML assets to exist AND the pattern to still match something:
+    // the marker syntax is a precondition of both scans (a formatter emitting single-quoted attributes would
+    // break it), and a pattern that matches nothing is as vacuous as an empty asset list.
+    private static List<(string Resource, string Content, Match Match)> ScanHtmlAssets(Regex pattern, string scan)
+    {
+        var assets = FirstPartyWebAssets()
+            .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal))
+            .ToList();
+        Assert.True(assets.Count > 0, $"no embedded HTML asset was found — the {scan} scan would pass without inspecting anything");
+
+        var inspected = assets
+            .Select(resource => (Resource: resource, Content: ReadResourceText(resource)))
+            .SelectMany(asset => pattern.Matches(asset.Content).Select(match => (asset.Resource, asset.Content, Match: match)))
+            .ToList();
+
+        Assert.True(inspected.Count > 0, $"the {scan} scan matched nothing — the pattern or the embedded markup has drifted");
+        return inspected;
+    }
 
     private static string ReadResourceText(string resourceName)
     {
@@ -154,16 +182,13 @@ public class LocalizationCatalogTests
         var english = ReadCatalog(EnglishResource);
         var mismatches = new List<string>();
 
-        foreach (var resource in FirstPartyWebAssets().Where(name => name.EndsWith(".html", System.StringComparison.Ordinal)))
+        foreach (var (resource, _, match) in ScanHtmlAssets(MarkupTextPattern, "built-in English"))
         {
-            foreach (Match match in MarkupTextPattern.Matches(ReadResourceText(resource)))
+            var key = match.Groups["key"].Value;
+            var builtIn = CollapseWhitespace(match.Groups["text"].Value);
+            if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, builtIn, System.StringComparison.Ordinal))
             {
-                var key = match.Groups["key"].Value;
-                var builtIn = CollapseWhitespace(match.Groups["text"].Value);
-                if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, builtIn, System.StringComparison.Ordinal))
-                {
-                    mismatches.Add($"{resource}: '{key}' markup \"{builtIn}\" != catalog \"{catalogValue}\"");
-                }
+                mismatches.Add($"{resource}: '{key}' markup \"{builtIn}\" != catalog \"{catalogValue}\"");
             }
         }
 
@@ -182,22 +207,29 @@ public class LocalizationCatalogTests
         // element whose content is a single text node; a label that wraps child markup needs the marker on
         // the text-bearing child, not on the label.
         var offenders = new List<string>();
+        var unclosed = new List<string>();
 
-        foreach (var resource in FirstPartyWebAssets().Where(name => name.EndsWith(".html", System.StringComparison.Ordinal)))
+        foreach (var (resource, content, match) in ScanHtmlAssets(MarkedElementPattern, "text-marker"))
         {
-            var content = ReadResourceText(resource);
-            foreach (Match match in MarkedElementPattern.Matches(content))
+            var key = match.Groups["key"].Value;
+            var contentStart = match.Index + match.Length;
+            var closing = content.IndexOf("</" + match.Groups["tag"].Value, contentStart, System.StringComparison.Ordinal);
+
+            // No closing tag means the marker sits on a void element, which has no text node to write: the
+            // string would never render. It is reported separately because the offender list below would
+            // otherwise blame it for child markup that does not exist — the rest of the file always contains
+            // a '<'.
+            if (closing < 0)
             {
-                var contentStart = match.Index + match.Length;
-                var closing = content.IndexOf("</" + match.Groups["tag"].Value, contentStart, System.StringComparison.Ordinal);
-                var inner = closing < 0 ? content[contentStart..] : content[contentStart..closing];
-                if (inner.Contains('<'))
-                {
-                    offenders.Add($"{resource}: '{match.Groups["key"].Value}'");
-                }
+                unclosed.Add($"{resource}: '{key}'");
+            }
+            else if (content[contentStart..closing].Contains('<'))
+            {
+                offenders.Add($"{resource}: '{key}'");
             }
         }
 
+        Assert.True(unclosed.Count == 0, "These text markers sit on an element with no closing tag, which has no text content to localize: " + string.Join(" | ", unclosed));
         Assert.True(offenders.Count == 0, "These text markers would replace child markup with plain text: " + string.Join(" | ", offenders));
     }
 
