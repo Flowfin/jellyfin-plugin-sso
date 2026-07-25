@@ -51,6 +51,9 @@ public class LocalizationCatalogTests
     // it is compared.
     private static readonly Regex MarkupTextPattern = new(@"data-i18n=""(?<key>[^""]+)""[^>]*>(?<text>[^<]*)<", RegexOptions.Compiled);
 
+    // A text-marked element together with its tag name, so the element's own content can be located.
+    private static readonly Regex MarkedElementPattern = new(@"<(?<tag>[a-z0-9]+)(?:\s[^>]*?)?\sdata-i18n=""(?<key>[^""]+)""[^>]*>", RegexOptions.Compiled);
+
     // The catalog namespaces the web assets own; everything else is server-side (see the orphan test).
     private static readonly string[] UiKeyPrefixes = ["config.", "link."];
 
@@ -63,10 +66,51 @@ public class LocalizationCatalogTests
     // itself — it DEFINES the mechanism, so its documentation spells out the marker forms literally.
     private static readonly string[] NonConsumingAssets = ["Web.ApiClient.js", "Web.jellyfin-apiClient.esm.min.js", "Web.i18n.js"];
 
-    private static IEnumerable<string> FirstPartyWebAssets() =>
-        PluginAssembly.GetManifestResourceNames()
+    // Every scan below asserts the ABSENCE of offenders — except UiCatalogKeys_AreAllReferencedBySomeWebAsset,
+    // which inverts: with no assets nothing is referenced, so every UI key becomes an orphan and it fails
+    // loudly. All the others would be trivially green on an empty list while inspecting nothing, so a dropped
+    // EmbeddedResource entry or a renamed file would silently retire them. The floor therefore belongs here,
+    // once, for every consumer — the one scan that does not need it is also the one it cannot hurt.
+    private static List<string> FirstPartyWebAssets()
+    {
+        var assets = PluginAssembly.GetManifestResourceNames()
             .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal) || name.EndsWith(".js", System.StringComparison.Ordinal))
-            .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)));
+            .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)))
+            .ToList();
+
+        Assert.True(assets.Count > 0, "no first-party web asset is embedded — every scan but the orphan check would pass without inspecting anything");
+        return assets;
+    }
+
+    // A pattern that matches nothing is as vacuous as an empty asset list: the marker and t()/tr() syntaxes
+    // are preconditions of the scans rather than guarantees (a formatter emitting single-quoted attributes
+    // would break the markers), so a scan asserting the absence of offenders also pins that its pattern still
+    // matches something.
+    private static List<(string Resource, string Content, Match Match)> ScanWebAssets(Regex pattern, string scan) =>
+        ScanForMatches(FirstPartyWebAssets(), pattern, scan);
+
+    // The markup scans narrow to the HTML assets, which needs its own floor: a non-empty asset list says
+    // nothing about the HTML subset surviving.
+    private static List<(string Resource, string Content, Match Match)> ScanHtmlAssets(Regex pattern, string scan)
+    {
+        var assets = FirstPartyWebAssets()
+            .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal))
+            .ToList();
+        Assert.True(assets.Count > 0, $"no embedded HTML asset was found — the {scan} scan would pass without inspecting anything");
+
+        return ScanForMatches(assets, pattern, scan);
+    }
+
+    private static List<(string Resource, string Content, Match Match)> ScanForMatches(List<string> assets, Regex pattern, string scan)
+    {
+        var inspected = assets
+            .Select(resource => (Resource: resource, Content: ReadResourceText(resource)))
+            .SelectMany(asset => pattern.Matches(asset.Content).Select(match => (asset.Resource, asset.Content, Match: match)))
+            .ToList();
+
+        Assert.True(inspected.Count > 0, $"the {scan} scan matched nothing — the pattern or the embedded assets have drifted");
+        return inspected;
+    }
 
     private static string ReadResourceText(string resourceName)
     {
@@ -151,20 +195,56 @@ public class LocalizationCatalogTests
         var english = ReadCatalog(EnglishResource);
         var mismatches = new List<string>();
 
-        foreach (var resource in FirstPartyWebAssets().Where(name => name.EndsWith(".html", System.StringComparison.Ordinal)))
+        foreach (var (resource, _, match) in ScanHtmlAssets(MarkupTextPattern, "built-in English"))
         {
-            foreach (Match match in MarkupTextPattern.Matches(ReadResourceText(resource)))
+            var key = match.Groups["key"].Value;
+            var builtIn = CollapseWhitespace(match.Groups["text"].Value);
+            if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, builtIn, System.StringComparison.Ordinal))
             {
-                var key = match.Groups["key"].Value;
-                var builtIn = CollapseWhitespace(match.Groups["text"].Value);
-                if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, builtIn, System.StringComparison.Ordinal))
-                {
-                    mismatches.Add($"{resource}: '{key}' markup \"{builtIn}\" != catalog \"{catalogValue}\"");
-                }
+                mismatches.Add($"{resource}: '{key}' markup \"{builtIn}\" != catalog \"{catalogValue}\"");
             }
         }
 
         Assert.True(mismatches.Count == 0, "These built-in English strings have drifted from the catalog: " + string.Join(" | ", mismatches));
+    }
+
+    [Fact]
+    public void TextMarkers_OnlySitOnElementsWithoutChildMarkup()
+    {
+        // `data-i18n` REPLACES the element's textContent, so every child element inside a marked element is
+        // destroyed the moment the catalog resolves — and on the configuration page those children are
+        // load-bearing: the required asterisk and the "(optional)" hint live INSIDE their field label, and a
+        // link or a <code> sample carries meaning of its own inside a description. Such a marker renders
+        // correctly while the catalog is unreachable and silently strips the markup once it loads, which is
+        // exactly the kind of drift review does not catch. A text marker therefore belongs only on an
+        // element whose content is a single text node; a label that wraps child markup needs the marker on
+        // the text-bearing child, not on the label.
+        var problems = new List<string>();
+
+        foreach (var (resource, content, match) in ScanHtmlAssets(MarkedElementPattern, "text-marker"))
+        {
+            var key = match.Groups["key"].Value;
+            var contentStart = match.Index + match.Length;
+            var closing = content.IndexOf("</" + match.Groups["tag"].Value, contentStart, System.StringComparison.Ordinal);
+
+            // No `</tag` after the marker at all: usually a void element, which has no text node for the
+            // applier to write, but equally unbalanced markup, where the string would land on an element that
+            // swallowed the rest of the document. Both are wrong and neither is child markup, so the case
+            // carries its own diagnosis — the child-markup branch cannot express it, and cannot even detect
+            // it reliably: the remainder of a file usually contains a '<', but not after the last element.
+            // Both diagnoses go into ONE list and ONE assertion so that a run reports every offender at once;
+            // two sequential assertions would hide the second class behind the first.
+            if (closing < 0)
+            {
+                problems.Add($"{resource}: '{key}' — no closing tag, so the marker delimits no text to localize");
+            }
+            else if (content[contentStart..closing].Contains('<'))
+            {
+                problems.Add($"{resource}: '{key}' — child markup would be replaced with plain text");
+            }
+        }
+
+        Assert.True(problems.Count == 0, "These text markers do not sit on an element whose content is a single text node: " + string.Join(" | ", problems));
     }
 
     [Fact]
@@ -203,17 +283,13 @@ public class LocalizationCatalogTests
         var english = ReadCatalog(EnglishResource);
         var mismatches = new List<string>();
 
-        foreach (var resource in FirstPartyWebAssets())
+        foreach (var (resource, _, match) in ScanWebAssets(ScriptDefaultPattern, "inline English default"))
         {
-            var content = ReadResourceText(resource);
-            foreach (Match match in ScriptDefaultPattern.Matches(content))
+            var key = match.Groups["key"].Value;
+            var inline = match.Groups["english"].Value;
+            if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, inline, System.StringComparison.Ordinal))
             {
-                var key = match.Groups["key"].Value;
-                var inline = match.Groups["english"].Value;
-                if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, inline, System.StringComparison.Ordinal))
-                {
-                    mismatches.Add($"{resource}: '{key}' inline \"{inline}\" != catalog \"{catalogValue}\"");
-                }
+                mismatches.Add($"{resource}: '{key}' inline \"{inline}\" != catalog \"{catalogValue}\"");
             }
         }
 

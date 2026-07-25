@@ -510,6 +510,16 @@
                 class="verticalSection verticalSection-extrabottompadding"
               >
                 <div class="collapseContent">
+                  <!--
+                    Why this label — and every field label that wraps a required/optional hint — carries no
+                    data-i18n marker (#913): the marker REPLACES an element's textContent, so a marker here
+                    would delete the nested <span class="sso-required">*</span> the moment the catalog
+                    resolves, silently dropping the required indicator from a rendered page (it would still
+                    look right offline, which is what makes it invisible in review). The text and its hint
+                    span need a placeholder-aware applier, so these labels are localized in a follow-up
+                    sub-unit; only leaf elements carry markers today.
+                    LocalizationCatalogTests.TextMarkers_OnlySitOnElementsWithoutChildMarkup enforces it.
+                  -->
                   <div class="inputContainer">
                     <label
                       class="inputLabel inputLabelUnfocused"
@@ -562,6 +572,7 @@
                     <label
                       class="inputLabel inputLabelUnfocused"
                       for="OidRedirectUri"
+                      data-i18n="config.oidc_redirect_uri_label"
                       >Redirect URI (register this at your provider):</label
                     >
                     <div class="sso-redirect-uri-row">
@@ -578,7 +589,7 @@
                         id="CopyRedirectUri"
                         class="raised button-alt"
                       >
-                        <span>Copy</span>
+                        <span data-i18n="config.copy_button">Copy</span>
                       </button>
                     </div>
                     <div
@@ -622,7 +633,10 @@
                       role="alert"
                       hidden
                     ></div>
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.oidc_endpoint_help"
+                    >
                       The OpenID endpoint. Must have a .well-known path
                       available.
                     </div>
@@ -663,7 +677,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="OidSecret"
                       >OpenID client secret:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -674,7 +692,10 @@
                       data-i18n-placeholder="config.placeholder_keep_secret"
                       class="sso-text"
                     />
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.oidc_secret_help"
+                    >
                       The OpenID client secret. Randomly generated & shared. For
                       security it is never sent back to this page: leave it
                       blank to keep the stored value, or enter a new secret to
@@ -735,7 +756,9 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Enabled</span>
+                      <span data-i18n="config.provider_enabled_label"
+                        >Enabled</span
+                      >
                     </label>
                   </div>
 
@@ -750,9 +773,14 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Hide from managed login-page buttons</span>
+                      <span data-i18n="config.provider_hide_login_button_label"
+                        >Hide from managed login-page buttons</span
+                      >
                     </label>
-                    <div class="fieldDescription checkboxFieldDescription">
+                    <div
+                      class="fieldDescription checkboxFieldDescription"
+                      data-i18n="config.provider_hide_login_button_help"
+                    >
                       Excludes this provider from the managed "Sign in with …"
                       block on the login page while keeping it usable through
                       its direct start URL. Only takes effect while the global
@@ -766,7 +794,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="LoginButtonText"
                       >Login button text:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -774,7 +806,10 @@
                       type="text"
                       class="sso-text"
                     />
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.provider_login_button_text_help"
+                    >
                       Custom label for this provider's managed login-page
                       button. Leave blank to use the provider name. Only takes
                       effect while the global "Manage login buttons on the login
@@ -788,7 +823,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="PostLogoutRedirectUri"
                       >Post-logout redirect URL:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -796,7 +835,10 @@
                       type="text"
                       class="sso-text"
                     />
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.oidc_post_logout_redirect_help"
+                    >
                       The URL the identity provider returns the browser to after
                       an RP-initiated OpenID logout, sent as
                       post_logout_redirect_uri. Honoured only if it is an
@@ -828,7 +870,10 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Enable Authorization by Plugin</span>
+                      <span
+                        data-i18n="config.provider_enable_authorization_label"
+                        >Enable Authorization by Plugin</span
+                      >
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
                       Determines if the plugin sets permissions for the user.
@@ -846,7 +891,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="DefaultUsernameClaim"
                       >Set default username claim:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -867,7 +916,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="DefaultProvider"
                       >Set default Provider:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -892,7 +945,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="AvatarUrlFormat"
                       >Set avatar url format
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -917,7 +974,10 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Disable avatar from the OIDC picture claim</span>
+                      <span
+                        data-i18n="config.oidc_disable_avatar_picture_claim_label"
+                        >Disable avatar from the OIDC picture claim</span
+                      >
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
                       With no avatar url format above, the standard OIDC
@@ -977,7 +1037,9 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Role claim is an object map</span>
+                      <span data-i18n="config.oidc_role_claim_object_map_label"
+                        >Role claim is an object map</span
+                      >
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
                       Read the roles from the property <em>names</em> of a JSON
@@ -1007,7 +1069,11 @@
                   <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="Roles"
                       >Roles:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <textarea
                       is="emby-textarea"
@@ -1035,7 +1101,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="AdminRoles"
                       >Admin Roles:
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <textarea
                       is="emby-textarea"
@@ -1055,7 +1125,12 @@
                   </div>
 
                   <div class="sso-subgroup">
-                    <p class="sso-subgroup-title">Library access</p>
+                    <p
+                      class="sso-subgroup-title"
+                      data-i18n="config.provider_library_access_group"
+                    >
+                      Library access
+                    </p>
 
                     <div
                       class="checkboxContainer checkboxContainer-withDescription"
@@ -1069,9 +1144,15 @@
                           class="sso-toggle"
                           aria-controls="EnabledFolders-group"
                         />
-                        <span>Enable All Folders</span>
+                        <span
+                          data-i18n="config.provider_enable_all_folders_label"
+                          >Enable All Folders</span
+                        >
                       </label>
-                      <div class="fieldDescription checkboxFieldDescription">
+                      <div
+                        class="fieldDescription checkboxFieldDescription"
+                        data-i18n="config.oidc_enable_all_folders_help"
+                      >
                         If enabled, all libraries will be accessible to any user
                         that logs in through this provider.
                       </div>
@@ -1084,6 +1165,7 @@
                       <label
                         class="inputLabel inputLabelUnfocused"
                         for="EnabledFolders"
+                        data-i18n="config.provider_enabled_folders_label"
                         >Enabled Folders:</label
                       >
                       <div
@@ -1111,9 +1193,15 @@
                           class="sso-toggle"
                           aria-controls="FolderRoleMapping-group"
                         />
-                        <span>Enable Role-Based Folder Access:</span>
+                        <span
+                          data-i18n="config.provider_enable_folder_roles_label"
+                          >Enable Role-Based Folder Access:</span
+                        >
                       </label>
-                      <div class="fieldDescription checkboxFieldDescription">
+                      <div
+                        class="fieldDescription checkboxFieldDescription"
+                        data-i18n="config.oidc_enable_folder_roles_help"
+                      >
                         Determines if user roles should be used to control
                         library access.
                       </div>
@@ -1126,6 +1214,7 @@
                       <label
                         class="inputLabel inputLabelUnfocused"
                         for="FolderRoleMapping"
+                        data-i18n="config.provider_folder_role_mapping_label"
                         >Folder Role Mapping:</label
                       >
                       <button
@@ -1173,9 +1262,14 @@
                         class="sso-toggle"
                         aria-controls="LiveTvRoles-group"
                       />
-                      <span>Enable Live TV RBAC</span>
+                      <span data-i18n="config.oidc_enable_live_tv_roles_label"
+                        >Enable Live TV RBAC</span
+                      >
                     </label>
-                    <div class="fieldDescription checkboxFieldDescription">
+                    <div
+                      class="fieldDescription checkboxFieldDescription"
+                      data-i18n="config.oidc_enable_live_tv_roles_help"
+                    >
                       Determines whether the roles will be used to grant Live TV
                       privileges.
                     </div>
@@ -1187,7 +1281,11 @@
                         class="inputLabel inputLabelUnfocused"
                         for="LiveTvRoles"
                         >Live TV Roles:
-                        <span class="sso-optional">(optional)</span></label
+                        <span
+                          class="sso-optional"
+                          data-i18n="config.optional_marker"
+                          >(optional)</span
+                        ></label
                       >
                       <textarea
                         is="emby-textarea"
@@ -1209,7 +1307,11 @@
                         class="inputLabel inputLabelUnfocused"
                         for="LiveTvManagementRoles"
                         >Live TV Management Roles:
-                        <span class="sso-optional">(optional)</span></label
+                        <span
+                          class="sso-optional"
+                          data-i18n="config.optional_marker"
+                          >(optional)</span
+                        ></label
                       >
                       <textarea
                         is="emby-textarea"
@@ -1238,7 +1340,9 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Enable Live TV Access By Default</span>
+                      <span data-i18n="config.oidc_enable_live_tv_label"
+                        >Enable Live TV Access By Default</span
+                      >
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
                       Determines whether the user can view Live TV by default.
@@ -1259,7 +1363,10 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Enable Live TV Management By Default</span>
+                      <span
+                        data-i18n="config.oidc_enable_live_tv_management_label"
+                        >Enable Live TV Management By Default</span
+                      >
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
                       Determines whether the user can manage Live TV by default.
@@ -1289,9 +1396,14 @@
                         type="checkbox"
                         class="sso-toggle"
                       />
-                      <span>Do Not Load Profile Information</span>
+                      <span data-i18n="config.oidc_do_not_load_profile_label"
+                        >Do Not Load Profile Information</span
+                      >
                     </label>
-                    <div class="fieldDescription checkboxFieldDescription">
+                    <div
+                      class="fieldDescription checkboxFieldDescription"
+                      data-i18n="config.oidc_do_not_load_profile_help"
+                    >
                       May be required for Cloudflare OpenID
                     </div>
                   </div>
@@ -1301,7 +1413,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="SchemeOverride"
                       >Scheme Override
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -1309,7 +1425,10 @@
                       type="text"
                       class="sso-text"
                     />
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.oidc_scheme_override_help"
+                    >
                       If the plugin is redirecting to an insecure URL, set this
                       to "https"
                     </div>
@@ -1320,7 +1439,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="PortOverride"
                       >Port Override
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
@@ -1328,7 +1451,10 @@
                       type="text"
                       class="sso-text"
                     />
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.oidc_port_override_help"
+                    >
                       If the plugin is redirecting to an incorrect port, set
                       this to the appropiate port
                     </div>
@@ -1339,7 +1465,11 @@
                       class="inputLabel inputLabelUnfocused"
                       for="BaseUrlOverride"
                       >Base URL Override
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <input
                       is="emby-input"
