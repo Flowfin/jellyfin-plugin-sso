@@ -79,7 +79,12 @@ public class SSOViewsController : ControllerBase
     /// Accept-Language header. The client-rendered pages (the linking page, the admin config page) fetch
     /// this once and apply the strings to their DOM, so the server owns the culture fallback and the pages
     /// carry only keys. Anonymous and non-sensitive: it returns first-party UI labels only — no user data,
-    /// no configuration, no secrets — the same strings already embedded in the served pages.
+    /// no configuration, no secrets.
+    ///
+    /// It serves the WHOLE catalog, including the admin configuration page's own labels, even though that
+    /// page is itself only served to authenticated admins. That is deliberate: splitting the payload by
+    /// audience would buy nothing (the labels are fixed strings shipped in a public GPL repo and readable in
+    /// any release artifact) while adding an authorization branch to a purely presentational endpoint.
     /// </summary>
     /// <returns>Every UI string key resolved to a concrete value in the request's culture.</returns>
     [HttpGet("i18n")]

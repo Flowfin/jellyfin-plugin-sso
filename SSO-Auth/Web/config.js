@@ -1,3 +1,14 @@
+// The shared localization module (#913), set once its dynamic import resolves in localize() below.
+// Until then — and permanently if the load fails — tr() returns the caller's built-in English, so the
+// page never renders a bare catalog key.
+let i18n = null;
+
+// Localized text for a catalog key, falling back to the English default the call site carries. The
+// default is the same wording the static markup holds, so a JS-set string and its HTML twin cannot drift.
+function tr(key, englishDefault, params) {
+  return i18n ? i18n.t(key, params, englishDefault) : englishDefault;
+}
+
 // Provider templates (#726) — the single source of truth for the "Start from a template" pickers.
 // Applying a preset writes ONLY into existing marker-classed fields by their id (OpenID: the property
 // name; SAML: "saml-" + the property name) and pre-checks ONLY the compatibility toggles a given IdP
@@ -322,7 +333,10 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetEditor(page);
     ssoConfigurationPage.clearValidationErrors(page);
     ssoConfigurationPage.renderSaveStatus(page, "");
-    ssoConfigurationPage.setEditorTitle(page, "New provider");
+    ssoConfigurationPage.setEditorTitle(
+      page,
+      tr("config.new_provider", "New provider"),
+    );
     ssoConfigurationPage.syncDependentFields(page);
     ssoConfigurationPage.showEditor(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
@@ -1307,6 +1321,31 @@ const ssoConfigurationPage = {
     view.appendChild(style);
   },
 
+  // Localize the page's own labels (#913). Jellyfin core serves this configuration page from its own
+  // URL base, so a relative import would not resolve to the plugin's assets; load the shared applier
+  // from its absolute SSOViews URL — the same module the linking page uses — rather than duplicating
+  // it here.
+  //
+  // Localization is strictly best-effort and must never take the page down with it: init calls this
+  // BEFORE it wires the Save/Delete/Test handlers, so an escaping error would leave a fully rendered
+  // but inert admin page. The try/catch is load-bearing and NOT redundant with the .catch below —
+  // ApiClient.getUrl throws SYNCHRONOUSLY on a missing server address, while the argument is evaluated,
+  // so no promise exists yet for .catch to see. Either way the markup keeps its built-in English.
+  localize: (view) => {
+    try {
+      import(ApiClient.getUrl("SSOViews/i18n.js"))
+        .then((module) =>
+          module.loadCatalog().then(() => {
+            i18n = module;
+            module.applyTo(view);
+          }),
+        )
+        .catch(() => {});
+    } catch {
+      // Keep the built-in English; the page's own functionality is unaffected.
+    }
+  },
+
   // ---- Provider templates (#726) ----
   // Fill a preset picker's options from its catalog (createElement/textContent — the labels are our own
   // fixed strings, but building them inertly keeps the one-DOM-construction idiom). The leading blank
@@ -1521,7 +1560,10 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetSamlEditor(page);
     ssoConfigurationPage.clearSamlValidationErrors(page);
     ssoConfigurationPage.renderSamlSaveStatus(page, "");
-    ssoConfigurationPage.setSamlEditorTitle(page, "New provider");
+    ssoConfigurationPage.setSamlEditorTitle(
+      page,
+      tr("config.new_provider", "New provider"),
+    );
     ssoConfigurationPage.syncSamlDependentFields(page);
     ssoConfigurationPage.showSamlEditor(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
@@ -2178,6 +2220,7 @@ const ssoConfigurationPage = {
 export default function initSsoConfigurationPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
   ssoConfigurationPage.loadConfiguration(view);
+  ssoConfigurationPage.localize(view);
 
   view.querySelector("#SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#OidProviderName").value;

@@ -26,5 +26,17 @@
   "link.section_link_provider": "Link a provider",
   "link.delete_selected": "Delete Selected",
   "link.no_providers": "No {mode} providers are available.",
-  "link.disabled_note": " (disabled)"
+  "link.disabled_note": " (disabled)",
+  "config.title": "SSO Settings:",
+  "config.sso_only_summary": "SSO-only login (disable password login)",
+  "config.placeholder_keep_secret": "Leave blank to keep the current secret",
+  "config.placeholder_keep_key": "Leave blank to keep the current key",
+  "config.oidc_providers": "SSO providers",
+  "config.saml_providers": "SAML providers",
+  "config.add_oidc_provider": "Add OIDC provider",
+  "config.add_saml_provider": "Add SAML provider",
+  "config.no_oidc_providers": "No SSO providers yet",
+  "config.no_saml_providers": "No SAML providers yet",
+  "config.loaded_provider": "Loaded provider",
+  "config.new_provider": "New provider"
 }
