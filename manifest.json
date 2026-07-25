@@ -129,6 +129,14 @@
         "version": "5.0.0.8"
       },
       {
+        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.14).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Cover the back-channel logout discovery fail-closed branches by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/985\n* Move internal docs local by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/988\n* Slim the README to a lean start by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/989\n* Strengthen the README AI-assistance disclosure by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/992\n* Alert on failed scheduled publish + check manifest freshness by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/990\n* Add a config-page screenshot to the README by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/993\n* Remove the README config screenshot; fix stale internal-doc links by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/994\n* Promote to Release Candidate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/996\n* Add a served-surface string localizer with the English baseline catalog [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/997\n* Resolve the served-page culture from Accept-Language [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/998\n* Localize the auth-completion page chrome [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/999\n* Localize the login rejection messages on the browser error page [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1000\n* Add client-side UI localization and wire the linking page [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1001\n* Localize the configuration page chrome [#913] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1002\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.13...4.3.0-beta.14",
+        "checksum": "6e474bfa602d0586cb78b51403f03edc",
+        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.14/community-sso-for-jellyfin_4.3.0.14.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-07-25T06:27:16Z",
+        "version": "4.3.0.14"
+      },
+      {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.13).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Validate id_token auth_time against max_age; fail closed by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/972\n* Add OIDC back-channel logout (logout_token validation + endpoint) by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/973\n* Add opt-in login-time deprovisioning on role-denied SSO logins by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/975\n* Read the manifest via jq --rawfile so the beta publish survives arg-length growth by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/979\n* Publish the newest JF11 beta as the repo's Latest release by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/981\n* Add a changelog entry for the managed login-page buttons by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/983\n* Add the SAML deprovision-off parity test by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/984\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.12...4.3.0-beta.13",
         "checksum": "ef955fbe06ffb212ca576b65f3eed247",
         "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.13/community-sso-for-jellyfin_4.3.0.13.zip",
@@ -239,14 +247,6 @@
         "targetAbi": "10.11.0.0",
         "timestamp": "2026-07-18T17:48:22Z",
         "version": "4.1.1.2"
-      },
-      {
-        "changelog": "## What's Changed\n* Three-part versions + X.Y.Z-<channel> release names + auto release notes by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/597\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/beta-4.1.1.2...4.1.1-stable",
-        "checksum": "24912d4038c21b72efa7472d9d3cec2b",
-        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.1.1-stable/sso-authentication_4.1.1.0.zip",
-        "targetAbi": "10.11.0.0",
-        "timestamp": "2026-07-18T19:06:10Z",
-        "version": "4.1.1"
       }
     ]
   }
