@@ -30,6 +30,16 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// string that triggers that rewrite is an NCName, and no NCName triggers it — so there is no input for which
 /// this rule resolves one element while the platform digests a different one. The two can disagree only by
 /// this rule resolving NOTHING where the platform would resolve something, which is the fail-closed direction.
+///
+/// The accept set on a default host is UNCHANGED by this rule, which is the answer to the obvious objection:
+/// non-conformant identity providers do exist — a digit-leading UUID as the <c>ID</c> is the classic case, and
+/// is precisely why the leading-underscore convention exists across ADFS, Azure AD, Auth0, Keycloak and
+/// Shibboleth. The schema argument alone would not answer that ticket, but the empirical one does:
+/// <c>DefaultGetIdElement</c> ALREADY applies an NCName test before resolving (its own comment cites xml:id 1.0
+/// §4), so a digit-leading or colon-bearing ID already resolved to null and was already rejected before this
+/// rule existed. What changed is WHERE the rejection happens and that it no longer depends on the host's
+/// compatibility configuration. Corroborated by measurement: removing the call below does not turn the
+/// end-to-end tests red, which is only possible because the platform applies the same test underneath.
 /// </remarks>
 internal static class SamlSignatureReference
 {
