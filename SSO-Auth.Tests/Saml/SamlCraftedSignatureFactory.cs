@@ -74,20 +74,7 @@ internal static class SamlCraftedSignatureFactory
 
         using var rsa = RSA.Create(2048);
         var certificate = SelfSign(rsa);
-
-        var signedXml = new SignedXml(document) { SigningKey = rsa };
-        var reference = new Reference(string.Empty) { DigestMethod = SignedXml.XmlDsigSHA256Url };
-        reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
-        reference.AddTransform(new XmlDsigExcC14NTransform());
-        signedXml.AddReference(reference);
-        signedXml.SignedInfo!.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
-        signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA256Url;
-        var keyInfo = new KeyInfo();
-        keyInfo.AddClause(new KeyInfoX509Data(certificate));
-        signedXml.KeyInfo = keyInfo;
-        signedXml.ComputeSignature();
-
-        document.DocumentElement!.AppendChild(document.ImportNode(signedXml.GetXml(), true));
+        SignHonestly(document, string.Empty, rsa, certificate, document.DocumentElement!);
 
         return new SamlFixture(certificate, document, responseId, assertionId);
     }
@@ -110,21 +97,9 @@ internal static class SamlCraftedSignatureFactory
         using var rsa = RSA.Create(2048);
         var certificate = SelfSign(rsa);
 
-        var signedXml = new SignedXml(document) { SigningKey = rsa };
-        var reference = new Reference("#" + issuerId) { DigestMethod = SignedXml.XmlDsigSHA256Url };
-        reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
-        reference.AddTransform(new XmlDsigExcC14NTransform());
-        signedXml.AddReference(reference);
-        signedXml.SignedInfo!.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
-        signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA256Url;
-        var keyInfo = new KeyInfo();
-        keyInfo.AddClause(new KeyInfoX509Data(certificate));
-        signedXml.KeyInfo = keyInfo;
-        signedXml.ComputeSignature();
-
         // Placed at the position-bound root location: the selection and enveloped-within checks must not be
         // what rejects it — the reference-covers-{root|assertion} binding must.
-        document.DocumentElement!.AppendChild(document.ImportNode(signedXml.GetXml(), true));
+        SignHonestly(document, "#" + issuerId, rsa, certificate, document.DocumentElement!);
 
         return new SamlFixture(certificate, document, responseId, assertionId);
     }
@@ -153,8 +128,8 @@ internal static class SamlCraftedSignatureFactory
         var document = LoadResponse(xml);
         using var rsa = RSA.Create(2048);
         var certificate = SelfSign(rsa);
-        SignEnveloped(document, firstId, rsa, certificate);
-        SignEnveloped(document, secondId, rsa, certificate);
+        SignHonestly(document, "#" + firstId, rsa, certificate);
+        SignHonestly(document, "#" + secondId, rsa, certificate);
 
         return new SamlFixture(certificate, document, responseId, firstId);
     }
@@ -193,19 +168,7 @@ internal static class SamlCraftedSignatureFactory
 
         using var rsa = RSA.Create(2048);
         var certificate = SelfSign(rsa);
-
-        var signedXml = new SignedXml(document) { SigningKey = rsa };
-        var reference = new Reference("#" + issuerId) { DigestMethod = SignedXml.XmlDsigSHA256Url };
-        reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
-        reference.AddTransform(new XmlDsigExcC14NTransform());
-        signedXml.AddReference(reference);
-        signedXml.SignedInfo!.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
-        signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA256Url;
-        var keyInfo = new KeyInfo();
-        keyInfo.AddClause(new KeyInfoX509Data(certificate));
-        signedXml.KeyInfo = keyInfo;
-        signedXml.ComputeSignature();
-        document.DocumentElement!.AppendChild(document.ImportNode(signedXml.GetXml(), true));
+        SignHonestly(document, "#" + issuerId, rsa, certificate, document.DocumentElement!);
 
         return new SamlLogoutFixture(certificate, document, requestId);
     }
@@ -260,10 +223,15 @@ internal static class SamlCraftedSignatureFactory
         return buffer.ToArray();
     }
 
-    private static void SignEnveloped(XmlDocument document, string referenceId, RSA key, X509Certificate2 certificate)
+    // Produces an HONEST enveloped signature — SignedXml computes the digest itself, over the element the
+    // reference names or, for an empty URI, over the whole document — and appends it under placeUnder, or
+    // inside the referenced element when that is omitted (where a conformant identity provider puts it). The
+    // one signing helper for every honestly-signed fixture here, so the algorithm choice cannot drift between
+    // them and a fixture's rejection is never attributable to an accidentally weak algorithm.
+    private static void SignHonestly(XmlDocument document, string referenceUri, RSA key, X509Certificate2 certificate, XmlElement? placeUnder = null)
     {
         var signedXml = new SignedXml(document) { SigningKey = key };
-        var reference = new Reference("#" + referenceId) { DigestMethod = SignedXml.XmlDsigSHA256Url };
+        var reference = new Reference(referenceUri) { DigestMethod = SignedXml.XmlDsigSHA256Url };
         reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
         reference.AddTransform(new XmlDsigExcC14NTransform());
         signedXml.AddReference(reference);
@@ -274,7 +242,7 @@ internal static class SamlCraftedSignatureFactory
         signedXml.KeyInfo = keyInfo;
         signedXml.ComputeSignature();
 
-        var target = (XmlElement)signedXml.GetIdElement(document, referenceId)!;
+        var target = placeUnder ?? (XmlElement)signedXml.GetIdElement(document, referenceUri[1..])!;
         target.AppendChild(document.ImportNode(signedXml.GetXml(), true));
     }
 
