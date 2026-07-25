@@ -14,6 +14,24 @@ using System.Xml;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
+/// The <c>Reference/@URI</c> spellings that are NOT the SAML-sanctioned <c>#id</c> shorthand pointer, yet
+/// which <see cref="SignedXml"/> resolves and signs correctly — so a service provider that accepted any of
+/// them would be verifying content the plugin's readers never bind to. Public because the theory data of the
+/// (public) attack-shape tests is typed on it.
+/// </summary>
+public enum SamlReferenceForm
+{
+    /// <summary>The empty URI: the whole document, implicitly.</summary>
+    WholeDocument,
+
+    /// <summary>The <c>#xpointer(/)</c> XPointer: the whole document, named explicitly.</summary>
+    XPointerWholeDocument,
+
+    /// <summary>The <c>#xpointer(id('...'))</c> XPointer: the signed element, named the long way round.</summary>
+    XPointerId,
+}
+
+/// <summary>
 /// Builds SAML documents whose <c>ds:Signature</c> is CRAFTED rather than produced by
 /// <see cref="SignedXml.ComputeSignature"/> — the shapes the .NET signer refuses to emit but an attacker
 /// can hand-assemble (#1003): a <c>Reference</c> naming an ID that resolves to nothing, a whole-document
@@ -67,6 +85,18 @@ internal static class SamlCraftedSignatureFactory
     /// <param name="nameId">The value placed in saml:NameID.</param>
     /// <returns>A fixture whose document carries a valid whole-document signature.</returns>
     internal static SamlFixture CreateResponseWithWholeDocumentReference(string nameId = "attacker")
+        => CreateResponseWithHonestReference(SamlReferenceForm.WholeDocument, nameId);
+
+    /// <summary>
+    /// Produces a SAML response whose signature is honestly computed by <see cref="SignedXml"/> over whatever
+    /// the given <paramref name="form"/> names, including the two XPointer spellings .NET resolves but SAML
+    /// 2.0 does not sanction. Every form here is accepted by <c>SignedXml.CheckSignature</c> — verified by the
+    /// tests' own control — so a rejection is attributable solely to the reference-form binding.
+    /// </summary>
+    /// <param name="form">Which reference spelling to emit.</param>
+    /// <param name="nameId">The value placed in saml:NameID.</param>
+    /// <returns>A fixture whose document carries a genuinely valid signature under that reference form.</returns>
+    internal static SamlFixture CreateResponseWithHonestReference(SamlReferenceForm form, string nameId = "attacker")
     {
         var responseId = "_" + Guid.NewGuid().ToString("N");
         var assertionId = "_" + Guid.NewGuid().ToString("N");
@@ -74,7 +104,14 @@ internal static class SamlCraftedSignatureFactory
 
         using var rsa = RSA.Create(2048);
         var certificate = SelfSign(rsa);
-        SignHonestly(document, string.Empty, rsa, certificate, document.DocumentElement!);
+
+        // The XPointer id() form covers the ASSERTION, so its signature is enveloped inside the assertion where
+        // a conformant identity provider would put it; the two whole-document forms sit under the Response root.
+        var coversAssertion = form == SamlReferenceForm.XPointerId;
+        var placeUnder = coversAssertion
+            ? (XmlElement)document.GetElementsByTagName("Assertion", SamlNs)[0]!
+            : document.DocumentElement!;
+        SignHonestly(document, ReferenceUri(form, assertionId), rsa, certificate, placeUnder);
 
         return new SamlFixture(certificate, document, responseId, assertionId);
     }
@@ -151,6 +188,27 @@ internal static class SamlCraftedSignatureFactory
         var certificate = SelfSign(rsa);
         var signature = BuildSignature(document, rsa, certificate, referenceUri, digestedOctets ?? Array.Empty<byte>());
         document.DocumentElement!.AppendChild(signature);
+
+        return new SamlLogoutFixture(certificate, document, requestId);
+    }
+
+    /// <summary>
+    /// Produces a signed <c>samlp:LogoutRequest</c> whose signature is honestly computed by
+    /// <see cref="SignedXml"/> over whatever the given <paramref name="form"/> names — the logout twin of
+    /// <see cref="CreateResponseWithHonestReference"/>. The signed root has no inner element with its own ID,
+    /// so the XPointer id() form names the root itself, which is the interesting case here: it is the very
+    /// element the readers consume, reached by a spelling the reference rule does not sanction.
+    /// </summary>
+    /// <param name="form">Which reference spelling to emit.</param>
+    /// <returns>A fixture whose LogoutRequest carries a genuinely valid signature under that reference form.</returns>
+    internal static SamlLogoutFixture CreateLogoutRequestWithHonestReference(SamlReferenceForm form)
+    {
+        var requestId = "_" + Guid.NewGuid().ToString("N");
+        var document = LoadResponse(BuildLogoutRequestXml(requestId));
+
+        using var rsa = RSA.Create(2048);
+        var certificate = SelfSign(rsa);
+        SignHonestly(document, ReferenceUri(form, requestId), rsa, certificate, document.DocumentElement!);
 
         return new SamlLogoutFixture(certificate, document, requestId);
     }
@@ -245,6 +303,17 @@ internal static class SamlCraftedSignatureFactory
         var target = placeUnder ?? (XmlElement)signedXml.GetIdElement(document, referenceUri[1..])!;
         target.AppendChild(document.ImportNode(signedXml.GetXml(), true));
     }
+
+    // The literal Reference/@URI each form spells. The XPointer forms are what .NET's reference resolver
+    // understands beyond the SAML shorthand pointer: "#xpointer(/)" is the whole document, and
+    // "#xpointer(id('x'))" is unwrapped to the plain id "x" before resolution.
+    private static string ReferenceUri(SamlReferenceForm form, string signedElementId) => form switch
+    {
+        SamlReferenceForm.WholeDocument => string.Empty,
+        SamlReferenceForm.XPointerWholeDocument => "#xpointer(/)",
+        SamlReferenceForm.XPointerId => "#xpointer(id('" + signedElementId + "'))",
+        _ => throw new ArgumentOutOfRangeException(nameof(form)),
+    };
 
     private static X509Certificate2 SelfSign(RSA key)
     {

@@ -2623,10 +2623,17 @@ public class ArchitectureConformanceTests
         // site reaches for, not about a type's shape. It is NOT a proof of current correctness — the negative
         // tests in SamlAttackShapeTests / SamlLogoutAttackShapeTests carry that load.
         //
-        // Scoping the scan to the module IS scoping it to the signature path: the raw, untrusted SAML body has
-        // exactly two entry points (SamlAssertionValidator and SamlLogoutValidator, both in this module) and no
-        // file outside it references System.Xml at all except the unrelated config serializer, so nothing
-        // downstream ever sees the bytes again — it sees the validated object's getters.
+        // Scoping the scan to the module IS scoping it to the signature path, but not because the bytes are
+        // seen once: SamlResponse.Xml exposes the document's OuterXml, and the LINKING leg re-serializes it
+        // into the served page, which the browser posts back. That round-trip re-enters through the SAME
+        // SamlAssertionValidator.TryValidate — full signature, time, audience and recipient re-validation plus
+        // its own one-time replay consume — so the second parse is the same hardened seam under the same rules,
+        // not a second view of a once-verified document; the login leg no longer ships the XML at all (#251).
+        // The module scope holds because EVERY parse of a SAML document, first or repeat, happens inside it:
+        // the only two entry points are SamlAssertionValidator and SamlLogoutValidator, and no file outside the
+        // module references System.Xml except the unrelated config serializer. If a future consumer ever reads
+        // OuterXml/InnerXml and parses it somewhere else, that file becomes part of this surface and must be
+        // brought into the scan.
         var samlSources = SamlModuleSourceFiles();
 
         // A comment can mention any of these without introducing anything, so comment/XML-doc lines are out of
@@ -2652,15 +2659,15 @@ public class ArchitectureConformanceTests
         // The other way to grow a second view is string surgery on the markup — scraping an ID, a Reference
         // URI, or an element name out of the raw text instead of resolving it through the DOM. Scoped to the
         // files that actually parse an inbound document (SamlResponse, SamlLogoutRequest, SamlMetadataParser
-        // today), discovered by their hardened-reader construction rather than hardcoded, so a NEW parser is
+        // today), discovered by their XmlDocument construction rather than hardcoded, so a NEW parser is
         // covered the moment it is written; the outbound BUILDERS in the same module legitimately assemble XML
-        // from strings and are therefore out of scope by construction.
-        var inboundParsers = samlSources
-            .Where(path => File.ReadAllText(path).Contains("XmlReader.Create(", StringComparison.Ordinal))
-            .ToList();
-        Assert.True(
-            inboundParsers.Count > 0,
-            "No inbound SAML parser was found to scan (nothing in Api/Saml constructs a hardened XmlReader any more), so the markup-scraping scan would pass vacuously — point it at the new parse seam (#1003).");
+        // from strings and are therefore out of scope by construction. The discovery keys on `new XmlDocument`
+        // rather than on the hardened-reader call, because a parser written as `doc.LoadXml(raw)` would use the
+        // same allowlisted stack and so trip no ban — it would simply be INVISIBLE to a reader-keyed discovery,
+        // while the non-empty sentinel stayed green on the three existing files. Keying on the document itself
+        // makes that seam impossible to write without entering this scan, and
+        // SamlSignaturePath_ParsesOnlyThroughTheHardenedReader then forces it through the hardened reader.
+        var inboundParsers = XmlDocumentConstructingFiles(samlSources);
 
         var stringOperations = new[] { "IndexOf(", "Substring(", "Contains(", "Split(", "Replace(", "StartsWith(", "EndsWith(" };
         var markupMarkers = new[] { "ID=", "URI=", "<saml", "<samlp", "<ds:", "Assertion", "Signature" };
@@ -2686,6 +2693,79 @@ public class ArchitectureConformanceTests
         Assert.True(
             missing.Count == 0,
             "The allowlisted XML stack is no longer present in Api/Saml, so the second-stack bans would pass vacuously — update SamlSignaturePath_UsesOneXmlStackEndToEnd to the stack the module actually uses (#1003). Missing: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void SamlSignaturePath_ParsesOnlyThroughTheHardenedReader()
+    {
+        // #1003. The companion to the one-stack rule: staying on System.Xml is worth nothing if the document
+        // is loaded with the hardening switched off. Every one of those settings is load-bearing and named as
+        // such by the production code's own comments, yet until now nothing in the suite required any of them:
+        //
+        //  - DtdProcessing.Prohibit — XmlResolver alone blocks only EXTERNAL entities, while an internal DTD
+        //    still expands (billion laughs). It is also the actual control behind the standing CodeQL
+        //    cs/xml/missing-validation dismissal on this parser, so a silent removal would invalidate that
+        //    dismissal as well as the defence.
+        //  - XmlResolver = null on BOTH the document and the reader settings — no external-entity fetch (XXE,
+        //    SSRF from an unauthenticated callback).
+        //  - MaxCharactersInDocument — bounds the DOM on the pre-signature path, which the DTD prohibition
+        //    does not (it bounds entities, not bulk).
+        //  - PreserveWhitespace = true, required wherever the document is signature-verified: exclusive
+        //    canonicalization is whitespace-sensitive, so loading without it changes the octets the digest is
+        //    computed over. Not required of the metadata parser, which verifies no signature.
+        //
+        // And the seam itself is pinned: an XmlDocument in this module may be populated ONLY through
+        // XmlReader.Create + Load(reader). A bare LoadXml(raw) or Load(stream) would bypass every setting above
+        // while still using the allowlisted stack, so it is banned outright. SignedXml.LoadXml is explicitly
+        // allowed — it takes an XmlElement already inside the verified DOM and parses no text.
+        var samlSources = SamlModuleSourceFiles();
+        var parsers = XmlDocumentConstructingFiles(samlSources);
+        var offenders = new List<string>();
+
+        foreach (var path in parsers)
+        {
+            var text = File.ReadAllText(path);
+            var name = Path.GetFileName(path);
+            var required = new (string Marker, string Description)[]
+            {
+                ("DtdProcessing = DtdProcessing.Prohibit", "DtdProcessing.Prohibit on the reader settings"),
+                ("XmlResolver = null", "XmlResolver = null"),
+                ("MaxCharactersInDocument", "a MaxCharactersInDocument bound"),
+                ("XmlReader.Create(", "an XmlReader.Create parse seam"),
+            };
+            offenders.AddRange(required
+                .Where(r => !text.Contains(r.Marker, StringComparison.Ordinal))
+                .Select(r => $"{name}: missing {r.Description}"));
+
+            // Whitespace fidelity matters only where a signature is verified over the document.
+            if (text.Contains("SignedXml", StringComparison.Ordinal)
+                && !text.Contains("PreserveWhitespace = true", StringComparison.Ordinal))
+            {
+                offenders.Add($"{name}: verifies signatures but does not set PreserveWhitespace = true");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Every SAML parser must load its untrusted document through the hardened reader (DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument, and PreserveWhitespace where signatures are verified) (#1003): " + string.Join(" | ", offenders));
+
+        // The bypass ban, over the whole module rather than just the parsers: a NEW file could load a document
+        // the unhardened way without constructing one in the shape the discovery recognises.
+        // LoadXml is allowed on a SignedXml receiver ONLY: that overload takes an XmlElement already inside the
+        // verified DOM and parses no text. On any other receiver it means "build a document from a string",
+        // which is the bypass. Load is allowed only with the hardened reader as its argument.
+        var bypasses = samlSources
+            .SelectMany(path => CodeLines(path)
+                .Where(l => Regex.Matches(l.Text, @"(?<receiver>\w+)\.LoadXml\(")
+                        .Any(m => !m.Groups["receiver"].Value.Contains("signedXml", StringComparison.OrdinalIgnoreCase))
+                    || Regex.Matches(l.Text, @"\w+\.Load\((?<argument>[^),]*)\)")
+                        .Any(m => !m.Groups["argument"].Value.Contains("reader", StringComparison.OrdinalIgnoreCase)))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .ToList();
+
+        Assert.True(
+            bypasses.Count == 0,
+            "An XmlDocument in the SAML module may be populated only through XmlReader.Create + Load(reader) — LoadXml or Load on anything else skips the DTD/resolver/size hardening while still looking like the allowlisted stack (#1003): " + string.Join(" | ", bypasses));
     }
 
     [Fact]
@@ -2748,6 +2828,22 @@ public class ArchitectureConformanceTests
         Assert.True(
             files.Count > 0,
             "No source file was found under SSO-Auth/Api/Saml — the SAML module was renamed or moved, so the #1003 one-XML-stack rules would pass vacuously; point them at its new location.");
+        return files;
+    }
+
+    // The SAML module's parse seams: the files that build an XmlDocument from untrusted input. Keyed on the
+    // document construction, not on the reader call, so a parser written the unhardened way is still
+    // discovered — and then failed by SamlSignaturePath_ParsesOnlyThroughTheHardenedReader. Carries the
+    // non-empty sentinel both consumers need.
+    private static IReadOnlyList<string> XmlDocumentConstructingFiles(IEnumerable<string> sources)
+    {
+        var files = sources
+            .Where(path => CodeLines(path).Any(l => l.Text.Contains("new XmlDocument", StringComparison.Ordinal)))
+            .ToList();
+
+        Assert.True(
+            files.Count > 0,
+            "No SAML parse seam was found (nothing in Api/Saml constructs an XmlDocument any more), so the markup-scraping and hardened-reader scans would pass vacuously — point them at the new parse seam (#1003).");
         return files;
     }
 

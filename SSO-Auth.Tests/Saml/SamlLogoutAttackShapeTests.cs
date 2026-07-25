@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.Xml;
+using System.Xml;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using Xunit;
 
@@ -23,6 +29,7 @@ public class SamlLogoutAttackShapeTests
 {
     private const string SamlNs = "urn:oasis:names:tc:SAML:2.0:assertion";
     private const string SamlpNs = "urn:oasis:names:tc:SAML:2.0:protocol";
+    private const string DsNs = "http://www.w3.org/2000/09/xmldsig#";
 
     [Fact]
     public void IsValid_HonestBaseline_ReturnsTrue()
@@ -59,6 +66,70 @@ public class SamlLogoutAttackShapeTests
 
         Assert.True(SamlLogoutRequest.TryParse(fixture.CertificateBase64, null, fixture.EncodeRequest(), out var request));
         Assert.False(request.IsValid());
+    }
+
+    [Theory]
+    [InlineData(SamlReferenceForm.WholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerWholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerId)]
+    public void IsValid_HonestSignatureUnderANonShorthandReferenceForm_ReturnsFalse(SamlReferenceForm form)
+    {
+        // The reference spellings that are NOT the SAML shorthand pointer but which .NET resolves and signs
+        // correctly: the empty whole-document URI, "#xpointer(/)", and "#xpointer(id('...'))". Every one is
+        // accepted by CheckSignature — the control below proves it — and on this path the XPointer id() form
+        // names the request ROOT, the very element whose NameID and SessionIndexes decide which sessions are
+        // destroyed. Nothing cryptographic rejects them; only the "#id"-shorthand-only rule does, and that
+        // rule currently rests on GetIdElement not understanding XPointer. Pinned so it stays a decision.
+        var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestWithHonestReference(form);
+
+        Assert.True(SamlLogoutRequest.TryParse(fixture.CertificateBase64, null, fixture.EncodeRequest(), out var request));
+        Assert.False(request.IsValid());
+    }
+
+    [Theory]
+    [InlineData(SamlReferenceForm.WholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerWholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerId)]
+    public void HonestReferenceForm_IsAcceptedByTheBclSignatureCheck(SamlReferenceForm form)
+    {
+        // The control that makes the rejections above evidence rather than decoration: each of these logout
+        // requests carries a signature the BCL verifier accepts outright, so a rejection cannot be blamed on a
+        // malformed fixture. The response-path twin lives in SamlAttackShapeTests.
+        var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestWithHonestReference(form);
+        using var certificate = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(fixture.CertificateBase64));
+
+        var verifier = new SignedXml(fixture.Document);
+        verifier.LoadXml((XmlElement)fixture.Document.GetElementsByTagName("Signature", DsNs)[0]!);
+
+        Assert.True(verifier.CheckSignature(certificate, true));
+    }
+
+    [Theory]
+    [InlineData("#_absent")]
+    [InlineData("")]
+    public void CraftedSignature_IsCryptographicallySoundOverItsSignedInfo(string referenceUri)
+    {
+        // The logout twin of the response-path control: it verifies with the identity provider's own public
+        // key that the hand-assembled SignatureValue really is an RSA-SHA256 signature over the exclusive-C14N
+        // canonical form of its SignedInfo. Without it the two crafted logout rejections would rest on
+        // inference from the response path — and "no test passes for the wrong reason" is exactly this
+        // control's job, so it does not get to be inherited.
+        var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestWithCraftedReference(referenceUri);
+        var signature = (XmlElement)fixture.Document.GetElementsByTagName("Signature", DsNs)[0]!;
+        var signedInfo = (XmlElement)signature.GetElementsByTagName("SignedInfo", DsNs)[0]!;
+        var signatureValue = Convert.FromBase64String(signature.GetElementsByTagName("SignatureValue", DsNs)[0]!.InnerText.Trim());
+
+        var standalone = new XmlDocument { PreserveWhitespace = true };
+        standalone.LoadXml("<ds:SignedInfo xmlns:ds=\"" + DsNs + "\">" + signedInfo.InnerXml + "</ds:SignedInfo>");
+        var transform = new XmlDsigExcC14NTransform();
+        transform.LoadInput(standalone);
+        using var canonical = new MemoryStream();
+        ((Stream)transform.GetOutput(typeof(Stream))).CopyTo(canonical);
+
+        using var certificate = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(fixture.CertificateBase64));
+        using var publicKey = certificate.GetRSAPublicKey()!;
+
+        Assert.True(publicKey.VerifyData(canonical.ToArray(), signatureValue, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
     }
 
     [Fact]
@@ -143,7 +214,7 @@ public class SamlLogoutAttackShapeTests
         // rejected — a request whose only "signature" is a look-alike must never be treated as signed.
         var fixture = SamlLogoutTestFactory.Create();
         var document = fixture.Document;
-        var signature = document.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#")[0]!;
+        var signature = document.GetElementsByTagName("Signature", DsNs)[0]!;
         var lookAlike = document.CreateElement("ds", "Signature", "urn:evil:xmldsig");
         lookAlike.InnerXml = signature.InnerXml;
         signature.ParentNode!.ReplaceChild(lookAlike, signature);
