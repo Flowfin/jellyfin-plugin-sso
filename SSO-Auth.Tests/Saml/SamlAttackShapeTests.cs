@@ -3,6 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.Xml;
 using System.Xml;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
@@ -25,6 +29,47 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 ///   <item>a ds:Signature relocated into a decoy wrapper outside the element its Reference covers,</item>
 ///   <item>assertion/advice confusion (a decoy assertion smuggled into saml:Advice).</item>
 /// </list>
+///
+/// #1003 adds the three families published in December 2025 (PortSwigger, 'The Fragile Lock',
+/// https://portswigger.net/research/the-fragile-lock; the ruby-saml chain CVE-2025-25291/25292 and its
+/// incomplete fixes CVE-2025-66567/66568; samlify CVE-2025-47949; authentik CVE-2026-47201), each mapped to
+/// the test that pins it:
+///
+/// <list type="bullet">
+///   <item>VOID CANONICALIZATION — <see cref="IsValid_ReferenceUriIsUnresolvedRelativeUri_ReturnsFalse"/>,
+///         <see cref="IsValid_ReferenceUriIsEmptyStringWithDetachedDigest_ReturnsFalse"/>,
+///         <see cref="IsValid_ReferenceUriIsWholeDocument_ReturnsFalse"/>,
+///         <see cref="IsValid_ReferenceUriIsAnXPointer_ReturnsFalse"/>.</item>
+///   <item>REFERENCE / ID CONFUSION — <see cref="IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse"/>,
+///         <see cref="IsValid_MoreThanOneAssertionInResponse_ReturnsFalse"/>,
+///         <see cref="IsValid_IdAttributeCaseVariantDecoy_ReturnsFalse"/>.</item>
+///   <item>ATTRIBUTE POLLUTION — <see cref="IsValid_AttributePollutionSameLocalNameDifferentNamespace_ReturnsFalse"/>,
+///         <see cref="GetCustomAttributes_AttributePollutionOnAttributeName_ReadsSignedValueOnly"/>,
+///         <see cref="IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates"/>.</item>
+///   <item>NAMESPACE CONFUSION — <see cref="IsValid_ReservedXmlAttributeUsedAsOrdinaryAttribute_ReturnsFalse"/>,
+///         <see cref="IsValid_NamespaceConfusedDecoySignature_ReturnsFalse"/>,
+///         <see cref="IsValid_NamespaceConfusedDecoyAssertion_IsInert_ReadsSignedAssertionOnly"/>.</item>
+/// </list>
+///
+/// Two controls keep the negatives honest, because a fixture that is merely broken would make them pass for
+/// the wrong reason forever: <see cref="CraftedSignature_IsCryptographicallySoundOverItsSignedInfo"/> proves
+/// the hand-assembled signatures really do sign their own canonical SignedInfo, and
+/// <see cref="HonestReferenceForm_IsAcceptedByTheBclSignatureCheck"/> proves the non-shorthand reference
+/// forms are accepted by the BCL verifier outright — so those rejections are the repo's rule, not the
+/// platform's.
+///
+/// Two of those vectors are INERT rather than rejected (the two named ..._IsInert_...): a foreign-namespaced
+/// ID outside the signed content, and a decoy Assertion in a foreign namespace, are both invisible to a
+/// namespace-aware resolver, so the honest response keeps validating and every reader keeps returning the
+/// SIGNED values. That is the correct outcome, not a gap — rejecting spec-legal foreign-namespace content
+/// would be an availability regression with no security gain — and each is pinned with the signed value it
+/// must still read, so it flips to red the day a namespace-agnostic lookup is introduced. The structural
+/// counterpart is <c>ArchitectureConformanceTests.SamlSignaturePath_UsesOneXmlStackEndToEnd</c> /
+/// <c>SamlSignaturePath_ParsesOnlyThroughTheHardenedReader</c> /
+/// <c>SamlSignaturePath_ResolvesElementsNamespaceAware</c>, which forbid the second XML stack, the
+/// unhardened parse seam, and the namespace-agnostic lookup that would turn these inert shapes into live
+/// ones. The logout/SLO twin of this
+/// battery lives in <see cref="SamlLogoutAttackShapeTests"/>.
 ///
 /// Every malicious shape must be REJECTED (or, for comment-truncation, must NOT be truncatable)
 /// and the honest baseline ACCEPTED — all against the real signature-validation path in
@@ -325,6 +370,329 @@ public class SamlAttackShapeTests
         var fixture = SamlTestFactory.Create(conditionsNotOnOrAfter: DateTime.UtcNow.AddMinutes(5));
 
         Assert.True(Load(fixture).IsValid());
+    }
+
+    // --- Void canonicalization and reference/ID confusion (#1003, 'The Fragile Lock' 2025-12) ---
+
+    [Theory]
+    [InlineData("#_absent")]
+    [InlineData("")]
+    public void CraftedSignature_IsCryptographicallySoundOverItsSignedInfo(string referenceUri)
+    {
+        // The control for the two crafted-reference cases below, and the reason they are evidence rather than
+        // decoration: it verifies, with the identity provider's own public key, that the crafted SignatureValue
+        // really is an RSA-SHA256 signature over the exclusive-C14N canonical form of that SignedInfo. So the
+        // rejections below are attributable to the REFERENCE BINDING — the digest covers nothing, or names
+        // nothing — and not to a forgery that happens to be malformed. Without this control a broken crafted
+        // signature would make those tests pass for the wrong reason forever.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithCraftedReference(referenceUri);
+        var signature = (XmlElement)fixture.Document.GetElementsByTagName("Signature", DsNs)[0]!;
+        var signedInfo = (XmlElement)signature.GetElementsByTagName("SignedInfo", DsNs)[0]!;
+        var signatureValue = Convert.FromBase64String(signature.GetElementsByTagName("SignatureValue", DsNs)[0]!.InnerText.Trim());
+
+        // Exclusive C14N renders only visibly-utilized prefixes, so canonicalizing the SignedInfo with its ds
+        // declaration restored reproduces exactly the octets a verifier canonicalizes it to in place.
+        var standalone = new XmlDocument { PreserveWhitespace = true };
+        standalone.LoadXml("<ds:SignedInfo xmlns:ds=\"" + DsNs + "\">" + signedInfo.InnerXml + "</ds:SignedInfo>");
+        var transform = new XmlDsigExcC14NTransform();
+        transform.LoadInput(standalone);
+        using var canonical = new MemoryStream();
+        ((Stream)transform.GetOutput(typeof(Stream))).CopyTo(canonical);
+
+        using var certificate = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(fixture.CertificateBase64));
+        using var publicKey = certificate.GetRSAPublicKey()!;
+
+        Assert.True(publicKey.VerifyData(canonical.ToArray(), signatureValue, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+    }
+
+    [Fact]
+    public void IsValid_ReferenceUriIsUnresolvedRelativeUri_ReturnsFalse()
+    {
+        // Void canonicalization: the Reference names an ID ("#_absent") that resolves to NOTHING, and the
+        // DigestValue is the digest of the EMPTY octet stream — so a canonicalizer that silently emits an
+        // empty string for an unresolved same-document reference computes exactly the digest the attacker
+        // wrote down, and the reference "verifies" while the assertion actually consumed was never signed.
+        // The SignedInfo is real: it is exclusive-C14N canonicalized and signed with the fixture key, so the
+        // signature itself is cryptographically sound and only the binding is hostile. The validator must
+        // reject because the reference resolves to no element at all.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithCraftedReference("#_absent");
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_ReferenceUriIsEmptyStringWithDetachedDigest_ReturnsFalse()
+    {
+        // The same void-canonicalization trick through the whole-document reference form: URI="" with a
+        // DigestValue over the empty octet stream rather than over the document. SAML 2.0 requires the
+        // reference to name the signed element's ID, so an empty (or any non-"#id") URI is rejected before a
+        // digest is ever compared — the attacker cannot fall back to the form whose covered content is
+        // implicit rather than named.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithCraftedReference(string.Empty);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_ReferenceUriIsWholeDocument_ReturnsFalse()
+    {
+        // The strictly harder twin of the case above: a CRYPTOGRAPHICALLY COMPLETE whole-document signature
+        // (URI="" with an honestly computed digest, emitted by SignedXml itself), so nothing about the
+        // cryptography is wrong and CheckSignature would accept it. Only the "the reference must name the
+        // Response or the Assertion by ID" binding can reject it, which makes this the sharpest probe of that
+        // binding: the day it is relaxed, this test — not a crypto failure — is what turns red.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithWholeDocumentReference();
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Theory]
+    [InlineData(SamlReferenceForm.XPointerWholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerId)]
+    public void IsValid_ReferenceUriIsAnXPointer_ReturnsFalse(SamlReferenceForm form)
+    {
+        // The one reference spelling that gets PAST the "#..." gate and that .NET genuinely honours. Its
+        // resolver understands two XPointer forms beyond the SAML shorthand pointer: "#xpointer(/)" is the
+        // whole document, and "#xpointer(id('x'))" is unwrapped to the plain id "x". Both are signed correctly
+        // by SignedXml and accepted by CheckSignature — the id() form covers the very assertion the readers
+        // consume — so nothing cryptographic rejects them.
+        //
+        // What rejects them today is that the validator hands GetIdElement the RAW remainder after the "#",
+        // which is not an ID, so the lookup returns null. That is an implicit BCL behaviour, not a rule this
+        // repo states: a future BCL change, or any replacement of the ID lookup with something that unwraps
+        // XPointer the way Reference.CalculateHashValue does, would open it silently. SAML 2.0 mandates the
+        // shorthand "#id" form, so rejecting these is the fail-closed posture — pinned here so it stays a
+        // decision rather than an accident. The companion control asserts CheckSignature really does accept
+        // them, so this cannot pass because the fixture is broken.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithHonestReference(form);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Theory]
+    [InlineData(SamlReferenceForm.WholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerWholeDocument)]
+    [InlineData(SamlReferenceForm.XPointerId)]
+    public void HonestReferenceForm_IsAcceptedByTheBclSignatureCheck(SamlReferenceForm form)
+    {
+        // The control that makes the two rejection tests above (and the whole-document one below) evidence:
+        // every one of these documents carries a signature the BCL verifier accepts outright. If a fixture
+        // were subtly malformed, the rejections would be attributable to the forgery rather than to the
+        // reference-form binding, and this control is what would catch that.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithHonestReference(form);
+        using var certificate = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(fixture.CertificateBase64));
+
+        var verifier = new SignedXml(fixture.Document);
+        verifier.LoadXml((XmlElement)fixture.Document.GetElementsByTagName("Signature", DsNs)[0]!);
+
+        Assert.True(verifier.CheckSignature(certificate, true));
+    }
+
+    [Theory]
+    [InlineData("#_a\" or \"1\"=\"1")]
+    [InlineData("#_a\"]|//*[@x=\"")]
+    public void IsValid_ReferenceFragmentCarriesXPathMetacharacters_ReturnsFalse(string referenceUri)
+    {
+        // End-to-end companion to SamlSignatureReferenceTests: a signature whose reference fragment is a
+        // crafted XPath payload is rejected on the real validation path. Below .NET's own NCName guard,
+        // reference resolution interpolates the fragment into "//*[@Id=\"...\"]" unescaped, so on a host with
+        // that guard relaxed by a compatibility switch this would be XPath injection inside the signature
+        // check itself. The plugin now refuses a non-NCName fragment before the lookup, which makes the
+        // rejection independent of the host's compatibility configuration.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithCraftedReference(referenceUri);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse()
+    {
+        // Processing must be bound to the SIGNED element by reference, not merely to "a valid signature is
+        // present somewhere". The identity provider's key here genuinely signs the saml:Issuer element — a
+        // real, verifying signature, sitting at the position-bound direct-child-of-Response location — while
+        // the Subject/NameID/attributes the plugin actually reads live in an entirely unsigned assertion.
+        // Rejected because the reference covers neither the Response root nor the Assertion.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseSigningTheIssuerOnly();
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_MoreThanOneAssertionInResponse_ReturnsFalse()
+    {
+        // Two direct-child assertions, each INDEPENDENTLY and honestly signed by the identity provider's key,
+        // so every signature verifies and no digest is broken: the exactly-one-assertion invariant is the sole
+        // control. It must reject the response outright rather than pick one — "pick the first" would consume
+        // the attacker's, "pick the signed one" is undecidable when both are signed. This is the shape the
+        // pre-existing prepended-unsigned-assertion tests cannot reach, because there a broken digest also
+        // rejects; here nothing but the count does.
+        var fixture = SamlCraftedSignatureFactory.CreateResponseWithTwoSignedAssertions(firstNameId: "attacker", secondNameId: "alice");
+
+        Assert.False(Load(fixture).IsValid());
+        Assert.False(Load(fixture).IsValid("https://sp.example.com"));
+    }
+
+    // --- Attribute pollution (#1003) ---
+
+    [Fact]
+    public void IsValid_AttributePollutionSameLocalNameDifferentNamespace_ReturnsFalse()
+    {
+        // Attribute pollution: a SECOND attribute whose local name is also "ID" but in a foreign namespace is
+        // added to the signed assertion, so a resolver that matched attributes by local name (ignoring the
+        // namespace) would resolve the reference to the attacker's value while the namespace-aware one
+        // resolves the real ID. Because the polluted attribute has to sit ON the signed element to be
+        // reachable that way, it is inside the signed content and the digest no longer matches — pollution
+        // cannot be smuggled into a signed element. Rejected.
+        var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        var assertion = (XmlElement)doc.GetElementsByTagName("Assertion", SamlNs)[0]!;
+        var polluted = doc.CreateAttribute("evil", "ID", "urn:evil");
+        polluted.Value = "_evil";
+        assertion.SetAttributeNode(polluted);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_IdAttributeCaseVariantDecoy_ReturnsFalse()
+    {
+        // The attribute-pollution variant that actually steers resolution: the honest assertion carries
+        // ID="x" (the SAML spelling), and a decoy element carries Id="x" — a DIFFERENT attribute name, so the
+        // document stays well-formed and the assertion's signature stays intact. .NET's reference resolver
+        // tries "Id" BEFORE "ID", so "#x" resolves to the decoy, not to the assertion the readers consume:
+        // exactly the parser-differential shape behind the ruby-saml chain, reproduced inside one stack.
+        // Rejected because the resolved element is neither the Response root nor the Assertion.
+        var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        var decoy = doc.CreateElement("saml", "AuthnStatement", SamlNs);
+        decoy.SetAttribute("Id", fixture.AssertionId);
+        doc.DocumentElement!.PrependChild(decoy);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates()
+    {
+        // Pins the BCL's ID-resolution semantics, which the whole reference binding rests on: .NET tries the
+        // unprefixed Id, then id, then ID, and each probe is an XPath attribute test in the NULL namespace. A
+        // decoy sibling carrying the signed assertion's ID value through a foreign-namespaced evil:ID is
+        // therefore invisible to all three probes — the reference keeps binding to the real assertion and the
+        // honest login still succeeds. It sits outside the signed content, so no digest is what makes this
+        // pass; only the resolution semantics do.
+        //
+        // The load-bearing assertions are the SIGNED values that survive: the subject, and GetAssertionId(),
+        // which is what the one-time replay key is derived from. If a .NET upgrade ever made a namespaced
+        // attribute a resolution candidate, GetIdElement would see two matches and throw, or bind to the
+        // decoy — either way this flips, and the replay key would be the first thing to move.
+        var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        var decoy = doc.CreateElement("saml", "AuthnStatement", SamlNs);
+        var polluted = doc.CreateAttribute("evil", "ID", "urn:evil");
+        polluted.Value = fixture.AssertionId;
+        decoy.SetAttributeNode(polluted);
+        doc.DocumentElement!.PrependChild(decoy);
+
+        var response = Load(fixture);
+
+        Assert.True(response.IsValid());
+        Assert.Equal("alice", response.GetNameID());
+        Assert.Equal(fixture.AssertionId, response.GetAssertionId());
+    }
+
+    [Fact]
+    public void IsValid_NamespaceConfusedDecoySignature_ReturnsFalse()
+    {
+        // Namespace confusion aimed at the position-bound signature selection: the honest signature is
+        // replaced by one whose element is named "Signature" in a FOREIGN namespace — the look-alike a
+        // namespace-agnostic GetElementsByTagName("Signature") would happily pick up and hand to the verifier.
+        // The namespace-bound XPath selects nothing, so signatureNodes.Count is zero, the response reads as
+        // UNSIGNED and is rejected. The logout twin is SamlLogoutAttackShapeTests with the same name.
+        var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        var signature = doc.GetElementsByTagName("Signature", DsNs)[0]!;
+        var lookAlike = doc.CreateElement("ds", "Signature", "urn:evil:xmldsig");
+        lookAlike.InnerXml = signature.InnerXml;
+        signature.ParentNode!.ReplaceChild(lookAlike, signature);
+
+        Assert.False(Load(fixture).IsValid());
+    }
+
+    [Fact]
+    public void GetCustomAttributes_AttributePollutionOnAttributeName_ReadsSignedValueOnly()
+    {
+        // Attribute pollution aimed at the ROLE reader rather than at the signature: a decoy saml:Attribute
+        // declares its name through a foreign-namespaced evil:Name="Role" and carries a privileged value.
+        // GetCustomAttributes matches the unprefixed Name attribute, so the decoy contributes nothing and the
+        // only role returned is the signed one. The decoy also perturbs the signed assertion, so IsValid is
+        // false; the load-bearing assertion is that the reader never surfaces the injected role — a reader
+        // that matched by local name would hand the caller "jellyfin-admins".
+        var fixture = SamlTestFactory.Create(nameId: "alice", role: "jellyfin-users", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        var statement = (XmlElement)doc.GetElementsByTagName("AttributeStatement", SamlNs)[0]!;
+        var decoy = doc.CreateElement("saml", "Attribute", SamlNs);
+        var pollutedName = doc.CreateAttribute("evil", "Name", "urn:evil");
+        pollutedName.Value = "Role";
+        decoy.SetAttributeNode(pollutedName);
+        var value = doc.CreateElement("saml", "AttributeValue", SamlNs);
+        value.InnerText = "jellyfin-admins";
+        decoy.AppendChild(value);
+        statement.PrependChild(decoy);
+
+        var response = Load(fixture);
+
+        Assert.False(response.IsValid());
+        Assert.Equal(new List<string> { "jellyfin-users" }, response.GetCustomAttributes("Role"));
+    }
+
+    // --- Namespace confusion (#1003) ---
+
+    [Theory]
+    [InlineData("xmlns:xml=\"urn:evil\"")] // the reserved "xml" prefix rebound to an attacker namespace
+    [InlineData("xmlns:ev=\"http://www.w3.org/XML/1998/namespace\"")] // the reserved XML namespace bound to an ordinary prefix
+    [InlineData("xmlns:xmlns=\"urn:evil\"")] // the reserved "xmlns" prefix declared as an ordinary one
+    public void IsValid_ReservedXmlAttributeUsedAsOrdinaryAttribute_ReturnsFalse(string reservedDeclaration)
+    {
+        // Namespace confusion through the reserved XML namespace machinery: rebinding the "xml"/"xmlns"
+        // prefixes, or binding the reserved XML namespace URI to an ordinary prefix, makes one parser see a
+        // prefixed name in one namespace and another parser see it in a different one — the way a "same"
+        // element or attribute can mean two things to two stacks. All three forms are namespace-constraint
+        // violations, so the hardened reader refuses the document outright and TryParse fails closed to a
+        // clean rejection rather than handing back a half-interpreted DOM (or escaping as a 500).
+        var xml =
+            "<samlp:Response xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" xmlns:saml=\"" + SamlNs + "\" " + reservedDeclaration + " ID=\"_r\" Version=\"2.0\">" +
+                "<saml:Assertion ID=\"_a\" Version=\"2.0\"><saml:Subject><saml:NameID>attacker</saml:NameID></saml:Subject></saml:Assertion>" +
+            "</samlp:Response>";
+
+        Assert.False(SamlResponseLoader.TryParse(SamlFixture.ForeignCertificateBase64(), SamlFixture.Encode(xml), out var response));
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public void IsValid_NamespaceConfusedDecoyAssertion_IsInert_ReadsSignedAssertionOnly()
+    {
+        // Namespace confusion aimed at the exactly-one-assertion count: a decoy element named "Assertion" —
+        // but in a FOREIGN namespace — is prepended as a sibling of the honest assertion, outside the signed
+        // content so no digest breaks. Every lookup on this path is namespace-bound, so the decoy is neither
+        // counted as a second assertion nor readable as one, and the honest login still returns the SIGNED
+        // subject. A namespace-agnostic GetElementsByTagName("Assertion") would instead have counted two (a
+        // spurious rejection of every such response) or, worse, read the decoy's subject — which is why
+        // SamlSignaturePath_ResolvesElementsNamespaceAware bans that lookup shape outright.
+        var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
+        var doc = fixture.Document;
+        const string EvilNs = "urn:evil:assertion";
+        var decoy = doc.CreateElement("evil", "Assertion", EvilNs);
+        var subject = doc.CreateElement("evil", "Subject", EvilNs);
+        var nameId = doc.CreateElement("evil", "NameID", EvilNs);
+        nameId.InnerText = "attacker";
+        subject.AppendChild(nameId);
+        decoy.AppendChild(subject);
+        doc.DocumentElement!.PrependChild(decoy);
+
+        var response = Load(fixture);
+
+        Assert.True(response.IsValid());
+        Assert.Equal("alice", response.GetNameID());
     }
 
     // Builds an unsigned attacker-controlled assertion with the given NameID, shaped like a real one

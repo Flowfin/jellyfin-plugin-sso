@@ -462,16 +462,17 @@ internal sealed class SamlResponse : IDisposable
 
         var reference = (Reference)signedInfo.References[0]!;
 
-        // A same-document ID reference only ("#id"); an empty (whole-document "") or external URI is
-        // rejected. A "#"-only or non-NCName fragment never reaches here — SignedXml.LoadXml resolves
-        // the reference eagerly and throws on it, which IsValid catches and turns into a rejection.
-        var referenceUri = reference.Uri;
-        if (string.IsNullOrEmpty(referenceUri) || referenceUri[0] != '#')
+        // A same-document "#id" shorthand pointer whose fragment is an NCName, and nothing else — the shared
+        // rule both this and the logout path enforce (SamlSignatureReference). It rejects the whole-document
+        // form, every external URI, and every XPointer spelling that .NET's reference resolver would otherwise
+        // honour; constraining the fragment HERE rather than relying on the platform's own NCName guard is
+        // what keeps an attacker-chosen fragment out of the unescaped XPath predicate that guard sits above.
+        if (!SamlSignatureReference.TryGetSameDocumentId(reference.Uri, out var referenceId))
         {
             return false;
         }
 
-        var idElement = signedXml.GetIdElement(_xmlDoc, referenceUri.Substring(1));
+        var idElement = signedXml.GetIdElement(_xmlDoc, referenceId);
         if (idElement == null)
         {
             return false;

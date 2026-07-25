@@ -7,7 +7,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Jellyfin.Plugin.SSO_Auth;
-using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
+using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using SharpFuzz;
 
 namespace Jellyfin.Plugin.SSO_Auth.Fuzz;
