@@ -19,6 +19,10 @@ persistence, or the release pipeline.
 - [ ] No secrets logged; secrets are redacted on config export.
 - [ ] A security review was performed for changes to SAML/OIDC validation,
       config persistence, or the release pipeline.
+- [ ] Review record: per lens, its verdict and its findings, with **CONFIRMED
+      __ / PLAUSIBLE __** counts as raised (a finding is CONFIRMED only if a
+      reproduction was produced). Every finding of either kind carries a
+      disposition — FIX, a reasoned DECLINE, or DEFER as its own issue.
 - [ ] Log inputs from the IdP are sanitized inline at the log call.
 
 ## Quality checklist
