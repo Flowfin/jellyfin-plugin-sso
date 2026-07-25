@@ -91,7 +91,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           # Both SDKs the multi-target build needs: net9.0 (Jellyfin 10.11 line)
           # and net10.0 (Jellyfin 12.0 line). Stryker mutates the net9.0 leg
