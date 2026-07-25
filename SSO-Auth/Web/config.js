@@ -1324,16 +1324,26 @@ const ssoConfigurationPage = {
   // Localize the page's own labels (#913). Jellyfin core serves this configuration page from its own
   // URL base, so a relative import would not resolve to the plugin's assets; load the shared applier
   // from its absolute SSOViews URL — the same module the linking page uses — rather than duplicating
-  // it here. Every failure path is swallowed: the markup keeps its built-in English.
+  // it here.
+  //
+  // Localization is strictly best-effort and must never take the page down with it: init calls this
+  // BEFORE it wires the Save/Delete/Test handlers, so an escaping error would leave a fully rendered
+  // but inert admin page. The try/catch is load-bearing and NOT redundant with the .catch below —
+  // ApiClient.getUrl throws SYNCHRONOUSLY on a missing server address, while the argument is evaluated,
+  // so no promise exists yet for .catch to see. Either way the markup keeps its built-in English.
   localize: (view) => {
-    import(ApiClient.getUrl("SSOViews/i18n.js"))
-      .then((module) =>
-        module.loadCatalog().then(() => {
-          i18n = module;
-          module.applyTo(view);
-        }),
-      )
-      .catch(() => {});
+    try {
+      import(ApiClient.getUrl("SSOViews/i18n.js"))
+        .then((module) =>
+          module.loadCatalog().then(() => {
+            i18n = module;
+            module.applyTo(view);
+          }),
+        )
+        .catch(() => {});
+    } catch {
+      // Keep the built-in English; the page's own functionality is unaffected.
+    }
   },
 
   // ---- Provider templates (#726) ----

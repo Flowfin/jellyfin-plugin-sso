@@ -33,7 +33,6 @@
             class="verticalSection"
             is="emby-collapse"
             title="About this plugin"
-            data-i18n-title="config.about"
           >
             <div class="collapseContent">
               <p>
@@ -429,11 +428,15 @@
           <form id="sso-new-oidc-provider" class="esqConfigurationForm">
             <div class="sso-editor" id="sso-editor" hidden>
               <div class="sso-editor-header">
-                <h3
-                  class="sso-editor-title"
-                  id="sso-editor-title"
-                  data-i18n="config.new_provider"
-                >
+                <!--
+                  Deliberately carries NO data-i18n marker (#913): config.js OWNS this heading — it writes
+                  the loaded provider's name here (setEditorTitle) — and the catalog is applied
+                  asynchronously. A marker would let a late applyTo() overwrite "keycloak-prod" with
+                  "New provider" over an editor that actually has a provider loaded, and the Save path
+                  targets the loaded provider without a name-bearing confirmation. The blank-editor
+                  wording is localized at its source instead, through tr() in config.js.
+                -->
+                <h3 class="sso-editor-title" id="sso-editor-title">
                   New provider
                 </h3>
                 <div class="sso-editor-header-actions">
@@ -668,6 +671,7 @@
                       type="password"
                       autocomplete="off"
                       placeholder="Leave blank to keep the current secret"
+                      data-i18n-placeholder="config.placeholder_keep_secret"
                       class="sso-text"
                     />
                     <div class="fieldDescription">
@@ -1881,11 +1885,8 @@
           <form id="sso-new-saml-provider" class="esqConfigurationForm">
             <div class="sso-editor" id="saml-editor" hidden>
               <div class="sso-editor-header">
-                <h3
-                  class="sso-editor-title"
-                  id="saml-editor-title"
-                  data-i18n="config.new_provider"
-                >
+                <!-- No data-i18n marker, for the reason spelled out on the OpenID editor heading above. -->
+                <h3 class="sso-editor-title" id="saml-editor-title">
                   New provider
                 </h3>
                 <div class="sso-editor-header-actions">
@@ -2815,6 +2816,7 @@
                         type="password"
                         autocomplete="off"
                         placeholder="Leave blank to keep the current key"
+                        data-i18n-placeholder="config.placeholder_keep_key"
                         class="sso-text"
                       />
                       <div class="fieldDescription">
@@ -2838,6 +2840,7 @@
                         type="password"
                         autocomplete="off"
                         placeholder="Leave blank to keep the current key"
+                        data-i18n-placeholder="config.placeholder_keep_key"
                         class="sso-text"
                       />
                       <div class="fieldDescription">
