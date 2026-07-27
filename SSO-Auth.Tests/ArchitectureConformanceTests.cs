@@ -2602,6 +2602,42 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
+    {
+        // #1004. Every JWT the plugin verifies against a provider — the id_token and the back-channel
+        // logout_token — is validated from parameters built in ONE place, so their posture cannot drift apart.
+        // The property that makes the forgery battery in OidcTokenForgeryTests meaningful is exactly this: a
+        // SECOND `new TokenValidationParameters` anywhere would be a verification path those tests never reach,
+        // and one constructed without ValidAlgorithms accepts whatever the token header's `alg` claims — the
+        // algorithm-confusion class in one line. The rule is a source scan rather than a type-level rule
+        // because the defect is a construction site, which reflection cannot see.
+        //
+        // Sentinel against a vacuous pass: the count is pinned to EXACTLY one, not "at most one". A rule that
+        // tolerates zero passes just as happily after the builder is renamed or the scan is pointed at the
+        // wrong tree, and would then be protecting nothing while reading as protection.
+        var constructionSites = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => CodeLines(path).Any(l => l.Text.Contains("new TokenValidationParameters", StringComparison.Ordinal)))
+            .Select(path => Path.GetRelativePath(RepoRoot(), path))
+            .ToList();
+
+        Assert.True(
+            constructionSites.Count == 1 && string.Equals(constructionSites[0], SignatureBasisRelativePath, StringComparison.Ordinal),
+            $"TokenValidationParameters must be constructed in exactly one file ({SignatureBasisRelativePath}) — a second construction site is a second verification path the forgery tests never reach, and one built without ValidAlgorithms trusts the token header's own `alg` (#1004). Found: " + string.Join(", ", constructionSites));
+
+        // The allowlist's CONTENT, read off the production type rather than re-stated here. Symmetric HS* would
+        // accept a token minted by anyone holding the shared client secret (the RS256-public-key-as-HMAC-key
+        // forgery), and `none` is unauthenticated by definition; both are refused whatever the discovery
+        // document advertises. Casing is compared insensitively because the JWS `alg` header is matched by the
+        // handler, and an entry spelled "hs256" would be exactly as accepting.
+        var algorithms = OidcSignatureKeys.AllowedSignatureAlgorithms;
+        Assert.NotEmpty(algorithms);
+        Assert.DoesNotContain(algorithms, a => a.StartsWith("HS", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(algorithms, a => string.Equals(a, "none", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
     {
         // #1003. XML signature wrapping against a SAML assertion is a full authentication bypass, and the way
@@ -2950,6 +2986,9 @@ public class ArchitectureConformanceTests
     // The SAML module's location, as a repo-relative path, so the module-scope rules and the out-of-module
     // rule cannot disagree about where the boundary is.
     private static readonly string SamlModuleRelativePath = Path.Combine("SSO-Auth", "Api", "Saml");
+
+    // The ONE file allowed to construct TokenValidationParameters — the shared OpenID signature basis (#1004).
+    private static readonly string SignatureBasisRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcSignatureKeys.cs");
 
     // Every XML stack that is NOT the one the SAML signature path is allowed to use (#1003). ONE list, shared
     // by the in-module ban and the out-of-module ban: a hand-rolled subset in either place is how a rule

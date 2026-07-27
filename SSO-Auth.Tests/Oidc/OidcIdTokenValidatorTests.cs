@@ -200,6 +200,71 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     }
 
     [Fact]
+    public async Task SymmetricJwksKey_IsNeverConvertedToASigningKey()
+    {
+        // #1004. The counterpart to the algorithm allowlist, from the other direction: the allowlist stops a
+        // token DECLARING HS256, and this stops symmetric key material ever becoming an issuer signing key in
+        // the first place. It matters because a shared secret is not secret the way a signing key is — a
+        // provider advertising an oct key hands out something every party holding that secret could mint
+        // tokens with. The token here is MAC'd with exactly the advertised secret, so converting the key would
+        // mean accepting the token; the conversion never yields one, and the login fails closed on the
+        // key-not-found path.
+        var secret = new byte[32];
+        var options = Options(jwks: $$"""
+            {"keys":[{"kty":"oct","use":"sig","kid":"{{KeyId}}","alg":"HS256",
+              "k":"{{Base64UrlEncoder.Encode(secret)}}"}]}
+            """);
+        var descriptor = Descriptor();
+        descriptor.SigningCredentials = new SigningCredentials(
+            new SymmetricSecurityKey(secret) { KeyId = KeyId }, SecurityAlgorithms.HmacSha256);
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, options, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Null(result.User);
+    }
+
+    [Fact]
+    public async Task AudienceArrayWithoutTheClientId_IsRejected()
+    {
+        // #1004, OIDC Core 3.1.3.7 rule 3. The single-string wrong-audience case is covered above; this is the
+        // ARRAY form, so a token legitimately minted for two other parties cannot log in here merely because
+        // the audience claim is a list rather than a string.
+        var descriptor = Descriptor();
+        descriptor.Audience = null;
+        descriptor.Audiences.Add("other-api");
+        descriptor.Audiences.Add("third-party");
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, Options(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Contains("Audience", result.Error, StringComparison.Ordinal);
+        Assert.Null(result.User);
+    }
+
+    [Fact]
+    public async Task MultiAudience_WithMismatchedAzp_IsRejected()
+    {
+        // #1004, OIDC Core 3.1.3.7 rule 5 in its multi-audience form. The existing azp-mismatch test uses a
+        // single audience, where the audience check alone would also have caught a foreign token. Here our
+        // client IS among the audiences, so that check passes and azp is the ONLY thing between a token
+        // authorized for another party and a login — the case the rule exists for.
+        var descriptor = Descriptor(claims: new Dictionary<string, object> { ["sub"] = "user-1", ["azp"] = "someone-else" });
+        descriptor.Audience = null;
+        descriptor.Audiences.Add(ClientId);
+        descriptor.Audiences.Add("other-api");
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, Options(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Contains("azp", result.Error, StringComparison.Ordinal);
+        Assert.Null(result.User);
+    }
+
+    [Fact]
     public async Task NullEntryInJwks_IsSkipped_GoodKeyStillValidates()
     {
         // A JWKS carrying a literal null entry must not 500 the login (skip-on-malformed contract).

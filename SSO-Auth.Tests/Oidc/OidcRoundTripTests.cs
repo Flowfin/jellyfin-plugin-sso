@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.SSO_Auth;
@@ -12,6 +14,8 @@ using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
@@ -109,6 +113,134 @@ public class OidcRoundTripTests
         Assert.Equal(400, content.StatusCode);
         Assert.Equal("Invalid or expired state", content.Content);
         await harness.UserManager.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Challenge_SendsNoNonce_AndBindsTheCodeWithPkceS256()
+    {
+        // #1004. The plugin sends no OIDC nonce — neither OidcClient leg (6.0.1 on net9.0, 7.1.0 on net10.0)
+        // emits one for the code flow, and the plugin adds none — so RFC 9700's PKCE binding is what ties the
+        // code to this authorization request. That is a coherent posture, since OIDC Core 3.1.3.7 rule 11
+        // requires validating a nonce only when one was sent; but it is coherent only as a PAIR, and the pair
+        // is what this pins. The absence is READ OFF the real authorize URL rather than assumed, so the
+        // property is established per TFM instead of resting on a claim about one library version.
+        //
+        // The regression it guards against is the shape of CVE-2026-42206: a nonce generated on the
+        // authorization request and never validated on the callback, which is ID-token replay with a decorative
+        // parameter attached. Adding a `nonce` to the authorize URL would fail no other test in this suite, so
+        // without this assertion that lands silently. If a nonce is ever wanted, this test failing is the
+        // prompt to build its validator in the same change.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, fixture.IdToken("sub-1", "alice")));
+
+        harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
+        var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
+
+        Assert.Equal(string.Empty, QueryValue(challenge.Url, "nonce"));
+        Assert.NotEqual(string.Empty, QueryValue(challenge.Url, "code_challenge"));
+        Assert.Equal("S256", QueryValue(challenge.Url, "code_challenge_method"));
+    }
+
+    [Fact]
+    public async Task TokenRequest_RepeatsTheChallengeRedirectUriByteForByte()
+    {
+        // #1004, RFC 6749 §4.1.3. Exact-string redirect_uri matching is the authorization server's check, and
+        // the relying party's obligation is the input to it: the redirect_uri on the token request must be
+        // byte-identical to the one on the authorization request, or the server refuses the exchange. Builder
+        // equality is already pinned by OidcRedirectUriBuilderTests; that compares what the two builder methods
+        // RETURN, while this compares what actually leaves the process — the authorize URL against the token
+        // POST body.
+        //
+        // What supplies the wire value was measured, not assumed: today it comes from OidcClient replaying the
+        // redirect_uri stored on the AuthorizeState at challenge time, NOT from the callback-side builder. So a
+        // divergence introduced in CallbackRedirectUri alone is invisible here (verified: a trailing slash
+        // added to that builder fails the builder tests and leaves this one green). The regression this DOES
+        // catch is the dangerous one — the callback-built value reaching the token request while disagreeing
+        // with the challenge's, which is what a library upgrade that honours options.RedirectUri would cause.
+        // Verified by making exactly that assignment: the test fails on the trailing slash.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        string? tokenRequestBody = null;
+        var harness = BuildHarness(fixture, request =>
+        {
+            if (request.RequestUri!.AbsoluteUri == fixture.TokenUrl)
+            {
+                tokenRequestBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+
+            return ServeIdp(fixture, request, fixture.IdToken("sub-1", "alice"));
+        });
+        var user = TestUsers.Named("alice", Guid.Parse("19999999-1111-1111-1111-111111111116"));
+        harness.UserManager.CreateUserAsync("alice").Returns(user);
+        harness.UserManager.GetUserById(user.Id).Returns(user);
+
+        harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
+        var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
+        var state = QueryValue(challenge.Url, "state");
+        var binding = BindingCookie(harness.Controller.Response);
+        var challengeRedirectUri = QueryValue(challenge.Url, "redirect_uri");
+
+        RepointToCallback(harness, state, binding, query: $"?code=test-code&state={state}");
+        Assert.Equal("text/html", Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state)).ContentType);
+
+        Assert.NotNull(tokenRequestBody);
+        Assert.NotEqual(string.Empty, challengeRedirectUri);
+        Assert.Equal(challengeRedirectUri, FormValue(tokenRequestBody, "redirect_uri"));
+    }
+
+    [Fact]
+    public async Task RedeemResponse_NeverContainsTheIdToken_OnlyTheLocallyMintedSession()
+    {
+        // #1004. The id_token is a proof of authentication addressed to this plugin, not a bearer credential
+        // for anything: handing it to the browser, or storing it as a session token, turns a one-shot login
+        // assertion into something replayable against this server and against any other relying party that
+        // trusts the same issuer without pinning the audience.
+        //
+        // Asserted empirically on the real flow rather than by scanning source for a token variable, because a
+        // source scan proves only that one spelling of the leak is absent. Here the token is a known string and
+        // the two places it could escape are inspected directly: every field of the AuthenticationRequest
+        // handed to Jellyfin's session manager, and the body returned to the client. The only credential that
+        // may cross either boundary is the session Jellyfin itself mints.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var idToken = fixture.IdToken(subject: "sub-1", username: "alice");
+        var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, idToken));
+        var user = TestUsers.Named("alice", Guid.Parse("19999999-1111-1111-1111-111111111117"));
+        harness.UserManager.CreateUserAsync("alice").Returns(user);
+        harness.UserManager.GetUserById(user.Id).Returns(user);
+
+        // The session manager is stubbed to return a REAL result carrying a distinctive access token. An
+        // unstubbed substitute returns null, and a "the response does not contain the id_token" assertion over
+        // a null body passes without inspecting anything — the assertion would read as protection while
+        // testing nothing. Pinning the minted token instead makes the test prove both halves: the id_token is
+        // absent AND the credential that IS returned is the one Jellyfin minted.
+        const string MintedToken = "minted-session-token";
+        AuthenticationRequest? mintRequest = null;
+        harness.SessionManager
+            .AuthenticateDirect(Arg.Do<AuthenticationRequest>(r => mintRequest = r))
+            .Returns(new AuthenticationResult { AccessToken = MintedToken });
+
+        var (state, binding) = await DriveChallenge(harness);
+        RepointToCallback(harness, state, binding, query: $"?code=test-code&state={state}");
+        Assert.Equal("text/html", Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state)).ContentType);
+
+        var authed = Assert.IsType<OkObjectResult>(await harness.Controller.OidAuth("kc", Redeem(state)));
+
+        // The mint really happened and really belongs to this login, so the field scan below is not walking an
+        // empty object.
+        Assert.NotNull(mintRequest);
+        Assert.Equal("alice", mintRequest.Username);
+        foreach (var field in new[]
+        {
+            mintRequest.Username, mintRequest.App, mintRequest.AppVersion,
+            mintRequest.DeviceId, mintRequest.DeviceName, mintRequest.RemoteEndPoint, mintRequest.Password,
+        })
+        {
+            Assert.DoesNotContain(idToken, field ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        // The body handed back to the client is the minted Jellyfin session and nothing else.
+        var body = JsonSerializer.Serialize(authed.Value);
+        Assert.Contains(MintedToken, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(idToken, body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -465,6 +597,23 @@ public class OidcRoundTripTests
             if (kv.Length == 2 && kv[0] == key)
             {
                 return Uri.UnescapeDataString(kv[1]);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    // Reads a single value out of an application/x-www-form-urlencoded request body (the token POST). Kept
+    // separate from QueryValue because the body is not a URL: the parse must not depend on a Uri that a
+    // malformed body would make un-constructible, and the test would then fail for the wrong reason.
+    private static string FormValue(string body, string key)
+    {
+        foreach (var pair in body.Split('&'))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == key)
+            {
+                return Uri.UnescapeDataString(kv[1].Replace('+', ' '));
             }
         }
 
