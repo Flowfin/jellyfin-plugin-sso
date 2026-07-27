@@ -201,4 +201,35 @@ public class OidcRoleExtractorTests
         // read in array mode yields no roles rather than silently adopting the new shape.
         Assert.Empty(OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, "{\"roles\":{\"users\":{}}}", false));
     }
+
+    [Theory]
+    // The privilege-bearing repeat (#1005). The parser underneath resolves a repeated name to its LAST
+    // occurrence without complaint, so each of these claims grants what its second half says while anything
+    // reading the first sees the harmless one. No role set is derivable from such a claim, so it yields none.
+    [InlineData("{\"roles\":[\"users\"],\"roles\":[\"jellyfin-admin\"]}", false)]
+    [InlineData("{\"roles\":{\"users\":{}},\"roles\":{\"jellyfin-admin\":{}}}", true)]
+    [InlineData("{\"other\":1,\"nested\":{\"roles\":[\"users\"],\"roles\":[\"jellyfin-admin\"]}}", false)]
+    public void DuplicatedRoleClaimKey_YieldsNoRoles(string claimValue, bool objectMap)
+    {
+        Assert.Empty(OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, objectMap));
+    }
+
+    [Theory]
+    // The positive control for the fixtures above: the same claim carrying the key once still yields its
+    // roles, so the rejection is about the repeat and not about the extractor having stopped reading.
+    [InlineData("{\"roles\":[\"jellyfin-admin\"]}", false)]
+    [InlineData("{\"roles\":{\"jellyfin-admin\":{}}}", true)]
+    public void TheSameRoleClaimWithoutTheDuplicate_YieldsItsRoles(string claimValue, bool objectMap)
+    {
+        Assert.Equal(new List<string> { "jellyfin-admin" }, OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, objectMap));
+    }
+
+    [Fact]
+    public void SingleSegmentRawRole_IsStillTakenVerbatim_NotScreenedAsJson()
+    {
+        // The gate sits after the one-segment shortcut, where the claim value is a bare role name and not a
+        // document at all. Screening that as JSON would refuse every provider returning a plain role string —
+        // the default configuration — while reading like a security improvement.
+        Assert.Equal(new List<string> { "jellyfin-admin" }, OidcRoleExtractor.ExtractRoles(new[] { "Role" }, "jellyfin-admin", false));
+    }
 }

@@ -49,6 +49,16 @@ internal static class OidcRoleExtractor
             return new List<string> { claimValue };
         }
 
+        // This claim decides which privileges the login is granted, and the parser below resolves a repeated
+        // property name to its LAST occurrence without complaint, so a claim carrying the roles key twice
+        // grants whatever the second one says while anything reading the first sees something else (#1005).
+        // No role set is derivable from such a claim, so it yields none — the same closed outcome as a
+        // malformed value, and never "any role".
+        if (StrictJson.HasDuplicateProperty(claimValue))
+        {
+            return new List<string>();
+        }
+
         // Everything else parses the claim value as a JSON object and walks it. The claim value is
         // attacker-influenced, so it must never throw an unhandled 500 on the public callback (#216): any
         // malformed or non-resolving shape (non-object root, non-object node, wrong terminal type) fails

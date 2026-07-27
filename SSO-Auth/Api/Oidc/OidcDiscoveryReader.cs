@@ -81,6 +81,21 @@ internal static class OidcDiscoveryReader
                 return OidcDiscoveryResult.Unavailable;
             }
 
+            // The raw body is read by two different parser families — the library's System.Text.Json typed
+            // read that produced the metadata below, and the plugin's Newtonsoft fact readers — so a repeated
+            // property name is the one input on which they can be made to disagree about the same bytes
+            // (#1005). Neither raises an error on it: a duplicated `issuer` resolves to the LAST occurrence
+            // and silently re-points the issuer anchor this login is bound to. The whole read is refused
+            // instead, failing the login closed exactly like an unreadable document, rather than letting one
+            // fact through on one parser's choice of which occurrence counts.
+            if (StrictJson.HasDuplicateProperty(discovery.Raw))
+            {
+                logger.LogWarning(
+                    "The OpenID discovery document for provider {Provider} repeats a property name; the login fails closed rather than resolving the repeat to one parser's choice.",
+                    provider?.ReplaceLineEndings(string.Empty));
+                return OidcDiscoveryResult.Unavailable;
+            }
+
             // Both facts come from the raw body of THIS response (the same bytes the metadata below is
             // parsed from), read through the two fail-closed/tolerant pure parsers: PKCE-S256 fails closed
             // (#141, caller rejects only under RequirePkce), response-iss stays tolerant (#210, absence

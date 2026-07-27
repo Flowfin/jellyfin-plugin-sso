@@ -46,12 +46,22 @@ public class OidcDiscoveryReaderTests
         + "\"code_challenge_methods_supported\":[\"S256\"],"
         + "\"authorization_response_iss_parameter_supported\":true}";
 
-    private static OidcClientOptions OptionsFor(string authority, bool requireHttps = true)
+    // The endpoints and the jwks_uri a document needs before IdentityModel will accept it at all, so a test
+    // can vary only the members it is actually about.
+    private static string DiscoveryWith(string members) =>
+        "{"
+        + $"\"authorization_endpoint\":\"{Authority}/authorize\","
+        + $"\"token_endpoint\":\"{Authority}/token\","
+        + $"\"jwks_uri\":\"{Authority}/jwks\","
+        + members
+        + "}";
+
+    private static OidcClientOptions OptionsFor(string authority, bool requireHttps = true, bool validateIssuerName = true)
     {
         var options = new OidcClientOptions { Authority = authority };
         options.Policy.Discovery.AdditionalEndpointBaseAddresses.Add(new Uri(authority).GetLeftPart(UriPartial.Authority));
         options.Policy.Discovery.RequireHttps = requireHttps;
-        options.Policy.Discovery.ValidateIssuerName = true;
+        options.Policy.Discovery.ValidateIssuerName = validateIssuerName;
         options.Policy.Discovery.ValidateEndpoints = true;
         return options;
     }
@@ -146,6 +156,71 @@ public class OidcDiscoveryReaderTests
 
         Assert.False(result.Available);
         Assert.Equal(0, http.DiscoveryRequests); // policy rejected the address before any fetch
+    }
+
+    [Theory]
+    // Each fact the plugin reads out of the raw body, served twice with opposing values (#1005). The library
+    // raises no error on any of them and resolves each to the LAST occurrence, so without the gate the read
+    // would succeed and report the attacker's half of a document the same bytes also promise the other way.
+    [InlineData("\"issuer\":\"" + Authority + "\",\"code_challenge_methods_supported\":[\"S256\"],\"code_challenge_methods_supported\":[\"plain\"]")]
+    [InlineData("\"issuer\":\"" + Authority + "\",\"authorization_response_iss_parameter_supported\":true,\"authorization_response_iss_parameter_supported\":false")]
+    [InlineData("\"issuer\":\"" + Authority + "\",\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\",\"token_endpoint\":\"https://b\"}")]
+    public async Task ReadAsync_DiscoveryRepeatsAPropertyName_ReturnsUnavailable(string members)
+    {
+        var http = new CountingFactory(Serve(DiscoveryWith(members)));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+        Assert.Null(result.ProviderInformation);
+    }
+
+    [Theory]
+    // The positive control for each fixture above: the same document carrying the member ONCE is read, and
+    // the fact it yields is the one the document states. Without this pair the theory above is satisfied by a
+    // reader that refuses every discovery document, which is an outage rather than a guard.
+    [InlineData("\"issuer\":\"" + Authority + "\",\"code_challenge_methods_supported\":[\"S256\"]", true, false)]
+    [InlineData("\"issuer\":\"" + Authority + "\",\"authorization_response_iss_parameter_supported\":true", false, true)]
+    [InlineData("\"issuer\":\"" + Authority + "\",\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\"}", false, false)]
+    public async Task ReadAsync_TheSameDocumentsWithoutTheRepeat_AreRead(string members, bool pkce, bool responseIssuer)
+    {
+        var http = new CountingFactory(Serve(DiscoveryWith(members)));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.Equal(pkce, result.Facts.PkceS256);
+        Assert.Equal(responseIssuer, result.Facts.ResponseIssuerAdvertised);
+    }
+
+    [Fact]
+    public async Task ReadAsync_DuplicatedIssuer_IsRefused_NotResolvedToTheLastOccurrence()
+    {
+        // The sharpest case, and it needs the provider-level DoNotValidateIssuerName hatch to be visible:
+        // with issuer-name validation on, a swapped issuer is caught by that check instead, so the gate would
+        // look effective while proving nothing. Under the hatch — a supported configuration for templated and
+        // multi-tenant IdPs — a document naming `issuer` twice is accepted by the library and resolves to the
+        // LAST occurrence, silently re-pointing the issuer anchor this login binds its canonical link to.
+        var swapped = DiscoveryWith($"\"issuer\":\"{Authority}\",\"issuer\":\"https://attacker.example.com\"");
+        var http = new CountingFactory(Serve(swapped));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority, validateIssuerName: false), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+    }
+
+    [Fact]
+    public async Task ReadAsync_SingleIssuerUnderTheSameHatch_IsReadAndKeepsThatIssuer()
+    {
+        // The positive control on the same subject and the same options: the hatch itself still reads a
+        // document, and the issuer it carries is the issuer the login is bound to.
+        var single = DiscoveryWith("\"issuer\":\"https://tenant.example.com\"");
+        var http = new CountingFactory(Serve(single));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority, validateIssuerName: false), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.Equal("https://tenant.example.com", result.ProviderInformation.IssuerName);
     }
 
     // Serves the given discovery JSON for the well-known document and an empty JWKS for the keyset fetch;
