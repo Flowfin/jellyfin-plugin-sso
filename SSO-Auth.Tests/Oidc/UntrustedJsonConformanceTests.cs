@@ -1,0 +1,181 @@
+// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
+// SPDX-License-Identifier: GPL-3.0-only
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
+using Xunit;
+
+namespace Jellyfin.Plugin.SSO_Auth.Tests;
+
+/// <summary>
+/// The structural half of #1005: the duplicate-property gate is only worth having while every JSON read of
+/// provider-supplied bytes goes through it, and that is a call-level property no reflection over types can
+/// see. It is a source scan, in the shape the SAML hardened-reader ban already uses here — with the same
+/// must-catch / adjacent-must-not-catch fixtures for the scan's own predicate, because a scan nobody has
+/// seen go red is decorative.
+///
+/// This rule lives in its own file rather than in <c>ArchitectureConformanceTests</c> while #1030 is open on
+/// that file; folding it in is tracked as a follow-up.
+/// </summary>
+public class UntrustedJsonConformanceTests
+{
+    // Every JSON read seam, listed by the file it lives in and the file whose gate covers it. Two of the
+    // three are pure readers of the discovery document and are gated at the boundary that fetches it, not
+    // individually: the tolerant one would fail OPEN if it refused a document on its own (its false means
+    // "do not require the RFC 9207 iss"), so the gate belongs where refusing means refusing the login.
+    private static readonly Dictionary<string, string> GatedJsonReads = new(StringComparer.Ordinal)
+    {
+        ["SSO-Auth/Api/Oidc/PkceDiscovery.cs"] = "SSO-Auth/Api/Oidc/OidcDiscoveryReader.cs",
+        ["SSO-Auth/Api/Oidc/OidcResponseIssuer.cs"] = "SSO-Auth/Api/Oidc/OidcDiscoveryReader.cs",
+        ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "SSO-Auth/Api/Oidc/OidcRoleExtractor.cs",
+    };
+
+    // The reads whose input is not provider-supplied, each by EXACT repo-relative path. A suffix match would
+    // exempt any file of that name anywhere under SSO-Auth/, and an allowlist is the last place to be
+    // approximate about identity.
+    private static readonly HashSet<string> TrustedJsonReads = new(StringComparer.Ordinal)
+    {
+        "SSO-Auth/Api/Localization/SsoLocalizer.cs", // per-culture catalogues embedded in the assembly at build
+        "SSO-Auth/Api/Oidc/StrictJson.cs", // the gate itself, which necessarily reads the document it screens
+    };
+
+    private const string GateCall = "StrictJson.HasDuplicateProperty";
+
+    [Fact]
+    public void UntrustedJson_IsParsedOnlyThroughTheStrictHelper()
+    {
+        var sources = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Select(path => (Path: path, Relative: Relative(path)))
+            .ToList();
+
+        // The sentinel. A moved repo root, a renamed project folder or a build-output filter that swallowed
+        // the tree would leave every assertion below trivially satisfied; the rule has to prove it read
+        // something first, and specifically that it read the files it claims to govern.
+        Assert.True(sources.Count > 50, $"The scan found only {sources.Count} source files under SSO-Auth/ — it is not reading the tree it governs.");
+
+        var seams = sources
+            .Select(f => (f.Relative, Seams: JsonReadSeams(File.ReadAllText(f.Path))))
+            .Where(f => f.Seams.Count > 0)
+            .ToDictionary(f => f.Relative, f => f.Seams, StringComparer.Ordinal);
+
+        foreach (var known in GatedJsonReads.Keys.Concat(TrustedJsonReads))
+        {
+            Assert.True(seams.ContainsKey(known), $"{known} is listed as a JSON read site but the scan found no read seam in it — the list has drifted from the code, so the rule is checking nothing there.");
+        }
+
+        var unlisted = seams.Keys
+            .Where(relative => !GatedJsonReads.ContainsKey(relative) && !TrustedJsonReads.Contains(relative))
+            .Select(relative => $"{relative} ({string.Join(", ", seams[relative])})")
+            .ToList();
+
+        Assert.True(
+            unlisted.Count == 0,
+            "A JSON read of provider-supplied bytes must pass the duplicate-property gate, and a new read site must declare which gate covers it (#1005). Ungoverned: " + string.Join(" | ", unlisted));
+
+        var ungated = GatedJsonReads
+            .Where(entry => !File.ReadAllText(Path.Combine(RepoRoot(), entry.Value.Replace('/', Path.DirectorySeparatorChar))).Contains(GateCall, StringComparison.Ordinal))
+            .Select(entry => $"{entry.Key} is declared gated by {entry.Value}, which does not call {GateCall}")
+            .ToList();
+
+        Assert.True(ungated.Count == 0, "A declared gate that never calls the gate is a comment, not a control: " + string.Join(" | ", ungated));
+    }
+
+    [Theory]
+    // The must-catch fixtures for the scan's own predicate. The last three are the spellings a list written
+    // around JObject.Parse alone lets through — each a complete read seam naming none of the first two tokens.
+    [InlineData("var o = JObject.Parse(body);")]
+    [InlineData("var f = JsonConvert.DeserializeObject<Foo>(body);")]
+    [InlineData("using var d = JsonDocument.Parse(body);")]
+    [InlineData("var f = JsonSerializer.Deserialize<Foo>(body);")]
+    [InlineData("var n = JsonNode.Parse(body);")]
+    [InlineData("var t = JToken.Parse(body);")]
+    [InlineData("var a = JArray.Parse(body);")]
+    [InlineData("var r = new Utf8JsonReader(bytes);")]
+    public void UnguardedJsonRead_IsRejectedByTheScan(string statement)
+    {
+        Assert.NotEmpty(JsonReadSeams(statement));
+    }
+
+    [Theory]
+    // The adjacent must-not-catch fixtures. The write side is the one that matters: the served auth pages
+    // serialise a dozen localised strings through JsonSerializer.Serialize, and a predicate that matched the
+    // type name rather than the read call would flag every one of them and be switched off within a week.
+    [InlineData("var json = JsonSerializer.Serialize(value);")]
+    [InlineData("[System.Text.Json.Serialization.JsonConverter(typeof(WriteOnlySecretConverter))]")]
+    [InlineData("using Newtonsoft.Json.Linq;")]
+    [InlineData("var o = new JObject();")]
+    [InlineData("public override string? Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o)")]
+    public void NonReadingJsonUse_IsNotFlaggedByTheScan(string statement)
+    {
+        Assert.Empty(JsonReadSeams(statement));
+    }
+
+    [Fact]
+    public void StrictJson_NeverDependsOnJsonSerializerOptions()
+    {
+        // The gate must reach the same decision on net9.0 and net10.0, and the System.Text.Json members that
+        // would express it directly do not exist on both: referencing JsonSerializerOptions.Strict fails the
+        // net9.0 build with CS0117, because the plugin binds the HOST's System.Text.Json — .NET 9's in the
+        // Jellyfin 10.11 line. Writing the gate in terms of any of these would make one leg silently weaker,
+        // and no test in this project could see it: this test process loads a 10.x System.Text.Json on BOTH
+        // legs, so the assembly a test observes is never the one production binds.
+        // Read as CODE, with the comments stripped. The gate's own documentation has to name the members it
+        // refuses to use in order to explain why it does not use them, and a rule that cannot tell prose from
+        // a call would force that reasoning out of the file to stay green.
+        var gate = CodeOf(File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Oidc", "StrictJson.cs")));
+
+        Assert.Contains("Utf8JsonReader", gate, StringComparison.Ordinal);
+        foreach (var forbidden in new[] { "JsonSerializerOptions", "AllowDuplicateProperties", "JsonSerializer.Deserialize", "JsonDocument.Parse" })
+        {
+            Assert.DoesNotContain(forbidden, gate, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void TheCodeReaderKeepsCallsAndDropsProse()
+    {
+        // The must-catch / must-not-catch pair for the stripper the rule above depends on. Without it the
+        // rule could be made green by a stripper that deleted everything, which would assert nothing at all —
+        // and its Contains half would be the only thing standing in the way.
+        var stripped = CodeOf("/// A doc comment naming JsonSerializerOptions.\nvar r = new Utf8JsonReader(b); // JsonDocument.Parse\n/* JsonSerializer.Deserialize */");
+
+        Assert.Contains("new Utf8JsonReader(b);", stripped, StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonSerializerOptions", stripped, StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonDocument.Parse", stripped, StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonSerializer.Deserialize", stripped, StringComparison.Ordinal);
+    }
+
+    // The source with its comments removed, block comments before line comments so that a `//` inside a block
+    // cannot end a line early. Adequate here because the gate holds no string literal carrying either marker,
+    // which the pair above keeps honest.
+    private static string CodeOf(string source) =>
+        Regex.Replace(Regex.Replace(source, @"/\*.*?\*/", string.Empty, RegexOptions.Singleline), @"//[^\n]*", string.Empty);
+
+    // The read seams, as calls rather than as type names: the write side of the very same types is used
+    // throughout the served pages and must not be caught. Utf8JsonReader is included by construction because
+    // a hand-rolled walk is a read of the whole document, gate or bypass depending on where it sits.
+    private static IReadOnlyList<string> JsonReadSeams(string source) =>
+        Regex.Matches(
+                source,
+                @"\b(?:(?:JObject|JArray|JToken|JsonDocument|JsonNode)\.Parse|JsonConvert\.DeserializeObject|JsonSerializer\.Deserialize|new\s+Utf8JsonReader)\b")
+            .Select(m => m.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    private static bool IsBuildOutput(string path) =>
+        path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+        || path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+
+    private static string Relative(string path) =>
+        Path.GetRelativePath(RepoRoot(), path).Replace(Path.DirectorySeparatorChar, '/');
+
+    // The repository root, from this file's compile-time path (<root>/SSO-Auth.Tests/Oidc/<file>).
+    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
+        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
+}
