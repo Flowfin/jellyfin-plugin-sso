@@ -2526,27 +2526,43 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
-    public void EveryHarnessUsingTestClass_IsInTheNonParallelControllerCollection()
+    public void EveryTestClassMutatingProcessWideState_IsInTheNonParallelControllerCollection()
     {
         // The SsoControllerHarness constructor swaps the process-wide SSOPlugin.Instance and resets the
         // OIDC/SAML static caches — two harness-based classes running in parallel therefore race each
         // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
         // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
-        // self-enforcing: a NEW test class that constructs the harness without joining the collection is
+        // self-enforcing: a NEW test class that mutates that state without joining the collection is
         // a red build naming the file, not a flaky suite three weeks later.
+        //
+        // The harness is not the only door to that state, and keying the rule on it alone left the other one
+        // unguarded (#1004): a `*ForTests()` reset hook clears the SAME process-wide replay caches and state
+        // stores directly. A class in the serialized collection is serialized against the others IN it, never
+        // against a class outside it — xUnit runs an un-attributed class in its own implicit collection, in
+        // parallel with this one — so any class calling a reset hook must join too, or it races the harness
+        // classes that reset the same static.
         var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
         var offenders = new List<string>();
+        var mutators = 0;
         foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
         {
-            // Skip THIS file: it carries the scanned literal inside the rule itself, not a harness use.
+            // Skip THIS file: it carries the scanned literals inside the rule itself, not a real use.
             if (IsBuildOutput(src) || Path.GetFileName(src) == "ArchitectureConformanceTests.cs")
             {
                 continue;
             }
 
             var text = File.ReadAllText(src);
-            if (text.Contains("new SsoControllerHarness", StringComparison.Ordinal)
-                && !text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
+            var isTestClass = text.Contains("[Fact]", StringComparison.Ordinal) || text.Contains("[Theory]", StringComparison.Ordinal);
+            var mutatesProcessWideState = text.Contains("new SsoControllerHarness", StringComparison.Ordinal)
+                || text.Contains("ForTests()", StringComparison.Ordinal);
+            if (!isTestClass || !mutatesProcessWideState)
+            {
+                continue;
+            }
+
+            mutators++;
+            if (!text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
             {
                 offenders.Add(Path.GetFileName(src));
             }
@@ -2554,14 +2570,11 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "Every test class constructing SsoControllerHarness must carry [Collection(\"SSOController\")] (the harness swaps process-wide statics; parallel classes race). Missing in: " + string.Join(", ", offenders));
+            "Every test class that constructs SsoControllerHarness or calls a *ForTests() reset hook must carry [Collection(\"SSOController\")] (both mutate process-wide statics; classes outside the collection run in parallel with it). Missing in: " + string.Join(", ", offenders));
 
-        // Liveness sentinel: the scan must actually see the known harness users, or a harness rename has
-        // silently blinded it.
-        Assert.True(
-            Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
-                .Count(f => !IsBuildOutput(f) && File.ReadAllText(f).Contains("new SsoControllerHarness", StringComparison.Ordinal)) >= 10,
-            "The harness-usage scan matched fewer than 10 files — SsoControllerHarness was renamed; update this rule.");
+        // Liveness sentinel: the scan must actually see the known mutators, or a rename has silently blinded
+        // it. The floor covers the harness users alone, so it stays meaningful if the reset hooks are renamed.
+        Assert.True(mutators >= 14, $"The process-wide-state scan matched only {mutators} test classes — SsoControllerHarness or the *ForTests() hooks were renamed; update this rule.");
     }
 
     [Fact]
@@ -2601,30 +2614,70 @@ public class ArchitectureConformanceTests
             "Every C# source file must open with the SPDX copyright + GPL-3.0-only header (#747). Missing or incorrect in: " + string.Join(", ", offenders));
     }
 
+    /// <summary>
+    /// Threat model (#1004). Adversary: anyone who can present a JWT to the OIDC callback or to the anonymous
+    /// back-channel logout endpoint. Asset: the decision that a provider token is authentic. The threat this
+    /// rule exists for is not a bad allowlist but a SECOND verification path — parameters built somewhere
+    /// other than <see cref="OidcSignatureKeys"/>, reached by a token the forgery battery never drives, and
+    /// missing a field the basis sets. One such construction without <c>ValidAlgorithms</c> re-opens the
+    /// algorithm-confusion class in a single line; one without <c>RequireSignedTokens</c> re-opens
+    /// <c>alg: none</c>. STRIDE: spoofing. ASVS 5.0 V9.2 (token signature and algorithm verification).
+    ///
+    /// The guard is a source scan, and its LIMIT is the reason it has three terms rather than one. A scan
+    /// cannot resolve a target type, so a substring search for <c>new TokenValidationParameters</c> alone is
+    /// walked past by <c>TokenValidationParameters p = new()</c> — house style in this repo. Term 1 catches
+    /// the explicit spelling, term 2 the target-typed one (a <c>= new(</c>/<c>= new {</c> on a line that names
+    /// the type), and term 3 closes the only construction a source scan cannot see at all: a bare
+    /// <c>new() { … }</c> passed straight into a parameter of that type, which names the type nowhere. Such a
+    /// call must still reach a handler validation entry point, and term 3 pins those to the two validators.
+    /// Verifying a provider JWT without tripping any of the three would take reflection.
+    /// </summary>
     [Fact]
     public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
     {
-        // #1004. Every JWT the plugin verifies against a provider — the id_token and the back-channel
-        // logout_token — is validated from parameters built in ONE place, so their posture cannot drift apart.
-        // The property that makes the forgery battery in OidcTokenForgeryTests meaningful is exactly this: a
-        // SECOND `new TokenValidationParameters` anywhere would be a verification path those tests never reach,
-        // and one constructed without ValidAlgorithms accepts whatever the token header's `alg` claims — the
-        // algorithm-confusion class in one line. The rule is a source scan rather than a type-level rule
-        // because the defect is a construction site, which reflection cannot see.
-        //
-        // Sentinel against a vacuous pass: the count is pinned to EXACTLY one, not "at most one". A rule that
-        // tolerates zero passes just as happily after the builder is renamed or the scan is pointed at the
-        // wrong tree, and would then be protecting nothing while reading as protection.
-        var constructionSites = Directory
+        // Sentinel against a vacuous pass: each set is pinned to EXACTLY the expected files, not to "at most".
+        // A rule that tolerates zero passes just as happily after the builder is renamed or the scan is
+        // pointed at the wrong tree, and would then be protecting nothing while reading as protection.
+        var production = Directory
             .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
-            .Where(path => CodeLines(path).Any(l => l.Text.Contains("new TokenValidationParameters", StringComparison.Ordinal)))
+            .ToList();
+
+        var constructionSites = production
+            .Where(path => CodeLines(path).Any(l => ConstructsValidationParameters(l.Text)))
             .Select(path => Path.GetRelativePath(RepoRoot(), path))
             .ToList();
 
         Assert.True(
             constructionSites.Count == 1 && string.Equals(constructionSites[0], SignatureBasisRelativePath, StringComparison.Ordinal),
             $"TokenValidationParameters must be constructed in exactly one file ({SignatureBasisRelativePath}) — a second construction site is a second verification path the forgery tests never reach, and one built without ValidAlgorithms trusts the token header's own `alg` (#1004). Found: " + string.Join(", ", constructionSites));
+
+        // Term 2's precondition: only the basis and the logout validator may NAME the type at all. Without
+        // this, a target-typed construction lands in a new file and the line-level check above has to be
+        // trusted to have matched every way of spelling it; with it, any new file touching the type is a red
+        // build that a human reads.
+        var mentions = production
+            .Where(path => CodeLines(path).Any(l => l.Text.Contains("TokenValidationParameters", StringComparison.Ordinal)))
+            .Select(path => Path.GetRelativePath(RepoRoot(), path))
+            .ToList();
+
+        Assert.Equal(
+            new[] { SignatureBasisRelativePath, LogoutValidatorRelativePath }.OrderBy(p => p, StringComparer.Ordinal),
+            mentions.OrderBy(p => p, StringComparer.Ordinal));
+
+        // Term 3: the handler entry points that consume those parameters. A `new() { … }` written straight
+        // into one of these calls names the type nowhere and neither scan above can see it — but the call
+        // itself must be spelled, and only the two validators may spell it.
+        var validationCallSites = production
+            .Where(path => CodeLines(path).Any(l =>
+                l.Text.Contains("ValidateTokenAsync(", StringComparison.Ordinal)
+                || l.Text.Contains("ValidateToken(", StringComparison.Ordinal)))
+            .Select(path => Path.GetRelativePath(RepoRoot(), path))
+            .ToList();
+
+        Assert.Equal(
+            new[] { IdTokenValidatorRelativePath, LogoutValidatorRelativePath }.OrderBy(p => p, StringComparer.Ordinal),
+            validationCallSites.OrderBy(p => p, StringComparer.Ordinal));
 
         // The allowlist's CONTENT, read off the production type rather than re-stated here. Symmetric HS* would
         // accept a token minted by anyone holding the shared client secret (the RS256-public-key-as-HMAC-key
@@ -2987,8 +3040,20 @@ public class ArchitectureConformanceTests
     // rule cannot disagree about where the boundary is.
     private static readonly string SamlModuleRelativePath = Path.Combine("SSO-Auth", "Api", "Saml");
 
-    // The ONE file allowed to construct TokenValidationParameters — the shared OpenID signature basis (#1004).
+    // The ONE file allowed to construct TokenValidationParameters — the shared OpenID signature basis (#1004)
+    // — and the two validators allowed to consume them at a handler entry point.
     private static readonly string SignatureBasisRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcSignatureKeys.cs");
+    private static readonly string IdTokenValidatorRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcIdTokenValidator.cs");
+    private static readonly string LogoutValidatorRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcLogoutTokenValidator.cs");
+
+    // Whether a code line constructs TokenValidationParameters, in either spelling C# offers: the explicit
+    // `new TokenValidationParameters`, or a target-typed `= new()` / `= new {` on a line that names the type
+    // (`TokenValidationParameters p = new();`). The second is what a substring scan for the first walks past,
+    // and `= new()` is house style in this repo.
+    private static bool ConstructsValidationParameters(string line) =>
+        line.Contains("new TokenValidationParameters", StringComparison.Ordinal)
+        || (line.Contains("TokenValidationParameters", StringComparison.Ordinal)
+            && Regex.IsMatch(line, @"=\s*new\s*[({]"));
 
     // Every XML stack that is NOT the one the SAML signature path is allowed to use (#1003). ONE list, shared
     // by the in-module ban and the out-of-module ban: a hand-rolled subset in either place is how a rule

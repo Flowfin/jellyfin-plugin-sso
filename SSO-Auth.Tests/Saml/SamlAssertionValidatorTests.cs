@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// allow-list and threads that list in here, so the privilege derivation must consume the roles it is
 /// PASSED rather than re-reading the assertion — the property the dedup relies on.
 /// </summary>
+[Collection("SSOController")]
 public class SamlAssertionValidatorTests
 {
     private static SamlResponse SignedResponse(string role)

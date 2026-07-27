@@ -142,14 +142,20 @@ public class OidcRoundTripTests
     }
 
     [Fact]
-    public async Task TokenRequest_RepeatsTheChallengeRedirectUriByteForByte()
+    public async Task TokenRequest_RepeatsTheChallengeRedirectUriValue()
     {
         // #1004, RFC 6749 §4.1.3. Exact-string redirect_uri matching is the authorization server's check, and
-        // the relying party's obligation is the input to it: the redirect_uri on the token request must be
-        // byte-identical to the one on the authorization request, or the server refuses the exchange. Builder
+        // the relying party's obligation is the input to it: the redirect_uri on the token request must be the
+        // same value as the one on the authorization request, or the server refuses the exchange. Builder
         // equality is already pinned by OidcRedirectUriBuilderTests; that compares what the two builder methods
         // RETURN, while this compares what actually leaves the process — the authorize URL against the token
         // POST body.
+        //
+        // The comparison is of DECODED values, not of the wire bytes, and the test claims no more than that: a
+        // URL query and an application/x-www-form-urlencoded body legitimately encode the same value
+        // differently (a space is %20 in one and + in the other), so a byte-wise comparison across the two
+        // carriers would fail on an identical value. What the AS compares is the decoded string, which is what
+        // is compared here.
         //
         // What supplies the wire value was measured, not assumed: today it comes from OidcClient replaying the
         // redirect_uri stored on the AuthorizeState at challenge time, NOT from the callback-side builder. So a
@@ -197,9 +203,12 @@ public class OidcRoundTripTests
         //
         // Asserted empirically on the real flow rather than by scanning source for a token variable, because a
         // source scan proves only that one spelling of the leak is absent. Here the token is a known string and
-        // the two places it could escape are inspected directly: every field of the AuthenticationRequest
-        // handed to Jellyfin's session manager, and the body returned to the client. The only credential that
-        // may cross either boundary is the session Jellyfin itself mints.
+        // all THREE places it could escape are inspected directly: the HTML the callback hands the browser,
+        // every field of the AuthenticationRequest handed to Jellyfin's session manager, and the body returned
+        // to the client. The callback page is inspected because it is the first thing that reaches the browser
+        // and the only one an operator would not see in an API response — an id_token embedded in that markup
+        // leaks to anything that can read the page. The only credential that may cross any of the three
+        // boundaries is the session Jellyfin itself mints.
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var idToken = fixture.IdToken(subject: "sub-1", username: "alice");
         var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, idToken));
@@ -220,7 +229,10 @@ public class OidcRoundTripTests
 
         var (state, binding) = await DriveChallenge(harness);
         RepointToCallback(harness, state, binding, query: $"?code=test-code&state={state}");
-        Assert.Equal("text/html", Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state)).ContentType);
+        var callback = Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state));
+        Assert.Equal("text/html", callback.ContentType);
+        Assert.NotNull(callback.Content);
+        Assert.DoesNotContain(idToken, callback.Content, StringComparison.Ordinal);
 
         var authed = Assert.IsType<OkObjectResult>(await harness.Controller.OidAuth("kc", Redeem(state)));
 

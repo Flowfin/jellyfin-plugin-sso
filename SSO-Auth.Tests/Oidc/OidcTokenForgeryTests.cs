@@ -15,33 +15,45 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// The JWT forgery battery (#1004): the token shapes an attacker actually submits, each asserted to be
-/// rejected on BOTH paths that verify a provider JWT — the login id_token
-/// (<see cref="OidcIdTokenValidator"/>) and the anonymous back-channel <c>logout_token</c>
-/// (<see cref="OidcLogoutTokenValidator"/>), which share the one
+/// The JWT forgery battery (#1004): token shapes an attacker can compose, each asserted to be rejected on
+/// BOTH paths that verify a provider JWT — the login id_token (<see cref="OidcIdTokenValidator"/>) and the
+/// anonymous back-channel <c>logout_token</c> (<see cref="OidcLogoutTokenValidator"/>), which share the one
 /// <see cref="OidcSignatureKeys"/> basis that <c>OidcTokenValidation_UsesTheSingleHardenedParameterBuilder</c>
 /// pins as the only one.
 ///
-/// These tokens are assembled BY HAND rather than through <see cref="JsonWebTokenHandler"/>. That is the
-/// point of the file: the handler is a well-behaved issuer and will not emit an <c>alg</c> the JWS spec
-/// forbids, a case-mangled header, or a stripped signature, so a test that mints its "forgeries" through it
-/// proves only that the library declines to attack itself. Composing the three base64url segments directly
-/// is what puts the attacker's actual bytes on the wire.
+/// Tokens are assembled BY HAND rather than through <see cref="JsonWebTokenHandler"/> wherever the shape
+/// requires it: the handler is a well-behaved issuer and will not emit an <c>alg</c> the JWS spec forbids, a
+/// case-mangled header, or a stripped signature, so a "forgery" minted through it proves only that the
+/// library declines to attack itself.
 ///
-/// Every test asserts the same two things — the result is an error, and NO principal or subject identity
-/// comes back — because "rejected" and "rejected without leaking an identity the caller might act on" are
-/// different properties, and only the second is worth having.
+/// What each rejection is ATTRIBUTABLE to is not uniform, and the file does not pretend otherwise. Most of
+/// these shapes are refused by the key/signature layer, and would still be refused with the algorithm
+/// allowlist deleted — they establish that the posture holds, not which term holds it. The tests that isolate
+/// a single term carry their own in-test control, which fails if that term stops deciding:
+/// <see cref="AlgorithmAllowlist_RefusesAnHs256TokenTheKeySetWouldOtherwiseVerify"/> for the allowlist and
+/// <see cref="HostileKidValues_DecideNothing_AndNeverThrow"/> for <c>kid</c> handling.
+///
+/// Every rejection asserts two things — an error, and NO principal or subject identity coming back —
+/// because "rejected" and "rejected without leaking an identity the caller might act on" are different
+/// properties and only the second is worth having.
 /// </summary>
+[Collection("SSOController")]
 public sealed class OidcTokenForgeryTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";
     private const string ClientId = "jellyfin-client";
     private const string KeyId = "test-signing-key";
+    private const string SharedSecretKeyId = "advertised-shared-secret";
     private const string LogoutEvent = "http://schemas.openid.net/event/backchannel-logout";
 
     private static readonly TimeSpan Skew = TimeSpan.FromMinutes(5);
 
     private readonly RSA _rsa = RSA.Create(2048);
+
+    // The disposal contract BuildValidationParameters imposes on its caller, honoured here exactly as both
+    // production callers honour it: an EC key advertised in a JWKS yields a native ECDsa handle that is the
+    // caller's to release.
+    private readonly List<IDisposable> _ephemeralKeys = new List<IDisposable>();
     private readonly OidcIdTokenValidator _idTokenValidator = new();
     private readonly OidcLogoutTokenValidator _logoutTokenValidator = new();
 
@@ -49,6 +61,11 @@ public sealed class OidcTokenForgeryTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var key in _ephemeralKeys)
+        {
+            key.Dispose();
+        }
+
         _rsa.Dispose();
         OidcLogoutTokenValidator.ResetReplaysForTests();
     }
@@ -59,8 +76,8 @@ public sealed class OidcTokenForgeryTests : IDisposable
     {
         // The oldest forgery in the catalogue: claims that are byte-for-byte acceptable (right issuer,
         // audience and lifetime), a header declaring the token needs no signature, and an empty third
-        // segment. It is refused because the allowlist is asymmetric-only and RequireSignedTokens is set —
-        // the accepted algorithms are decided by us, never read off the header the attacker wrote.
+        // segment. RequireSignedTokens is what refuses it — measured, not assumed: with ValidAlgorithms
+        // removed it still rejects, so this row pins the fail-closed outcome and not the allowlist.
         var forged = Jws("{\"alg\":\"none\",\"typ\":\"JWT\"}", IdTokenPayload(), signature: string.Empty);
 
         await AssertIdTokenRejected(forged);
@@ -76,9 +93,8 @@ public sealed class OidcTokenForgeryTests : IDisposable
     {
         // The bypass for a validator that compares the header against a denylist ordinally: JWS `alg` values
         // are case-sensitive, so "None" is not the registered "none" and slips past a check spelled that way.
-        // An ALLOWLIST is immune by construction — every one of these is simply not in it — and that immunity
-        // is what this theory pins, since it is the reason the code carries no `alg == "none"` comparison at
-        // all and a reviewer might otherwise "helpfully" add one.
+        // The plugin carries no `alg == "none"` comparison at all, and this theory is why a reviewer must not
+        // "helpfully" add one — an allowlist is immune to the whole family by construction.
         var forged = Jws($"{{\"alg\":\"{alg}\",\"typ\":\"JWT\"}}", IdTokenPayload(), signature: string.Empty);
 
         await AssertIdTokenRejected(forged);
@@ -88,17 +104,55 @@ public sealed class OidcTokenForgeryTests : IDisposable
     [Trait("Spec", "RFC 7518")]
     public async Task IdToken_Rs256PublicKeyReplayedAsHs256Mac_IsRejected()
     {
-        // Algorithm confusion, the forgery that makes the asymmetric-only allowlist load-bearing. The RSA
-        // public key is published in the JWKS, so the attacker HAS it; declaring HS256 invites the verifier to
-        // treat that public material as an HMAC secret, which the attacker can also compute over. The token
-        // then verifies against the provider's own advertised key. Both spellings of the key material are
-        // tried — the SPKI DER bytes and the modulus, the two an implementation would plausibly hand the HMAC
-        // — because a defence that stops one and not the other is not a defence.
+        // Algorithm confusion as an attacker can actually mount it here: the RSA public key is published in
+        // the JWKS, so the attacker HAS it, and declaring HS256 invites a verifier to treat that public
+        // material as an HMAC secret. Both spellings are tried — SPKI DER bytes and the bare modulus — since
+        // a defence that stops one and not the other is not a defence. On this stack the refusal comes from
+        // key typing (an RsaSecurityKey is never handed to an HMAC), NOT from the allowlist; the allowlist's
+        // own load-bearing case is the test below.
         var publicKey = _rsa.ExportSubjectPublicKeyInfo();
         var modulus = _rsa.ExportParameters(false).Modulus!;
 
-        await AssertIdTokenRejected(Hs256(IdTokenPayload(), publicKey));
-        await AssertIdTokenRejected(Hs256(IdTokenPayload(), modulus));
+        await AssertIdTokenRejected(Hs256(IdTokenPayload(), publicKey, KeyId));
+        await AssertIdTokenRejected(Hs256(IdTokenPayload(), modulus, KeyId));
+    }
+
+    [Fact]
+    [Trait("Spec", "RFC 7518")]
+    public async Task AlgorithmAllowlist_RefusesAnHs256TokenTheKeySetWouldOtherwiseVerify()
+    {
+        // The shape where ValidAlgorithms is the DECIDING term, which none of the rows above is: a token
+        // whose signature the advertised key set can verify, refused only because HS256 is not on the list.
+        // The symmetric key is placed into the key set by hand because today's JWK conversion never yields
+        // one — that is a separate property, pinned by SymmetricJwksKey_IsNeverConvertedToASigningKey — and
+        // the allowlist is the second layer that has to hold when the first fails, which is one "our IdP
+        // wants HS256" commit away. A secret advertised in a JWKS is held by every party that reads it, so
+        // anyone could mint this token.
+        var secret = RandomNumberGenerator.GetBytes(32);
+        var forged = Hs256(IdTokenPayload(), secret, SharedSecretKeyId);
+        var keys = new List<SecurityKey>(Params().IssuerSigningKeys)
+        {
+            new SymmetricSecurityKey(secret) { KeyId = SharedSecretKeyId },
+        };
+
+        var hardened = Params();
+        hardened.IssuerSigningKeys = keys;
+
+        // The control that makes the assertion load-bearing rather than one more rejection of unknown cause:
+        // the SAME token against the SAME keys with ONLY ValidAlgorithms removed is ACCEPTED. That pins the
+        // refusal to that one field — deleting it from OidcSignatureKeys turns this test red, which is
+        // exactly what the rest of the battery does not do.
+        var withoutAllowlist = Params();
+        withoutAllowlist.IssuerSigningKeys = keys;
+        withoutAllowlist.ValidAlgorithms = null;
+
+        var refused = await new JsonWebTokenHandler().ValidateTokenAsync(forged, hardened);
+        var accepted = await new JsonWebTokenHandler().ValidateTokenAsync(forged, withoutAllowlist);
+
+        Assert.False(refused.IsValid, "The HS256 forgery was accepted under the hardened basis.");
+        Assert.True(
+            accepted.IsValid,
+            "The control did not verify, so the forgery is being refused by something other than the allowlist and this test proves nothing about it.");
     }
 
     [Fact]
@@ -106,13 +160,11 @@ public sealed class OidcTokenForgeryTests : IDisposable
     public async Task IdToken_SignatureStripped_IsRejected()
     {
         // A genuine, correctly signed token whose signature segment is deleted in transit. The header still
-        // says RS256, so an allowlist check alone passes — what refuses it is that the signature must actually
-        // verify. Covers the gap between "the algorithm is acceptable" and "the token is authentic".
-        var signed = new JsonWebTokenHandler().CreateToken(IdTokenDescriptor());
-        var parts = signed.Split('.');
-        var stripped = parts[0] + "." + parts[1] + ".";
+        // says RS256, so an allowlist check alone passes — what refuses it is that the signature must
+        // actually verify. Covers the gap between "the algorithm is acceptable" and "the token is authentic".
+        var parts = new JsonWebTokenHandler().CreateToken(IdTokenDescriptor()).Split('.');
 
-        await AssertIdTokenRejected(stripped);
+        await AssertIdTokenRejected(parts[0] + "." + parts[1] + ".");
     }
 
     [Fact]
@@ -120,16 +172,30 @@ public sealed class OidcTokenForgeryTests : IDisposable
     public async Task IdToken_ForgedSignature_ClaimingTheTrustedKid_IsRejected()
     {
         // The header's `kid` names the key the JWKS advertises, but the token is signed by the attacker's own
-        // RSA key. A `kid` is an unauthenticated routing hint written by whoever composed the token; it
-        // selects which key verifies, and can never itself vouch for a signature. The rejection also maps to
-        // the "invalid_signature" contract, which is what makes OidcClient refresh the JWKS and retry once —
-        // so this asserts a forgery lands on the same benign path a genuine key rotation does, rather than
-        // being distinguishable from it.
+        // RSA key. The rejection maps to the "invalid_signature" contract, which is what makes OidcClient
+        // refresh the JWKS and retry once — so a forgery lands on the same benign path a genuine key rotation
+        // does, rather than being distinguishable from it.
         using var attacker = RSA.Create(2048);
-        var forged = new JsonWebTokenHandler().CreateToken(IdTokenDescriptor(signingKey: attacker));
+        var forged = SignedWith(IdTokenDescriptor(), attacker, KeyId);
 
         var result = await AssertIdTokenRejected(forged);
         Assert.Equal("invalid_signature", result.Error);
+    }
+
+    [Fact]
+    [Trait("Spec", "RFC 7515")]
+    public async Task IdToken_HeaderSuppliedKeyMaterial_IsNeverConsulted()
+    {
+        // Real JWS header injection, RFC 7515 §4.1.2/§4.1.5/§4.1.6: `jku` and `x5u` name a URL a verifier
+        // could fetch a key from and `x5c` carries one inline. The token is signed by the attacker's key and
+        // the header hands that same key over all three ways, so a verifier that consulted ANY of them would
+        // accept it — which is what makes the rejection attributable to the header material being ignored
+        // rather than to the signature. Consulting it is not something to acquire by accident later: an
+        // IssuerSigningKeyResolver that reads x5c turns this test red.
+        using var attacker = RSA.Create(2048);
+        var forged = HeaderInjected(IdTokenPayload(), attacker);
+
+        await AssertIdTokenRejected(forged);
     }
 
     [Theory]
@@ -143,25 +209,29 @@ public sealed class OidcTokenForgeryTests : IDisposable
     [InlineData("' OR '1'='1")]
     [InlineData("\"><script>alert(1)</script>")]
     [InlineData("{\"jku\":\"https://attacker.example/keys\"}")]
-    public async Task IdToken_HostileKidValues_NeverAuthenticate_AndNeverThrow(string kid)
+    public async Task HostileKidValues_DecideNothing_AndNeverThrow(string kid)
     {
         // The `kid` injection class: path traversal, a null byte, quote/SQL and markup metacharacters, and a
-        // nested-JSON smuggling attempt. Each is carried on a token the attacker signed with their own key, so
-        // the ONLY thing that could let it in is the header value being treated as something other than an
-        // opaque lookup hint.
+        // nested-JSON smuggling attempt. Asserting only that a hostile `kid` is rejected would be
+        // unfalsifiable — the token carries an attacker signature, which can never verify whatever the kid
+        // handling does. So two tokens are submitted that differ ONLY in who signed them: the provider-signed
+        // one is ACCEPTED and the foreign-signed one is REJECTED, for every hostile spelling. That difference
+        // is the property — the value decides nothing, opening no path and closing none.
         //
-        // Two properties, not one. Rejection is the obvious half. The other half is that it must be a clean
-        // error rather than an exception: the id_token validator runs inside the OIDC callback, where a throw
-        // surfaces as a 500 — an attacker-triggerable oracle that distinguishes hostile input from an ordinary
-        // bad signature, and a denial-of-service lever on the login path. Awaiting the call outside any
-        // assertion is what proves it: an exception fails the test on its own.
+        // The second property is that neither is an exception. The id_token validator runs inside the OIDC
+        // callback, where a throw surfaces as a 500: an attacker-triggerable oracle distinguishing hostile
+        // input from an ordinary bad signature, and a denial-of-service lever on the login path. Awaiting
+        // both calls outside any assertion is what proves it.
+        //
+        // The acceptance half deliberately flips if the `kid` allowlist of #1029 lands — that change must be
+        // a conscious one, not a silent posture shift.
         using var attacker = RSA.Create(2048);
-        var descriptor = IdTokenDescriptor(signingKey: attacker);
-        descriptor.SigningCredentials = new SigningCredentials(
-            new RsaSecurityKey(attacker) { KeyId = kid }, SecurityAlgorithms.RsaSha256);
-        var forged = new JsonWebTokenHandler().CreateToken(descriptor);
 
-        await AssertIdTokenRejected(forged);
+        var accepted = await _idTokenValidator.ValidateAsync(
+            SignedWith(IdTokenDescriptor(), _rsa, kid), Options(), TestContext.Current.CancellationToken);
+
+        Assert.False(accepted.IsError, accepted.Error);
+        await AssertIdTokenRejected(SignedWith(IdTokenDescriptor(), attacker, kid));
     }
 
     [Theory]
@@ -176,13 +246,13 @@ public sealed class OidcTokenForgeryTests : IDisposable
     {
         // The back-channel endpoint is ANONYMOUS — the signature is the only thing authenticating the caller,
         // and a token accepted here revokes a user's sessions. It shares the id_token's validation basis, and
-        // the whole value of sharing is that the two cannot drift; a shared builder proves that only while
-        // BOTH paths are actually driven through the same attacks. So every forgery above is re-run here
-        // rather than reasoned about.
+        // a shared builder proves the two cannot drift only while BOTH paths are actually driven through the
+        // same attacks, so every forgery above is re-run here rather than reasoned about.
         //
-        // The assertion pins the fixed reason code as well as the rejection: these codes are written to the
-        // audit trail and are deliberately request-independent, so a forgery must not be reportable in a way
-        // that distinguishes it from any other invalid token (no subject-identifier oracle).
+        // The reason code is pinned as the current contract, not as a claim that one code is the right
+        // answer: all six shapes report the same code, so the audit trail cannot tell alg-none from a
+        // stripped signature. Token shape carries no subject identifier, so the "no subject-identifier
+        // oracle" rationale does not by itself justify collapsing them — separating the codes is #1039.
         var forged = LogoutForgery(kind);
 
         var result = await _logoutTokenValidator.ValidateAsync(forged, Params(), Skew, DateTime.UtcNow);
@@ -197,10 +267,10 @@ public sealed class OidcTokenForgeryTests : IDisposable
     [Trait("Spec", "OIDC-Backchannel-Logout-1.0")]
     public async Task LogoutToken_GenuinelySigned_Succeeds_ProvingTheForgeryBatteryIsNotVacuous()
     {
-        // The positive control the battery needs to mean anything. Every test above asserts a rejection, and a
-        // validation path that rejected EVERYTHING — a broken JWKS, a wrong audience constant in the fixture —
-        // would pass all of them while proving nothing about forgeries. One genuinely signed token, built by
-        // the same helpers with the same parameters, has to be accepted for the rejections to carry weight.
+        // The positive control the battery needs to mean anything. Every test above asserts a rejection, and
+        // a validation path that rejected EVERYTHING — a broken JWKS, a wrong audience constant in the
+        // fixture — would pass all of them while proving nothing. One genuinely signed token, built by the
+        // same helpers with the same parameters, has to be accepted for the rejections to carry weight.
         var genuine = new JsonWebTokenHandler().CreateToken(LogoutTokenDescriptor());
 
         var result = await _logoutTokenValidator.ValidateAsync(genuine, Params(), Skew, DateTime.UtcNow);
@@ -258,30 +328,37 @@ public sealed class OidcTokenForgeryTests : IDisposable
         return result;
     }
 
-    // Builds the requested forgery over a valid logout_token payload.
-    private string LogoutForgery(ForgeryKind kind)
+    // Builds the requested forgery over a valid logout_token payload. A switch EXPRESSION with a throwing
+    // default: a seventh ForgeryKind added without a case here fails loudly instead of being silently tested
+    // as whichever shape a catch-all arm happened to build.
+    private string LogoutForgery(ForgeryKind kind) => kind switch
     {
-        switch (kind)
-        {
-            case ForgeryKind.AlgNone:
-                return Jws("{\"alg\":\"none\",\"typ\":\"JWT\"}", LogoutTokenPayload(), signature: string.Empty);
-            case ForgeryKind.AlgNoneMixedCase:
-                return Jws("{\"alg\":\"None\",\"typ\":\"JWT\"}", LogoutTokenPayload(), signature: string.Empty);
-            case ForgeryKind.Hs256WithPublicKey:
-                return Hs256(LogoutTokenPayload(), _rsa.ExportSubjectPublicKeyInfo());
-            case ForgeryKind.SignatureStripped:
-                var signed = new JsonWebTokenHandler().CreateToken(LogoutTokenDescriptor()).Split('.');
-                return signed[0] + "." + signed[1] + ".";
-            default:
-                using (var attacker = RSA.Create(2048))
-                {
-                    var descriptor = LogoutTokenDescriptor();
-                    descriptor.SigningCredentials = new SigningCredentials(
-                        new RsaSecurityKey(attacker) { KeyId = kind == ForgeryKind.HostileKid ? "../../../etc/passwd" : KeyId },
-                        SecurityAlgorithms.RsaSha256);
-                    return new JsonWebTokenHandler().CreateToken(descriptor);
-                }
-        }
+        ForgeryKind.AlgNone => Jws("{\"alg\":\"none\",\"typ\":\"JWT\"}", LogoutTokenPayload(), signature: string.Empty),
+        ForgeryKind.AlgNoneMixedCase => Jws("{\"alg\":\"None\",\"typ\":\"JWT\"}", LogoutTokenPayload(), signature: string.Empty),
+        ForgeryKind.Hs256WithPublicKey => Hs256(LogoutTokenPayload(), _rsa.ExportSubjectPublicKeyInfo(), KeyId),
+        ForgeryKind.SignatureStripped => StripSignature(new JsonWebTokenHandler().CreateToken(LogoutTokenDescriptor())),
+        ForgeryKind.ForeignKeyWithTrustedKid => ForeignKeySignedLogoutToken(KeyId),
+        ForgeryKind.HostileKid => ForeignKeySignedLogoutToken("../../../etc/passwd"),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No forgery is defined for this kind."),
+    };
+
+    private string ForeignKeySignedLogoutToken(string kid)
+    {
+        using var attacker = RSA.Create(2048);
+        return SignedWith(LogoutTokenDescriptor(), attacker, kid);
+    }
+
+    private static string SignedWith(SecurityTokenDescriptor descriptor, RSA key, string kid)
+    {
+        descriptor.SigningCredentials = new SigningCredentials(
+            new RsaSecurityKey(key) { KeyId = kid }, SecurityAlgorithms.RsaSha256);
+        return new JsonWebTokenHandler().CreateToken(descriptor);
+    }
+
+    private static string StripSignature(string token)
+    {
+        var parts = token.Split('.');
+        return parts[0] + "." + parts[1] + ".";
     }
 
     // A compact JWS from its three parts, with the header and payload base64url-encoded here rather than by a
@@ -291,15 +368,27 @@ public sealed class OidcTokenForgeryTests : IDisposable
         + "." + Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payloadJson))
         + "." + signature;
 
-    // An HS256-signed token over the given payload, MAC'd with the supplied key material — the algorithm-
-    // confusion forgery, where that material is the provider's PUBLIC key.
-    private static string Hs256(string payloadJson, byte[] key)
+    // An HS256-signed token, MAC'd with the supplied key material under the supplied `kid`.
+    private static string Hs256(string payloadJson, byte[] key, string kid)
     {
-        var signingInput = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes("{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"" + KeyId + "\"}"))
+        var signingInput = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes("{\"alg\":\"HS256\",\"typ\":\"JWT\",\"kid\":\"" + kid + "\"}"))
             + "." + Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payloadJson));
         using var hmac = new HMACSHA256(key);
-        var mac = hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput));
-        return signingInput + "." + Base64UrlEncoder.Encode(mac);
+        return signingInput + "." + Base64UrlEncoder.Encode(hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput)));
+    }
+
+    // An RS256 token signed by the given key, whose header advertises that same key three ways — inline in
+    // x5c and by URL in jku and x5u. Hand-composed because JsonWebTokenHandler emits none of those members.
+    private static string HeaderInjected(string payloadJson, RSA key)
+    {
+        var header = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"" + KeyId + "\","
+            + "\"jku\":\"https://attacker.example/jwks.json\","
+            + "\"x5u\":\"https://attacker.example/cert.pem\","
+            + "\"x5c\":[\"" + Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()) + "\"]}";
+        var signingInput = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(header))
+            + "." + Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payloadJson));
+        var signature = key.SignData(Encoding.UTF8.GetBytes(signingInput), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return signingInput + "." + Base64UrlEncoder.Encode(signature);
     }
 
     // An id_token payload whose every claim is acceptable, so the signature is the only thing left to reject
@@ -321,7 +410,7 @@ public sealed class OidcTokenForgeryTests : IDisposable
             + "\"events\":{\"" + LogoutEvent + "\":{}}}";
     }
 
-    private SecurityTokenDescriptor IdTokenDescriptor(RSA? signingKey = null)
+    private SecurityTokenDescriptor IdTokenDescriptor()
     {
         var now = DateTime.UtcNow;
         return new SecurityTokenDescriptor
@@ -333,7 +422,7 @@ public sealed class OidcTokenForgeryTests : IDisposable
             Expires = now + TimeSpan.FromMinutes(5),
             Claims = new Dictionary<string, object> { ["sub"] = "user-1" },
             SigningCredentials = new SigningCredentials(
-                new RsaSecurityKey(signingKey ?? _rsa) { KeyId = KeyId }, SecurityAlgorithms.RsaSha256),
+                new RsaSecurityKey(_rsa) { KeyId = KeyId }, SecurityAlgorithms.RsaSha256),
         };
     }
 
@@ -380,5 +469,5 @@ public sealed class OidcTokenForgeryTests : IDisposable
     // The logout path's parameters, built through the SAME shared basis with the back-channel's
     // requireExpiration:false posture, so these tests validate exactly what the endpoint validates.
     private TokenValidationParameters Params() =>
-        OidcSignatureKeys.BuildValidationParameters(Options(), new List<IDisposable>(), requireExpiration: false);
+        OidcSignatureKeys.BuildValidationParameters(Options(), _ephemeralKeys, requireExpiration: false);
 }

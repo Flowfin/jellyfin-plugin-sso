@@ -21,6 +21,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// member, the forbidden nonce (an id_token replayed as a logout_token), the at-least-one-of-sub/sid rule,
 /// and jti one-time-use. Each rejection carries a fixed reason code and never a subject identifier.
 /// </summary>
+[Collection("SSOController")]
 public sealed class OidcLogoutTokenValidatorTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";

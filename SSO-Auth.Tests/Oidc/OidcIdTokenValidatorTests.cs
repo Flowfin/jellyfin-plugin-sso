@@ -206,14 +206,28 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
         // token DECLARING HS256, and this stops symmetric key material ever becoming an issuer signing key in
         // the first place. It matters because a shared secret is not secret the way a signing key is — a
         // provider advertising an oct key hands out something every party holding that secret could mint
-        // tokens with. The token here is MAC'd with exactly the advertised secret, so converting the key would
-        // mean accepting the token; the conversion never yields one, and the login fails closed on the
-        // key-not-found path.
+        // tokens with.
+        //
+        // The CONVERSION is asserted first and on its own. Driving only the validator would make this a
+        // conjunction — the conversion refuses the key OR the allowlist refuses the algorithm — and a
+        // conjunction passes while the half it is named after is false: a converter that started yielding
+        // symmetric keys leaves the end-to-end rejection intact, because the allowlist still catches the
+        // token. Reading the converter's output directly is what puts the named property under test.
         var secret = new byte[32];
-        var options = Options(jwks: $$"""
+        var jwks = $$"""
             {"keys":[{"kty":"oct","use":"sig","kid":"{{KeyId}}","alg":"HS256",
               "k":"{{Base64UrlEncoder.Encode(secret)}}"}]}
-            """);
+            """;
+        var ephemeralKeys = new List<IDisposable>();
+
+        var converted = OidcSignatureKeys.Convert(new Duende.IdentityModel.Jwk.JsonWebKeySet(jwks), ephemeralKeys);
+
+        Assert.Empty(converted);
+        Assert.Empty(ephemeralKeys);
+
+        // And end to end: the token is MAC'd with exactly the advertised secret, so a converter that yielded
+        // that key would hand the verifier everything it needs. The login fails closed instead.
+        var options = Options(jwks: jwks);
         var descriptor = Descriptor();
         descriptor.SigningCredentials = new SigningCredentials(
             new SymmetricSecurityKey(secret) { KeyId = KeyId }, SecurityAlgorithms.HmacSha256);
