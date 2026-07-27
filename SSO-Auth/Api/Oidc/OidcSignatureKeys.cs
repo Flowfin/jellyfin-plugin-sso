@@ -15,9 +15,16 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// The ONE OpenID signature-validation basis, shared by every token the plugin verifies against a
 /// provider's discovery JWKS — the id_token (<see cref="OidcIdTokenValidator"/>) and the back-channel
 /// <c>logout_token</c> (<see cref="OidcLogoutTokenValidator"/>, #962). Centralising the asymmetric-only
-/// algorithm allowlist and the JWK→<see cref="SecurityKey"/> conversion here means there is provably no
-/// second, laxer verification path: a token type cannot accidentally accept HS*, <c>none</c>, an
-/// under-strength key, or malformed key material that the other type rejects.
+/// algorithm allowlist and the JWK→<see cref="SecurityKey"/> conversion here is what keeps the two token
+/// types from drifting apart: neither can accept an HS*, <c>none</c>, under-strength or malformed key that
+/// the other rejects, because both read this one basis.
+///
+/// That is a property of the code as it stands, held by a conformance rule
+/// (<c>OidcTokenValidation_UsesTheSingleHardenedParameterBuilder</c>) and by review — not a proof that no
+/// second path can exist. The rule is a source scan over FILES: it does not see a second parameter set built
+/// inside this file or its sibling validator, and it sees nothing at all in a path that verifies a JWS
+/// without the token library. That rule's own doc comment states the limit; this sentence is not a stronger
+/// guarantee than the one over there (#1004).
 /// </summary>
 internal static class OidcSignatureKeys
 {

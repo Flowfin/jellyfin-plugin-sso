@@ -2627,6 +2627,12 @@ public class ArchitectureConformanceTests
     /// is on the sensitive list where every change is reviewed before merge. Adding a fourth term for them
     /// is the wrong repair — the terms enumerate spellings over an unbounded space, so each one added moves
     /// the next evasion one identifier away rather than closing it.
+    ///
+    /// One automated control does reach inside a file, and its boundary was measured rather than assumed:
+    /// CA5404 is an ERROR here, so <c>ValidateIssuer</c>, <c>ValidateAudience</c> or <c>ValidateLifetime</c>
+    /// set to false fails the build wherever it is written, this file included. It does NOT cover the two
+    /// disablements that matter most to the shape above — a missing <c>ValidAlgorithms</c> and
+    /// <c>RequireSignedTokens = false</c> each build clean with zero warnings.
     /// </summary>
     [Fact]
     public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
