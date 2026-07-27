@@ -2526,45 +2526,27 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
-    public void EveryTestClassMutatingProcessWideState_IsInTheNonParallelControllerCollection()
+    public void EveryHarnessUsingTestClass_IsInTheNonParallelControllerCollection()
     {
         // The SsoControllerHarness constructor swaps the process-wide SSOPlugin.Instance and resets the
         // OIDC/SAML static caches — two harness-based classes running in parallel therefore race each
         // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
         // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
-        // self-enforcing: a NEW test class that mutates that state without joining the collection is
+        // self-enforcing: a NEW test class that constructs the harness without joining the collection is
         // a red build naming the file, not a flaky suite three weeks later.
-        //
-        // The harness is not the only door to that state, and keying the rule on it alone left the other one
-        // unguarded (#1004): a `*ForTests()` reset hook clears the SAME process-wide replay caches and state
-        // stores directly. A class in the serialized collection is serialized against the others IN it, never
-        // against a class outside it — xUnit runs an un-attributed class in its own implicit collection, in
-        // parallel with this one — so any class calling a reset hook must join too, or it races the harness
-        // classes that reset the same static.
         var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
         var offenders = new List<string>();
-        var harnessUsers = 0;
-        var resetHookUsers = 0;
         foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
         {
-            // Skip THIS file: it carries the scanned literals inside the rule itself, not a real use.
+            // Skip THIS file: it carries the scanned literal inside the rule itself, not a harness use.
             if (IsBuildOutput(src) || Path.GetFileName(src) == "ArchitectureConformanceTests.cs")
             {
                 continue;
             }
 
             var text = File.ReadAllText(src);
-            var isTestClass = text.Contains("[Fact]", StringComparison.Ordinal) || text.Contains("[Theory]", StringComparison.Ordinal);
-            var usesHarness = text.Contains("new SsoControllerHarness", StringComparison.Ordinal);
-            var usesResetHook = text.Contains("ForTests()", StringComparison.Ordinal);
-            if (!isTestClass || (!usesHarness && !usesResetHook))
-            {
-                continue;
-            }
-
-            harnessUsers += usesHarness ? 1 : 0;
-            resetHookUsers += usesResetHook ? 1 : 0;
-            if (!text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
+            if (text.Contains("new SsoControllerHarness", StringComparison.Ordinal)
+                && !text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
             {
                 offenders.Add(Path.GetFileName(src));
             }
@@ -2572,14 +2554,14 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "Every test class that constructs SsoControllerHarness or calls a *ForTests() reset hook must carry [Collection(\"SSOController\")] (both mutate process-wide statics; classes outside the collection run in parallel with it). Missing in: " + string.Join(", ", offenders));
+            "Every test class constructing SsoControllerHarness must carry [Collection(\"SSOController\")] (the harness swaps process-wide statics; parallel classes race). Missing in: " + string.Join(", ", offenders));
 
-        // Liveness sentinel, ONE FLOOR PER SCANNED LITERAL. A single combined count is the same conjunction
-        // defect this rule exists to catch: renaming SsoControllerHarness would drop 27 classes and still
-        // clear a combined floor the reset-hook classes alone carried, leaving the scan blind while reading
-        // as live. Each literal has to prove it still matches something on its own.
-        Assert.True(harnessUsers >= 20, $"The harness scan matched only {harnessUsers} test classes — SsoControllerHarness was renamed; update this rule.");
-        Assert.True(resetHookUsers >= 3, $"The reset-hook scan matched only {resetHookUsers} test classes — the *ForTests() hooks were renamed; update this rule.");
+        // Liveness sentinel: the scan must actually see the known harness users, or a harness rename has
+        // silently blinded it.
+        Assert.True(
+            Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
+                .Count(f => !IsBuildOutput(f) && File.ReadAllText(f).Contains("new SsoControllerHarness", StringComparison.Ordinal)) >= 10,
+            "The harness-usage scan matched fewer than 10 files — SsoControllerHarness was renamed; update this rule.");
     }
 
     [Fact]
@@ -2628,14 +2610,23 @@ public class ArchitectureConformanceTests
     /// algorithm-confusion class in a single line; one without <c>RequireSignedTokens</c> re-opens
     /// <c>alg: none</c>. STRIDE: spoofing. ASVS 5.0 V9.2 (token signature and algorithm verification).
     ///
-    /// The guard is a source scan, and its LIMIT is the reason it has three terms rather than one. A scan
-    /// cannot resolve a target type, so a substring search for <c>new TokenValidationParameters</c> alone is
-    /// walked past by <c>TokenValidationParameters p = new()</c> — house style in this repo. Term 1 catches
-    /// the explicit spelling, term 2 the target-typed one (a <c>= new(</c>/<c>= new {</c> on a line that names
-    /// the type), and term 3 closes the only construction a source scan cannot see at all: a bare
-    /// <c>new() { … }</c> passed straight into a parameter of that type, which names the type nowhere. Such a
-    /// call must still reach a handler validation entry point, and term 3 pins those to the two validators.
-    /// Verifying a provider JWT without tripping any of the three would take reflection.
+    /// WHAT THE THREE TERMS CATCH, established by running those mutants rather than by reading the
+    /// predicates: a NEW file constructing the type explicitly (<c>new TokenValidationParameters</c>, term 1);
+    /// a NEW file constructing it target-typed (<c>TokenValidationParameters p = new();</c>, term 2 — the
+    /// spelling a substring search for term 1 walks past, and house style in this repo); and a NEW file
+    /// passing a bare <c>new() { … }</c> straight into <c>ValidateTokenAsync</c>, which names the type
+    /// nowhere and is invisible to both scans (term 3 pins the handler entry points to the two validators).
+    ///
+    /// WHAT THEY DO NOT CATCH, measured the same way, because a guard that overstates its reach is what the
+    /// next author trusts instead of re-deriving it. Two shapes produce output identical to a clean run.
+    /// Verification that never uses the library at all — splitting the JWS and calling <c>RSA.VerifyData</c>
+    /// directly — constructs no parameters and calls no handler, so no term applies. And a second, laxer
+    /// parameter set built INSIDE a file already on the two lists below is indistinguishable to a per-file
+    /// scan from the first one there. Both belong to review, not to this rule: a text scan has no notion of
+    /// "how many times in this file" and none of "does this reimplement the verifier", and the OIDC surface
+    /// is on the sensitive list where every change is reviewed before merge. Adding a fourth term for them
+    /// is the wrong repair — the terms enumerate spellings over an unbounded space, so each one added moves
+    /// the next evasion one identifier away rather than closing it.
     /// </summary>
     [Fact]
     public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
@@ -2655,7 +2646,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             constructionSites.Count == 1 && string.Equals(constructionSites[0], SignatureBasisRelativePath, StringComparison.Ordinal),
-            $"TokenValidationParameters must be constructed in exactly one file ({SignatureBasisRelativePath}) — a second construction site is a second verification path the forgery tests never reach, and one built without ValidAlgorithms trusts the token header's own `alg` (#1004). Found: " + string.Join(", ", constructionSites));
+            $"TokenValidationParameters must be constructed in exactly one FILE ({SignatureBasisRelativePath}) — a construction in a second file is a second verification path the forgery tests never drive, and one built without ValidAlgorithms trusts the token header's own `alg` (#1004). A second construction inside a file already listed is invisible here and is review's to catch. Found: " + string.Join(", ", constructionSites));
 
         // Term 2's precondition: only the basis and the logout validator may NAME the type at all. Without
         // this, a target-typed construction lands in a new file and the line-level check above has to be
@@ -2664,11 +2655,15 @@ public class ArchitectureConformanceTests
         var mentions = production
             .Where(path => CodeLines(path).Any(l => l.Text.Contains("TokenValidationParameters", StringComparison.Ordinal)))
             .Select(path => Path.GetRelativePath(RepoRoot(), path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        var allowedToNameTheType = new[] { SignatureBasisRelativePath, LogoutValidatorRelativePath }
+            .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(
-            new[] { SignatureBasisRelativePath, LogoutValidatorRelativePath }.OrderBy(p => p, StringComparer.Ordinal),
-            mentions.OrderBy(p => p, StringComparer.Ordinal));
+        Assert.True(
+            mentions.SequenceEqual(allowedToNameTheType, StringComparer.Ordinal),
+            $"Exactly these files may name TokenValidationParameters, so that a target-typed construction cannot land unread in a new one (#1004). Expected: {string.Join(", ", allowedToNameTheType)}. Found: {string.Join(", ", mentions)}");
 
         // Term 3: the handler entry points that consume those parameters. A `new() { … }` written straight
         // into one of these calls names the type nowhere and neither scan above can see it — but the call
@@ -2678,11 +2673,15 @@ public class ArchitectureConformanceTests
                 l.Text.Contains("ValidateTokenAsync(", StringComparison.Ordinal)
                 || l.Text.Contains("ValidateToken(", StringComparison.Ordinal)))
             .Select(path => Path.GetRelativePath(RepoRoot(), path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        var allowedToValidate = new[] { IdTokenValidatorRelativePath, LogoutValidatorRelativePath }
+            .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(
-            new[] { IdTokenValidatorRelativePath, LogoutValidatorRelativePath }.OrderBy(p => p, StringComparer.Ordinal),
-            validationCallSites.OrderBy(p => p, StringComparer.Ordinal));
+        Assert.True(
+            validationCallSites.SequenceEqual(allowedToValidate, StringComparer.Ordinal),
+            $"Exactly these files may call a handler token-validation entry point, which is what closes a bare `new() {{ … }}` passed straight into one (#1004). Expected: {string.Join(", ", allowedToValidate)}. Found: {string.Join(", ", validationCallSites)}");
 
         // The allowlist's CONTENT, read off the production type rather than re-stated here. Symmetric HS* would
         // accept a token minted by anyone holding the shared client secret (the RS256-public-key-as-HMAC-key

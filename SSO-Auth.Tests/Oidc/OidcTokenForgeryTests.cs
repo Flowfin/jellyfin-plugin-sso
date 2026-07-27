@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,11 +16,18 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// The JWT forgery battery (#1004): token shapes an attacker can compose, each asserted to be rejected on
-/// BOTH paths that verify a provider JWT — the login id_token (<see cref="OidcIdTokenValidator"/>) and the
-/// anonymous back-channel <c>logout_token</c> (<see cref="OidcLogoutTokenValidator"/>), which share the one
+/// The JWT forgery battery (#1004): token shapes an attacker can compose against the two paths that verify a
+/// provider JWT — the login id_token (<see cref="OidcIdTokenValidator"/>) and the anonymous back-channel
+/// <c>logout_token</c> (<see cref="OidcLogoutTokenValidator"/>), which share the one
 /// <see cref="OidcSignatureKeys"/> basis that <c>OidcTokenValidation_UsesTheSingleHardenedParameterBuilder</c>
 /// pins as the only one.
+///
+/// Every SHAPE the login path submits has a <see cref="ForgeryKind"/> counterpart on the logout path, which is
+/// the parity that matters: the back-channel endpoint is anonymous, so a shape refused only on the login side
+/// would be refused by nothing where it costs most. The parity is per shape, not per row — the login side
+/// additionally fans each shape out over its spellings (four <c>alg</c> casings, two key encodings, nine
+/// hostile <c>kid</c> values), and those fan-outs are not repeated here, because what they vary is how the
+/// header is written and both paths hand the same header to the same handler through the same basis.
 ///
 /// Tokens are assembled BY HAND rather than through <see cref="JsonWebTokenHandler"/> wherever the shape
 /// requires it: the handler is a well-behaved issuer and will not emit an <c>alg</c> the JWS spec forbids, a
@@ -241,24 +249,38 @@ public sealed class OidcTokenForgeryTests : IDisposable
     [InlineData(ForgeryKind.Hs256WithPublicKey)]
     [InlineData(ForgeryKind.SignatureStripped)]
     [InlineData(ForgeryKind.ForeignKeyWithTrustedKid)]
-    [InlineData(ForgeryKind.HostileKid)]
+    [InlineData(ForgeryKind.ForeignKeyWithTraversalKid)]
+    [InlineData(ForgeryKind.HeaderSuppliedKeyMaterial)]
     public async Task LogoutToken_SameForgeries_AreRejected(ForgeryKind kind)
     {
         // The back-channel endpoint is ANONYMOUS — the signature is the only thing authenticating the caller,
         // and a token accepted here revokes a user's sessions. It shares the id_token's validation basis, and
         // a shared builder proves the two cannot drift only while BOTH paths are actually driven through the
-        // same attacks, so every forgery above is re-run here rather than reasoned about.
+        // same attacks, so every SHAPE above is re-run here rather than reasoned about (the class doc says
+        // which spellings of each are not, and why).
         //
-        // The reason code is pinned as the current contract, not as a claim that one code is the right
-        // answer: all six shapes report the same code, so the audit trail cannot tell alg-none from a
-        // stripped signature. Token shape carries no subject identifier, so the "no subject-identifier
-        // oracle" rationale does not by itself justify collapsing them — separating the codes is #1039.
+        // What the reason code is asserted to be is the LAYER the refusal came from, not one fixed string.
+        // Every shape here must die in signature/lifetime validation, before any logout_token claim-shape
+        // check runs — that is the security property, and it is what the codes below would contradict.
+        // Today all of them report one code, which is why an operator cannot tell alg-none from a stripped
+        // signature (separating them is #1039); pinning that one string as well would make that separation
+        // arrive as a red test in this file, which is not a claim this test is entitled to make.
+        var pastSignatureValidation = new[]
+        {
+            OidcLogoutTokenValidator.RejectReason.NotALogoutToken,
+            OidcLogoutTokenValidator.RejectReason.ProhibitedNonce,
+            OidcLogoutTokenValidator.RejectReason.NoSubjectOrSid,
+            OidcLogoutTokenValidator.RejectReason.Replay,
+        };
         var forged = LogoutForgery(kind);
 
         var result = await _logoutTokenValidator.ValidateAsync(forged, Params(), Skew, DateTime.UtcNow);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.False(string.IsNullOrEmpty(result.ReasonCode), "A rejection must carry a reason code — it is the only thing the audit trail records.");
+        Assert.False(
+            pastSignatureValidation.Contains(result.ReasonCode, StringComparer.Ordinal),
+            $"The forgery was refused as '{result.ReasonCode}', a code only reachable once signature validation has already PASSED.");
         Assert.Null(result.Subject);
         Assert.Null(result.SessionIndex);
     }
@@ -310,8 +332,25 @@ public sealed class OidcTokenForgeryTests : IDisposable
         /// <summary>A token signed by a foreign key whose header claims the trusted <c>kid</c>.</summary>
         ForeignKeyWithTrustedKid,
 
-        /// <summary>A foreign-key signature carrying a path-traversal <c>kid</c>.</summary>
-        HostileKid,
+        /// <summary>
+        /// The same foreign-key forgery under a path-traversal <c>kid</c>. It differs from
+        /// <see cref="ForeignKeyWithTrustedKid"/> only in that string, and both die on the signature, so this
+        /// row does NOT show that the <c>kid</c> decides nothing — there is no acceptance control on this path
+        /// to show it against, and <see cref="HostileKidValues_DecideNothing_AndNeverThrow"/> is where that
+        /// property is established, differentially, on the login path. What this row holds is narrower and
+        /// still worth the line: a traversal <c>kid</c> at the ANONYMOUS endpoint is REFUSED, not thrown on.
+        /// A throw there is an unauthenticated 500 — an oracle separating hostile input from an ordinary bad
+        /// signature, and a denial-of-service lever — and it is exactly what a <c>kid</c> sanitiser added
+        /// later would produce.
+        /// </summary>
+        ForeignKeyWithTraversalKid,
+
+        /// <summary>
+        /// A foreign-key signature whose header hands that same key over in <c>jku</c>, <c>x5u</c> and
+        /// <c>x5c</c>. The shape that matters most here: a verifier consulting header-supplied key material
+        /// would accept it, and on this endpoint the signature is the only thing authenticating the caller.
+        /// </summary>
+        HeaderSuppliedKeyMaterial,
     }
 
     // --- helpers ---
@@ -329,8 +368,8 @@ public sealed class OidcTokenForgeryTests : IDisposable
     }
 
     // Builds the requested forgery over a valid logout_token payload. A switch EXPRESSION with a throwing
-    // default: a seventh ForgeryKind added without a case here fails loudly instead of being silently tested
-    // as whichever shape a catch-all arm happened to build.
+    // default: a new ForgeryKind added without a case here fails loudly instead of being silently tested as
+    // whichever shape a catch-all arm happened to build.
     private string LogoutForgery(ForgeryKind kind) => kind switch
     {
         ForgeryKind.AlgNone => Jws("{\"alg\":\"none\",\"typ\":\"JWT\"}", LogoutTokenPayload(), signature: string.Empty),
@@ -338,7 +377,8 @@ public sealed class OidcTokenForgeryTests : IDisposable
         ForgeryKind.Hs256WithPublicKey => Hs256(LogoutTokenPayload(), _rsa.ExportSubjectPublicKeyInfo(), KeyId),
         ForgeryKind.SignatureStripped => StripSignature(new JsonWebTokenHandler().CreateToken(LogoutTokenDescriptor())),
         ForgeryKind.ForeignKeyWithTrustedKid => ForeignKeySignedLogoutToken(KeyId),
-        ForgeryKind.HostileKid => ForeignKeySignedLogoutToken("../../../etc/passwd"),
+        ForgeryKind.ForeignKeyWithTraversalKid => ForeignKeySignedLogoutToken("../../../etc/passwd"),
+        ForgeryKind.HeaderSuppliedKeyMaterial => HeaderInjectedLogoutToken(),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No forgery is defined for this kind."),
     };
 
@@ -346,6 +386,12 @@ public sealed class OidcTokenForgeryTests : IDisposable
     {
         using var attacker = RSA.Create(2048);
         return SignedWith(LogoutTokenDescriptor(), attacker, kid);
+    }
+
+    private static string HeaderInjectedLogoutToken()
+    {
+        using var attacker = RSA.Create(2048);
+        return HeaderInjected(LogoutTokenPayload(), attacker);
     }
 
     private static string SignedWith(SecurityTokenDescriptor descriptor, RSA key, string kid)
