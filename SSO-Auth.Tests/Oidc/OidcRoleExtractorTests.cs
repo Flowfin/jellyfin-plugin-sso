@@ -208,10 +208,35 @@ public class OidcRoleExtractorTests
     // reading the first sees the harmless one. No role set is derivable from such a claim, so it yields none.
     [InlineData("{\"roles\":[\"users\"],\"roles\":[\"jellyfin-admin\"]}", false)]
     [InlineData("{\"roles\":{\"users\":{}},\"roles\":{\"jellyfin-admin\":{}}}", true)]
-    [InlineData("{\"other\":1,\"nested\":{\"roles\":[\"users\"],\"roles\":[\"jellyfin-admin\"]}}", false)]
     public void DuplicatedRoleClaimKey_YieldsNoRoles(string claimValue, bool objectMap)
     {
         Assert.Empty(OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, objectMap));
+    }
+
+    [Fact]
+    public void DuplicatedRoleKeyBelowAnIntermediateSegment_YieldsNoRoles()
+    {
+        // The repeat one level down, which needs a path long enough to actually walk: a two-segment path
+        // reads its terminal straight off the root and never enters the intermediate loop, so a nested
+        // fixture written under one is satisfied by the path failing to resolve and says nothing about
+        // duplicates at all.
+        Assert.Empty(OidcRoleExtractor.ExtractRoles(
+            new[] { "realm_access", "nested", "roles" },
+            "{\"nested\":{\"roles\":[\"users\"],\"roles\":[\"jellyfin-admin\"]}}",
+            false));
+    }
+
+    [Fact]
+    public void TheSameNestedClaimWithoutTheDuplicate_YieldsItsRoles()
+    {
+        // The positive control for the walk above: the same path over the same shape carrying the key once
+        // resolves and yields its role, so the emptiness above is the repeat and not an unresolved path.
+        Assert.Equal(
+            new List<string> { "jellyfin-admin" },
+            OidcRoleExtractor.ExtractRoles(
+                new[] { "realm_access", "nested", "roles" },
+                "{\"nested\":{\"roles\":[\"jellyfin-admin\"]}}",
+                false));
     }
 
     [Theory]
