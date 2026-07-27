@@ -88,10 +88,30 @@ internal static class OidcDiscoveryReader
             // and silently re-points the issuer anchor this login is bound to. The whole read is refused
             // instead, failing the login closed exactly like an unreadable document, rather than letting one
             // fact through on one parser's choice of which occurrence counts.
-            if (StrictJson.HasDuplicateProperty(discovery.Raw))
+            //
+            // Only the TOP-LEVEL object is screened, because every member either reader takes out of this
+            // document is a top-level one — issuer, jwks_uri, the endpoints, the two advertised facts. A
+            // repeat inside a member neither reader opens, `mtls_endpoint_aliases` or a vendor extension,
+            // cannot re-point anything this login binds to, and refusing on it would take that provider's
+            // logins offline over a value nobody reads.
+            var screen = StrictJson.Inspect(discovery.Raw);
+            if (screen == StrictJson.Verdict.Repeated)
             {
                 logger.LogWarning(
-                    "The OpenID discovery document for provider {Provider} repeats a property name; the login fails closed rather than resolving the repeat to one parser's choice.",
+                    "The OpenID discovery document for provider {Provider} repeats a top-level property name; the login fails closed rather than resolving the repeat to one parser's choice.",
+                    provider?.ReplaceLineEndings(string.Empty));
+                return OidcDiscoveryResult.Unavailable;
+            }
+
+            // The second refusal is logged apart from the first, and reached only if the library's own strict
+            // parse and this walk ever disagree about the grammar — they cannot today, since IsError above is
+            // already false only for a body System.Text.Json parsed under the same defaults, so this is the
+            // fail-closed side of a divergence rather than a branch a provider can steer into. Kept apart
+            // because sending an admin to hunt a duplicate that is not there fixes nothing.
+            if (screen == StrictJson.Verdict.Unreadable)
+            {
+                logger.LogWarning(
+                    "The OpenID discovery document for provider {Provider} could not be read as strict JSON, so it could not be screened for repeated property names; the login fails closed.",
                     provider?.ReplaceLineEndings(string.Empty));
                 return OidcDiscoveryResult.Unavailable;
             }

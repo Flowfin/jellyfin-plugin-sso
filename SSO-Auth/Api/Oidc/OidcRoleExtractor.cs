@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -37,8 +38,9 @@ internal static class OidcRoleExtractor
     /// JSON path (non-string elements are ignored); for an object-map terminal, that object's property
     /// names; and, only when the path is one segment and the terminal is not an object map, the raw claim
     /// value as a single role. Returns an empty list when the path does not resolve to the expected shape
-    /// (missing segment, non-object node, wrong terminal type) and when the claim value is malformed
-    /// JSON — a parse failure fails closed to no roles rather than throwing (#216).
+    /// (missing segment, non-object node, wrong terminal type), when the claim value is malformed
+    /// JSON — a parse failure fails closed to no roles rather than throwing (#216) — and when one of the
+    /// objects this walk indexes names the same member twice, which makes the claim mean two things (#1005).
     /// </returns>
     internal static List<string> ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
     {
@@ -49,16 +51,6 @@ internal static class OidcRoleExtractor
             return new List<string> { claimValue };
         }
 
-        // This claim decides which privileges the login is granted, and the parser below resolves a repeated
-        // property name to its LAST occurrence without complaint, so a claim carrying the roles key twice
-        // grants whatever the second one says while anything reading the first sees something else (#1005).
-        // No role set is derivable from such a claim, so it yields none — the same closed outcome as a
-        // malformed value, and never "any role".
-        if (StrictJson.HasDuplicateProperty(claimValue))
-        {
-            return new List<string>();
-        }
-
         // Everything else parses the claim value as a JSON object and walks it. The claim value is
         // attacker-influenced, so it must never throw an unhandled 500 on the public callback (#216): any
         // malformed or non-resolving shape (non-object root, non-object node, wrong terminal type) fails
@@ -66,6 +58,23 @@ internal static class OidcRoleExtractor
         // array keeps its strings, an array with no strings yields none.
         try
         {
+            // This claim decides which privileges the login is granted, and the parser below resolves a
+            // repeated property name to its LAST occurrence without complaint, so a claim naming the key this
+            // walk indexes twice grants whatever the second one says while anything reading the first sees
+            // something else (#1005). No role set is derivable from such a claim, so it yields none — the
+            // same closed outcome as a malformed value, and never "any role".
+            //
+            // Only a repeat refuses. A value this screen cannot tokenize is NOT one: the parser below accepts
+            // grammars System.Text.Json rejects outright — comments, single quotes, a trailing comma, NaN —
+            // and discarding every role of a provider that emits one of them would be an outage wearing a
+            // guard's clothes. Such a value falls through to the parse, which fails closed on its own if it
+            // is genuinely malformed. The call sits inside this try so the #216 never-throw guarantee covers
+            // the screen too, not merely the parse it precedes.
+            if (StrictJson.Inspect(claimValue, IndexedScopes(roleClaimSegments)) == StrictJson.Verdict.Repeated)
+            {
+                return new List<string>();
+            }
+
             var json = JsonConvert.DeserializeObject<IDictionary<string, object>>(claimValue);
             if (json is null)
             {
@@ -120,4 +129,11 @@ internal static class OidcRoleExtractor
             return new List<string>();
         }
     }
+
+    // The objects the walk above descends into, outermost first — the intermediate segments only. The claim
+    // value IS the object segment[0] named, so segment[0] never appears here, and the terminal segment names
+    // a member of the last object rather than a further object to enter. Everything else in the claim is a
+    // subtree this walk never opens, and a repeat there decides nothing.
+    private static string[] IndexedScopes(string[] roleClaimSegments) =>
+        roleClaimSegments.Length > 2 ? roleClaimSegments[1..^1] : Array.Empty<string>();
 }

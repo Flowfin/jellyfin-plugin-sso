@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Duende.IdentityModel.Jwk;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -37,35 +38,53 @@ public class DuplicateJsonKeyPostureTests
     [InlineData("{\"code_challenge_methods_supported\":[\"S256\"],\"authorization_response_iss_parameter_supported\":true}")]
     [InlineData("{\"code_challenge_methods_supported\":[\"plain\"],\"authorization_response_iss_parameter_supported\":false}")]
     [InlineData("{\"issuer\":\"https://idp\"}")]
+    [InlineData("{\"code_challenge_methods_supported\":\"S256\",\"authorization_response_iss_parameter_supported\":\"true\"}")] // both facts served as strings
+    [InlineData("{\"code_challenge_methods_supported\":[256],\"authorization_response_iss_parameter_supported\":1}")] // and as the wrong JSON types entirely
     public void OnTheDocumentsTheGateAdmits_EveryDiscoveryReaderAgrees(string document)
     {
-        // The property the gate buys: for every document that reaches the fact readers, the Newtonsoft
+        // The property the screen buys: for every document that reaches the fact readers, the Newtonsoft
         // answers equal the answers the System.Text.Json family — the library's own parser — gets from the
-        // same bytes. Both facts, both readers, one document.
-        Assert.False(StrictJson.HasDuplicateProperty(document));
+        // same bytes. Both facts, both readers, one document. The oracle below is therefore System.Text.Json
+        // and not a second Newtonsoft read: an oracle from the same family as the code under test compares a
+        // parser with itself and would agree on documents the two families read differently.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(document));
 
-        var root = JObject.Parse(document);
-        var pkceByOtherFamily = root["code_challenge_methods_supported"] is JArray methods
-            && methods.Any(m => string.Equals(m.Value<string>(), "S256", StringComparison.Ordinal));
+        var (pkce, responseIssuer) = ByTheLibrarysOwnFamily(document);
 
-        Assert.Equal(pkceByOtherFamily, PkceDiscovery.SupportsS256(document));
-        Assert.Equal(
-            root["authorization_response_iss_parameter_supported"]?.Value<bool>() == true,
-            OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(document));
+        Assert.Equal(pkce, PkceDiscovery.SupportsS256(document));
+        Assert.Equal(responseIssuer, OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(document));
     }
 
     [Theory]
     [InlineData(CommentGrammar)]
     [InlineData(SingleQuoteGrammar)]
     [InlineData(TrailingCommaGrammar)]
-    public void WhereTheParserFamiliesDisagree_TheGateRefusesTheDocument(string document)
+    public void WhereTheParserFamiliesDisagree_TheDiscoveryReadIsRefused(string document)
     {
         // The demonstration that the agreement above is not a tautology. On each of these the plugin's
         // Newtonsoft reader happily reports PKCE support for a document System.Text.Json cannot read at all —
-        // a divergence of exactly the shape this issue is about. The gate refuses all three, so the
-        // divergence is unreachable rather than merely unlikely.
+        // a divergence of exactly the shape this issue is about. The screen reports each as UNREADABLE rather
+        // than as a repeat, which is the honest answer, and the discovery reader refuses an unreadable
+        // document, so the divergence stays unreachable on the path where the facts are used.
         Assert.True(PkceDiscovery.SupportsS256(document));
-        Assert.True(StrictJson.HasDuplicateProperty(document));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(document));
+    }
+
+    // The two discovery facts as the library's own parser family reads them. Total by construction: a fact
+    // served as the wrong JSON type answers false rather than throwing, because an oracle that throws on a
+    // document the plugin has to survive tests the fixture list instead of the code.
+    private static (bool Pkce, bool ResponseIssuer) ByTheLibrarysOwnFamily(string document)
+    {
+        using var parsed = JsonDocument.Parse(document);
+        var root = parsed.RootElement;
+
+        var pkce = root.TryGetProperty("code_challenge_methods_supported", out var methods)
+            && methods.ValueKind == JsonValueKind.Array
+            && methods.EnumerateArray().Any(m => m.ValueKind == JsonValueKind.String && string.Equals(m.GetString(), "S256", StringComparison.Ordinal));
+
+        return (
+            pkce,
+            root.TryGetProperty("authorization_response_iss_parameter_supported", out var flag) && flag.ValueKind == JsonValueKind.True);
     }
 
     [Fact]
@@ -112,13 +131,18 @@ public class DuplicateJsonKeyPostureTests
 
     [Theory]
     // The measured duplicate-key posture of every parser the plugin PINS through its lockfile: each takes the
-    // last occurrence and none raises an error, which is why the gate exists. A dependency bump that changes
-    // any row fails here, where the reason is written down, instead of changing what a login decides.
+    // last occurrence and none raises an error, which is why the screen exists. A dependency bump that
+    // changes any row fails here, where the reason is written down, instead of changing what a login decides.
+    // That is the claim, and it is no wider: these rows pin what the PINNED version does. The host resolves
+    // assembly loads for a plugin, so the copy actually loaded beside Jellyfin may not be the pinned one —
+    // this table detects a change in the dependency the plugin declares, not in the one the server supplies.
     //
-    // System.Text.Json is deliberately absent. The plugin binds the HOST's copy — .NET 9's in the Jellyfin
-    // 10.11 line, .NET 10's in the 12.0 line — while this test process loads the 10.x the test project pulls
-    // in, on BOTH legs. A row for it would pin an assembly that never runs in production. What replaces it is
-    // structural: the gate owns no JsonSerializerOptions, which UntrustedJsonConformanceTests enforces.
+    // System.Text.Json cannot be covered even that far, so it is deliberately absent: it ships IN the runtime
+    // rather than as a package reference, so its version is whichever the host's framework is — .NET 9's in
+    // the Jellyfin 10.11 line, .NET 10's in the 12.0 line — and there is no pin for a row to track. This test
+    // process loads a 10.x on BOTH legs, so a row would report an assembly that never runs in production.
+    // What replaces it is structural: the screen owns no JsonSerializerOptions, which
+    // UntrustedJsonConformanceTests enforces.
     [InlineData("newtonsoft-linq")]
     [InlineData("newtonsoft-dictionary")]
     [InlineData("jwt-header")]

@@ -38,6 +38,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   configuration are unchanged, so the rename lands as an in-place update that
   keeps every existing setting.
 
+### Security
+
+- **A repeated JSON property name is refused where it decides something
+  (#1005).** Every JSON parser this plugin depends on accepts a document that
+  names the same member twice and silently keeps the last occurrence, so one
+  body can mean two things to two readers — a discovery document naming `issuer`
+  twice re-points the anchor a login binds itself to, and a role claim naming
+  its roles key twice grants whatever the second half says. The OpenID discovery
+  read now refuses a document that repeats a **top-level** member, and the
+  role-claim walk yields no roles when an object it indexes repeats a member.
+  Repeats elsewhere are deliberately left alone: one inside
+  `mtls_endpoint_aliases`, a vendor extension, or an unwalked part of a role
+  claim decides nothing the plugin reads, so refusing on it would take a working
+  provider's logins offline for no gain. A document that cannot be read as
+  strict JSON is reported as unreadable rather than as a repeat, so a
+  provider-side grammar quirk no longer silently costs a user their roles and
+  the operator warning names the problem the admin actually has.
+
 ## 4.3.0
 
 A feature release. This line advances the plugin's maturity to **Beta** on the

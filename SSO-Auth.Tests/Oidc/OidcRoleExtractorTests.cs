@@ -252,9 +252,37 @@ public class OidcRoleExtractorTests
     [Fact]
     public void SingleSegmentRawRole_IsStillTakenVerbatim_NotScreenedAsJson()
     {
-        // The gate sits after the one-segment shortcut, where the claim value is a bare role name and not a
+        // The screen sits after the one-segment shortcut, where the claim value is a bare role name and not a
         // document at all. Screening that as JSON would refuse every provider returning a plain role string —
         // the default configuration — while reading like a security improvement.
         Assert.Equal(new List<string> { "jellyfin-admin" }, OidcRoleExtractor.ExtractRoles(new[] { "Role" }, "jellyfin-admin", false));
+    }
+
+    [Theory]
+    // The grammars the parser that owns this claim accepts and System.Text.Json rejects outright. Not one of
+    // them repeats a name, so a screen that answered a single bool would have to call every one a duplicate
+    // and hand back no roles — silently demoting every user of a provider whose claim carries a trailing
+    // comma. The screen reports them unreadable, the refusal is reserved for an actual repeat, and the roles
+    // survive to the parse that can read them.
+    [InlineData("{\"roles\":[\"jellyfin-admin\"],}")] // a trailing comma
+    [InlineData("{'roles':['jellyfin-admin']}")] // single quotes
+    [InlineData("{roles:[\"jellyfin-admin\"]}")] // an unquoted member name
+    [InlineData("{\"roles\":[\"jellyfin-admin\"] /* granted by the org */}")] // a comment
+    [InlineData("{\"score\":NaN,\"roles\":[\"jellyfin-admin\"]}")] // NaN
+    [InlineData("{\"score\":Infinity,\"roles\":[\"jellyfin-admin\"]}")] // Infinity
+    public void ClaimInAGrammarOnlyThisParserAccepts_KeepsItsRoles(string claimValue)
+    {
+        Assert.Equal(new List<string> { "jellyfin-admin" }, OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, false));
+    }
+
+    [Theory]
+    // A repeat in a subtree this walk never opens. The claim still means exactly one thing to the only reader
+    // it has, so discarding the roles would be a privilege demotion bought with nothing — the extractor's
+    // half of the same bargain the discovery reader keeps for an unopened member.
+    [InlineData(new[] { "realm_access", "roles" }, "{\"roles\":[\"jellyfin-admin\"],\"other\":{\"x\":1,\"x\":2}}")]
+    [InlineData(new[] { "realm_access", "nested", "roles" }, "{\"nested\":{\"roles\":[\"jellyfin-admin\"]},\"other\":{\"x\":1,\"x\":2}}")]
+    public void RepeatInASubtreeTheWalkNeverOpens_KeepsItsRoles(string[] segments, string claimValue)
+    {
+        Assert.Equal(new List<string> { "jellyfin-admin" }, OidcRoleExtractor.ExtractRoles(segments, claimValue, false));
     }
 }

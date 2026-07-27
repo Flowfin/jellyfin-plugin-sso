@@ -119,13 +119,16 @@ internal static class Program
         }
     }
 
-    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Both pure readers
-    // that interpret it must fail closed/tolerant on any malformed or hostile document and never throw an
-    // unmapped exception (they catch only JsonException today).
+    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Every pure reader
+    // that interprets it must fail closed/tolerant on any malformed or hostile document and never throw an
+    // unmapped exception (they catch only JsonException today). StrictJson leads because it leads in
+    // production (#1005): it is the parser that now touches provider bytes before any other, so a harness
+    // omitting it would no longer model the code it exists to cover.
     private static void FuzzOidcDiscovery(ReadOnlySpan<byte> data)
     {
         var json = Encoding.UTF8.GetString(data);
 
+        _ = StrictJson.Inspect(json);
         _ = PkceDiscovery.SupportsS256(json);
         _ = OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(json);
     }

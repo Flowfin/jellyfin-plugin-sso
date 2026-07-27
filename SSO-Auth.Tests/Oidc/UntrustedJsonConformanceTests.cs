@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// seen go red is decorative.
 ///
 /// This rule lives in its own file rather than in <c>ArchitectureConformanceTests</c> while #1030 is open on
-/// that file; folding it in is tracked as a follow-up.
+/// that file; folding it in once #1030 has merged is #1037.
 /// </summary>
 public class UntrustedJsonConformanceTests
 {
@@ -27,6 +27,13 @@ public class UntrustedJsonConformanceTests
     // three are pure readers of the discovery document and are gated at the boundary that fetches it, not
     // individually: the tolerant one would fail OPEN if it refused a document on its own (its false means
     // "do not require the RFC 9207 iss"), so the gate belongs where refusing means refusing the login.
+    //
+    // A file, not a call, because a file is what a scan can identify — so an entry claims only that the JSON
+    // read seams in the key file are covered by the gate in the value file. OidcResponseIssuer.cs also reads
+    // an id_token, which is not a JSON read seam (it goes through JsonWebToken) and needs no gate of its own:
+    // all five of its readers share one parser, which DuplicateJsonKeyPostureTests asserts rather than
+    // assumes. A second document reached through a seam this scan DOES match would show up as its own
+    // entry — there is no way to add one to a listed file without the list saying which gate covers it.
     private static readonly Dictionary<string, string> GatedJsonReads = new(StringComparer.Ordinal)
     {
         ["SSO-Auth/Api/Oidc/PkceDiscovery.cs"] = "SSO-Auth/Api/Oidc/OidcDiscoveryReader.cs",
@@ -43,7 +50,7 @@ public class UntrustedJsonConformanceTests
         "SSO-Auth/Api/Oidc/StrictJson.cs", // the gate itself, which necessarily reads the document it screens
     };
 
-    private const string GateCall = "StrictJson.HasDuplicateProperty";
+    private const string GateCall = "StrictJson.Inspect";
 
     [Fact]
     public void UntrustedJson_IsParsedOnlyThroughTheStrictHelper()
@@ -78,8 +85,12 @@ public class UntrustedJsonConformanceTests
             unlisted.Count == 0,
             "A JSON read of provider-supplied bytes must pass the duplicate-property gate, and a new read site must declare which gate covers it (#1005). Ungoverned: " + string.Join(" | ", unlisted));
 
+        // Read as CODE, with the comments stripped — the same treatment the rule below gives the gate's own
+        // source, and for the same reason: a gate file's prose names the call it makes, so a raw text match
+        // is satisfied by a doc comment mentioning it. Under an assertion message that says a comment is not
+        // a control, that is the exact failure the message describes.
         var ungated = GatedJsonReads
-            .Where(entry => !File.ReadAllText(Path.Combine(RepoRoot(), entry.Value.Replace('/', Path.DirectorySeparatorChar))).Contains(GateCall, StringComparison.Ordinal))
+            .Where(entry => !CodeOf(File.ReadAllText(Path.Combine(RepoRoot(), entry.Value.Replace('/', Path.DirectorySeparatorChar)))).Contains(GateCall, StringComparison.Ordinal))
             .Select(entry => $"{entry.Key} is declared gated by {entry.Value}, which does not call {GateCall}")
             .ToList();
 
@@ -87,8 +98,11 @@ public class UntrustedJsonConformanceTests
     }
 
     [Theory]
-    // The must-catch fixtures for the scan's own predicate. The last three are the spellings a list written
-    // around JObject.Parse alone lets through — each a complete read seam naming none of the first two tokens.
+    // The must-catch fixtures for the scan's own predicate. The first block is the spellings a list written
+    // around JObject.Parse alone lets through — each a complete read seam naming none of the first two
+    // tokens. The second is the same point one turn further: every one of these reads a whole document while
+    // naming none of the spellings in the first block, and a rule anchored to exact verb names walks past all
+    // of them while its own documentation claims it governs every read under SSO-Auth/.
     [InlineData("var o = JObject.Parse(body);")]
     [InlineData("var f = JsonConvert.DeserializeObject<Foo>(body);")]
     [InlineData("using var d = JsonDocument.Parse(body);")]
@@ -97,6 +111,13 @@ public class UntrustedJsonConformanceTests
     [InlineData("var t = JToken.Parse(body);")]
     [InlineData("var a = JArray.Parse(body);")]
     [InlineData("var r = new Utf8JsonReader(bytes);")]
+    [InlineData("var f = await JsonSerializer.DeserializeAsync<Foo>(stream);")]
+    [InlineData("using var d = await JsonDocument.ParseAsync(stream);")]
+    [InlineData("var o = JObject.Load(reader);")]
+    [InlineData("var t = JToken.ReadFrom(reader);")]
+    [InlineData("JsonConvert.PopulateObject(body, target);")]
+    [InlineData("var r = new JsonTextReader(new StringReader(body));")]
+    [InlineData("var f = await response.Content.ReadFromJsonAsync<Foo>();")]
     public void UnguardedJsonRead_IsRejectedByTheScan(string statement)
     {
         Assert.NotEmpty(JsonReadSeams(statement));
@@ -160,10 +181,20 @@ public class UntrustedJsonConformanceTests
     // The read seams, as calls rather than as type names: the write side of the very same types is used
     // throughout the served pages and must not be caught. Utf8JsonReader is included by construction because
     // a hand-rolled walk is a read of the whole document, gate or bypass depending on where it sits.
+    //
+    // Each verb ends in \w* rather than a word boundary. A boundary anchors the rule to the exact spellings
+    // whoever wrote it happened to think of, and every reader here has an -Async twin one keystroke away:
+    // `Deserialize` with a trailing \b does not match `DeserializeAsync`, so the whole rule walked past an
+    // await. The suffix wildcard costs a hypothetical over-match — a method named for a listed verb, which
+    // belongs on one of the two lists anyway — and buys coverage of spellings that do not exist yet.
     private static IReadOnlyList<string> JsonReadSeams(string source) =>
         Regex.Matches(
                 source,
-                @"\b(?:(?:JObject|JArray|JToken|JsonDocument|JsonNode)\.Parse|JsonConvert\.DeserializeObject|JsonSerializer\.Deserialize|new\s+Utf8JsonReader)\b")
+                @"(?:JObject|JArray|JToken|JsonDocument|JsonNode)\s*\.\s*(?:Parse|Load|ReadFrom)\w*"
+                + @"|JsonConvert\s*\.\s*(?:Deserialize|Populate)\w*"
+                + @"|JsonSerializer\s*\.\s*Deserialize\w*"
+                + @"|\.\s*Read(?:FromJson|AsAsync)\w*"
+                + @"|new\s+(?:Utf8JsonReader|JsonTextReader)\b")
             .Select(m => m.Value)
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -175,7 +206,10 @@ public class UntrustedJsonConformanceTests
     private static string Relative(string path) =>
         Path.GetRelativePath(RepoRoot(), path).Replace(Path.DirectorySeparatorChar, '/');
 
-    // The repository root, from this file's compile-time path (<root>/SSO-Auth.Tests/Oidc/<file>).
+    // The repository root, from this file's compile-time path (<root>/SSO-Auth.Tests/Oidc/<file>) — the
+    // resolution every source rule in this repo uses, ArchitectureConformanceTests included. A source scan
+    // needs the sources, which exist only in a checkout, and the sentinel above fires with its own message if
+    // this ever resolves somewhere else.
     private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
         Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
 }

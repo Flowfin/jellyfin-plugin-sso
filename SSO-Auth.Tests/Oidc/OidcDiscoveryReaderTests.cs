@@ -160,12 +160,11 @@ public class OidcDiscoveryReaderTests
 
     [Theory]
     // Each fact the plugin reads out of the raw body, served twice with opposing values (#1005). The library
-    // raises no error on any of them and resolves each to the LAST occurrence, so without the gate the read
+    // raises no error on any of them and resolves each to the LAST occurrence, so without the screen the read
     // would succeed and report the attacker's half of a document the same bytes also promise the other way.
     [InlineData("\"issuer\":\"" + Authority + "\",\"code_challenge_methods_supported\":[\"S256\"],\"code_challenge_methods_supported\":[\"plain\"]")]
     [InlineData("\"issuer\":\"" + Authority + "\",\"authorization_response_iss_parameter_supported\":true,\"authorization_response_iss_parameter_supported\":false")]
-    [InlineData("\"issuer\":\"" + Authority + "\",\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\",\"token_endpoint\":\"https://b\"}")]
-    public async Task ReadAsync_DiscoveryRepeatsAPropertyName_ReturnsUnavailable(string members)
+    public async Task ReadAsync_DiscoveryRepeatsATopLevelPropertyName_ReturnsUnavailable(string members)
     {
         var http = new CountingFactory(Serve(DiscoveryWith(members)));
 
@@ -191,6 +190,42 @@ public class OidcDiscoveryReaderTests
         Assert.True(result.Available);
         Assert.Equal(pkce, result.Facts.PkceS256);
         Assert.Equal(responseIssuer, result.Facts.ResponseIssuerAdvertised);
+    }
+
+    [Theory]
+    // The other side of the bargain, and the one that decides whether this change is worth shipping: what the
+    // screen must NOT refuse. Every member either reader takes out of this document is a top-level one, so a
+    // repeat inside a member neither opens re-points nothing — while refusing on it would take every login
+    // for that provider offline over a value the plugin never reads. `mtls_endpoint_aliases` is a real
+    // RFC 8705 member some deployments serve; the vendor extension is the general case.
+    [InlineData("\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\",\"token_endpoint\":\"https://b\"}")]
+    [InlineData("\"vendor_extension\":{\"tenant\":\"a\",\"tenant\":\"b\"}")]
+    public async Task ReadAsync_RepeatInsideAMemberNoReaderOpens_IsStillRead(string extra)
+    {
+        var http = new CountingFactory(Serve(DiscoveryWith($"\"issuer\":\"{Authority}\",\"code_challenge_methods_supported\":[\"S256\"],{extra}")));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.True(result.Facts.PkceS256);
+    }
+
+    [Fact]
+    public async Task ReadAsync_DiscoveryServedWithAByteOrderMark_IsStillRead()
+    {
+        // The case that decides whether "could not tokenize" may be reported as "repeats a name": a provider
+        // serving its well-known document with a UTF-8 preamble. If that reached a screen answering one bool
+        // for both, a byte of encoding trivia would refuse every login for that provider under a message
+        // telling the admin to hunt a duplicate. It does not reach it — the HTTP layer strips the preamble
+        // before either parser sees the body — and this pins that, so the day it stops being true fails here
+        // rather than in somebody's logins.
+        var body = "\uFEFF" + DiscoveryWith($"\"issuer\":\"{Authority}\",\"code_challenge_methods_supported\":[\"S256\"]");
+        var http = new CountingFactory(Serve(body));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.True(result.Facts.PkceS256);
     }
 
     [Fact]
