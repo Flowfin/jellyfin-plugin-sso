@@ -2543,7 +2543,8 @@ public class ArchitectureConformanceTests
         // classes that reset the same static.
         var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
         var offenders = new List<string>();
-        var mutators = 0;
+        var harnessUsers = 0;
+        var resetHookUsers = 0;
         foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
         {
             // Skip THIS file: it carries the scanned literals inside the rule itself, not a real use.
@@ -2554,14 +2555,15 @@ public class ArchitectureConformanceTests
 
             var text = File.ReadAllText(src);
             var isTestClass = text.Contains("[Fact]", StringComparison.Ordinal) || text.Contains("[Theory]", StringComparison.Ordinal);
-            var mutatesProcessWideState = text.Contains("new SsoControllerHarness", StringComparison.Ordinal)
-                || text.Contains("ForTests()", StringComparison.Ordinal);
-            if (!isTestClass || !mutatesProcessWideState)
+            var usesHarness = text.Contains("new SsoControllerHarness", StringComparison.Ordinal);
+            var usesResetHook = text.Contains("ForTests()", StringComparison.Ordinal);
+            if (!isTestClass || (!usesHarness && !usesResetHook))
             {
                 continue;
             }
 
-            mutators++;
+            harnessUsers += usesHarness ? 1 : 0;
+            resetHookUsers += usesResetHook ? 1 : 0;
             if (!text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
             {
                 offenders.Add(Path.GetFileName(src));
@@ -2572,9 +2574,12 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "Every test class that constructs SsoControllerHarness or calls a *ForTests() reset hook must carry [Collection(\"SSOController\")] (both mutate process-wide statics; classes outside the collection run in parallel with it). Missing in: " + string.Join(", ", offenders));
 
-        // Liveness sentinel: the scan must actually see the known mutators, or a rename has silently blinded
-        // it. The floor covers the harness users alone, so it stays meaningful if the reset hooks are renamed.
-        Assert.True(mutators >= 14, $"The process-wide-state scan matched only {mutators} test classes — SsoControllerHarness or the *ForTests() hooks were renamed; update this rule.");
+        // Liveness sentinel, ONE FLOOR PER SCANNED LITERAL. A single combined count is the same conjunction
+        // defect this rule exists to catch: renaming SsoControllerHarness would drop 27 classes and still
+        // clear a combined floor the reset-hook classes alone carried, leaving the scan blind while reading
+        // as live. Each literal has to prove it still matches something on its own.
+        Assert.True(harnessUsers >= 20, $"The harness scan matched only {harnessUsers} test classes — SsoControllerHarness was renamed; update this rule.");
+        Assert.True(resetHookUsers >= 3, $"The reset-hook scan matched only {resetHookUsers} test classes — the *ForTests() hooks were renamed; update this rule.");
     }
 
     [Fact]
