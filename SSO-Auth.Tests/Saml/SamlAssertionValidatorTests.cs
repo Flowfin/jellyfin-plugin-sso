@@ -18,6 +18,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// allow-list and threads that list in here, so the privilege derivation must consume the roles it is
 /// PASSED rather than re-reading the assertion — the property the dedup relies on.
 /// </summary>
+// Clears the process-wide SAML assertion replay cache; serialized so that a class running in parallel cannot
+// empty it while the one-time-use assertions here are mid-run (#1004).
 [Collection("SSOController")]
 public class SamlAssertionValidatorTests
 {

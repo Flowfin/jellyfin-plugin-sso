@@ -54,6 +54,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// because "rejected" and "rejected without leaking an identity the caller might act on" are different
 /// properties and only the second is worth having.
 /// </summary>
+// Clears the process-wide logout_token replay cache, so it runs serialized against every other class that
+// touches one: clearing it under a sibling that is asserting a replay is REFUSED would turn that assertion
+// green while it tested nothing (#1004, EveryTestClassClearingAReplayCache_IsInTheNonParallelControllerCollection).
 [Collection("SSOController")]
 public sealed class OidcTokenForgeryTests : IDisposable
 {

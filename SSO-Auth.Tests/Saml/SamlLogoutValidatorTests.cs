@@ -14,6 +14,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// returns a FIXED reason code per fail-closed branch. The reason codes are what the audit trail records;
 /// the endpoint collapses them all to one uniform 400.
 /// </summary>
+// Clears the process-wide inbound-LogoutRequest replay cache; serialized so that a class running in parallel
+// cannot empty it while the one-time-use assertions here are mid-run (#1004).
 [Collection("SSOController")]
 public class SamlLogoutValidatorTests : IDisposable
 {

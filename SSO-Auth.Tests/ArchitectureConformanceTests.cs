@@ -2564,6 +2564,70 @@ public class ArchitectureConformanceTests
             "The harness-usage scan matched fewer than 10 files — SsoControllerHarness was renamed; update this rule.");
     }
 
+    /// <summary>
+    /// Threat model (#1004). There is no adversary here; the loss is a security test that silently stops
+    /// testing. Asset: the process-wide replay caches — <see cref="OidcLogoutTokenValidator"/>,
+    /// <c>SamlAssertionValidator</c> and <c>SamlLogoutValidator</c> each keep one, and each backs a
+    /// one-time-use property (a captured token must not be redeemable a second time). A test class that
+    /// exercises one clears it in its constructor and again on dispose, so a consumed id cannot leak into a
+    /// sibling. xUnit runs a class carrying no <c>[Collection]</c> in its own implicit collection, IN PARALLEL
+    /// with the serialized one — so an un-attributed class clearing a cache can wipe it mid-run of a class
+    /// asserting that a replay is REFUSED, and that assertion then passes because there was nothing left to
+    /// replay. Green, no longer testing the property, and intermittently, which is the worst way to find out.
+    ///
+    /// What this rule holds is exactly one thing: a test class whose OWN code lines call a
+    /// <c>ResetReplaysForTests</c> hook carries the attribute. It does not follow a base type into another
+    /// file, and it says nothing about the other doors to process-wide state — the harness (the rule above)
+    /// and the <c>ResetOidStateForTests</c> / <c>ResetSaml*ForTests</c> hooks. Deriving the door set rather
+    /// than naming one, and closing the base-class route, is #1044. This rule exists so that the collection
+    /// memberships this change needed are held by the build instead of by hand.
+    /// </summary>
+    [Fact]
+    public void EveryTestClassClearingAReplayCache_IsInTheNonParallelControllerCollection()
+    {
+        var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
+        var resetHookUsers = new List<string>();
+        var offenders = new List<string>();
+        foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            // Skip THIS file: it carries the scanned literals inside the rule itself, not a real use.
+            if (IsBuildOutput(src) || Path.GetFileName(src) == "ArchitectureConformanceTests.cs")
+            {
+                continue;
+            }
+
+            // CODE lines only, so prose naming the hook cannot inflate the liveness floor below while
+            // covering nothing. The [Fact]/[Theory] requirement excludes the support types that clear the
+            // same caches without being scheduled by xUnit at all — the harness clears three of them, and it
+            // is the classes CONSTRUCTING it that need the attribute (the rule above), not the file itself.
+            var lines = CodeLines(src).Select(l => l.Text).ToList();
+            var clearsAReplayCache = lines.Any(text => text.Contains("ResetReplaysForTests(", StringComparison.Ordinal));
+            var isTestClass = lines.Any(text =>
+                text.Contains("[Fact]", StringComparison.Ordinal) || text.Contains("[Theory]", StringComparison.Ordinal));
+            if (!clearsAReplayCache || !isTestClass)
+            {
+                continue;
+            }
+
+            resetHookUsers.Add(Path.GetFileName(src));
+            if (!lines.Any(text => text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal)))
+            {
+                offenders.Add(Path.GetFileName(src));
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Every test class clearing a process-wide replay cache must carry [Collection(\"SSOController\")] — a class outside that collection runs in parallel WITH it, and clearing the cache under a sibling asserting a replay is refused turns that assertion green while it tests nothing (#1004). Missing in: " + string.Join(", ", offenders));
+
+        // Liveness sentinel for the ONE door this rule scans. Five classes call a ResetReplaysForTests hook
+        // today; a rename of the hooks would drop the scan to zero offenders and read as compliance, so the
+        // floor is what turns that into a red build naming this rule.
+        Assert.True(
+            resetHookUsers.Count >= 5,
+            $"The replay-reset scan matched only {resetHookUsers.Count} test classes — the ResetReplaysForTests hooks were renamed; update this rule. Matched: " + string.Join(", ", resetHookUsers));
+    }
+
     [Fact]
     public void EverySourceFile_CarriesTheSpdxHeader()
     {

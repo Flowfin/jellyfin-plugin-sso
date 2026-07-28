@@ -21,6 +21,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// member, the forbidden nonce (an id_token replayed as a logout_token), the at-least-one-of-sub/sid rule,
 /// and jti one-time-use. Each rejection carries a fixed reason code and never a subject identifier.
 /// </summary>
+// Clears the process-wide logout_token replay cache, the same one the forgery battery clears; serialized so
+// that a class running in parallel cannot empty it while the jti one-time-use assertions here are mid-run
+// and leave them passing vacuously (#1004).
 [Collection("SSOController")]
 public sealed class OidcLogoutTokenValidatorTests : IDisposable
 {
