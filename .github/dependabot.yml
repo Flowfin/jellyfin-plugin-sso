@@ -27,9 +27,9 @@ updates:
     # and Trivy-action incidents were tag re-points, an existing tag moved to
     # a malicious commit. The underlying release keeps its original publication
     # date, so there is no new publication for a delay to hold — this cooldown
-    # would not have caught either. SHA-pinning plus zizmor's ref-version audit
-    # are the controls for that class; this is the control for a freshly
-    # published malicious version, which is a different attack.
+    # would not have caught either. SHA-pinning is the control for that class —
+    # every external `uses:` in this repo is a 40-hex commit SHA. This hold is
+    # the control for a freshly published malicious version, a different attack.
     #
     # No tier key: github-actions is listed in GitHub's cooldown table with its
     # SemVer-tier column crossed. Checked 2026-07-28 against the Dependabot
