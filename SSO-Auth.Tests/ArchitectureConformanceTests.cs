@@ -2617,22 +2617,45 @@ public class ArchitectureConformanceTests
     /// passing a bare <c>new() { … }</c> straight into <c>ValidateTokenAsync</c>, which names the type
     /// nowhere and is invisible to both scans (term 3 pins the handler entry points to the two validators).
     ///
-    /// WHAT THEY DO NOT CATCH, measured the same way, because a guard that overstates its reach is what the
-    /// next author trusts instead of re-deriving it. Two shapes produce output identical to a clean run.
-    /// Verification that never uses the library at all — splitting the JWS and calling <c>RSA.VerifyData</c>
-    /// directly — constructs no parameters and calls no handler, so no term applies. And a second, laxer
-    /// parameter set built INSIDE a file already on the two lists below is indistinguishable to a per-file
-    /// scan from the first one there. Both belong to review, not to this rule: a text scan has no notion of
-    /// "how many times in this file" and none of "does this reimplement the verifier", and the OIDC surface
-    /// is on the sensitive list where every change is reviewed before merge. Adding a fourth term for them
-    /// is the wrong repair — the terms enumerate spellings over an unbounded space, so each one added moves
-    /// the next evasion one identifier away rather than closing it.
+    /// WHAT THEY DO NOT CATCH, because a guard that overstates its reach is what the next author trusts
+    /// instead of re-deriving it. FOUR shapes, each verified by making the edit and running this rule over it,
+    /// not by reading the predicates:
+    ///
+    /// (a) Verification that never uses the library at all — splitting the JWS and calling
+    /// <c>RSA.VerifyData</c> directly. It constructs no parameters and calls no handler, so no term applies.
+    ///
+    /// (b) A second, laxer parameter set built INSIDE a file already on the two lists below. A per-file scan
+    /// cannot tell it from the first one there.
+    ///
+    /// (c) POST-BUILD MUTATION of what this builder returned, which is the cheapest of the four and sits at
+    /// the endpoint where the signature is the only authentication. The back-channel caller holds the result
+    /// as <c>var parameters = …BuildValidationParameters(…)</c> and hands it to the logout validator's own
+    /// <c>ValidateAsync</c>: that file names the type nowhere, constructs nothing, and calls no handler entry
+    /// point, so all three terms are silent about it. Measured: with <c>parameters.RequireSignedTokens =
+    /// false;</c> added after that call, this rule passes and the build emits zero warnings, while the
+    /// unsigned forgery is ACCEPTED and revokes a session. What turns red is one test —
+    /// <see cref="SSOControllerOidBackChannelLogoutTests.AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes"/>,
+    /// the row that drives that call site rather than a basis a test built.
+    ///
+    /// (d) The allowlist's WIRING, as against its content. The last assertion below reads
+    /// <c>AllowedSignatureAlgorithms</c> and pins what is in it; nothing here pins that the builder assigns it
+    /// to <c>ValidAlgorithms</c>. Measured: deleting <c>ValidAlgorithms = AllowedSignatureAlgorithms</c> from
+    /// the builder leaves this rule green and the build clean; what turns red is
+    /// <see cref="OidcTokenForgeryTests.AlgorithmAllowlist_RefusesAnHs256TokenTheKeySetWouldOtherwiseVerify"/>.
+    ///
+    /// Adding a fourth term for any of them is the wrong repair — the terms enumerate spellings over an
+    /// unbounded space, so each one added moves the next evasion one identifier away rather than closing it,
+    /// and a text scan has no notion of "how many times in this file", of "does this reimplement the
+    /// verifier", or of what happens to a value after it is returned. (a) and (b) are review's, on a surface
+    /// where every change is reviewed before merge. (c) and (d) have a named test each, above — which is why
+    /// deleting one of those two rows is a larger change than it looks.
     ///
     /// One automated control does reach inside a file, and its boundary was measured rather than assumed:
     /// CA5404 is an ERROR here, so <c>ValidateIssuer</c>, <c>ValidateAudience</c> or <c>ValidateLifetime</c>
     /// set to false fails the build wherever it is written, this file included. It does NOT cover the two
-    /// disablements that matter most to the shape above — a missing <c>ValidAlgorithms</c> and
-    /// <c>RequireSignedTokens = false</c> each build clean with zero warnings.
+    /// disablements that matter most here — a missing <c>ValidAlgorithms</c> and
+    /// <c>RequireSignedTokens = false</c> each build clean with zero warnings, re-measured at the (c) and (d)
+    /// mutation sites above.
     /// </summary>
     [Fact]
     public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
@@ -2658,6 +2681,13 @@ public class ArchitectureConformanceTests
         // this, a target-typed construction lands in a new file and the line-level check above has to be
         // trusted to have matched every way of spelling it; with it, any new file touching the type is a red
         // build that a human reads.
+        //
+        // OidcIdTokenValidator.cs is absent from the list ON PURPOSE, even though the rule blesses it as a
+        // validation call site below: it reaches the basis through the builder and names the type nowhere, so
+        // the list stays exactly the set of files that name it and cannot pass vacuously. The cost is that a
+        // behaviour-preserving hoist there (`TokenValidationParameters p = OidcSignatureKeys.Build…`) reds
+        // this assertion, and the repair is to add that file here — which gives up nothing, because
+        // CONSTRUCTION stays pinned to the basis file by the assertion above whatever this list says.
         var mentions = production
             .Where(path => CodeLines(path).Any(l => l.Text.Contains("TokenValidationParameters", StringComparison.Ordinal)))
             .Select(path => Path.GetRelativePath(RepoRoot(), path))
@@ -2669,7 +2699,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             mentions.SequenceEqual(allowedToNameTheType, StringComparer.Ordinal),
-            $"Exactly these files may name TokenValidationParameters, so that a target-typed construction cannot land unread in a new one (#1004). Expected: {string.Join(", ", allowedToNameTheType)}. Found: {string.Join(", ", mentions)}");
+            $"These files and no others may name TokenValidationParameters, so that a target-typed construction cannot land unread elsewhere (#1004). Expected: {string.Join(", ", allowedToNameTheType)}. Found: {string.Join(", ", mentions)}. The comparison is two-sided: an EXTRA file is the finding this rule exists for, while a MISSING one means a listed file was renamed or stopped naming the type — a rename, not a bypass, and the repair is to update the list. OidcIdTokenValidator.cs appearing here is the other benign case: it consumes the basis through the builder, so adding it to the list gives up nothing the construction assertion above does not still hold.");
 
         // Term 3: the handler entry points that consume those parameters. A `new() { … }` written straight
         // into one of these calls names the type nowhere and neither scan above can see it — but the call
@@ -2687,7 +2717,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             validationCallSites.SequenceEqual(allowedToValidate, StringComparer.Ordinal),
-            $"Exactly these files may call a handler token-validation entry point, which is what closes a bare `new() {{ … }}` passed straight into one (#1004). Expected: {string.Join(", ", allowedToValidate)}. Found: {string.Join(", ", validationCallSites)}");
+            $"These files and no others may call a handler token-validation entry point, which is what closes a bare `new() {{ … }}` passed straight into one (#1004). Expected: {string.Join(", ", allowedToValidate)}. Found: {string.Join(", ", validationCallSites)}. Two-sided as well: an EXTRA file is a verification path no forgery test drives, while a MISSING one means a validator was renamed or merged — update the list.");
 
         // The allowlist's CONTENT, read off the production type rather than re-stated here. Symmetric HS* would
         // accept a token minted by anyone holding the shared client secret (the RS256-public-key-as-HMAC-key
