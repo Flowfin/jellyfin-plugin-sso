@@ -121,9 +121,9 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     {
         // The one forgery driven END TO END: the endpoint, the discovery/JWKS read, and the validation
         // parameters OidcLoginService builds at its own call site. The rest of the battery
-        // (OidcTokenForgeryTests) hands the validator parameters the TEST constructed, which establishes what
-        // the library refuses rather than what this endpoint refuses; those are different claims and only one
-        // of them is about production.
+        // (OidcTokenForgeryTests) submits against parameters the TEST built, which establishes what the token
+        // library refuses under that basis rather than what this endpoint refuses; those are different claims
+        // and only one of them is about production.
         //
         // alg:none is the shape chosen for it because it is the one needing no key material at all: the
         // header declares the token needs no signature and the third segment is empty, so anyone who can

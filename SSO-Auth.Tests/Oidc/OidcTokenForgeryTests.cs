@@ -22,14 +22,15 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <see cref="OidcSignatureKeys"/> basis that <c>OidcTokenValidation_UsesTheSingleHardenedParameterBuilder</c>
 /// pins as the only one.
 ///
-/// WHAT THIS FILE DRIVES: every row below calls a validator directly with parameters this file builds through
-/// that shared builder. What it therefore establishes is the posture of the BASIS — a caller that mutated the
-/// parameters after the builder returned them, or that reached a validator some other way, would still pass
-/// every row here. One shape is driven end to end through the production path instead, where the endpoint,
-/// the discovery read and the caller's own parameter handling are all live:
+/// WHAT THIS FILE DRIVES: every row below submits its token in-process against parameters this file built
+/// through that shared builder — through one of the two validators, and in the allowlist row through the token
+/// handler directly. What that establishes is the posture of the BASIS: a caller that mutated the parameters
+/// after the builder returned them, or that reached a validator some other way, would still pass every row
+/// here. One shape is driven end to end through the production path instead, where the endpoint, the
+/// discovery read and the caller's own parameter handling are all live:
 /// <see cref="SSOControllerOidBackChannelLogoutTests.AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes"/>.
 /// It sits in that class because that is where the endpoint is reachable, and it carries an in-test
-/// acceptance control for the same reason the rows here do.
+/// acceptance control for the same reason this file keeps positive controls at all.
 ///
 /// Every SHAPE the login path submits has a <see cref="ForgeryKind"/> counterpart on the logout path, which is
 /// the parity that matters: the back-channel endpoint is anonymous, so a shape refused only on the login side

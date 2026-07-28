@@ -2697,7 +2697,8 @@ public class ArchitectureConformanceTests
     /// <c>ValidateAsync</c>: that file names the type nowhere, constructs nothing, and calls no handler entry
     /// point, so all three terms are silent about it. Measured: with <c>parameters.RequireSignedTokens =
     /// false;</c> added after that call, this rule passes and the build emits zero warnings, while the
-    /// unsigned forgery is ACCEPTED and revokes a session. What turns red is one test —
+    /// unsigned forgery is ACCEPTED — the endpoint answers <c>OkResult</c>, which on that path is reachable
+    /// only once a captured session has been revoked. What turns red is one test —
     /// <see cref="SSOControllerOidBackChannelLogoutTests.AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes"/>,
     /// the row that drives that call site rather than a basis a test built.
     ///
