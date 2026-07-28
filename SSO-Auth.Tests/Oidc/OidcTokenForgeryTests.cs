@@ -32,9 +32,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// It sits in that class because that is where the endpoint is reachable, and it carries an in-test
 /// acceptance control for the same reason this file keeps positive controls at all.
 ///
-/// Every SHAPE the login path submits has a <see cref="ForgeryKind"/> counterpart on the logout path, which is
-/// the parity that matters: the back-channel endpoint is anonymous, so a shape refused only on the login side
-/// would be refused by nothing where it costs most. The parity is per shape, not per row — the login side
+/// Every SHAPE the login path submits has a <see cref="ForgeryKind"/> counterpart on the logout path but one:
+/// <see cref="AlgorithmAllowlist_RefusesAnHs256TokenTheKeySetWouldOtherwiseVerify"/> has no logout row. The
+/// parity is what matters — the back-channel endpoint is anonymous, so a shape refused only on the login side
+/// would be refused by nothing where it costs most. It is per shape, not per row: the login side
 /// additionally fans each shape out over its spellings (four <c>alg</c> casings, two key encodings, nine
 /// hostile <c>kid</c> values), and those fan-outs are not repeated here, because what they vary is how the
 /// header is written and both paths hand the same header to the same handler through the same basis.

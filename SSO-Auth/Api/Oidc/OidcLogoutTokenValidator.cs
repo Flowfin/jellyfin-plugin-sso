@@ -17,10 +17,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// §2.4–§2.6, #962). The endpoint that calls this is ANONYMOUS — the token's signature is the only
 /// authenticator — so every §2.6 rule is fail-closed and each maps to a fixed reason code (never
 /// request-derived text, so a rejection leaves an audit trail without a subject-identifier oracle,
-/// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification goes through the
-/// SAME <see cref="OidcSignatureKeys"/> basis the id_token validator uses — there is no second, laxer
-/// verification path. On success it yields the (sub, sid) pair the revocation lookup keys on; the
-/// validator itself revokes nothing.
+/// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification runs on the
+/// parameters the CALLER passes in, and the one production caller builds them from the same
+/// <see cref="OidcSignatureKeys"/> basis the id_token validator uses — which puts that caller inside this
+/// signature trust boundary rather than outside it. On success it yields the (sub, sid) pair the revocation
+/// lookup keys on; the validator itself revokes nothing.
 /// </summary>
 internal sealed class OidcLogoutTokenValidator
 {

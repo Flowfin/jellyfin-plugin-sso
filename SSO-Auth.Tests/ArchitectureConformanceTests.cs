@@ -2568,19 +2568,23 @@ public class ArchitectureConformanceTests
     /// Threat model (#1004). There is no adversary here; the loss is a security test that silently stops
     /// testing. Asset: the process-wide replay caches — <see cref="OidcLogoutTokenValidator"/>,
     /// <c>SamlAssertionValidator</c> and <c>SamlLogoutValidator</c> each keep one, and each backs a
-    /// one-time-use property (a captured token must not be redeemable a second time). A test class that
-    /// exercises one clears it in its constructor and again on dispose, so a consumed id cannot leak into a
-    /// sibling. xUnit runs a class carrying no <c>[Collection]</c> in its own implicit collection, IN PARALLEL
-    /// with the serialized one — so an un-attributed class clearing a cache can wipe it mid-run of a class
-    /// asserting that a replay is REFUSED, and that assertion then passes because there was nothing left to
-    /// replay. Green, no longer testing the property, and intermittently, which is the worst way to find out.
+    /// one-time-use property (a captured token must not be redeemable a second time). A class exercising one
+    /// clears it around its own tests, so a consumed id cannot leak into a sibling. xUnit parallelizes test
+    /// classes that do not share a collection, and this collection is declared with
+    /// <c>DisableParallelization</c>. Measured on this stack rather than reasoned about: two classes left OUT
+    /// of the collection DO overlap each other, while two classes IN it do not overlap. So the race is
+    /// between two un-attributed clearers — one empties the cache mid-run of the other's assertion that a
+    /// replay is REFUSED, and that assertion then passes because there was nothing left to replay. Green, no
+    /// longer testing the property, and intermittently, which is the worst way to find out.
     ///
-    /// What this rule holds is exactly one thing: a test class whose OWN code lines call a
-    /// <c>ResetReplaysForTests</c> hook carries the attribute. It does not follow a base type into another
-    /// file, and it says nothing about the other doors to process-wide state — the harness (the rule above)
-    /// and the <c>ResetOidStateForTests</c> / <c>ResetSaml*ForTests</c> hooks. Deriving the door set rather
-    /// than naming one, and closing the base-class route, is #1044. This rule exists so that the collection
-    /// memberships this change needed are held by the build instead of by hand.
+    /// What this rule holds is exactly one thing, and it holds it per FILE rather than per class: a file that
+    /// carries a <c>[Fact]</c> or <c>[Theory]</c> and calls a <c>ResetReplaysForTests</c> hook on a code line
+    /// also spells the attribute somewhere in that same file. A file declaring two types is one unit to it.
+    /// It does not follow a base type into another file, and it says nothing about the other doors to
+    /// process-wide state — the harness (the rule above) and the <c>ResetOidStateForTests</c> /
+    /// <c>ResetSaml*ForTests</c> hooks. Deriving the door set rather than naming one, and closing the
+    /// base-class route, is #1044. This rule exists so that the collection memberships this change needed are
+    /// held by the build instead of by hand.
     /// </summary>
     [Fact]
     public void EveryTestClassClearingAReplayCache_IsInTheNonParallelControllerCollection()
@@ -2618,14 +2622,14 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "Every test class clearing a process-wide replay cache must carry [Collection(\"SSOController\")] — a class outside that collection runs in parallel WITH it, and clearing the cache under a sibling asserting a replay is refused turns that assertion green while it tests nothing (#1004). Missing in: " + string.Join(", ", offenders));
+            "Every test class clearing a process-wide replay cache must carry [Collection(\"SSOController\")] — two classes left outside that collection run in parallel with EACH OTHER, and clearing the cache under a sibling asserting a replay is refused turns that assertion green while it tests nothing (#1004). Missing in: " + string.Join(", ", offenders));
 
-        // Liveness sentinel for the ONE door this rule scans. Five classes call a ResetReplaysForTests hook
+        // Liveness sentinel for the ONE door this rule scans. Five files call a ResetReplaysForTests hook
         // today; a rename of the hooks would drop the scan to zero offenders and read as compliance, so the
         // floor is what turns that into a red build naming this rule.
         Assert.True(
             resetHookUsers.Count >= 5,
-            $"The replay-reset scan matched only {resetHookUsers.Count} test classes — the ResetReplaysForTests hooks were renamed; update this rule. Matched: " + string.Join(", ", resetHookUsers));
+            $"The replay-reset scan matched only {resetHookUsers.Count} test files — the ResetReplaysForTests hooks were renamed; update this rule. Matched: " + string.Join(", ", resetHookUsers));
     }
 
     [Fact]
@@ -3116,10 +3120,10 @@ public class ArchitectureConformanceTests
     private static readonly string IdTokenValidatorRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcIdTokenValidator.cs");
     private static readonly string LogoutValidatorRelativePath = Path.Combine("SSO-Auth", "Api", "Oidc", "OidcLogoutTokenValidator.cs");
 
-    // Whether a code line constructs TokenValidationParameters, in either spelling C# offers: the explicit
-    // `new TokenValidationParameters`, or a target-typed `= new()` / `= new {` on a line that names the type
+    // Whether ONE code line constructs TokenValidationParameters: the explicit `new TokenValidationParameters`,
+    // or a target-typed `= new()` / `= new {` on a line that also names the type
     // (`TokenValidationParameters p = new();`). The second is what a substring scan for the first walks past,
-    // and `= new()` is house style in this repo.
+    // and `= new()` is house style in this repo. The predicate sees one line at a time and nothing wider.
     private static bool ConstructsValidationParameters(string line) =>
         line.Contains("new TokenValidationParameters", StringComparison.Ordinal)
         || (line.Contains("TokenValidationParameters", StringComparison.Ordinal)
