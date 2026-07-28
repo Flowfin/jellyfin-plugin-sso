@@ -204,8 +204,10 @@ public class OidcRoundTripTests
         // Asserted empirically on the real flow rather than by scanning source for a token variable, because a
         // source scan proves only that one spelling of the leak is absent. Here the token is a known string and
         // all THREE places it could escape are inspected directly: the HTML the callback hands the browser,
-        // every field of the AuthenticationRequest handed to Jellyfin's session manager, and the body returned
-        // to the client. The callback page is inspected because it is the first thing that reaches the browser
+        // the string-carrying fields of the AuthenticationRequest handed to Jellyfin's session manager — listed
+        // one by one below rather than claimed wholesale, so a field arriving in a Jellyfin update is inspected
+        // once someone adds it there and not before — and the body returned to the client. The callback page is
+        // inspected because it is the first thing that reaches the browser
         // and the only one an operator would not see in an API response — an id_token embedded in that markup
         // leaks to anything that can read the page. The only credential that may cross any of the three
         // boundaries is the session Jellyfin itself mints.
