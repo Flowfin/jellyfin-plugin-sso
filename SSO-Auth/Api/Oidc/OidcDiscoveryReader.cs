@@ -45,19 +45,15 @@ internal static class OidcDiscoveryReader
 
     // Every member of the discovery document this read takes a value out of, and only those (#1005). Read
     // off the reads themselves rather than off the OpenID Discovery spec: the two raw fact readers name
-    // their member literally in their own source (PkceDiscovery -> code_challenge_methods_supported,
-    // OidcResponseIssuer -> authorization_response_iss_parameter_supported), and each ProviderInformation
-    // field assigned below is the library's typed view of exactly one member (Issuer, KeySet — fetched from
-    // jwks_uri — AuthorizeEndpoint, PushedAuthorizationRequestEndpoint, TokenEndpoint, EndSessionEndpoint,
-    // UserInfoEndpoint, TokenEndPointAuthenticationMethods). Nothing downstream reaches past
-    // OidcDiscoveryResult, so its two components bound the list. The mapping from field to member name is
-    // the library's, not this file's, so ReadAsync_EveryScreenedMember_IsObservedByThisRead pins it against
-    // the library instead of against this comment.
+    // their member literally in their own source, and every other entry is the wire name behind one
+    // ProviderInformation field assigned below. Nothing downstream reaches past OidcDiscoveryResult, so its
+    // two components bound the list. Which field comes from which member is the library's mapping and not
+    // this file's, so ReadAsync_EveryScreenedMember_IsObservedByThisRead pins it against the library rather
+    // than restating it here, where it would go stale in silence.
     //
     // A repeat anywhere else — scopes_supported, response_types_supported, a vendor extension — decides
     // nothing this login acts on, and refusing on it would take every login for that provider offline over a
-    // value nobody reads. That was the shipped behaviour of the first cut of this screen and is the defect
-    // this list closes.
+    // value nobody reads. That was the first cut of this screen, and is the defect this list closes.
     private static readonly string[] IndexedMembers = new[]
     {
         "issuer",

@@ -229,7 +229,7 @@ public class OidcDiscoveryReaderTests
     [InlineData("token_endpoint_auth_methods_supported")]
     [InlineData("code_challenge_methods_supported")]
     [InlineData("authorization_response_iss_parameter_supported")]
-    public async Task ReadAsync_RepeatOfAnyScreenedMember_ReturnsUnavailable(string member)
+    public async Task ReadAsync_RepeatOfAnyScreenedMember_ReturnsUnavailable_NamingIt(string member)
     {
         // Every member on the list, repeated in the document the test above proved readable — so a member
         // that is on the list but not actually screened fails here. The second occurrence carries the SAME
@@ -237,12 +237,21 @@ public class OidcDiscoveryReaderTests
         // validation, endpoint validation and the JWKS fetch looking at byte-identical facts, so the refusal
         // cannot come from any of them. The opposing-value case — where the repeat changes what the document
         // means — is the issuer test further down.
+        var logger = new CapturingLogger();
         var http = new CountingFactory(Serve(DiscoveryOfEveryScreenedMember(repeat: member)));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
         Assert.Null(result.ProviderInformation);
+
+        // And the operator is told WHICH member repeated, at the reader rather than at the screen, because
+        // this is the line an admin actually sees: "the document repeats something" leaves them comparing the
+        // whole document by hand. Exactly one entry, so a refactor that collapsed this refusal into the
+        // generic unreadable-document warning fails here too.
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains(member, entry.Message, StringComparison.Ordinal);
     }
 
     [Theory]

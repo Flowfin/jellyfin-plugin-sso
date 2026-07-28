@@ -49,14 +49,12 @@ public class UntrustedJsonConformanceTests
     };
 
     // The provider-supplied reads that are deliberately NOT screened, each with the issue that owns deciding
-    // what screening them should mean. This list is the honest half of the rule: without it the scan would
-    // either have to claim a coverage it does not have, or force a screen onto a path whose failure mode is
-    // still an open question. An entry here is a declaration, not an exemption — the issue is what closes it.
-    //
-    // The role claim reaches the extractor through a parser that accepts grammars the screen cannot read, and
-    // what an UNREADABLE claim should mean on a path that decides privileges is a design question rather than
-    // a patch: refusing costs every role of a provider that emits one of those grammars, proceeding disables
-    // the screen on exactly the path that matters. #1053 settles that contract before any code.
+    // what screening them should mean. An entry here is a declaration and not an exemption: without this list
+    // the rule would have to either claim a coverage it does not have or force a screen onto a path whose
+    // failure mode is still an open question. For the role claim that question is what an UNREADABLE claim
+    // should mean where privileges are decided — refusing costs every role of a provider emitting a grammar
+    // the screen cannot read, proceeding disables the screen on exactly the path that matters. #1053 settles
+    // it before any code.
     private static readonly Dictionary<string, string> UnscreenedJsonReads = new(StringComparer.Ordinal)
     {
         ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "#1053",
