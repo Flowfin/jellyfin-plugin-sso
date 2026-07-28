@@ -31,9 +31,10 @@ updates:
     # are the controls for that class; this is the control for a freshly
     # published malicious version, which is a different attack.
     #
-    # No tier key: github-actions is absent from GitHub's table of ecosystems
-    # supporting semver-*-days. That table is the criterion, not the versioning
-    # scheme — Helm and Terraform are semver and unsupported, Pip and Maven are
-    # not semver and supported.
+    # No tier key: github-actions is listed in GitHub's cooldown table with its
+    # SemVer-tier column crossed. Checked 2026-07-28 against the Dependabot
+    # options reference. Do not trim below 7 either — zizmor's
+    # `dependabot-cooldown` audit is a required check and reds under its
+    # threshold.
     cooldown:
       default-days: 7
