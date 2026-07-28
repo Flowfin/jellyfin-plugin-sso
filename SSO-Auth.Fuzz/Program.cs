@@ -121,14 +121,15 @@ internal static class Program
 
     // OpenID discovery document: the raw JSON the challenge fetches from the provider. Every pure reader
     // that interprets it must fail closed/tolerant on any malformed or hostile document and never throw an
-    // unmapped exception (they catch only JsonException today). StrictJson leads because it leads in
-    // production (#1005): it is the parser that now touches provider bytes before any other, so a harness
-    // omitting it would no longer model the code it exists to cover.
+    // unmapped exception (they catch only JsonException today). The repeated-member screen leads because it
+    // leads in production (#1005): it is the parser that now touches discovery bytes before any other, so a
+    // harness omitting it would no longer model the code it exists to cover. It is driven through the
+    // reader's own entry point, so the harness screens the member list the login screens.
     private static void FuzzOidcDiscovery(ReadOnlySpan<byte> data)
     {
         var json = Encoding.UTF8.GetString(data);
 
-        _ = StrictJson.Inspect(json);
+        _ = OidcDiscoveryReader.ScreenIndexedMembers(json, out _);
         _ = PkceDiscovery.SupportsS256(json);
         _ = OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(json);
     }

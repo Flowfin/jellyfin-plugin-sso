@@ -43,6 +43,46 @@ internal static class OidcDiscoveryReader
     // next challenge, rather than tying up the endpoint. It keeps the 10s the pre-#450 probe already applied.
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
 
+    // Every member of the discovery document this read takes a value out of, and only those (#1005). Read
+    // off the reads themselves rather than off the OpenID Discovery spec: the two raw fact readers name
+    // their member literally in their own source (PkceDiscovery -> code_challenge_methods_supported,
+    // OidcResponseIssuer -> authorization_response_iss_parameter_supported), and each ProviderInformation
+    // field assigned below is the library's typed view of exactly one member (Issuer, KeySet — fetched from
+    // jwks_uri — AuthorizeEndpoint, PushedAuthorizationRequestEndpoint, TokenEndpoint, EndSessionEndpoint,
+    // UserInfoEndpoint, TokenEndPointAuthenticationMethods). Nothing downstream reaches past
+    // OidcDiscoveryResult, so its two components bound the list. The mapping from field to member name is
+    // the library's, not this file's, so ReadAsync_EveryScreenedMember_IsObservedByThisRead pins it against
+    // the library instead of against this comment.
+    //
+    // A repeat anywhere else — scopes_supported, response_types_supported, a vendor extension — decides
+    // nothing this login acts on, and refusing on it would take every login for that provider offline over a
+    // value nobody reads. That was the shipped behaviour of the first cut of this screen and is the defect
+    // this list closes.
+    private static readonly string[] IndexedMembers = new[]
+    {
+        "issuer",
+        "jwks_uri",
+        "authorization_endpoint",
+        "pushed_authorization_request_endpoint",
+        "token_endpoint",
+        "end_session_endpoint",
+        "userinfo_endpoint",
+        "token_endpoint_auth_methods_supported",
+        "code_challenge_methods_supported",
+        "authorization_response_iss_parameter_supported",
+    };
+
+    /// <summary>
+    /// Screens a raw discovery document for a repeat of a member this reader indexes — the production call
+    /// itself, exposed so the fuzz harness (#402) drives the member list the login drives rather than a copy
+    /// of it that can drift.
+    /// </summary>
+    /// <param name="raw">The raw discovery document, as received from the provider.</param>
+    /// <param name="repeatedMember">The repeated member's name when the verdict is <c>Repeated</c>; otherwise null.</param>
+    /// <returns>The screen's verdict for this document.</returns>
+    internal static StrictJson.Verdict ScreenIndexedMembers(string? raw, out string? repeatedMember) =>
+        StrictJson.Inspect(raw, IndexedMembers, out repeatedMember);
+
     /// <summary>
     /// Reads the discovery document named by <paramref name="options"/> (its <c>Authority</c> and
     /// <c>Policy.Discovery</c>) and returns the facts plus the provider metadata built from it, or
@@ -88,18 +128,18 @@ internal static class OidcDiscoveryReader
             // and silently re-points the issuer anchor this login is bound to. The whole read is refused
             // instead, failing the login closed exactly like an unreadable document, rather than letting one
             // fact through on one parser's choice of which occurrence counts.
-            //
-            // Only the TOP-LEVEL object is screened, because every member either reader takes out of this
-            // document is a top-level one — issuer, jwks_uri, the endpoints, the two advertised facts. A
-            // repeat inside a member neither reader opens, `mtls_endpoint_aliases` or a vendor extension,
-            // cannot re-point anything this login binds to, and refusing on it would take that provider's
-            // logins offline over a value nobody reads.
-            var screen = StrictJson.Inspect(discovery.Raw);
+            var screen = ScreenIndexedMembers(discovery.Raw, out var repeatedMember);
             if (screen == StrictJson.Verdict.Repeated)
             {
+                // The member name is safe to log unsanitized, and that is a property of the screen rather
+                // than of this document: Inspect compares the document's names only against IndexedMembers
+                // and reports nothing else, so what arrives here is one of this file's own constants. The
+                // provider name beside it is admin-supplied and is stripped of line endings inline, as
+                // everywhere in this file.
                 logger.LogWarning(
-                    "The OpenID discovery document for provider {Provider} repeats a top-level property name; the login fails closed rather than resolving the repeat to one parser's choice.",
-                    provider?.ReplaceLineEndings(string.Empty));
+                    "The OpenID discovery document for provider {Provider} names {Member} more than once; the login fails closed rather than resolving the repeat to one parser's choice.",
+                    provider?.ReplaceLineEndings(string.Empty),
+                    repeatedMember);
                 return OidcDiscoveryResult.Unavailable;
             }
 

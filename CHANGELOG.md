@@ -40,17 +40,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
-- **A repeated JSON property name is refused where it decides something
+- **A repeated property name in the OpenID discovery document is refused
   (#1005).** Every JSON parser this plugin depends on accepts a document that
   names the same member twice and silently keeps the last occurrence, so one
-  body can mean two things to two readers — a discovery document naming `issuer`
-  twice re-points the anchor a login binds itself to. The OpenID discovery read
-  now refuses a document that repeats a **top-level** member. Repeats elsewhere
-  are deliberately left alone: one inside `mtls_endpoint_aliases` or a vendor
-  extension decides nothing the plugin reads, so refusing on it would take a
-  working provider's logins offline for no gain. A document that cannot be read
-  as strict JSON is reported as unreadable rather than as a repeat, so the
-  operator warning names the problem the admin actually has.
+  body can mean two things to two readers: a discovery document naming `issuer`
+  twice re-points the anchor a login binds itself to, and one naming `jwks_uri`
+  twice re-points the keys an id_token is validated against. The discovery read
+  now fails the login closed when the document repeats one of the top-level
+  members it actually takes a value out of, and the operator warning names which
+  member repeated. A repeat anywhere else is deliberately admitted —
+  `scopes_supported`, a vendor extension, or anything nested inside a member
+  decides nothing this login acts on, so refusing on it would take a working
+  provider's logins offline for no gain. A document that cannot be read as
+  strict JSON is also refused, but reported apart from a repeat, so an admin is
+  never sent hunting a duplicate that is not there.
 
 ## 4.3.0
 

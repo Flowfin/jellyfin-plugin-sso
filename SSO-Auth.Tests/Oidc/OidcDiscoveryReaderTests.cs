@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -55,6 +56,37 @@ public class OidcDiscoveryReaderTests
         + $"\"jwks_uri\":\"{Authority}/jwks\","
         + members
         + "}";
+
+    // Every member the discovery read takes a value out of (#1005), with the value each is served as — the
+    // same list, in the same order, that OidcDiscoveryReader screens. Kept as pairs rather than as one string
+    // so a test can repeat any single member verbatim without disturbing the rest of the document.
+    private static readonly (string Name, string Value)[] ScreenedMembers = new[]
+    {
+        ("issuer", $"\"{Authority}\""),
+        ("jwks_uri", $"\"{Authority}/jwks\""),
+        ("authorization_endpoint", $"\"{Authority}/authorize\""),
+        ("pushed_authorization_request_endpoint", $"\"{Authority}/par\""),
+        ("token_endpoint", $"\"{Authority}/token\""),
+        ("end_session_endpoint", $"\"{Authority}/logout\""),
+        ("userinfo_endpoint", $"\"{Authority}/userinfo\""),
+        ("token_endpoint_auth_methods_supported", "[\"client_secret_post\"]"),
+        ("code_challenge_methods_supported", "[\"S256\"]"),
+        ("authorization_response_iss_parameter_supported", "true"),
+    };
+
+    // The document naming every screened member once, optionally with one of them served a second time with
+    // the identical value, and optionally with further members appended verbatim.
+    private static string DiscoveryOfEveryScreenedMember(string? repeat = null, string extra = "")
+    {
+        var members = ScreenedMembers.Select(member => $"\"{member.Name}\":{member.Value}").ToList();
+        if (repeat is not null)
+        {
+            var repeated = ScreenedMembers.Single(member => string.Equals(member.Name, repeat, StringComparison.Ordinal));
+            members.Add($"\"{repeated.Name}\":{repeated.Value}");
+        }
+
+        return "{" + string.Join(",", members) + extra + "}";
+    }
 
     private static OidcClientOptions OptionsFor(string authority, bool requireHttps = true, bool validateIssuerName = true)
     {
@@ -158,15 +190,54 @@ public class OidcDiscoveryReaderTests
         Assert.Equal(0, http.DiscoveryRequests); // policy rejected the address before any fetch
     }
 
-    [Theory]
-    // Each fact the plugin reads out of the raw body, served twice with opposing values (#1005). The library
-    // raises no error on any of them and resolves each to the LAST occurrence, so without the screen the read
-    // would succeed and report the attacker's half of a document the same bytes also promise the other way.
-    [InlineData("\"issuer\":\"" + Authority + "\",\"code_challenge_methods_supported\":[\"S256\"],\"code_challenge_methods_supported\":[\"plain\"]")]
-    [InlineData("\"issuer\":\"" + Authority + "\",\"authorization_response_iss_parameter_supported\":true,\"authorization_response_iss_parameter_supported\":false")]
-    public async Task ReadAsync_DiscoveryRepeatsATopLevelPropertyName_ReturnsUnavailable(string members)
+    [Fact]
+    public async Task ReadAsync_EveryScreenedMember_IsObservedByThisRead()
     {
-        var http = new CountingFactory(Serve(DiscoveryWith(members)));
+        // The derivation of the screened-member list, checked instead of asserted in prose (#1005). The list
+        // in OidcDiscoveryReader claims to be exactly the members this read takes a value out of, and the
+        // mapping from a library field to a wire member name belongs to the library, not to the plugin — so
+        // it is pinned here: one assertion per screened member, over a document carrying each of them once.
+        // A name that is not the one the library reads, or a member nothing downstream observes, fails here
+        // rather than shipping as a list nobody can check. This is also the positive control for the
+        // refusals below: the same document, unrepeated, is read in full.
+        var http = new CountingFactory(Serve(DiscoveryOfEveryScreenedMember()));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        var info = result.ProviderInformation;
+        Assert.Equal(Authority, info.IssuerName); // issuer
+        Assert.NotNull(info.KeySet); // jwks_uri — a document that names none yields a null KeySet
+        Assert.Equal(Authority + "/authorize", info.AuthorizeEndpoint); // authorization_endpoint
+        Assert.Equal(Authority + "/par", info.PushedAuthorizationRequestEndpoint); // pushed_authorization_request_endpoint
+        Assert.Equal(Authority + "/token", info.TokenEndpoint); // token_endpoint
+        Assert.Equal(Authority + "/logout", info.EndSessionEndpoint); // end_session_endpoint
+        Assert.Equal(Authority + "/userinfo", info.UserInfoEndpoint); // userinfo_endpoint
+        Assert.Contains("client_secret_post", info.TokenEndPointAuthenticationMethods); // token_endpoint_auth_methods_supported
+        Assert.True(result.Facts.PkceS256); // code_challenge_methods_supported
+        Assert.True(result.Facts.ResponseIssuerAdvertised); // authorization_response_iss_parameter_supported
+    }
+
+    [Theory]
+    [InlineData("issuer")]
+    [InlineData("jwks_uri")]
+    [InlineData("authorization_endpoint")]
+    [InlineData("pushed_authorization_request_endpoint")]
+    [InlineData("token_endpoint")]
+    [InlineData("end_session_endpoint")]
+    [InlineData("userinfo_endpoint")]
+    [InlineData("token_endpoint_auth_methods_supported")]
+    [InlineData("code_challenge_methods_supported")]
+    [InlineData("authorization_response_iss_parameter_supported")]
+    public async Task ReadAsync_RepeatOfAnyScreenedMember_ReturnsUnavailable(string member)
+    {
+        // Every member on the list, repeated in the document the test above proved readable — so a member
+        // that is on the list but not actually screened fails here. The second occurrence carries the SAME
+        // value on purpose: the screen decides on names, and an identical repeat leaves issuer-name
+        // validation, endpoint validation and the JWKS fetch looking at byte-identical facts, so the refusal
+        // cannot come from any of them. The opposing-value case — where the repeat changes what the document
+        // means — is the issuer test further down.
+        var http = new CountingFactory(Serve(DiscoveryOfEveryScreenedMember(repeat: member)));
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
 
@@ -175,38 +246,25 @@ public class OidcDiscoveryReaderTests
     }
 
     [Theory]
-    // The positive control for each fixture above: the same document carrying the member ONCE is read, and
-    // the fact it yields is the one the document states. Without this pair the theory above is satisfied by a
-    // reader that refuses every discovery document, which is an outage rather than a guard.
-    [InlineData("\"issuer\":\"" + Authority + "\",\"code_challenge_methods_supported\":[\"S256\"]", true, false)]
-    [InlineData("\"issuer\":\"" + Authority + "\",\"authorization_response_iss_parameter_supported\":true", false, true)]
-    [InlineData("\"issuer\":\"" + Authority + "\",\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\"}", false, false)]
-    public async Task ReadAsync_TheSameDocumentsWithoutTheRepeat_AreRead(string members, bool pkce, bool responseIssuer)
-    {
-        var http = new CountingFactory(Serve(DiscoveryWith(members)));
-
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
-
-        Assert.True(result.Available);
-        Assert.Equal(pkce, result.Facts.PkceS256);
-        Assert.Equal(responseIssuer, result.Facts.ResponseIssuerAdvertised);
-    }
-
-    [Theory]
     // The other side of the bargain, and the one that decides whether this change is worth shipping: what the
-    // screen must NOT refuse. Every member either reader takes out of this document is a top-level one, so a
-    // repeat inside a member neither opens re-points nothing — while refusing on it would take every login
-    // for that provider offline over a value the plugin never reads. `mtls_endpoint_aliases` is a real
-    // RFC 8705 member some deployments serve; the vendor extension is the general case.
-    [InlineData("\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\",\"token_endpoint\":\"https://b\"}")]
-    [InlineData("\"vendor_extension\":{\"tenant\":\"a\",\"tenant\":\"b\"}")]
-    public async Task ReadAsync_RepeatInsideAMemberNoReaderOpens_IsStillRead(string extra)
+    // screen must NOT refuse. A repeat of a member nothing indexes re-points nothing, while refusing on it
+    // would take every login for that provider offline over a value the plugin never reads. The first three
+    // are TOP-LEVEL repeats — the first cut of this screen refused all of them, which is the availability
+    // defect this list closes; `scopes_supported` and `response_types_supported` are members every real
+    // discovery document carries. The last is the same point one level down, inside RFC 8705's
+    // `mtls_endpoint_aliases`, where the repeated name is even a screened one.
+    [InlineData(",\"scopes_supported\":[\"openid\"],\"scopes_supported\":[\"openid\",\"profile\"]")]
+    [InlineData(",\"response_types_supported\":[\"code\"],\"response_types_supported\":[\"token\"]")]
+    [InlineData(",\"vendor_tenant\":\"a\",\"vendor_tenant\":\"b\"")]
+    [InlineData(",\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://a\",\"token_endpoint\":\"https://b\"}")]
+    public async Task ReadAsync_RepeatOfAMemberNoReaderIndexes_IsStillRead(string extra)
     {
-        var http = new CountingFactory(Serve(DiscoveryWith($"\"issuer\":\"{Authority}\",\"code_challenge_methods_supported\":[\"S256\"],{extra}")));
+        var http = new CountingFactory(Serve(DiscoveryOfEveryScreenedMember(extra: extra)));
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
 
         Assert.True(result.Available);
+        Assert.Equal(Authority, result.ProviderInformation.IssuerName);
         Assert.True(result.Facts.PkceS256);
     }
 

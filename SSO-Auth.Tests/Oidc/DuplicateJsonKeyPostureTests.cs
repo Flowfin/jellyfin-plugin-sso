@@ -46,8 +46,10 @@ public class DuplicateJsonKeyPostureTests
         // answers equal the answers the System.Text.Json family — the library's own parser — gets from the
         // same bytes. Both facts, both readers, one document. The oracle below is therefore System.Text.Json
         // and not a second Newtonsoft read: an oracle from the same family as the code under test compares a
-        // parser with itself and would agree on documents the two families read differently.
-        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(document));
+        // parser with itself and would agree on documents the two families read differently. The screen is
+        // driven through the discovery reader's own entry point, so these documents are screened against the
+        // member list production screens them against.
+        Assert.Equal(StrictJson.Verdict.Clean, OidcDiscoveryReader.ScreenIndexedMembers(document, out _));
 
         var (pkce, responseIssuer) = ByTheLibrarysOwnFamily(document);
 
@@ -59,15 +61,15 @@ public class DuplicateJsonKeyPostureTests
     [InlineData(CommentGrammar)]
     [InlineData(SingleQuoteGrammar)]
     [InlineData(TrailingCommaGrammar)]
-    public void WhereTheParserFamiliesDisagree_TheDiscoveryReadIsRefused(string document)
+    public void WhereTheParserFamiliesDisagree_TheScreenReportsUnreadable(string document)
     {
         // The demonstration that the agreement above is not a tautology. On each of these the plugin's
         // Newtonsoft reader happily reports PKCE support for a document System.Text.Json cannot read at all —
         // a divergence of exactly the shape this issue is about. The screen reports each as UNREADABLE rather
-        // than as a repeat, which is the honest answer, and the discovery reader refuses an unreadable
-        // document, so the divergence stays unreachable on the path where the facts are used.
+        // than as a repeat, which is the honest answer; what the discovery reader then does with that verdict
+        // is its own file's test, and this one deliberately does not claim to have exercised it.
         Assert.True(PkceDiscovery.SupportsS256(document));
-        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(document));
+        Assert.Equal(StrictJson.Verdict.Unreadable, OidcDiscoveryReader.ScreenIndexedMembers(document, out _));
     }
 
     // The two discovery facts as the library's own parser family reads them. Total by construction: a fact
