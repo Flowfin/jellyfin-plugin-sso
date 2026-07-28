@@ -8,16 +8,33 @@ updates:
     # Wait 7 days before proposing a new version so a release compromised between
     # publish and adoption is caught before it enters a PR (recent supply-chain
     # attacks were live for hours-to-days). Security updates are exempt — they are
-    # still proposed immediately.
+    # still proposed immediately, in GitHub's words the cooldown "does not apply
+    # to security updates".
+    #
+    # Patches wait less than the default: a patch is the bump most worth taking
+    # promptly, and three days still lets the advisory feeds catch a poisoned
+    # release. NuGet is in GitHub's table of ecosystems that support the
+    # semver-*-days keys, which is why the tier is available here at all.
     cooldown:
       default-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    # Same cooldown for action bumps — the tj-actions / Trivy-action incidents were
-    # exactly compromised-tag adoptions a delay would have caught.
+    # A hold on action bumps, and an honest note about its reach: the tj-actions
+    # and Trivy-action incidents were tag re-points, an existing tag moved to
+    # a malicious commit. The underlying release keeps its original publication
+    # date, so there is no new publication for a delay to hold — this cooldown
+    # would not have caught either. SHA-pinning plus zizmor's ref-version audit
+    # are the controls for that class; this is the control for a freshly
+    # published malicious version, which is a different attack.
+    #
+    # No tier key: github-actions is absent from GitHub's table of ecosystems
+    # supporting semver-*-days. That table is the criterion, not the versioning
+    # scheme — Helm and Terraform are semver and unsupported, Pip and Maven are
+    # not semver and supported.
     cooldown:
       default-days: 7
