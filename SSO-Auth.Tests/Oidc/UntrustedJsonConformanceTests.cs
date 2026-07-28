@@ -12,21 +12,29 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// The structural half of #1005: the duplicate-property gate is only worth having while every JSON read of
-/// provider-supplied bytes goes through it, and that is a call-level property no reflection over types can
-/// see. It is a source scan, in the shape the SAML hardened-reader ban already uses here — with the same
-/// must-catch / adjacent-must-not-catch fixtures for the scan's own predicate, because a scan nobody has
-/// seen go red is decorative.
+/// The structural half of #1005. The claim, stated at the width it is actually held: every JSON read seam
+/// this scan's own predicate matches, in a file under <c>SSO-Auth/</c>, is DECLARED — as gated by a named
+/// gate file, as reading trusted bytes, or as an untreated provider-supplied read with the issue that owns
+/// deciding what to do about it. It is a call-level property no reflection over types can see, so it is a
+/// source scan, in the shape the SAML hardened-reader ban already uses here — with the same must-catch /
+/// adjacent-must-not-catch fixtures for the scan's own predicate, because a scan nobody has seen go red is
+/// decorative.
+///
+/// What the scan does NOT see, so that nothing downstream reads more into a green run: a document parsed by
+/// constructing a parser type directly (<c>new JsonWebToken(…)</c>, <c>new JsonWebKeySet(…)</c>) matches
+/// none of its seams. That surface is covered instead by <c>DuplicateJsonKeyPostureTests</c>, which pins the
+/// duplicate-key posture of those parsers and asserts that every reader of the id_token reaches one value.
 ///
 /// This rule lives in its own file rather than in <c>ArchitectureConformanceTests</c> while #1030 is open on
 /// that file; folding it in once #1030 has merged is #1037.
 /// </summary>
 public class UntrustedJsonConformanceTests
 {
-    // Every JSON read seam, listed by the file it lives in and the file whose gate covers it. Two of the
-    // three are pure readers of the discovery document and are gated at the boundary that fetches it, not
-    // individually: the tolerant one would fail OPEN if it refused a document on its own (its false means
-    // "do not require the RFC 9207 iss"), so the gate belongs where refusing means refusing the login.
+    // The provider-supplied JSON read seams that ARE screened, listed by the file they live in and the file
+    // whose gate covers them. Both are pure readers of the discovery document and are gated at the boundary
+    // that fetches it, not individually: the tolerant one would fail OPEN if it refused a document on its own
+    // (its false means "do not require the RFC 9207 iss"), so the gate belongs where refusing means refusing
+    // the login.
     //
     // A file, not a call, because a file is what a scan can identify — so an entry claims only that the JSON
     // read seams in the key file are covered by the gate in the value file. OidcResponseIssuer.cs also reads
@@ -38,7 +46,20 @@ public class UntrustedJsonConformanceTests
     {
         ["SSO-Auth/Api/Oidc/PkceDiscovery.cs"] = "SSO-Auth/Api/Oidc/OidcDiscoveryReader.cs",
         ["SSO-Auth/Api/Oidc/OidcResponseIssuer.cs"] = "SSO-Auth/Api/Oidc/OidcDiscoveryReader.cs",
-        ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "SSO-Auth/Api/Oidc/OidcRoleExtractor.cs",
+    };
+
+    // The provider-supplied reads that are deliberately NOT screened, each with the issue that owns deciding
+    // what screening them should mean. This list is the honest half of the rule: without it the scan would
+    // either have to claim a coverage it does not have, or force a screen onto a path whose failure mode is
+    // still an open question. An entry here is a declaration, not an exemption — the issue is what closes it.
+    //
+    // The role claim reaches the extractor through a parser that accepts grammars the screen cannot read, and
+    // what an UNREADABLE claim should mean on a path that decides privileges is a design question rather than
+    // a patch: refusing costs every role of a provider that emits one of those grammars, proceeding disables
+    // the screen on exactly the path that matters. #1053 settles that contract before any code.
+    private static readonly Dictionary<string, string> UnscreenedJsonReads = new(StringComparer.Ordinal)
+    {
+        ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "#1053",
     };
 
     // The reads whose input is not provider-supplied, each by EXACT repo-relative path. A suffix match would
@@ -71,19 +92,19 @@ public class UntrustedJsonConformanceTests
             .Where(f => f.Seams.Count > 0)
             .ToDictionary(f => f.Relative, f => f.Seams, StringComparer.Ordinal);
 
-        foreach (var known in GatedJsonReads.Keys.Concat(TrustedJsonReads))
+        foreach (var known in GatedJsonReads.Keys.Concat(UnscreenedJsonReads.Keys).Concat(TrustedJsonReads))
         {
             Assert.True(seams.ContainsKey(known), $"{known} is listed as a JSON read site but the scan found no read seam in it — the list has drifted from the code, so the rule is checking nothing there.");
         }
 
         var unlisted = seams.Keys
-            .Where(relative => !GatedJsonReads.ContainsKey(relative) && !TrustedJsonReads.Contains(relative))
+            .Where(relative => !GatedJsonReads.ContainsKey(relative) && !UnscreenedJsonReads.ContainsKey(relative) && !TrustedJsonReads.Contains(relative))
             .Select(relative => $"{relative} ({string.Join(", ", seams[relative])})")
             .ToList();
 
         Assert.True(
             unlisted.Count == 0,
-            "A JSON read of provider-supplied bytes must pass the duplicate-property gate, and a new read site must declare which gate covers it (#1005). Ungoverned: " + string.Join(" | ", unlisted));
+            "A new JSON read site must declare itself: gated by a named gate file, reading trusted bytes, or unscreened with the issue that owns the decision (#1005). Undeclared: " + string.Join(" | ", unlisted));
 
         // Read as CODE, with the comments stripped — the same treatment the rule below gives the gate's own
         // source, and for the same reason: a gate file's prose names the call it makes, so a raw text match
