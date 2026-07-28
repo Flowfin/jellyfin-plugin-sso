@@ -5,16 +5,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    # Wait 7 days before proposing a new version so a release compromised between
-    # publish and adoption is caught before it enters a PR (recent supply-chain
-    # attacks were live for hours-to-days). Security updates are exempt — they are
-    # still proposed immediately, in GitHub's words the cooldown "does not apply
-    # to security updates".
-    #
-    # No shortened patch tier, deliberately. Shortening it would accelerate only
-    # the NON-security bumps, since the security ones are exempt above — and the
-    # patch tier is the one a registry compromise publishes into, where a
-    # malicious release reads as innocuous.
+    # 7-day hold on new releases; what it does and does not reach is on #1055.
     cooldown:
       default-days: 7
 
@@ -23,18 +14,6 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    # A hold on action bumps, and an honest note about its reach: the tj-actions
-    # and Trivy-action incidents were tag re-points, an existing tag moved to
-    # a malicious commit. The underlying release keeps its original publication
-    # date, so there is no new publication for a delay to hold — this cooldown
-    # would not have caught either. SHA-pinning is the control for that class —
-    # every external `uses:` in this repo is a 40-hex commit SHA. This hold is
-    # the control for a freshly published malicious version, a different attack.
-    #
-    # No tier key: github-actions is listed in GitHub's cooldown table with its
-    # SemVer-tier column crossed. Checked 2026-07-28 against the Dependabot
-    # options reference. Do not trim below 7 either — zizmor's
-    # `dependabot-cooldown` audit is a required check and reds under its
-    # threshold.
+    # 7-day hold. The re-pointed-tag limit and the missing tier key are on #1055.
     cooldown:
       default-days: 7
