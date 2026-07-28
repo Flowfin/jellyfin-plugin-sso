@@ -11,13 +11,12 @@ updates:
     # still proposed immediately, in GitHub's words the cooldown "does not apply
     # to security updates".
     #
-    # Patches wait less than the default: a patch is the bump most worth taking
-    # promptly, and three days still lets the advisory feeds catch a poisoned
-    # release. NuGet is in GitHub's table of ecosystems that support the
-    # semver-*-days keys, which is why the tier is available here at all.
+    # No shortened patch tier, deliberately. Shortening it would accelerate only
+    # the NON-security bumps, since the security ones are exempt above — and the
+    # patch tier is the one a registry compromise publishes into, where a
+    # malicious release reads as innocuous.
     cooldown:
       default-days: 7
-      semver-patch-days: 3
 
   - package-ecosystem: "github-actions"
     directory: "/"
