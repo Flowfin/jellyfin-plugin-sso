@@ -10,6 +10,7 @@ using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using NSubstitute;
 using Xunit;
 
@@ -21,6 +22,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// fail-closed contract: the feature and per-provider opt-in gate reject WITHOUT reading the token; a valid
 /// token revokes only the matched user's OpenID sessions for that provider (never cross-provider, never a
 /// SAML capture); and every rejection is the uniform 400 with no subject oracle.
+///
+/// <see cref="AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes"/> belongs to the
+/// JWT forgery battery (<see cref="OidcTokenForgeryTests"/>) and lives here because this is where the
+/// production path is reachable: it is the one forged shape that crosses the real endpoint and the real
+/// parameter-building call site, instead of a basis a test built (#1004).
 /// </summary>
 [Collection("SSOController")]
 public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
@@ -111,6 +117,43 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     }
 
     [Fact]
+    public async Task AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes()
+    {
+        // The one forgery driven END TO END: the endpoint, the discovery/JWKS read, and the validation
+        // parameters OidcLoginService builds at its own call site. The rest of the battery
+        // (OidcTokenForgeryTests) hands the validator parameters the TEST constructed, which establishes what
+        // the library refuses rather than what this endpoint refuses; those are different claims and only one
+        // of them is about production.
+        //
+        // alg:none is the shape chosen for it because it is the one needing no key material at all: the
+        // header declares the token needs no signature and the third segment is empty, so anyone who can
+        // reach this anonymous URL can mint it, and acceptance would revoke a chosen user's sessions. It is
+        // also the shape a mutation of the parameters AFTER the builder returns re-opens, at a call site the
+        // conformance rule cannot see (the endpoint's `var parameters = ...` names no type and calls no
+        // handler entry point — that rule's doc comment enumerates the gap). This row is what notices.
+        //
+        // The genuine token goes through the SAME harness afterwards and must be ACCEPTED. Without that
+        // control the rejection would prove nothing: an unserved discovery document, a misspelled provider
+        // or a wrong audience all produce the identical uniform 400.
+        var harness = Harness(c =>
+        {
+            c.EnableSingleLogout = true;
+            c.OidConfigs["kc"] = Provider(backChannel: true);
+            c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
+        });
+
+        var refused = await harness.Controller.OidBackChannelLogout("kc", AlgNoneLogoutToken("sub-1", "sess-9"));
+
+        AssertUniform400(refused);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+
+        var accepted = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        Assert.IsType<OkResult>(accepted);
+        await harness.SessionManager.Received(1).RevokeUserTokens(UserA, null);
+    }
+
+    [Fact]
     public async Task NeverRevokesASamlCaptureWithTheSameSubject()
     {
         var harness = Harness(c =>
@@ -191,6 +234,21 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
 
         AssertUniform400(result);
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+    }
+
+    // An unsigned logout_token whose every claim is acceptable — this provider's issuer and audience, the
+    // mandatory events member, a sub/sid pair that matches a captured session — so the empty signature is the
+    // only thing left to refuse it on. Composed by hand because a token handler will not emit an `alg` the
+    // JWS spec forbids.
+    private string AlgNoneLogoutToken(string subject, string sessionIndex)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var payload = "{\"iss\":\"" + Authority + "\",\"aud\":\"" + _fixture.ClientId + "\",\"sub\":\"" + subject + "\","
+            + "\"sid\":\"" + sessionIndex + "\",\"jti\":\"" + Guid.NewGuid() + "\","
+            + "\"iat\":" + (now - 60) + ",\"exp\":" + (now + 300) + ","
+            + "\"events\":{\"http://schemas.openid.net/event/backchannel-logout\":{}}}";
+        return Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes("{\"alg\":\"none\",\"typ\":\"JWT\"}"))
+            + "." + Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payload)) + ".";
     }
 
     private static void AssertUniform400(ActionResult result)
