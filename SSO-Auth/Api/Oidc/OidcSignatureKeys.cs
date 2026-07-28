@@ -21,15 +21,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 ///
 /// That is a property of the code as it stands, held by a conformance rule
 /// (<c>OidcTokenValidation_UsesTheSingleHardenedParameterBuilder</c>), by the forgery battery and by review —
-/// not a proof that no second path can exist. The rule is a source scan over FILES, and FOUR shapes are
-/// measured to pass it: a second parameter set built inside this file or its sibling validator; a path that
-/// verifies a JWS without the token library at all; a CALLER that mutates what this builder returns before
-/// using it (a scan cannot follow a returned value, and the back-channel caller holds it in a <c>var</c>);
-/// and the deletion of a field from the builder below — the rule pins what
-/// <see cref="AllowedSignatureAlgorithms"/> CONTAINS, never that it is assigned to <c>ValidAlgorithms</c>.
-/// The last two are held by one named forgery test each instead. That rule's own doc comment enumerates all
-/// four with the measurement behind them; this sentence is not a stronger guarantee than the one over there
-/// (#1004).
+/// not a proof that no second path can exist, since a rule that scans source files decides nothing about what
+/// a caller does with these parameters afterwards or about a verifier written without the token library
+/// (#1004). What has actually been measured to slip past it is recorded on #1050, not enumerated here.
 /// </summary>
 internal static class OidcSignatureKeys
 {

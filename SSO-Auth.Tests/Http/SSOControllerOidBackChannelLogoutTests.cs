@@ -129,8 +129,8 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         // header declares the token needs no signature and the third segment is empty, so anyone who can
         // reach this anonymous URL can mint it, and acceptance would revoke a chosen user's sessions. It is
         // also the shape a mutation of the parameters AFTER the builder returns re-opens, at a call site the
-        // conformance rule cannot see (the endpoint's `var parameters = ...` names no type and calls no
-        // handler entry point — that rule's doc comment enumerates the gap). This row is what notices.
+        // conformance rule cannot see: the endpoint's `var parameters = ...` names no type and calls no
+        // handler entry point. This row is what notices (#1050).
         //
         // The genuine token goes through the SAME harness afterwards and must be ACCEPTED. Without that
         // control the rejection would prove nothing: an unserved discovery document, a misspelled provider

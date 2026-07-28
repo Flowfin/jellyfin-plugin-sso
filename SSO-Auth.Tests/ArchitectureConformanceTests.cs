@@ -2674,53 +2674,18 @@ public class ArchitectureConformanceTests
     /// algorithm-confusion class in a single line; one without <c>RequireSignedTokens</c> re-opens
     /// <c>alg: none</c>. STRIDE: spoofing. ASVS 5.0 V9.2 (token signature and algorithm verification).
     ///
-    /// WHAT THE THREE TERMS CATCH, established by running those mutants rather than by reading the
-    /// predicates: a NEW file constructing the type explicitly (<c>new TokenValidationParameters</c>, term 1);
-    /// a NEW file constructing it target-typed (<c>TokenValidationParameters p = new();</c>, term 2 — the
-    /// spelling a substring search for term 1 walks past, and house style in this repo); and a NEW file
-    /// passing a bare <c>new() { … }</c> straight into <c>ValidateTokenAsync</c>, which names the type
-    /// nowhere and is invisible to both scans (term 3 pins the handler entry points to the two validators).
+    /// WHAT THE THREE TERMS CATCH, each established by writing that file and running this rule over it rather
+    /// than by reading the predicates: a NEW file constructing the type explicitly
+    /// (<c>new TokenValidationParameters</c>); a NEW file constructing it target-typed
+    /// (<c>TokenValidationParameters p = new();</c>, house style in this repo); and a NEW file passing a bare
+    /// <c>new() { … }</c> straight into <c>ValidateTokenAsync</c>, which names the type nowhere and is
+    /// invisible to both of the first two.
     ///
-    /// WHAT THEY DO NOT CATCH, because a guard that overstates its reach is what the next author trusts
-    /// instead of re-deriving it. FOUR shapes, each verified by making the edit and running this rule over it,
-    /// not by reading the predicates:
-    ///
-    /// (a) Verification that never uses the library at all — splitting the JWS and calling
-    /// <c>RSA.VerifyData</c> directly. It constructs no parameters and calls no handler, so no term applies.
-    ///
-    /// (b) A second, laxer parameter set built INSIDE a file already on the two lists below. A per-file scan
-    /// cannot tell it from the first one there.
-    ///
-    /// (c) POST-BUILD MUTATION of what this builder returned, which is the cheapest of the four and sits at
-    /// the endpoint where the signature is the only authentication. The back-channel caller holds the result
-    /// as <c>var parameters = …BuildValidationParameters(…)</c> and hands it to the logout validator's own
-    /// <c>ValidateAsync</c>: that file names the type nowhere, constructs nothing, and calls no handler entry
-    /// point, so all three terms are silent about it. Measured: with <c>parameters.RequireSignedTokens =
-    /// false;</c> added after that call, this rule passes and the build emits zero warnings, while the
-    /// unsigned forgery is ACCEPTED — the endpoint answers <c>OkResult</c>, which on that path is reachable
-    /// only once a captured session has been revoked. What turns red is one test —
-    /// <see cref="SSOControllerOidBackChannelLogoutTests.AlgNoneForgery_IsRefusedByTheProductionPath_WhileTheGenuineTokenStillRevokes"/>,
-    /// the row that drives that call site rather than a basis a test built.
-    ///
-    /// (d) The allowlist's WIRING, as against its content. The last assertion below reads
-    /// <c>AllowedSignatureAlgorithms</c> and pins what is in it; nothing here pins that the builder assigns it
-    /// to <c>ValidAlgorithms</c>. Measured: deleting <c>ValidAlgorithms = AllowedSignatureAlgorithms</c> from
-    /// the builder leaves this rule green and the build clean; what turns red is
-    /// <see cref="OidcTokenForgeryTests.AlgorithmAllowlist_RefusesAnHs256TokenTheKeySetWouldOtherwiseVerify"/>.
-    ///
-    /// Adding a fourth term for any of them is the wrong repair — the terms enumerate spellings over an
-    /// unbounded space, so each one added moves the next evasion one identifier away rather than closing it,
-    /// and a text scan has no notion of "how many times in this file", of "does this reimplement the
-    /// verifier", or of what happens to a value after it is returned. (a) and (b) are review's, on a surface
-    /// where every change is reviewed before merge. (c) and (d) have a named test each, above — which is why
-    /// deleting one of those two rows is a larger change than it looks.
-    ///
-    /// One automated control does reach inside a file, and its boundary was measured rather than assumed:
-    /// CA5404 is an ERROR here, so <c>ValidateIssuer</c>, <c>ValidateAudience</c> or <c>ValidateLifetime</c>
-    /// set to false fails the build wherever it is written, this file included. It does NOT cover the two
-    /// disablements that matter most here — a missing <c>ValidAlgorithms</c> and
-    /// <c>RequireSignedTokens = false</c> each build clean with zero warnings, re-measured at the (c) and (d)
-    /// mutation sites above.
+    /// What it does not reach is not listed here, because such a list claims completeness over the space of
+    /// evasions and has been wrong every time it was written: this is a source scan over FILES, so it cannot
+    /// see what a caller does with the parameters after the builder has returned them, nor a path that
+    /// verifies a JWS without the token library at all — review owns that, and the shapes measured so far are
+    /// recorded on #1050.
     /// </summary>
     [Fact]
     public void OidcTokenValidation_UsesTheSingleHardenedParameterBuilder()
