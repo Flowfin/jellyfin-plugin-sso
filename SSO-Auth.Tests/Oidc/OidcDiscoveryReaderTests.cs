@@ -182,8 +182,15 @@ public class OidcDiscoveryReaderTests
         // THE named conformance property (#1005). A post-hoc check cannot hold it: the library resolves the
         // repeated `jwks_uri` to its last occurrence and dereferences it, so a screen placed after the parse
         // would report the repeat only once the attacker-named URL had already been requested. Screening on
-        // the transport means that URL is never requested at all — which is what the second assertion pins.
-        var duplicated = FullDiscovery(Authority).Insert(1, "\"jwks_uri\":\"https://attacker.example/jwks\",");
+        // the transport means that URL is never requested at all — which is what the request count pins.
+        //
+        // The planted URL sits on the SAME authority deliberately. An off-authority one (the first spelling of
+        // this test) is refused by the discovery policy's endpoint validation before any fetch, so the row
+        // stayed green with the screen removed entirely — it would have been evidence about ValidateEndpoints
+        // wearing this test's name. Here the second URL is one the policy accepts, so the only thing standing
+        // between the document and that fetch is the screen. Verified by removing the screen and watching this
+        // go red.
+        var duplicated = FullDiscovery(Authority).Insert(1, $"\"jwks_uri\":\"{Authority}/jwks-second\",");
         var http = new CountingFactory(Serve(duplicated));
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
@@ -191,6 +198,10 @@ public class OidcDiscoveryReaderTests
         Assert.False(result.Available);
         Assert.Equal(1, http.DiscoveryRequests);
         Assert.Equal(0, http.JwksRequests);
+
+        // Nothing beyond the discovery document was requested at all — the assertion that does not depend on
+        // guessing which URL a bypass would have chosen.
+        Assert.Equal(1, http.TotalRequests);
     }
 
     [Fact]
@@ -371,9 +382,12 @@ public class OidcDiscoveryReaderTests
 
         internal int JwksRequests { get; private set; }
 
+        internal int TotalRequests { get; private set; }
+
         private HttpResponseMessage Handle(HttpRequestMessage request)
         {
             var url = request.RequestUri!.AbsoluteUri;
+            TotalRequests++;
             if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
             {
                 DiscoveryRequests++;
