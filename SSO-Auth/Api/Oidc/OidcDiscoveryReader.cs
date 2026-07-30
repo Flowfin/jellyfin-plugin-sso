@@ -63,7 +63,15 @@ internal static class OidcDiscoveryReader
             using var client = SsoHttp.CreateClient(httpClientFactory);
             client.Timeout = FetchTimeout;
 
-            var discovery = await client.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
+            // Screen both documents this read fetches — the well-known document and the JWKS it points at —
+            // on the transport, so a body that names a member twice never reaches the library that would
+            // resolve the repeat to its last occurrence (#1005). Forwarding through the client rather than
+            // its handler keeps the User-Agent, the timeout above and the SSRF-hardened transport applied to
+            // every screened request. The invoker does not own the chain: the client's `using` disposes it.
+            using var screen = new RepeatedMemberScreen(new HttpClientForwarder(client), provider, logger);
+            using var invoker = new HttpMessageInvoker(screen, disposeHandler: false);
+
+            var discovery = await invoker.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
             {
                 Address = options.Authority,
                 Policy = options.Policy.Discovery,
@@ -115,5 +123,21 @@ internal static class OidcDiscoveryReader
                 provider?.ReplaceLineEndings(string.Empty));
             return OidcDiscoveryResult.Unavailable;
         }
+    }
+
+    /// <summary>
+    /// Presents an <see cref="HttpClient"/> as a handler, so the screen can sit in a handler chain while every
+    /// request it forwards still passes through the client that carries the User-Agent, the fetch timeout and
+    /// the SSRF-hardened primary handler. Disposing it deliberately does not dispose the client, whose
+    /// lifetime belongs to the caller.
+    /// </summary>
+    private sealed class HttpClientForwarder : HttpMessageHandler
+    {
+        private readonly HttpClient _client;
+
+        internal HttpClientForwarder(HttpClient client) => _client = client;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, System.Threading.CancellationToken cancellationToken) =>
+            _client.SendAsync(request, cancellationToken);
     }
 }

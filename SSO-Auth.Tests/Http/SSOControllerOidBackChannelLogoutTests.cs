@@ -169,6 +169,40 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     }
 
     [Fact]
+    public async Task ScreenedDiscovery_NoOpsTheLogout_AndLeavesTheSessionAlive()
+    {
+        // Pins the posture #1060 owns, so the deferral is visible rather than implied. The repeated-member
+        // screen (#1005) refuses a discovery document that names `issuer` twice, which on THIS path means the
+        // logout token is never validated: the revocation the IdP ordered does not happen and the captured
+        // session survives. That is fail-OPEN for a logout while being fail-closed for a login, it predates
+        // the screen (any unreadable discovery already does it), and the screen only adds a new cause — so it
+        // is pinned here and decided there rather than changed inside this delivery.
+        var harness = new SsoControllerHarness(
+            c =>
+            {
+                c.EnableSingleLogout = true;
+                c.OidConfigs["kc"] = Provider(backChannel: true);
+                c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
+            },
+            httpResponder: request =>
+            {
+                var url = request.RequestUri!.AbsoluteUri;
+                if (url == _fixture.DiscoveryUrl)
+                {
+                    return Json(_fixture.Discovery().Insert(1, "\"issuer\":\"https://attacker.example\","));
+                }
+
+                return url == _fixture.JwksUrl ? Json(_fixture.Jwks()) : new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+        var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        AssertUniform400(result);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+        Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+    }
+
+    [Fact]
     public async Task MalformedEndpoint_RejectsFailClosed_MintsNoRevoke()
     {
         // The configured endpoint is not a usable URL, so OidcDiscoveryOptions.Build throws while the

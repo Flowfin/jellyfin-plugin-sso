@@ -38,6 +38,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   configuration are unchanged, so the rename lands as an in-place update that
   keeps every existing setting.
 
+### Security
+
+- **A provider response that names a JSON member twice is refused before it is
+  parsed.** Every JSON reader involved accepts a repeated member and silently
+  keeps the last occurrence, so one document can mean two things depending on
+  which reader looks at it — a repeated `issuer` re-points the anchor a login
+  binds itself to, and a repeated `jwks_uri` re-points the keys an id_token is
+  validated against. The OpenID discovery document and the JWKS it names are now
+  screened on the transport, so a document carrying such a repeat never reaches
+  the reader that would resolve it: the refused document's `jwks_uri` is never
+  requested at all, rather than requested and reported afterwards. A document
+  that cannot be inspected as JSON is refused the same way. The refusal names the
+  member in the server log and fails the **login** closed; on the back-channel
+  logout path the same refusal leaves the session untouched, which is the
+  behaviour any unreadable discovery document already had.
+
 ## 4.3.0
 
 A feature release. This line advances the plugin's maturity to **Beta** on the

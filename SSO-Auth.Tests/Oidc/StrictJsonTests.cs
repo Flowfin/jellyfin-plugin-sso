@@ -1,0 +1,236 @@
+// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
+// SPDX-License-Identifier: GPL-3.0-only
+
+using System;
+using System.Linq;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
+using Xunit;
+
+namespace Jellyfin.Plugin.SSO_Auth.Tests;
+
+/// <summary>
+/// Tests for <see cref="StrictJson"/> — the per-object-scope walk that decides whether a provider document
+/// names a member twice (#1005). Every reader the plugin depends on keeps the LAST occurrence of a repeated
+/// member silently, so a document that repeats one means two things at once; a repeated <c>issuer</c>
+/// re-points the anchor a login binds to and a repeated <c>jwks_uri</c> re-points the validation keys. They
+/// pin: a repeat is found at every scope, a document without one is admitted (the positive controls, without
+/// which a walk that refused everything would satisfy the rejection rows), sibling scopes may reuse a name,
+/// names are compared ordinally and after unescaping, and hostile input is reported rather than thrown.
+/// </summary>
+public class StrictJsonTests
+{
+    // A realistic two-key JWKS: every entry repeats `kty`, `use`, `alg`, `n` and `e` in a SIBLING scope, which
+    // is the shape a document-wide name set would refuse while reporting an attack that is not there.
+    private const string RealisticJwks =
+        "{\"keys\":["
+        + "{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"a1\",\"n\":\"xGOr\",\"e\":\"AQAB\"},"
+        + "{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"b2\",\"n\":\"yHPs\",\"e\":\"AQAB\"}]}";
+
+    private const string LoneSurrogateName = "{\"a\\ud800\":1}";
+
+    // The corpora live as plain arrays so the both-TFM row below can walk exactly what the theories run,
+    // rather than a second copy that could drift from them.
+    private static readonly (string Json, string Member)[] Repeated =
+    {
+        // At the root, and the two live attacks the screen exists for.
+        ("{\"a\":1,\"a\":2}", "a"),
+        ("{\"issuer\":\"https://one.example\",\"issuer\":\"https://two.example\"}", "issuer"),
+        ("{\"jwks_uri\":\"https://one.example/jwks\",\"jwks_uri\":\"https://evil.example/jwks\"}", "jwks_uri"),
+
+        // Below the root: a nested object, and an object inside an array — a JWKS entry whose own `kty`
+        // repeats, which is where key selection would diverge.
+        ("{\"outer\":{\"b\":1,\"b\":2}}", "b"),
+        ("{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}", "kty"),
+    };
+
+    private static readonly string[] Clean =
+    {
+        "{\"a\":1,\"b\":2}",
+        "{\"issuer\":\"https://one.example\"}",
+        "{\"jwks_uri\":\"https://one.example/jwks\"}",
+        "{\"outer\":{\"b\":1,\"c\":2}}",
+        "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"a1\"}]}",
+        RealisticJwks,
+    };
+
+    private static readonly string[] Unreadable =
+    {
+        "not-json",
+        "{\"a\":1,",
+        LoneSurrogateName,
+    };
+
+    public static TheoryData<string, string> RepeatedFixtures()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (json, member) in Repeated)
+        {
+            data.Add(json, member);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string> CleanFixtures()
+    {
+        var data = new TheoryData<string>();
+        foreach (var json in Clean)
+        {
+            data.Add(json);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string> UnreadableFixtures()
+    {
+        var data = new TheoryData<string>();
+        foreach (var json in Unreadable)
+        {
+            data.Add(json);
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(RepeatedFixtures))]
+    public void DuplicateMember_AtAnyScope_IsRepeated(string json, string expectedMember)
+    {
+        var verdict = StrictJson.Inspect(json, out var repeated);
+
+        Assert.Equal(StrictJson.Verdict.Repeated, verdict);
+        Assert.Equal(expectedMember, repeated);
+    }
+
+    [Theory]
+    [MemberData(nameof(CleanFixtures))]
+    public void TheSameDocumentsWithoutTheDuplicate_AreClean(string json)
+    {
+        // The positive control for every rejection above: without it, a walk that reported Repeated for any
+        // input would satisfy the whole rejection set while refusing every real provider.
+        var verdict = StrictJson.Inspect(json, out var repeated);
+
+        Assert.Equal(StrictJson.Verdict.Clean, verdict);
+        Assert.Null(repeated);
+    }
+
+    [Fact]
+    public void SiblingScopesReusingAName_AreClean()
+    {
+        // The scope rule: one name set per OPEN object. A walk pooling names document-wide would refuse this
+        // and every real JWKS with it.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect("{\"o\":{\"a\":1},\"p\":{\"a\":2}}", out _));
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(RealisticJwks, out _));
+    }
+
+    [Fact]
+    public void NamesDifferingOnlyInCase_AreClean()
+    {
+        // JSON member names are case-sensitive and every consumer of these documents compares them ordinally,
+        // so folding case here would refuse a document none of them reads as ambiguous.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect("{\"issuer\":1,\"Issuer\":2}", out _));
+    }
+
+    [Fact]
+    public void EscapeSpelledName_CountsAsItsPlainSpelling()
+    {
+        // \u0069ssuer IS issuer to every reader downstream, so comparing raw spellings would let an attacker
+        // spell one of the two occurrences differently and walk straight past the screen.
+        var verdict = StrictJson.Inspect("{\"\\u0069ssuer\":1,\"issuer\":2}", out var repeated);
+
+        Assert.Equal(StrictJson.Verdict.Repeated, verdict);
+        Assert.Equal("issuer", repeated);
+    }
+
+    [Theory]
+    [MemberData(nameof(UnreadableFixtures))]
+    public void HostileInput_IsUnreadable_NeverThrows(string json)
+    {
+        // One fixture per raised type. `not-json` and the truncation raise JsonException; the thirteen bytes
+        // of LoneSurrogateName raise InvalidOperationException from GetString — NOT JsonException, which is
+        // how an earlier revision of this walk crashed the discovery path for every caller that catches only
+        // JsonException. Unreadable is what the caller refuses on, so the fail-closed direction holds.
+        var verdict = StrictJson.Inspect(json, out var repeated);
+
+        Assert.Equal(StrictJson.Verdict.Unreadable, verdict);
+        Assert.Null(repeated);
+    }
+
+    [Fact]
+    public void NestingPastTheDepthCap_IsUnreadable()
+    {
+        // 65 opens against the reader's own default of 64: a document this walk cannot reach the bottom of is
+        // one its consumers could not read either, so it is refused rather than passed on half-inspected.
+        var tooDeep = string.Concat(Enumerable.Repeat("{\"a\":", 65)) + "1" + new string('}', 65);
+
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(tooDeep, out _));
+    }
+
+    [Fact]
+    public void NoInputAtAll_IsClean()
+    {
+        // A body that carries no member cannot repeat one. Clean rather than Unreadable, so an empty response
+        // is refused (or not) by whatever rule owns emptiness, not silently by this walk.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(null, out _));
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect("   ", out _));
+    }
+
+    [Fact]
+    public void TheDecisionIsPinnedOnBothTargetFrameworks()
+    {
+        // The whole corpus with its decision pinned in one place. The file runs on net9.0 and net10.0, whose
+        // System.Text.Json versions differ (only the latter has the Strict preset), so a walk that had picked
+        // up a framework-dependent duplicate policy would fail the leg that diverges instead of shipping two
+        // behaviours under one claim.
+        foreach (var (json, member) in Repeated)
+        {
+            Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect(json, out var actual));
+            Assert.Equal(member, actual);
+        }
+
+        foreach (var json in Clean)
+        {
+            Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(json, out _));
+        }
+
+        foreach (var json in Unreadable)
+        {
+            Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(json, out _));
+        }
+
+        // Liveness: a corpus that emptied out would pass all three loops vacuously.
+        Assert.Equal(5, Repeated.Length);
+        Assert.Equal(6, Clean.Length);
+        Assert.Equal(3, Unreadable.Length);
+    }
+
+    [Fact]
+    public void TheWalkNamesNoFrameworkDependentDuplicateApi()
+    {
+        // JsonSerializerOptions.Strict and AllowDuplicateProperties exist on net10.0 and not on net9.0, so a
+        // walk expressed through either would compile on one leg and fail the other with CS0117 — and the
+        // decision would then move with the HOST's System.Text.Json rather than staying this file's.
+        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Oidc", "StrictJson.cs"));
+        var code = string.Join(
+            "\n",
+            source.Split('\n').Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal) && !line.TrimStart().StartsWith("///", StringComparison.Ordinal)));
+
+        Assert.DoesNotContain("JsonSerializerOptions", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowDuplicateProperties", code, StringComparison.Ordinal);
+        // Liveness: the scan must be reading the real walk, not an empty or moved file.
+        Assert.Contains("Utf8JsonReader", code, StringComparison.Ordinal);
+    }
+
+    private static string RepoRoot()
+    {
+        var directory = AppContext.BaseDirectory;
+        while (directory is not null && !System.IO.File.Exists(System.IO.Path.Combine(directory, "SSO-Auth.sln")))
+        {
+            directory = System.IO.Path.GetDirectoryName(directory);
+        }
+
+        Assert.NotNull(directory);
+        return directory!;
+    }
+}

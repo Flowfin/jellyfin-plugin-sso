@@ -148,23 +148,205 @@ public class OidcDiscoveryReaderTests
         Assert.Equal(0, http.DiscoveryRequests); // policy rejected the address before any fetch
     }
 
-    // Serves the given discovery JSON for the well-known document and an empty JWKS for the keyset fetch;
+    [Fact]
+    public async Task DuplicatedMemberInTheDiscoveryDocument_FailsTheReadClosed()
+    {
+        // A discovery document whose root names `issuer` twice means two things at once: every reader in the
+        // dependency set keeps the LAST occurrence silently, so the anchor the login binds itself to is
+        // re-pointed with no error raised anywhere (#1005). The screen refuses it on the transport.
+        var duplicated = FullDiscovery(Authority).Insert(1, $"\"issuer\":\"https://attacker.example\",");
+        var http = new CountingFactory(Serve(duplicated));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+    }
+
+    [Fact]
+    public async Task TheSameDiscoveryDocumentWithoutTheDuplicate_IsStillRead()
+    {
+        // The positive control on the same subject. Without it, a screen that refused every document would
+        // satisfy the rejection above while taking every working provider offline — and it also proves the
+        // screen's body read leaves the response readable for the library that parses it afterwards.
+        var http = new CountingFactory(Serve(FullDiscovery(Authority)));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.Equal(Authority, result.ProviderInformation.IssuerName);
+    }
+
+    [Fact]
+    public async Task DuplicatedJwksUri_RefusesTheDiscovery_AndNeverFetchesTheJwks()
+    {
+        // THE named conformance property (#1005). A post-hoc check cannot hold it: the library resolves the
+        // repeated `jwks_uri` to its last occurrence and dereferences it, so a screen placed after the parse
+        // would report the repeat only once the attacker-named URL had already been requested. Screening on
+        // the transport means that URL is never requested at all — which is what the second assertion pins.
+        var duplicated = FullDiscovery(Authority).Insert(1, "\"jwks_uri\":\"https://attacker.example/jwks\",");
+        var http = new CountingFactory(Serve(duplicated));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+        Assert.Equal(1, http.DiscoveryRequests);
+        Assert.Equal(0, http.JwksRequests);
+    }
+
+    [Fact]
+    public async Task DuplicatedMemberInTheJwksDocument_FailsTheReadClosed()
+    {
+        // The JWKS is the document that actually decides key selection, and it travels the same invoker, so
+        // it is screened too: a key entry naming `kty` twice would let the entry mean two things to the
+        // reader that materialises it.
+        var http = new CountingFactory(Serve(FullDiscovery(Authority), "{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}"));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+        Assert.Equal(1, http.JwksRequests);
+    }
+
+    [Fact]
+    public async Task ARealisticMultiKeyJwks_IsStillRead()
+    {
+        // The scope control at the seam: every JWKS entry legitimately repeats `kty`, `use`, `alg`, `n` and
+        // `e` in SIBLING scopes. A screen pooling names document-wide would refuse every real provider here
+        // while reporting an attack that is not there.
+        const string twoKeys =
+            "{\"keys\":["
+            + "{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"a1\",\"n\":\"xGOr\",\"e\":\"AQAB\"},"
+            + "{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"b2\",\"n\":\"yHPs\",\"e\":\"AQAB\"}]}";
+        var http = new CountingFactory(Serve(FullDiscovery(Authority), twoKeys));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+        Assert.NotNull(result.ProviderInformation.KeySet);
+    }
+
+    [Fact]
+    public async Task LoneSurrogateDocument_IsRefusedWithoutCrashing()
+    {
+        // Thirteen bytes both parser families read without complaint, whose member name the decoder cannot
+        // complete. An earlier revision of the screen threw InvalidOperationException here, which no caller
+        // catches, so a provider could crash the discovery path with a document smaller than this comment.
+        // This pins that the screen introduces no crash. It deliberately does NOT claim to detect the screen:
+        // the pinned library refuses this document on its own, so the read fails closed either way.
+        var http = new CountingFactory(Serve("{\"a\\ud800\":1}"));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+    }
+
+    [Fact]
+    public async Task Utf16EncodedCleanDiscovery_IsStillRead()
+    {
+        // The library reads response bodies charset-honouring, so the screen must too. If it walked the raw
+        // bytes as UTF-8 it would find no members here, and a clean UTF-16 document would sail past a screen
+        // that had established nothing about it.
+        var http = new CountingFactory(ServeWithEncoding(FullDiscovery(Authority), Encoding.Unicode));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.True(result.Available);
+    }
+
+    [Fact]
+    public async Task Utf16EncodedDuplicateDiscovery_IsStillRefused()
+    {
+        // The bypass direction of the same property, and the security-relevant half: a screen decoding by the
+        // wrong charset would report Clean on a document the library goes on to read as duplicated.
+        var duplicated = FullDiscovery(Authority).Insert(1, $"\"issuer\":\"https://attacker.example\",");
+        var http = new CountingFactory(ServeWithEncoding(duplicated, Encoding.Unicode));
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+    }
+
+    [Fact]
+    public async Task ScreenRefusalNamesTheRepeatedMember_WithLineEndingsStripped()
+    {
+        // The member name is provider-authored, so it reaches the log stripped of line endings INLINE at the
+        // log call — a forged second entry is the classic log-forging outcome. The name also never travels in
+        // the response's reason phrase, whose setter rejects CR/LF outright: putting it there would make the
+        // screen throw while building its own refusal.
+        var hostile = FullDiscovery(Authority).Insert(1, "\"a\\u000d\\u000ab\":1,\"a\\u000d\\u000ab\":2,");
+        var http = new CountingFactory(Serve(hostile));
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+
+        // The screen's own entry is the one that names the member, and it is stripped inline.
+        var refusal = Assert.Single(logger.Messages, m => m.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
+        Assert.Contains("ab", refusal, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', refusal);
+        Assert.DoesNotContain('\r', refusal);
+
+        // The caller's existing fail-closed warning carries the CONSTANT reason through the library's error
+        // text — so an operator reading it learns why the read failed — and never the provider-authored name,
+        // which is what keeps that string off the transport where the reason-phrase setter would reject it.
+        var failClosed = Assert.Single(logger.Messages, m => m.StartsWith("Could not read the OpenID discovery document", StringComparison.Ordinal));
+        Assert.Contains(RepeatedMemberScreen.RefusalReason, failClosed, StringComparison.Ordinal);
+        Assert.DoesNotContain("ab", failClosed, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ANonSuccessResponse_KeepsItsOwnStatus_AndIsNotScreened()
+    {
+        // A 404 or an HTML error page is not a document that means two things — it is a provider that served
+        // no document. Screening it would replace an honest status with "could not be inspected" and send the
+        // operator hunting a duplicate that is not there.
+        var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent("<html><body>nope</body></html>", Encoding.UTF8, "text/html"),
+        });
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+        Assert.DoesNotContain(logger.Messages, m => m.Contains("could not be inspected", StringComparison.Ordinal));
+    }
+
+    // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;
     // any other URL 404s so an unexpected request is visible.
-    private static Func<HttpRequestMessage, HttpResponseMessage> Serve(string discoveryJson) => request =>
+    private static Func<HttpRequestMessage, HttpResponseMessage> Serve(string discoveryJson, string jwksJson = "{\"keys\":[]}") =>
+        ServeWithEncoding(discoveryJson, Encoding.UTF8, jwksJson);
+
+    private static Func<HttpRequestMessage, HttpResponseMessage> ServeWithEncoding(string discoveryJson, Encoding encoding, string jwksJson = "{\"keys\":[]}") => request =>
     {
         var url = request.RequestUri!.AbsoluteUri;
         if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
         {
-            return Json(discoveryJson);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(discoveryJson, encoding, "application/json") };
         }
 
         if (url.EndsWith("/jwks", StringComparison.Ordinal))
         {
-            return Json("{\"keys\":[]}");
+            return Json(jwksJson);
         }
 
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     };
+
+    // Captures the rendered warning text so a test can assert what an operator actually reads.
+    private sealed class CapturingLogger : ILogger
+    {
+        internal System.Collections.Generic.List<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
 
     private static HttpResponseMessage Json(string body) =>
         new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -187,11 +369,21 @@ public class OidcDiscoveryReaderTests
 
         internal int DiscoveryRequests { get; private set; }
 
+        internal int JwksRequests { get; private set; }
+
         private HttpResponseMessage Handle(HttpRequestMessage request)
         {
-            if (request.RequestUri!.AbsoluteUri.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
             {
                 DiscoveryRequests++;
+            }
+
+            // Counted so a test can assert the JWKS URL a refused discovery document named was never
+            // dereferenced — the property a post-parse screen structurally cannot hold.
+            if (url.EndsWith("/jwks", StringComparison.Ordinal))
+            {
+                JwksRequests++;
             }
 
             return _responder(request);
