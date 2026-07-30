@@ -9,18 +9,29 @@ using System.Text.Json;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
-/// Decides whether a JSON document names any member twice inside one object scope (#1005). Every JSON reader
-/// this plugin depends on accepts a repeated member and silently keeps the LAST occurrence, while an
-/// enumerating reader sees both — measured, not assumed — so one document can mean two things depending on
-/// which reader looks at it.
+/// Decides whether a JSON document names any member twice inside one object scope (#1005). A repeated member
+/// is accepted silently by every reader these documents reach, none of which raises an error, so which of the
+/// two values a consumer acts on is decided by parser internals rather than by anything this plugin controls.
 ///
-/// THREAT MODEL. This stops an authorization server, or anyone who can answer as one, from handing the
-/// plugin and its identity library a single document they read differently: a repeated <c>issuer</c>
-/// re-points the anchor a login binds itself to, a repeated <c>jwks_uri</c> re-points the keys an id_token is
-/// validated against, and a repeated member inside a JWKS entry re-points a key. Deliberately out of scope:
-/// an operator who edits the plugin's own configuration, and any document that does not reach a consumer
-/// through <see cref="RepeatedMemberScreen"/> — this walk defends against a hostile provider, not against the
-/// person who administers the server, and review and branch protection are what cover the latter.
+/// What was MEASURED, so the claim stays the size of its evidence: on both target frameworks every reader in
+/// the dependency set — System.Text.Json, Newtonsoft, <c>JsonWebToken</c>, Duende's <c>JsonWebKeySet</c> —
+/// keeps the LAST occurrence when a name is indexed. They therefore agree today, and no divergence between
+/// two readers of these documents has been demonstrated. What differs is indexing versus ENUMERATION:
+/// <c>JsonDocument</c> indexes the last occurrence while <c>EnumerateObject</c> yields both properties, and
+/// Newtonsoft drops one at parse time, so a document carrying a repeat has no single answer to "what members
+/// does it have".
+///
+/// THREAT MODEL. This stops an authorization server, or anyone who can answer as one, from serving a document
+/// whose meaning rests on that unpinned last-wins behaviour rather than on the document itself — RFC 8259
+/// §4 leaves the handling of repeated names unspecified and calls such objects interoperability-unsafe, so
+/// the agreement measured above is a property of the current dependency set and not a guarantee any of them
+/// documents. A repeat in <c>issuer</c>, <c>jwks_uri</c>, or a JWKS entry is where that would decide a login
+/// anchor or a validation key. Deliberately out of scope: an operator who edits the plugin's own
+/// configuration, and any document that does not reach a consumer through <see cref="RepeatedMemberScreen"/>
+/// — this walk defends against a hostile provider, not against the person who administers the server, and
+/// review and branch protection are what cover the latter. Also out of scope, and stated because the earlier
+/// version of this comment implied otherwise: this is not the control that stops a hostile <c>issuer</c>
+/// value, which is <c>ValidateIssuerName</c>'s job whether the value is repeated or not.
 ///
 /// Every member at every object scope is compared, rather than a caller-supplied list of the members the
 /// caller happens to index. The screen sits ahead of the identity library, whose own typed mapping and key-set

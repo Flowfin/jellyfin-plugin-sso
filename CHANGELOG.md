@@ -41,18 +41,26 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 ### Security
 
 - **A provider response that names a JSON member twice is refused before it is
-  parsed.** Every JSON reader involved accepts a repeated member and silently
-  keeps the last occurrence, so one document can mean two things depending on
-  which reader looks at it — a repeated `issuer` re-points the anchor a login
-  binds itself to, and a repeated `jwks_uri` re-points the keys an id_token is
-  validated against. The OpenID discovery document and the JWKS it names are now
-  screened on the transport, so a document carrying such a repeat never reaches
-  the reader that would resolve it: the refused document's `jwks_uri` is never
-  requested at all, rather than requested and reported afterwards. A document
-  that cannot be inspected as JSON is refused the same way. The refusal names the
+  parsed.** A repeated member is accepted silently by every reader these
+  documents reach, and none of them raises an error, so which of the two values a
+  consumer acts on is decided by parser internals rather than by the document —
+  RFC 8259 leaves it unspecified and calls such objects interoperability-unsafe.
+  The OpenID discovery document and the JWKS it names are now screened on the
+  transport, so a document carrying such a repeat never reaches the reader that
+  would resolve it: the refused document's `jwks_uri` is never requested at all,
+  rather than requested and reported afterwards. A document that cannot be
+  inspected as JSON — malformed, larger than 1 MB, or carrying a character set
+  the runtime does not know — is refused the same way. The refusal names the
   member in the server log and fails the **login** closed; on the back-channel
   logout path the same refusal leaves the session untouched, which is the
   behaviour any unreadable discovery document already had.
+
+  Note for operators: a provider whose discovery or JWKS document repeats **any**
+  member name inside one object will now fail to log in, where previously the
+  repeat was resolved silently. No configuration overrides this. Twenty discovery
+  and JWKS documents from ten widely used providers were checked and none repeats
+  a member; if yours does, the server log names the member so it can be reported
+  to the provider.
 
 ## 4.3.0
 

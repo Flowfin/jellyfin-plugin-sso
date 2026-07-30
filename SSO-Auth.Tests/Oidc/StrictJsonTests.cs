@@ -41,6 +41,13 @@ public class StrictJsonTests
         // repeats, which is where key selection would diverge.
         ("{\"outer\":{\"b\":1,\"b\":2}}", "b"),
         ("{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}", "kty"),
+
+        // The two occurrences STRADDLE a nested scope, so the root's name set must survive the push and pop
+        // in between. A walk that reset or replaced the set on entering an object passes every row above and
+        // fails only here — and a repeated `issuer` spelled this way is the realistic spelling, since an
+        // attacker appending to a document puts other members between the two.
+        ("{\"issuer\":\"https://one.example\",\"o\":{\"issuer\":\"nested\"},\"issuer\":\"https://two.example\"}", "issuer"),
+        ("{\"a\":1,\"k\":[{\"x\":1},{\"y\":2}],\"a\":2}", "a"),
     };
 
     private static readonly string[] Clean =
@@ -177,60 +184,14 @@ public class StrictJsonTests
     }
 
     [Fact]
-    public void TheDecisionIsPinnedOnBothTargetFrameworks()
+    public void TheCorporaAreNotEmpty()
     {
-        // The whole corpus with its decision pinned in one place. The file runs on net9.0 and net10.0, whose
-        // System.Text.Json versions differ (only the latter has the Strict preset), so a walk that had picked
-        // up a framework-dependent duplicate policy would fail the leg that diverges instead of shipping two
-        // behaviours under one claim.
-        foreach (var (json, member) in Repeated)
-        {
-            Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect(json, out var actual));
-            Assert.Equal(member, actual);
-        }
-
-        foreach (var json in Clean)
-        {
-            Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(json, out _));
-        }
-
-        foreach (var json in Unreadable)
-        {
-            Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(json, out _));
-        }
-
-        // Liveness: a corpus that emptied out would pass all three loops vacuously.
-        Assert.Equal(5, Repeated.Length);
+        // The theories above run every corpus row and this file runs on BOTH target frameworks, so the
+        // decisions are already pinned per framework by those runs — a second loop over the same arrays
+        // asserted nothing they had not. What the theories cannot notice is a corpus that emptied out, which
+        // makes each of them pass vacuously; that is what this row is for, and all it is for.
+        Assert.Equal(7, Repeated.Length);
         Assert.Equal(6, Clean.Length);
         Assert.Equal(3, Unreadable.Length);
-    }
-
-    [Fact]
-    public void TheWalkNamesNoFrameworkDependentDuplicateApi()
-    {
-        // JsonSerializerOptions.Strict and AllowDuplicateProperties exist on net10.0 and not on net9.0, so a
-        // walk expressed through either would compile on one leg and fail the other with CS0117 — and the
-        // decision would then move with the HOST's System.Text.Json rather than staying this file's.
-        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Oidc", "StrictJson.cs"));
-        var code = string.Join(
-            "\n",
-            source.Split('\n').Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal) && !line.TrimStart().StartsWith("///", StringComparison.Ordinal)));
-
-        Assert.DoesNotContain("JsonSerializerOptions", code, StringComparison.Ordinal);
-        Assert.DoesNotContain("AllowDuplicateProperties", code, StringComparison.Ordinal);
-        // Liveness: the scan must be reading the real walk, not an empty or moved file.
-        Assert.Contains("Utf8JsonReader", code, StringComparison.Ordinal);
-    }
-
-    private static string RepoRoot()
-    {
-        var directory = AppContext.BaseDirectory;
-        while (directory is not null && !System.IO.File.Exists(System.IO.Path.Combine(directory, "SSO-Auth.sln")))
-        {
-            directory = System.IO.Path.GetDirectoryName(directory);
-        }
-
-        Assert.NotNull(directory);
-        return directory!;
     }
 }

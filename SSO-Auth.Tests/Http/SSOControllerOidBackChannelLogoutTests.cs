@@ -177,6 +177,11 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         // session survives. That is fail-OPEN for a logout while being fail-closed for a login, it predates
         // the screen (any unreadable discovery already does it), and the screen only adds a new cause — so it
         // is pinned here and decided there rather than changed inside this delivery.
+        //
+        // The plan named this row "…AndRecordsItsReason". That half is NOT asserted here and the name no
+        // longer claims it: this harness supplies mock loggers, so asserting the recorded reason would mean
+        // widening shared test infrastructure for an observability property that is #1060's fourth acceptance
+        // point. Named rather than quietly dropped.
         var harness = new SsoControllerHarness(
             c =>
             {
