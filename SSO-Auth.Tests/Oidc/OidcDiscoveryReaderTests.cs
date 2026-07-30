@@ -432,6 +432,71 @@ public class OidcDiscoveryReaderTests
         Assert.DoesNotContain(RepeatedMemberScreen.RefusalReason, failClosed.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ANonSuccessBodyThatRepeatsAMember_IsNeverActedOn()
+    {
+        // The screen deliberately does not inspect a non-success body, and the library DOES parse one:
+        // measured, a 404 body still populates the discovery response, and a repeated `issuer` in it resolves
+        // to the attacker's last occurrence. Nothing is acted on today only because the caller returns on
+        // IsError before touching any value — so that check is load-bearing, and this row is what pins it.
+        // Without it, a future read of a discovery value outside the IsError branch would reintroduce the
+        // last-wins resolution this whole change exists to remove, with the suite still green.
+        var hostile = FullDiscovery(Authority).TrimEnd('}')
+            + ",\"issuer\":\"https://attacker.example\",\"jwks_uri\":\"" + Authority + "/jwks-attacker\"}";
+        var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent(hostile, Encoding.UTF8, "application/json"),
+        });
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+
+        Assert.False(result.Available);
+        Assert.Null(result.ProviderInformation);
+
+        // The attacker's jwks_uri was never dereferenced, which is the consequence that would actually hurt.
+        Assert.DoesNotContain(Authority + "/jwks-attacker", http.RequestedUrls);
+        Assert.Equal(1, http.TotalRequests);
+    }
+
+    [Theory]
+    [InlineData("\\u000b", '\u000b')] // vertical tab: a console sink advances a line on it, forging an entry
+    [InlineData("\\u0000", '\u0000')] // NUL: truncates the record for a C-string-based log consumer
+    [InlineData("\\u0085", '\u0085')] // NEL: a line terminator ReplaceLineEndings does remove
+    [InlineData("\\u2028", '\u2028')] // line separator: not a control character, so a control-only filter would miss it
+    public async Task AControlCharacterInTheMemberName_NeverReachesTheLog(string escape, char raw)
+    {
+        // ReplaceLineEndings alone passes the vertical tab and the NUL through — measured. The repeated member
+        // name is the one fully provider-chosen, arbitrary-codepoint string this plugin logs, so it is
+        // neutralised beyond line endings at the log call.
+        var hostile = FullDiscovery(Authority).Insert(1, $"\"x{escape}y\":1,\"x{escape}y\":2,");
+        var http = new CountingFactory(Serve(hostile));
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
+        Assert.DoesNotContain(raw, refusal.Message);
+        Assert.Contains("xy", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnEnormousMemberName_IsBoundedBeforeItReachesTheLog()
+    {
+        // One hostile response produced a single 400 KB log entry before this bound — an amplification
+        // primitive on a path an anonymous caller drives once per request, not a diagnostic.
+        var name = new string('n', 400_000);
+        var hostile = FullDiscovery(Authority).Insert(1, $"\"{name}\":1,\"{name}\":2,");
+        var http = new CountingFactory(Serve(hostile));
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
+        Assert.True(refusal.Message.Length < 1000, $"the refusal entry grew to {refusal.Message.Length} characters");
+    }
+
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;
     // any other URL 404s so an unexpected request is visible.
     private static Func<HttpRequestMessage, HttpResponseMessage> Serve(string discoveryJson, string jwksJson = "{\"keys\":[]}") =>

@@ -3,6 +3,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -52,6 +53,11 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     // to #1041.
     private const int MaxScreenedBytes = 1024 * 1024;
 
+    // The repeated member's name is provider-chosen and reaches the log, so what is logged is bounded. An
+    // 800 KB name produced a single 400 KB entry — measured — on a path an anonymous caller drives once per
+    // request, which is a log-amplification primitive rather than a diagnostic.
+    private const int MaxLoggedMemberChars = 128;
+
     private readonly HttpClient _client;
     private readonly string? _provider;
     private readonly ILogger _logger;
@@ -79,9 +85,19 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     {
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-        // Only a response the library would parse is screened. A 404 or an HTML error page keeps its own
-        // status, because replacing it would tell the operator the document was uninspectable when the real
-        // answer is that the provider did not serve one.
+        // A non-success response passes through unscreened so it keeps its own status: replacing a 404 with
+        // "could not be inspected" would tell the operator the document was malformed when the real answer is
+        // that the provider served none.
+        //
+        // Be clear about what that costs, because an earlier version of this comment claimed the library does
+        // not parse such a body and the claim is false — measured: a 400/401/404/500 body still populates
+        // `DiscoveryDocumentResponse`, and a repeated `issuer` in it resolves to the attacker's last
+        // occurrence. What keeps that value from being acted on is the caller's `IsError` check in
+        // OidcDiscoveryReader, which returns before touching any of them. That check is therefore
+        // load-bearing rather than incidental, and a future read of `discovery.Issuer` or `discovery.Raw`
+        // outside it would reintroduce exactly what this screen removes. The behaviour is pinned by
+        // ANonSuccessBodyThatRepeatsAMember_IsNeverActedOn; the structural rule that would stop the read at
+        // compile time belongs with the conformance work in #1062.
         if (!response.IsSuccessStatusCode)
         {
             return response;
@@ -131,8 +147,15 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     }
 
     // Records why the response is being withheld and returns the constant-reason refusal in its place. The
-    // provider name, the URL and the repeated member are stripped of line endings INLINE at the log call, so
-    // none of them can forge or split an entry (the log-forging sanitizer never crosses a helper boundary).
+    // provider name, the URL and the repeated member are neutralised INLINE at the log call, so none of them
+    // can forge or split an entry (the log-forging sanitizer never crosses a helper boundary).
+    //
+    // The member name gets more than ReplaceLineEndings, and deliberately: it is the only fully
+    // provider-chosen, arbitrary-codepoint string this plugin logs, and ReplaceLineEndings passes a raw
+    // vertical tab and a raw NUL through — measured. A console sink advances a line on VT, so the first
+    // forges an entry; the second truncates the record for any C-string-based consumer. It is also bounded,
+    // because an 800 KB member name became a single 400 KB log line on a path an anonymous caller can drive
+    // once per request. 128 characters is more than an operator needs to report the name to their provider.
     private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, string reason, string? repeatedMember, Exception? cause)
     {
         _logger.LogWarning(
@@ -141,7 +164,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             request.RequestUri?.AbsoluteUri.ReplaceLineEndings(string.Empty),
             _provider?.ReplaceLineEndings(string.Empty),
             reason,
-            repeatedMember is null ? string.Empty : $" ({repeatedMember.ReplaceLineEndings(string.Empty)})");
+            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && c != '\u2028' && c != '\u2029').Take(MaxLoggedMemberChars).ToArray())})");
 
         response.Dispose();
         return new HttpResponseMessage(HttpStatusCode.BadGateway)
