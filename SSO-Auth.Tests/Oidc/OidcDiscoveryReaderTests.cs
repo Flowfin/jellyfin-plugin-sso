@@ -463,6 +463,8 @@ public class OidcDiscoveryReaderTests
     [InlineData("\\u0000", '\u0000')] // NUL: truncates the record for a C-string-based log consumer
     [InlineData("\\u0085", '\u0085')] // NEL: a line terminator ReplaceLineEndings does remove
     [InlineData("\\u2028", '\u2028')] // line separator: not a control character, so a control-only filter would miss it
+    [InlineData("\\u202e", '\u202e')] // right-to-left override: reorders the rest of the entry as displayed, forging by rearranging
+    [InlineData("\\u200b", '\u200b')] // zero-width space: invisible in the entry, so a name cannot be compared by eye
     public async Task AControlCharacterInTheMemberName_NeverReachesTheLog(string escape, char raw)
     {
         // ReplaceLineEndings alone passes the vertical tab and the NUL through — measured. The repeated member
@@ -495,6 +497,11 @@ public class OidcDiscoveryReaderTests
         Assert.False(result.Available);
         var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
         Assert.True(refusal.Message.Length < 1000, $"the refusal entry grew to {refusal.Message.Length} characters");
+
+        // The ceiling alone leaves the bound unpinned from below: tightening it to two characters would keep
+        // this row green while logging an unusable stub, and the CHANGELOG promises the operator a name they
+        // can report to their provider. Assert the retained prefix too, so both directions are held.
+        Assert.Contains(new string('n', 128), refusal.Message, StringComparison.Ordinal);
     }
 
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;

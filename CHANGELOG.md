@@ -45,22 +45,32 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   documents reach, and none of them raises an error, so which of the two values a
   consumer acts on is decided by parser internals rather than by the document —
   RFC 8259 leaves it unspecified and calls such objects interoperability-unsafe.
-  The OpenID discovery document and the JWKS it names are now screened on the
-  transport, so a document carrying such a repeat never reaches the reader that
+  A **successfully served** OpenID discovery document, and the JWKS it names, are
+  now screened on the transport, so such a body never reaches the reader that
   would resolve it: the refused document's `jwks_uri` is never requested at all,
   rather than requested and reported afterwards. A document that cannot be
-  inspected as JSON — malformed, larger than 1 MB, or carrying a character set
-  the runtime does not know — is refused the same way. The refusal names the
-  member in the server log and fails the **login** closed; on the back-channel
-  logout path the same refusal leaves the session untouched, which is the
-  behaviour any unreadable discovery document already had.
+  inspected as JSON — malformed, longer than a million characters, or carrying a
+  character set the runtime does not know — is refused the same way. An error
+  response (a 404, a 500) is deliberately not screened and keeps its own status,
+  so the log still names what the provider actually returned; nothing is read out
+  of such a body either way.
 
-  Note for operators: a provider whose discovery or JWKS document repeats **any**
-  member name inside one object will now fail to log in, where previously the
-  repeat was resolved silently. No configuration overrides this. Twenty discovery
-  and JWKS documents from ten widely used providers were checked and none repeats
-  a member; if yours does, the server log names the member so it can be reported
-  to the provider.
+  Note for operators. A provider whose discovery or JWKS document repeats **any**
+  member name inside one object will now fail to sign users in, where previously
+  the repeat was resolved silently, and no configuration overrides that. The
+  server log names the member and the document it was in. Twenty discovery and
+  JWKS documents from ten widely used hosted providers were checked and none
+  repeats a member — that sample is hosted providers rather than the self-hosted
+  identity servers many installations run, so it bounds the risk without
+  eliminating it. If your provider is affected, the logged member name is what to
+  report to whoever operates it.
+
+  Two consequences worth knowing. The same refusal on the back-channel logout
+  path leaves the session untouched rather than ending it — the behaviour any
+  unreadable discovery document already had, unchanged here and tracked
+  separately. And the admin **Test connection** button does not yet name this as
+  a cause, so a refused document currently shows there under a check that does not
+  describe it.
 
 ## 4.3.0
 

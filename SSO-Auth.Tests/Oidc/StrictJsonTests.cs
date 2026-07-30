@@ -58,6 +58,15 @@ public class StrictJsonTests
         "{\"outer\":{\"b\":1,\"c\":2}}",
         "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"a1\"}]}",
         RealisticJwks,
+
+        // A DESCENDANT scope reusing an ancestor's member name, which is the scope relation real discovery
+        // documents actually contain: RFC 8705 puts a second `token_endpoint` and `userinfo_endpoint` inside
+        // `mtls_endpoint_aliases`, and Google, Microsoft and others serve exactly this. Every other clean
+        // fixture reuses names between SIBLINGS, so a walk whose child scope inherited its parent's names
+        // passed all of them — and would refuse the login of any provider advertising mTLS aliases.
+        "{\"issuer\":\"https://one.example\",\"token_endpoint\":\"https://one.example/token\","
+            + "\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://mtls.one.example/token\","
+            + "\"userinfo_endpoint\":\"https://mtls.one.example/userinfo\"}}",
     };
 
     private static readonly string[] Unreadable =
@@ -191,7 +200,7 @@ public class StrictJsonTests
         // asserted nothing they had not. What the theories cannot notice is a corpus that emptied out, which
         // makes each of them pass vacuously; that is what this row is for, and all it is for.
         Assert.Equal(7, Repeated.Length);
-        Assert.Equal(6, Clean.Length);
+        Assert.Equal(7, Clean.Length);
         Assert.Equal(3, Unreadable.Length);
     }
 }

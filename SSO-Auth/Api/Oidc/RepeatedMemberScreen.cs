@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -45,13 +46,16 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     // document far larger than any real one instead of walking it. Two orders of magnitude above the largest
     // measured (Microsoft's JWKS, ~13 KB), so no working provider meets it.
     //
-    // What this does NOT do, stated because the bound's name invites the stronger reading: it does not bound
-    // the FETCH. HttpClient.SendAsync buffers the whole response body before any handler above it is given
-    // the response, so by the time this screen runs the provider's bytes are already in memory — measured,
-    // which is why an earlier revision's buffering limit here was removed as inert. Bounding the fetch means
-    // reading headers first and streaming under a cap, which changes the library's own read path and belongs
-    // to #1041.
-    private const int MaxScreenedBytes = 1024 * 1024;
+    // CHARACTERS, not bytes, and named that way after the byte-shaped name misdescribed it: this is compared
+    // against a decoded string's length, so a UTF-16 response is twice this on the wire and the UTF-8 array
+    // the walk allocates from it can be three times this. The gap is bounded and small; the wrong unit in the
+    // name was the defect worth fixing.
+    //
+    // What this does NOT do: it does not bound the FETCH. That is a property of where this handler sits —
+    // above HttpClient, which has already buffered the whole body by the time any handler is handed the
+    // response — and not of HttpClient being unboundable. Bounding the fetch means reading headers first and
+    // streaming under a cap, which is a different position in the stack and belongs to #1041.
+    private const int MaxScreenedChars = 1024 * 1024;
 
     // The repeated member's name is provider-chosen and reaches the log, so what is logged is bounded. An
     // 800 KB name produced a single 400 KB entry — measured — on a path an anonymous caller drives once per
@@ -113,6 +117,12 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         }
         catch (OperationCanceledException)
         {
+            // Unreachable at this seam today and kept deliberately: HttpClient.SendAsync has already buffered
+            // the body above, so a cancelled or timed-out read surfaces from that call rather than from here,
+            // and no test can drive this arm. It exists so that a later move to ResponseHeadersRead — which is
+            // what bounding the fetch (#1041) requires — cannot silently turn a cancellation into a refusal
+            // that blames the provider. Folding it into the refusal below is the natural simplification and
+            // is what this comment exists to stop.
             response.Dispose();
             throw;
         }
@@ -127,7 +137,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
 
         // The provider need not declare a length, so this is the bound that always applies: it keeps the walk
         // off a document no real provider serves.
-        if (body.Length > MaxScreenedBytes)
+        if (body.Length > MaxScreenedChars)
         {
             return Refuse(request, response, UninspectableReason, repeatedMember: null, cause: null);
         }
@@ -153,18 +163,24 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     // The member name gets more than ReplaceLineEndings, and deliberately: it is the only fully
     // provider-chosen, arbitrary-codepoint string this plugin logs, and ReplaceLineEndings passes a raw
     // vertical tab and a raw NUL through — measured. A console sink advances a line on VT, so the first
-    // forges an entry; the second truncates the record for any C-string-based consumer. It is also bounded,
+    // forges an entry; the second truncates the record for any C-string-based consumer. Format characters go
+    // with them: a right-to-left override reorders the rest of the entry as it is displayed, forging by
+    // rearranging rather than by inserting. It is also bounded,
     // because an 800 KB member name became a single 400 KB log line on a path an anonymous caller can drive
     // once per request. 128 characters is more than an operator needs to report the name to their provider.
+    //
+    // The cause is rendered here rather than passed as the logger's exception argument, and bounded on the
+    // same terms: a decode failure's message quotes the provider's own Content-Type, so handing the whole
+    // exception to the sink would route straight around the bound above.
     private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, string reason, string? repeatedMember, Exception? cause)
     {
         _logger.LogWarning(
-            cause,
-            "Refused the OpenID response from {Uri} for provider {Provider}: {Reason}{Member}. The read fails closed rather than handing a document that means two things to the reader that parses it.",
+            "Refused the OpenID response from {Uri} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing a document that means two things to the reader that parses it.",
             request.RequestUri?.AbsoluteUri.ReplaceLineEndings(string.Empty),
             _provider?.ReplaceLineEndings(string.Empty),
             reason,
-            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && c != '\u2028' && c != '\u2029').Take(MaxLoggedMemberChars).ToArray())})");
+            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format && c != '\u2028' && c != '\u2029').Take(MaxLoggedMemberChars).ToArray())})",
+            cause is null ? string.Empty : $" [{cause.GetType().Name}: {new string(cause.Message.Where(c => !char.IsControl(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format && c != '\u2028' && c != '\u2029').Take(MaxLoggedMemberChars).ToArray())}]");
 
         response.Dispose();
         return new HttpResponseMessage(HttpStatusCode.BadGateway)
