@@ -304,9 +304,10 @@ public class OidcDiscoveryReaderTests
     [Fact]
     public async Task ABodyOverTheScreenedBound_IsRefusedRatherThanBuffered()
     {
-        // The screen decodes a second copy of a provider-chosen body on an anonymous path, so that copy is
-        // bounded. Without the bound this change would enlarge the exposure #1041 tracks rather than leave it
-        // where it was. This is the declared-length half: the provider announces an oversized body.
+        // The screen refuses a document far larger than any real one instead of walking it. The provider
+        // declares a length here; the row below covers the case where it declares none. A pre-decode check on
+        // the declared length was removed after this pair proved no test could tell it apart from the bound
+        // below, which covers both.
         var huge = "{\"issuer\":\"" + new string('a', 2 * 1024 * 1024) + "\"}";
         var http = new CountingFactory(Serve(huge));
         var logger = new CapturingLogger();

@@ -87,12 +87,6 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             return response;
         }
 
-        // A declared length over the bound is refused before anything is decoded.
-        if (response.Content.Headers.ContentLength is > MaxScreenedBytes)
-        {
-            return Refuse(request, response, UninspectableReason, repeatedMember: null, cause: null);
-        }
-
         string body;
         try
         {
