@@ -267,14 +267,22 @@ public class OidcDiscoveryReaderTests
     [Fact]
     public async Task Utf16EncodedDuplicateDiscovery_IsStillRefused()
     {
-        // The bypass direction of the same property, and the security-relevant half: a screen decoding by the
-        // wrong charset would report Clean on a document the library goes on to read as duplicated.
+        // The bypass direction of the same property, and the security-relevant half.
+        //
+        // The refusal REASON is what this asserts, not merely that the read failed. A screen walking the raw
+        // bytes as UTF-8 turns a UTF-16 body into nonsense and refuses it as uninspectable — so an
+        // availability-shaped assertion stays green under exactly the defect this row is named for, which is
+        // what the weakening probe demonstrated before this assertion was tightened. Requiring the
+        // repeated-member reason makes the row depend on the screen having actually READ the document.
         var duplicated = FullDiscovery(Authority).Insert(1, $"\"issuer\":\"https://attacker.example\",");
         var http = new CountingFactory(ServeWithEncoding(duplicated, Encoding.Unicode));
+        var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
+        Assert.Contains(logger.Messages, m => m.Contains(RepeatedMemberScreen.RefusalReason, StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages, m => m.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
     }
 
     [Fact]
