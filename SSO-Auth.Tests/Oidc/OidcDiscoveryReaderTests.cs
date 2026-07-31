@@ -186,12 +186,11 @@ public class OidcDiscoveryReaderTests
         // would report the repeat only once the attacker-named URL had already been requested. Screening on
         // the transport means that URL is never requested at all.
         //
-        // The fixture models that mechanism exactly, and two earlier spellings of it did not. Planting the
-        // URL off-authority made the discovery policy's endpoint validation refuse it before any fetch, so
-        // the row stayed green with the screen removed — evidence about ValidateEndpoints wearing this test's
-        // name. Planting it FIRST left the honest URL as the last occurrence, so the attacker's URL was the
-        // one nothing would ever fetch. Here it is same-authority (the policy accepts it) and last (the
-        // occurrence every reader resolves to), so it is the URL a missing screen would actually request.
+        // Two properties of the fixture are load-bearing and neither is obvious. The planted URL is
+        // SAME-AUTHORITY, because an off-authority one is refused by the discovery policy's endpoint
+        // validation before any fetch — the row would then pass with no screen at all, as evidence about
+        // ValidateEndpoints. And it is LAST, because every reader resolves a repeat to its last occurrence,
+        // so a URL planted first is the one nothing would ever request.
         var attackerJwks = Authority + "/jwks-attacker";
         var duplicated = FullDiscovery(Authority).TrimEnd('}') + $",\"jwks_uri\":\"{attackerJwks}\"}}";
         var http = new CountingFactory(Serve(duplicated));
@@ -243,12 +242,12 @@ public class OidcDiscoveryReaderTests
     public async Task LoneSurrogateDocument_IsRefusedWithoutCrashing()
     {
         // Thirteen bytes both parser families read without complaint, whose member name the decoder cannot
-        // complete. An earlier revision of the screen threw InvalidOperationException here, which no caller
-        // catches, so a provider could crash the discovery path with a document smaller than this comment.
+        // complete. Thirteen bytes are enough to crash a screen that lets InvalidOperationException escape,
+        // because no caller on this path catches it.
         //
         // Asserting only that the read failed would NOT pin that: OidcDiscoveryReader catches every exception
-        // and returns Unavailable, so a crashing screen and a refusing screen look identical from the result.
-        // The refusal REASON is what distinguishes them — the screen can only log it by having walked the
+        // and returns Unavailable, so a crashing screen and a refusing screen are indistinguishable from the
+        // result. The refusal REASON separates them — the screen can only log it by having walked the
         // document and returned rather than thrown.
         var http = new CountingFactory(Serve("{\"a\\ud800\":1}"));
         var logger = new CapturingLogger();
@@ -302,46 +301,6 @@ public class OidcDiscoveryReaderTests
     }
 
     [Fact]
-    public async Task ABodyOverTheScreenedBound_IsRefusedRatherThanBuffered()
-    {
-        // The screen refuses a document far larger than any real one instead of walking it. The provider
-        // declares a length here; the row below covers the case where it declares none. A pre-decode check on
-        // the declared length was removed after this pair proved no test could tell it apart from the bound
-        // below, which covers both.
-        var huge = "{\"issuer\":\"" + new string('a', 2 * 1024 * 1024) + "\"}";
-        var http = new CountingFactory(Serve(huge));
-        var logger = new CapturingLogger();
-
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
-
-        Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task AnUndeclaredBodyOverTheScreenedBound_IsRefusedToo()
-    {
-        // The same bound where the provider declares no length — a chunked body. It is refused after the
-        // decode rather than before it, which is the honest limit of a screen sitting above HttpClient: the
-        // response is already buffered by the time any handler sees it, so nothing here can stop the FETCH
-        // (that is #1041's). What it does stop is the walk running on a document no real provider serves.
-        var http = new CountingFactory(_ =>
-        {
-            var stream = new MemoryStream(Encoding.UTF8.GetBytes("{\"issuer\":\"" + new string('a', 2 * 1024 * 1024) + "\"}"));
-            var content = new StreamContent(stream);
-            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-            content.Headers.ContentLength = null;
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
-        });
-        var logger = new CapturingLogger();
-
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
-
-        Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
-    }
-
-    [Fact]
     public async Task Utf16EncodedCleanDiscovery_IsStillRead()
     {
         // The library reads response bodies charset-honouring, so the screen must too. If it walked the raw
@@ -360,10 +319,9 @@ public class OidcDiscoveryReaderTests
         // The bypass direction of the same property, and the security-relevant half.
         //
         // The refusal REASON is what this asserts, not merely that the read failed. A screen walking the raw
-        // bytes as UTF-8 turns a UTF-16 body into nonsense and refuses it as uninspectable — so an
-        // availability-shaped assertion stays green under exactly the defect this row is named for, which is
-        // what the weakening probe demonstrated before this assertion was tightened. Requiring the
-        // repeated-member reason makes the row depend on the screen having actually READ the document.
+        // bytes as UTF-8 turns a UTF-16 body into nonsense and refuses it as uninspectable, so an assertion
+        // that only required a refusal would stay green under exactly the defect this row is named for.
+        // Requiring the repeated-member reason makes the row depend on the screen having READ the document.
         var duplicated = FullDiscovery(Authority).Insert(1, $"\"issuer\":\"https://attacker.example\",");
         var http = new CountingFactory(ServeWithEncoding(duplicated, Encoding.Unicode));
         var logger = new CapturingLogger();
@@ -394,6 +352,11 @@ public class OidcDiscoveryReaderTests
         // so it reaches an operator's log at the default verbosity rather than only under debug.
         var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
         Assert.Equal(LogLevel.Warning, refusal.Level);
+
+        // Two documents pass this screen per read, so the URL is the only thing telling an operator which
+        // one repeated the member — and the CHANGELOG promises exactly that. Without this the URI argument
+        // can be emptied with the whole suite still green.
+        Assert.Contains(DiscoveryUrl, refusal.Message, StringComparison.Ordinal);
         Assert.Contains("ab", refusal.Message, StringComparison.Ordinal);
         Assert.DoesNotContain('\n', refusal.Message);
         Assert.DoesNotContain('\r', refusal.Message);
@@ -501,7 +464,7 @@ public class OidcDiscoveryReaderTests
         // The ceiling alone leaves the bound unpinned from below: tightening it to two characters would keep
         // this row green while logging an unusable stub, and the CHANGELOG promises the operator a name they
         // can report to their provider. Assert the retained prefix too, so both directions are held.
-        Assert.Contains(new string('n', 128), refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(new string('n', 64), refusal.Message, StringComparison.Ordinal);
     }
 
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;

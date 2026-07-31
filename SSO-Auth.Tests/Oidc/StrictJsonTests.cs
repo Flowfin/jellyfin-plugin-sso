@@ -164,9 +164,9 @@ public class StrictJsonTests
     public void HostileInput_IsUnreadable_NeverThrows(string json)
     {
         // One fixture per raised type. `not-json` and the truncation raise JsonException; the thirteen bytes
-        // of LoneSurrogateName raise InvalidOperationException from GetString — NOT JsonException, which is
-        // how an earlier revision of this walk crashed the discovery path for every caller that catches only
-        // JsonException. Unreadable is what the caller refuses on, so the fail-closed direction holds.
+        // of LoneSurrogateName raise InvalidOperationException from GetString — NOT JsonException, so a walk
+        // catching only the latter hands the crash to a caller that catches neither. Unreadable is what the
+        // caller refuses on, so the fail-closed direction holds.
         var verdict = StrictJson.Inspect(json, out var repeated);
 
         Assert.Equal(StrictJson.Verdict.Unreadable, verdict);
@@ -193,14 +193,32 @@ public class StrictJsonTests
     }
 
     [Fact]
-    public void TheCorporaAreNotEmpty()
+    public void TheDecisionIsPinnedForTheFrameworkThisRunIsOn()
     {
-        // The theories above run every corpus row and this file runs on BOTH target frameworks, so the
-        // decisions are already pinned per framework by those runs — a second loop over the same arrays
-        // asserted nothing they had not. What the theories cannot notice is a corpus that emptied out, which
-        // makes each of them pass vacuously; that is what this row is for, and all it is for.
-        Assert.Equal(7, Repeated.Length);
-        Assert.Equal(7, Clean.Length);
-        Assert.Equal(3, Unreadable.Length);
+        // The acceptance list asks for the corpus decision to be pinned per target framework, because the
+        // plugin binds the HOST's System.Text.Json — .NET 9's under Jellyfin 10.11, .NET 10's under 12.0 —
+        // and only the latter has the Strict preset whose duplicate policy this walk deliberately does not
+        // use. A walk that had picked up a framework-dependent policy would answer differently on the two
+        // legs, and this row is what makes that a failure rather than a divergence nobody looks at.
+        //
+        // It records WHICH framework it ran on in its failure message, so a red leg names itself rather than
+        // leaving a reader to work out which of the two matrix runs disagreed.
+        var leg = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
+
+        foreach (var (json, member) in Repeated)
+        {
+            Assert.True(StrictJson.Inspect(json, out var actual) == StrictJson.Verdict.Repeated, $"{leg}: expected Repeated for {json}");
+            Assert.True(actual == member, $"{leg}: expected member '{member}' for {json}, got '{actual}'");
+        }
+
+        foreach (var json in Clean)
+        {
+            Assert.True(StrictJson.Inspect(json, out _) == StrictJson.Verdict.Clean, $"{leg}: expected Clean for {json}");
+        }
+
+        foreach (var json in Unreadable)
+        {
+            Assert.True(StrictJson.Inspect(json, out _) == StrictJson.Verdict.Unreadable, $"{leg}: expected Unreadable for {json}");
+        }
     }
 }

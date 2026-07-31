@@ -52,18 +52,18 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   inspected as JSON — malformed, longer than a million characters, or carrying a
   character set the runtime does not know — is refused the same way. An error
   response (a 404, a 500) is deliberately not screened and keeps its own status,
-  so the log still names what the provider actually returned; nothing is read out
-  of such a body either way.
+  so the log still names what the provider actually returned; the plugin uses no
+  value out of such a body.
 
   Note for operators. A provider whose discovery or JWKS document repeats **any**
   member name inside one object will now fail to sign users in, where previously
   the repeat was resolved silently, and no configuration overrides that. The
-  server log names the member and the document it was in. Twenty discovery and
-  JWKS documents from ten widely used hosted providers were checked and none
-  repeats a member — that sample is hosted providers rather than the self-hosted
-  identity servers many installations run, so it bounds the risk without
-  eliminating it. If your provider is affected, the logged member name is what to
-  report to whoever operates it.
+  server log names the document and the repeated member, the latter cut to 128
+  characters and stripped of control and formatting characters — so it identifies
+  the member rather than reproducing it byte for byte. Twenty discovery and JWKS
+  documents from ten widely used hosted providers were checked and none repeats a
+  member; that sample is hosted providers rather than the self-hosted identity
+  servers many installations run, so it bounds the risk without eliminating it.
 
   Two consequences worth knowing. The same refusal on the back-channel logout
   path leaves the session untouched rather than ending it — the behaviour any

@@ -29,9 +29,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// anchor or a validation key. Deliberately out of scope: an operator who edits the plugin's own
 /// configuration, and any document that does not reach a consumer through <see cref="RepeatedMemberScreen"/>
 /// — this walk defends against a hostile provider, not against the person who administers the server, and
-/// review and branch protection are what cover the latter. Also out of scope, and stated because the earlier
-/// version of this comment implied otherwise: this is not the control that stops a hostile <c>issuer</c>
-/// value, which is <c>ValidateIssuerName</c>'s job whether the value is repeated or not.
+/// review and branch protection are what cover the latter. Also out of scope, and worth stating because the
+/// two are easily conflated: this is not the control that stops a hostile <c>issuer</c> VALUE, which is
+/// <c>ValidateIssuerName</c>'s job whether that value is repeated or not.
 ///
 /// Every member at every object scope is compared, rather than a caller-supplied list of the members the
 /// caller happens to index. The screen sits ahead of the identity library, whose own typed mapping and key-set
@@ -136,11 +136,10 @@ internal static class StrictJson
         }
         catch (InvalidOperationException)
         {
-            // GetString raises this — not JsonException — on a member name the decoder cannot complete, e.g.
-            // an unpaired surrogate escape: thirteen bytes both parser families read without complaint. An
-            // earlier revision of this walk let it escape into callers that catch only JsonException, so a
-            // provider could crash the discovery path. Reported as Unreadable, which the caller refuses on,
-            // so the fail-closed direction holds even if some future path reaches it for another reason.
+            // GetString raises this — NOT JsonException — on a member name the decoder cannot complete: an
+            // unpaired surrogate escape is thirteen bytes both parser families read without complaint. A
+            // caller catching only JsonException would therefore take the crash, so this arm is what keeps a
+            // provider from crashing the discovery path. Reported as Unreadable, which the caller refuses on.
             return Verdict.Unreadable;
         }
 
