@@ -59,6 +59,12 @@ public class StrictJsonTests
         "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"a1\"}]}",
         RealisticJwks,
 
+        // Nested deeper than a hand-picked small cap but far inside the reader's own default, so the cap is
+        // pinned from BOTH directions: raising it fails the over-deep row below, and tightening it fails this
+        // one. Only the first was pinned before, and a cap tightened to a handful of levels would refuse every
+        // real JWKS carrying an `x5c` certificate chain while the suite stayed green.
+        "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":1}}}}}}}}}}",
+
         // A DESCENDANT scope reusing an ancestor's member name, which is the scope relation real discovery
         // documents actually contain: RFC 8705 puts a second `token_endpoint` and `userinfo_endpoint` inside
         // `mtls_endpoint_aliases`, and Google, Microsoft and others serve exactly this. Every other clean

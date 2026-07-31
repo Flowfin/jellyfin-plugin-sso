@@ -254,7 +254,7 @@ public class OidcDiscoveryReaderTests
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
+        AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
     }
 
     [Theory]
@@ -271,7 +271,7 @@ public class OidcDiscoveryReaderTests
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
+        AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
         Assert.Equal(1, http.TotalRequests);
     }
 
@@ -296,7 +296,7 @@ public class OidcDiscoveryReaderTests
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
+        AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
     }
 
     [Fact]
@@ -328,79 +328,10 @@ public class OidcDiscoveryReaderTests
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
-        Assert.Contains(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.RefusalReason, StringComparison.Ordinal));
+        AssertScreenRefused(logger, http, RepeatedMemberScreen.RefusalReason);
         Assert.DoesNotContain(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task ScreenRefusalNamesTheRepeatedMember_WithLineEndingsStripped()
-    {
-        // The member name is provider-authored, so it reaches the log stripped of line endings INLINE at the
-        // log call — a forged second entry is the classic log-forging outcome. The name also never travels in
-        // the response's reason phrase, whose setter rejects CR/LF outright: putting it there would make the
-        // screen throw while building its own refusal.
-        var hostile = FullDiscovery(Authority).Insert(1, "\"a\\u000d\\u000ab\":1,\"a\\u000d\\u000ab\":2,");
-        var http = new CountingFactory(Serve(hostile));
-        var logger = new CapturingLogger();
-
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
-
-        Assert.False(result.Available);
-
-        // The screen's own entry is the one that names the member, and it is stripped inline. Warning level,
-        // so it reaches an operator's log at the default verbosity rather than only under debug.
-        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
-        Assert.Equal(LogLevel.Warning, refusal.Level);
-
-        // Two documents pass this screen per read, so the URL is the only thing telling an operator which
-        // one repeated the member — and the CHANGELOG promises exactly that. Without this the URI argument
-        // can be emptied with the whole suite still green.
-        Assert.Contains(DiscoveryUrl, refusal.Message, StringComparison.Ordinal);
-        Assert.Contains("ab", refusal.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain('\n', refusal.Message);
-        Assert.DoesNotContain('\r', refusal.Message);
-
-        // The caller's existing fail-closed warning carries the CONSTANT reason through the library's error
-        // text — so an operator reading it learns why the read failed — and never the provider-authored name,
-        // which is what keeps that string off the transport where the reason-phrase setter would reject it.
-        var failClosed = Assert.Single(logger.Entries, e => e.Message.StartsWith("Could not read the OpenID discovery document", StringComparison.Ordinal));
-        Assert.Contains(RepeatedMemberScreen.RefusalReason, failClosed.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("ab", failClosed.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AProviderChosenUrlIsCutBeforeItReachesTheLog()
-    {
-        // The JWKS URL comes out of the discovery document, so it is the provider's to choose and can be
-        // arbitrarily long. It sits beside a member name that is bounded, and an unbounded value next to a
-        // bounded one on a path an anonymous caller drives once per request is the amplification the bound
-        // exists to stop. The refusal here is in the JWKS, so the entry names that URL.
-        var longPath = "/jwks-" + new string('p', 400);
-        var discovery = FullDiscovery(Authority).Replace(Authority + "/jwks", Authority + longPath, StringComparison.Ordinal);
-        var http = new CountingFactory(request =>
-        {
-            var url = request.RequestUri!.AbsoluteUri;
-            if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
-            {
-                return Json(discovery);
-            }
-
-            return url.Contains(longPath, StringComparison.Ordinal)
-                ? Json("{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}")
-                : new HttpResponseMessage(HttpStatusCode.NotFound);
-        });
-        var logger = new CapturingLogger();
-
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
-
-        Assert.False(result.Available);
-        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
-
-        // Enough of the URL to identify the document, and not the whole of it.
-        Assert.Contains(Authority + "/jwks-", refusal.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(new string('p', 400), refusal.Message, StringComparison.Ordinal);
-        Assert.True(refusal.Message.Length < 600, $"the refusal entry grew to {refusal.Message.Length} characters");
-    }
     [Fact]
     public async Task ANonSuccessResponse_KeepsItsOwnStatus_AndIsNotScreened()
     {
@@ -453,53 +384,55 @@ public class OidcDiscoveryReaderTests
         Assert.Equal(1, http.TotalRequests);
     }
 
-    [Theory]
-    [InlineData("\\u000b", '\u000b')] // vertical tab: a console sink advances a line on it, forging an entry
-    [InlineData("\\u0000", '\u0000')] // NUL: truncates the record for a C-string-based log consumer
-    [InlineData("\\u0085", '\u0085')] // NEL: a line terminator ReplaceLineEndings does remove
-    [InlineData("\\u2028", '\u2028')] // line separator: not a control character, so a control-only filter would miss it
-    [InlineData("\\u202e", '\u202e')] // right-to-left override: reorders the rest of the entry as displayed, forging by rearranging
-    [InlineData("\\u200b", '\u200b')] // zero-width space: invisible in the entry, so a name cannot be compared by eye
-    public async Task AControlCharacterInTheMemberName_NeverReachesTheLog(string escape, char raw)
+
+    // The discriminating assertion, in one place so no row can be written without it.
+    //
+    // A screen that INSPECTS, logs, and then hands the document on produces exactly the same log entry as
+    // one that refuses — the entry is written before the decision. And every hostile fixture here is one
+    // the library rejects unaided, so `Available == false` does not discriminate either. What only a real
+    // refusal produces is the SUBSTITUTED response: the library then reports the screen's constant reason,
+    // and the JWKS the refused document named is never fetched. That second fact is the one a
+    // report-and-pass-through screen cannot fake.
+    private static void AssertScreenRefused(CapturingLogger logger, CountingFactory http, string reason)
     {
-        // ReplaceLineEndings alone passes the vertical tab and the NUL through — measured. The repeated member
-        // name is the one fully provider-chosen, arbitrary-codepoint string this plugin logs, so it is
-        // neutralised beyond line endings at the log call.
-        var hostile = FullDiscovery(Authority).Insert(1, $"\"x{escape}y\":1,\"x{escape}y\":2,");
-        var http = new CountingFactory(Serve(hostile));
-        var logger = new CapturingLogger();
+        var entry = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains(reason, entry.Message, StringComparison.Ordinal);
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        // The entry names WHICH document was refused; two pass this screen per read.
+        Assert.True(
+            entry.Message.Contains("discovery document", StringComparison.Ordinal) || entry.Message.Contains("JWKS document", StringComparison.Ordinal),
+            "the refusal does not name which document it refused: " + entry.Message);
 
-        Assert.False(result.Available);
-        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
-        Assert.DoesNotContain(raw, refusal.Message);
-        Assert.Contains("xy", refusal.Message, StringComparison.Ordinal);
+        // The caller was handed the refusal, not the document: the fail-closed warning carries the screen's
+        // constant reason through the library's error text. A screen that logged and passed the response on
+        // would leave this entry carrying the library's own complaint instead.
+        var failClosed = Assert.Single(logger.Entries, e => e.Message.StartsWith("Could not read the OpenID discovery document", StringComparison.Ordinal));
+        Assert.Contains(reason, failClosed.Message, StringComparison.Ordinal);
+
+        // And nothing beyond the refused document was fetched.
+        Assert.Equal(1, http.TotalRequests);
     }
 
     [Fact]
-    public async Task AnEnormousMemberName_IsBoundedBeforeItReachesTheLog()
+    public async Task NoProviderAuthoredValueReachesTheRefusalEntry()
     {
-        // One hostile response produced a single 400 KB log entry before this bound — an amplification
-        // primitive on a path an anonymous caller drives once per request, not a diagnostic.
-        var name = new string('n', 400_000);
-        var hostile = FullDiscovery(Authority).Insert(1, $"\"{name}\":1,\"{name}\":2,");
-        var http = new CountingFactory(Serve(hostile));
+        // The entry carries a constant reason, the operator's own provider name, and a constant naming the
+        // document — nothing the provider chose. That is what lets it be safe without a sanitiser, so it is
+        // asserted rather than left to the next edit: the member name and the request URL arrive in #1068
+        // together with the bounds and filters that make them safe.
+        const string plantedMember = "zzUnmistakableMemberNamezz";
+        var duplicated = FullDiscovery(Authority).Insert(1, $"\"{plantedMember}\":1,\"{plantedMember}\":2,");
+        var http = new CountingFactory(Serve(duplicated));
         var logger = new CapturingLogger();
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
-        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
-        Assert.True(refusal.Message.Length < 1000, $"the refusal entry grew to {refusal.Message.Length} characters");
-
-        // The ceiling alone leaves the bound unpinned from below: tightening it to two characters would keep
-        // this row green while logging an unusable stub, and the CHANGELOG promises the operator a name they
-        // can report to their provider. Assert the retained prefix too, so both directions are held.
-        Assert.Contains(new string('n', 128), refusal.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(new string('n', 129), refusal.Message, StringComparison.Ordinal);
+        var entry = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
+        Assert.DoesNotContain(plantedMember, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(DiscoveryUrl, entry.Message, StringComparison.Ordinal);
     }
-
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;
     // any other URL 404s so an unexpected request is visible.
     private static Func<HttpRequestMessage, HttpResponseMessage> Serve(string discoveryJson, string jwksJson = "{\"keys\":[]}") =>

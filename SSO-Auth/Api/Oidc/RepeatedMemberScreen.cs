@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -41,16 +39,6 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
 
     /// <summary>The constant reason a response that could not be inspected as JSON travels under.</summary>
     internal const string UninspectableReason = "The provider response could not be inspected as JSON";
-
-    // Every provider-authored string this screen writes to the log is cut to this length. Measured: an 800 KB
-    // member name produced a single 400 KB entry, on a path an anonymous caller drives once per request, which
-    // is an amplification primitive rather than a diagnostic. 128 characters is more than an operator needs to
-    // recognise a member name or a URL and report it onward.
-    //
-    // Bounding what the screen READS is a different question and deliberately not answered here: this handler
-    // sits above an HttpClient that has already buffered the whole body, so a bound at this position limits
-    // the walk and nothing else. #1041 owns the bound that would matter, at the position where it can.
-    private const int MaxLoggedChars = 128;
 
     private readonly HttpClient _client;
     private readonly string? _provider;
@@ -104,48 +92,41 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             // know is the measured instance, and it is provider-chosen. Refusing rather than letting the throw
             // escape keeps the reason an operator needs, and keeps this handler from being the one fail path
             // that reports nothing.
-            return Refuse(request, response, UninspectableReason, repeatedMember: null, cause: e);
+            return Refuse(request, response, UninspectableReason, cause: e);
         }
 
-        var verdict = StrictJson.Inspect(body, out var repeatedMember);
+        // The walk still reports WHICH member repeated; this unit deliberately does not log it (#1068).
+        var verdict = StrictJson.Inspect(body, out _);
         if (verdict == StrictJson.Verdict.Clean)
         {
             return response;
         }
 
-        return Refuse(
-            request,
-            response,
-            verdict == StrictJson.Verdict.Repeated ? RefusalReason : UninspectableReason,
-            repeatedMember,
-            cause: null);
+        return Refuse(request, response, verdict == StrictJson.Verdict.Repeated ? RefusalReason : UninspectableReason, cause: null);
     }
 
     // Records why the response is being withheld and returns the constant-reason refusal in its place.
     //
-    // The member name is neutralised INLINE at the log call rather than through a helper, because the
-    // log-forging sanitizer this repo relies on does not propagate across a method boundary. Cut() below
-    // bounds length only and is deliberately not that sanitiser.
-    //
-    // The member name needs more than ReplaceLineEndings: it is arbitrary provider-chosen text, and
-    // ReplaceLineEndings passes a raw vertical tab and a raw NUL through — measured. A console sink
-    // advances a line on the first, forging an entry; the second truncates the record for a C-string
-    // consumer. Format characters go with them, since a right-to-left override forges by rearranging what
-    // is displayed rather than by inserting. The request URI is provider-authored too on the JWKS leg, but
-    // a Uri cannot carry a raw control character, so it needs the bound and not the filter.
+    // NOTHING PROVIDER-AUTHORED reaches this entry. The reason is a compile-time constant, the provider
+    // name is the operator's own configuration value, and the document is named by a constant chosen from
+    // the request rather than echoed out of it. That is what makes the entry safe without a sanitiser: an
+    // arbitrary provider-chosen string needs bounding and filtering that ReplaceLineEndings alone does not
+    // give it — a raw vertical tab forges a line on a console sink, a NUL truncates the record for a
+    // C-string consumer, a right-to-left override reorders what is displayed — and the value that needs all
+    // that arrives with it in #1068 rather than ahead of it.
     //
     // Only the exception TYPE is logged, never its message: the message quotes the provider's own
     // Content-Type, so it is one more untrusted string, while the type name is runtime-authored and
-    // distinguishes the decode failures an operator actually needs to tell apart.
-    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, string reason, string? repeatedMember, Exception? cause)
+    // distinguishes the decode failures an operator has to tell apart.
+    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, string reason, Exception? cause)
     {
         _logger.LogWarning(
-            "Refused the OpenID response from {Uri} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
-            Cut(request.RequestUri?.AbsoluteUri.ReplaceLineEndings(string.Empty)),
+            "Refused the OpenID {Document} for provider {Provider}: {Reason}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
+            DocumentKind(request),
             _provider?.ReplaceLineEndings(string.Empty),
             reason,
-            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && !char.IsSurrogate(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format && c != '\u2028' && c != '\u2029').Take(MaxLoggedChars).ToArray())})",
             cause is null ? string.Empty : $" [{cause.GetType().Name}]");
+
         response.Dispose();
         return new HttpResponseMessage(HttpStatusCode.BadGateway)
         {
@@ -155,8 +136,11 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         };
     }
 
-    // Bounds a value for the log. Length only — the neutralisation that the log-forging rule governs stays
-    // inline at the call above, and deliberately does not live here.
-    private static string? Cut(string? value) =>
-        value is not null && value.Length > MaxLoggedChars ? value.Substring(0, MaxLoggedChars) : value;
+    // Names which of the two documents this read fetches was refused, so an operator can tell them apart.
+    // A constant chosen by the request, never a value taken from it: the JWKS URL is the provider's to
+    // choose, and echoing it is what would put provider-authored text in the entry.
+    private static string DocumentKind(HttpRequestMessage request) =>
+        request.RequestUri is { } uri && uri.AbsolutePath.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal)
+            ? "discovery document"
+            : "JWKS document";
 }
