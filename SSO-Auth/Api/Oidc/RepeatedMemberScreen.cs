@@ -123,10 +123,9 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
 
     // Records why the response is being withheld and returns the constant-reason refusal in its place.
     //
-    // Every provider-authored value is neutralised INLINE at the log call rather than through a helper,
-    // because the log-forging sanitizer this repo relies on does not propagate across a method boundary.
-    // That is what the one duplicated filter expression below buys, and it is the reason it is duplicated
-    // rather than extracted.
+    // The member name is neutralised INLINE at the log call rather than through a helper, because the
+    // log-forging sanitizer this repo relies on does not propagate across a method boundary. Cut() below
+    // bounds length only and is deliberately not that sanitiser.
     //
     // The member name needs more than ReplaceLineEndings: it is arbitrary provider-chosen text, and
     // ReplaceLineEndings passes a raw vertical tab and a raw NUL through — measured. A console sink
@@ -145,7 +144,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             Cut(request.RequestUri?.AbsoluteUri.ReplaceLineEndings(string.Empty)),
             _provider?.ReplaceLineEndings(string.Empty),
             reason,
-            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format && c != '\u2028' && c != '\u2029').Take(MaxLoggedChars).ToArray())})",
+            repeatedMember is null ? string.Empty : $" ({new string(repeatedMember.Where(c => !char.IsControl(c) && !char.IsSurrogate(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format && c != '\u2028' && c != '\u2029').Take(MaxLoggedChars).ToArray())})",
             cause is null ? string.Empty : $" [{cause.GetType().Name}]");
         response.Dispose();
         return new HttpResponseMessage(HttpStatusCode.BadGateway)

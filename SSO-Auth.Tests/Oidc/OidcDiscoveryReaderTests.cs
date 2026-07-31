@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -370,6 +369,39 @@ public class OidcDiscoveryReaderTests
     }
 
     [Fact]
+    public async Task AProviderChosenUrlIsCutBeforeItReachesTheLog()
+    {
+        // The JWKS URL comes out of the discovery document, so it is the provider's to choose and can be
+        // arbitrarily long. It sits beside a member name that is bounded, and an unbounded value next to a
+        // bounded one on a path an anonymous caller drives once per request is the amplification the bound
+        // exists to stop. The refusal here is in the JWKS, so the entry names that URL.
+        var longPath = "/jwks-" + new string('p', 400);
+        var discovery = FullDiscovery(Authority).Replace(Authority + "/jwks", Authority + longPath, StringComparison.Ordinal);
+        var http = new CountingFactory(request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
+            {
+                return Json(discovery);
+            }
+
+            return url.Contains(longPath, StringComparison.Ordinal)
+                ? Json("{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}")
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+        var refusal = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID response", StringComparison.Ordinal));
+
+        // Enough of the URL to identify the document, and not the whole of it.
+        Assert.Contains(Authority + "/jwks-", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('p', 400), refusal.Message, StringComparison.Ordinal);
+        Assert.True(refusal.Message.Length < 600, $"the refusal entry grew to {refusal.Message.Length} characters");
+    }
+    [Fact]
     public async Task ANonSuccessResponse_KeepsItsOwnStatus_AndIsNotScreened()
     {
         // A 404 or an HTML error page is not a document that means two things — it is a provider that served
@@ -464,7 +496,8 @@ public class OidcDiscoveryReaderTests
         // The ceiling alone leaves the bound unpinned from below: tightening it to two characters would keep
         // this row green while logging an unusable stub, and the CHANGELOG promises the operator a name they
         // can report to their provider. Assert the retained prefix too, so both directions are held.
-        Assert.Contains(new string('n', 64), refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(new string('n', 128), refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('n', 129), refusal.Message, StringComparison.Ordinal);
     }
 
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;

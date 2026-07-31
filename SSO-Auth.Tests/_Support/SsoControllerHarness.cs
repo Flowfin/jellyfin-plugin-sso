@@ -38,6 +38,13 @@ internal sealed class SsoControllerHarness
 {
     public SSOController Controller { get; }
 
+    /// <summary>
+    /// Gets what the controller wrote to the log, so a test can assert the diagnosis an operator would read
+    /// rather than only the status a caller sees. Several endpoints answer with a deliberately uniform
+    /// rejection, which makes the log the only place a refusal states its reason.
+    /// </summary>
+    public CapturingLogger ControllerLog { get; }
+
     public IUserManager UserManager { get; }
 
     public ISessionManager SessionManager { get; }
@@ -99,8 +106,10 @@ internal sealed class SsoControllerHarness
             httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new StubHttpMessageHandler(httpResponder)));
         }
 
+        ControllerLog = new CapturingLogger();
+
         Controller = new SSOController(
-            Substitute.For<ILogger<SSOController>>(),
+            new TypedLogger<SSOController>(ControllerLog),
             Substitute.For<ILoggerFactory>(),
             SessionManager,
             UserManager,

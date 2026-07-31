@@ -49,11 +49,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   now screened on the transport, so such a body never reaches the reader that
   would resolve it: the refused document's `jwks_uri` is never requested at all,
   rather than requested and reported afterwards. A document that cannot be
-  inspected as JSON — malformed, longer than a million characters, or carrying a
-  character set the runtime does not know — is refused the same way. An error
-  response (a 404, a 500) is deliberately not screened and keeps its own status,
-  so the log still names what the provider actually returned; the plugin uses no
-  value out of such a body.
+  inspected as JSON — malformed, truncated, nested too deeply, or carrying a
+  character set the runtime does not know — is refused the same way. There is no
+  size limit here; bounding what the plugin reads from a provider is tracked
+  separately. An error response (a 404, a 500) is deliberately not screened and
+  keeps its own status, so the log still names what the provider actually
+  returned; the plugin uses no value out of such a body.
 
   Note for operators. A provider whose discovery or JWKS document repeats **any**
   member name inside one object will now fail to sign users in, where previously

@@ -169,7 +169,7 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     }
 
     [Fact]
-    public async Task ScreenedDiscovery_NoOpsTheLogout_AndLeavesTheSessionAlive()
+    public async Task BackChannelLogout_WithAScreenedDiscovery_NoOpsAndRecordsItsReason()
     {
         // Pins the posture #1060 owns, so the deferral is visible rather than implied. The repeated-member
         // screen (#1005) refuses a discovery document that names `issuer` twice, which on THIS path means the
@@ -178,10 +178,10 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         // the screen (any unreadable discovery already does it), and the screen only adds a new cause — so it
         // is pinned here and decided there rather than changed inside this delivery.
         //
-        // The plan named this row "…AndRecordsItsReason". That half is NOT asserted here and the name no
-        // longer claims it: this harness supplies mock loggers, so asserting the recorded reason would mean
-        // widening shared test infrastructure for an observability property that is #1060's fourth acceptance
-        // point. Named rather than quietly dropped.
+        // Both halves are asserted. The revocation does not happen and the session survives — and the refusal
+        // states its reason in the log, which on this path is the ONLY place it does: the endpoint answers a
+        // deliberately uniform 400, indistinguishable from a legitimate rejection, so without the log entry a
+        // suppressed revocation is silent to everyone.
         var harness = new SsoControllerHarness(
             c =>
             {
@@ -205,6 +205,12 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         AssertUniform400(result);
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
         Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+
+        // The reason half: the screen names why it refused, so an operator can tell a suppressed revocation
+        // from a rejected forgery. Both answer 400.
+        Assert.Contains(
+            harness.ControllerLog.Entries,
+            e => e.Message.Contains(RepeatedMemberScreen.RefusalReason, StringComparison.Ordinal));
     }
 
     [Fact]
