@@ -49,6 +49,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// </summary>
 internal static class StrictJson
 {
+    // What this cannot do, stated because a decision function invites the assumption that it protects the
+    // path it decides for: it bounds nothing. It is handed a string that is already in memory and allocates
+    // a UTF-8 copy of it, so a document large enough to hurt has already hurt before this runs. Bounding
+    // belongs at the position that reads the bytes, which is the caller's, and #1041 owns it there.
+
     // Matches the System.Text.Json reader default rather than raising it, so a document this walk cannot
     // reach the bottom of is one its consumers could not read either.
     private const int MaxDepth = 64;
@@ -87,6 +92,15 @@ internal static class StrictJson
     /// input, which carries no member to repeat. Names are compared ordinally, because JSON member names are
     /// case-sensitive and every consumer of these documents compares them ordinally too, and AFTER
     /// unescaping, so a name spelled with a <c>\u</c> escape counts as the same name as its plain spelling.
+    ///
+    /// Ordinal is a decision about THIS plugin's readers, not a fact about JSON consumers in general, and the
+    /// difference matters: a deserializer configured case-insensitively — which is what
+    /// <c>JsonSerializerDefaults.Web</c> gives you — resolves <c>ISSUER</c> onto <c>Issuer</c> and keeps the
+    /// last occurrence, while an indexing reader over the same bytes returns the first. The plugin's own
+    /// discovery readers index, so a case-variant pair is unambiguous to them and refusing it would take a
+    /// working provider offline; whether that holds for every consumer this walk may acquire is not settled
+    /// here and is tracked separately.
+    ///
     /// Never throws.
     /// </returns>
     internal static Verdict Inspect(string? json, out string? repeatedMember)
@@ -94,8 +108,20 @@ internal static class StrictJson
         repeatedMember = null;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return Verdict.Clean;
+            // Nothing was established about a body carrying no members, so this is Unreadable and not Clean.
+            // Clean is an affirmative "no scope names a member twice", which a caller reads as approval —
+            // and every reader these documents reach rejects an empty body outright, so reporting Clean would
+            // make this walk disagree with its own consumers about one document, which is what it exists to
+            // prevent.
+            return Verdict.Unreadable;
         }
+
+        // A UTF-8 BOM is a provider's to emit and Utf8JsonReader treats it as content, so a document that is
+        // otherwise perfect reads as malformed and — since Unreadable is a refusal at every seam that
+        // consumes this — locks that provider out. Stripped here rather than left to the caller: the one
+        // caller that exists today happens to strip it while decoding, but that is an undocumented property
+        // of a consumer this function does not have and cannot require.
+        var document = json!.TrimStart('\uFEFF');
 
         // One name set per open object, so sibling scopes may reuse a name — every JWKS entry repeats `kty`
         // and `kid`, so a walk pooling names document-wide would refuse real documents while reporting an
@@ -103,7 +129,7 @@ internal static class StrictJson
         var scopes = new Stack<HashSet<string>>();
         try
         {
-            var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions { MaxDepth = MaxDepth });
+            var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(document), new JsonReaderOptions { MaxDepth = MaxDepth });
             while (reader.Read())
             {
                 switch (reader.TokenType)
@@ -117,6 +143,9 @@ internal static class StrictJson
                         break;
 
                     case JsonTokenType.PropertyName:
+                        // GetString returns null only for a JSON null, which cannot be a member name, so the fallback is
+                        // unreachable — but folding it to "" would make the empty name and "no name" the same
+                        // key, and the empty name is a legal member a provider can repeat.
                         var name = reader.GetString() ?? string.Empty;
                         if (!scopes.Peek().Add(name))
                         {
@@ -137,6 +166,12 @@ internal static class StrictJson
         }
         catch (InvalidOperationException)
         {
+            // This arm is broader than its main cause, and the breadth is deliberate rather than
+            // overlooked: it also covers a stack operation on an empty stack, which would be a defect in
+            // this walk rather than anything the provider did. A walk bug therefore reports as an
+            // uninspectable document — the fail-closed direction, which is why the breadth is acceptable,
+            // but it does mean a verdict of Unreadable is not by itself evidence about the document.
+            //
             // GetString raises this — NOT JsonException — on a member name the decoder cannot complete: an
             // unpaired surrogate escape is thirteen bytes both parser families read without complaint. A
             // caller catching only JsonException would therefore take the crash, so this arm is what keeps a
