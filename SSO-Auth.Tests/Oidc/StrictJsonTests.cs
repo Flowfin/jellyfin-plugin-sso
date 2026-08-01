@@ -157,6 +157,25 @@ public class StrictJsonTests
     }
 
     [Fact]
+    public void TheDefaultVerdictIsTheRefusal()
+    {
+        // default(Verdict) is what an uninitialised field or a skipped assignment yields. On a fail-closed
+        // component that value must be the refusal, or the failure mode of forgetting to assign is approval.
+        Assert.Equal(StrictJson.Verdict.Unreadable, default(StrictJson.Verdict));
+    }
+
+    [Fact]
+    public void RepeatedBomPrefixes_AreNotStrippedAway()
+    {
+        // Exactly one leading BOM is stripped. A document prefixed with several is one no consumer can
+        // parse, so admitting it would be this walk disagreeing with its readers in the permissive direction.
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(Bom + Bom + "{\"a\":1}", out _));
+
+        // And a BOM that is not first is not a BOM prefix at all.
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(" " + Bom + "{\"a\":1}", out _));
+    }
+
+    [Fact]
     public void SiblingScopesReusingAName_AreClean()
     {
         // The scope rule: one name set per OPEN object. A walk pooling names document-wide would refuse this
@@ -198,27 +217,40 @@ public class StrictJsonTests
         Assert.Null(repeated);
     }
 
-    [Fact]
-    public void TheDepthCapIsPinnedAtItsBoundary()
-    {
-        // Its two neighbours, not two distant points. Fixtures at 10 and 65 are satisfied by ANY cap from 11
-        // to 64 — including dropping the reader options entirely, since the reader's own default is already
-        // 64 — so they pin the constant nowhere while reading as if they pinned it in both directions.
-        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(NestedTo(64), out _));
-        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(NestedTo(65), out _));
-    }
-
     private static string NestedTo(int depth) =>
-        string.Concat(Enumerable.Repeat("{\"a\":", depth)) + "1" + new string('}', depth);
+        string.Concat(Enumerable.Repeat("{\"a\":", depth)) + "1" + new string(char.Parse("}"), depth);
 
     [Fact]
     public void NestingPastTheDepthCap_IsUnreadable()
     {
+        // The behaviour at the boundary, and only that. An earlier row claimed to pin the cap CONSTANT from
+        // both directions; it could not, because the value equals the reader's own default and deleting the
+        // constant leaves every verdict identical. The claim is withdrawn rather than restated.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(NestedTo(64), out _));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(NestedTo(65), out _));
+
         // 65 opens against the reader's own default of 64: a document this walk cannot reach the bottom of is
         // one its consumers could not read either, so it is refused rather than passed on half-inspected.
         var tooDeep = string.Concat(Enumerable.Repeat("{\"a\":", 65)) + "1" + new string('}', 65);
 
         Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(tooDeep, out _));
+    }
+
+    [Fact]
+    public void ADocumentCarryingNoObject_IsUnreadable()
+    {
+        // Widened from "no input" to its actual rule. A bare scalar and an array of scalars are well-formed
+        // and carry no scope in which a member could repeat, so the walk established nothing about them —
+        // the same reason an empty body is not Clean. Reporting Clean here would hand a caller an
+        // affirmative answer about a document nothing read.
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("17", out _));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("true", out _));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("\"a string\"", out _));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("[1,2,3]", out _));
+
+        // An EMPTY object is the boundary of that rule and stays Clean: it has a scope, and that scope
+        // repeats nothing.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect("{}", out _));
     }
 
     [Fact]

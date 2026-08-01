@@ -56,6 +56,12 @@ internal static class StrictJson
 
     // Matches the System.Text.Json reader default rather than raising it, so a document this walk cannot
     // reach the bottom of is one its consumers could not read either.
+    //
+    // Because it EQUALS that default, no behavioural test can tell this constant from its absence: deleting
+    // it and the reader options leaves every verdict identical. It is kept for what it pins against — a
+    // future runtime moving its default — and that is a property no test in this repository can observe, so
+    // none claims to. An earlier test asserted it was pinned "from both directions"; it was not, and the
+    // claim is gone rather than reworded.
     private const int MaxDepth = 64;
 
     /// <summary>
@@ -66,14 +72,19 @@ internal static class StrictJson
     /// </summary>
     internal enum Verdict
     {
+        /// <summary>
+        /// Nothing was established about the document — it could not be walked to the end, or it carries no
+        /// object to walk. Deliberately the ZERO value: <c>default(Verdict)</c> is what an uninitialised
+        /// field or a silently skipped assignment produces, and on a fail-closed component that default must
+        /// be the refusal rather than the approval.
+        /// </summary>
+        Unreadable,
+
         /// <summary>No object scope names a member twice.</summary>
         Clean,
 
         /// <summary>An object scope names a member twice, so the document means two things.</summary>
         Repeated,
-
-        /// <summary>The document could not be walked to the end, so nothing was established about it.</summary>
-        Unreadable,
     }
 
     /// <summary>
@@ -87,11 +98,14 @@ internal static class StrictJson
     /// <returns>
     /// <see cref="Verdict.Repeated"/> when one object scope names a member twice;
     /// <see cref="Verdict.Unreadable"/> when the walk could not complete — malformed, truncated, nested past
-    /// the depth cap, or carrying a member name the decoder refuses (an unpaired surrogate escape is the
-    /// measured instance); <see cref="Verdict.Clean"/> otherwise, including for a null, empty or whitespace
-    /// input, which carries no member to repeat. Names are compared ordinally, because JSON member names are
-    /// case-sensitive and every consumer of these documents compares them ordinally too, and AFTER
-    /// unescaping, so a name spelled with a <c>\u</c> escape counts as the same name as its plain spelling.
+    /// the depth cap, carrying a member name the decoder refuses (an unpaired surrogate escape is the
+    /// measured instance), or carrying no object at all — a null, empty or whitespace body, and equally a
+    /// bare scalar or a document whose root is not and contains no object. None of those establishes
+    /// anything, which is what <see cref="Verdict.Unreadable"/> means, and reporting <c>Clean</c> for them
+    /// would hand a caller an affirmative answer about a document nothing read.
+    /// <see cref="Verdict.Clean"/> otherwise. Names are compared ordinally — a decision about this plugin's
+    /// readers rather than a fact about consumers, see below — and AFTER unescaping, so a name spelled with a
+    /// <c>\u</c> escape counts as the same name as its plain spelling.
     ///
     /// Ordinal is a decision about THIS plugin's readers, not a fact about JSON consumers in general, and the
     /// difference matters: a deserializer configured case-insensitively — which is what
@@ -121,20 +135,31 @@ internal static class StrictJson
         // consumes this — locks that provider out. Stripped here rather than left to the caller: the one
         // caller that exists today happens to strip it while decoding, but that is an undocumented property
         // of a consumer this function does not have and cannot require.
-        var document = json!.TrimStart('\uFEFF');
+        // ONE leading BOM, not a run of them: TrimStart would strip any number, and a document prefixed
+        // with several is one no consumer can parse, so admitting it would be this walk disagreeing with its
+        // readers in the permissive direction. A BOM that is not first — after whitespace, say — is left
+        // alone and the document reads as malformed, which is the honest answer for it.
+        var document = json!.StartsWith('\uFEFF') ? json.Substring(1) : json;
 
         // One name set per open object, so sibling scopes may reuse a name — every JWKS entry repeats `kty`
         // and `kid`, so a walk pooling names document-wide would refuse real documents while reporting an
         // attack. Only a repeat within the SAME object is a document that means two things.
         var scopes = new Stack<HashSet<string>>();
+        var sawObject = false;
         try
         {
-            var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(document), new JsonReaderOptions { MaxDepth = MaxDepth });
+            // Throw-on-invalid rather than the default replacement fallback: replacement maps every unpaired
+            // surrogate to U+FFFD, so two genuinely different member names would re-encode to the same key and
+            // the walk would report a repeat in a document that has none. The throw is caught below and
+            // reported as Unreadable, which is the honest answer for bytes that cannot round-trip.
+            var bytes = new UTF8Encoding(false, true).GetBytes(document);
+            var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = MaxDepth });
             while (reader.Read())
             {
                 switch (reader.TokenType)
                 {
                     case JsonTokenType.StartObject:
+                        sawObject = true;
                         scopes.Push(new HashSet<string>(StringComparer.Ordinal));
                         break;
 
@@ -164,6 +189,12 @@ internal static class StrictJson
         {
             return Verdict.Unreadable;
         }
+        catch (EncoderFallbackException)
+        {
+            // The document cannot be re-encoded without loss, so no verdict about its members would be about
+            // the document the consumer sees.
+            return Verdict.Unreadable;
+        }
         catch (InvalidOperationException)
         {
             // This arm is broader than its main cause, and the breadth is deliberate rather than
@@ -179,6 +210,9 @@ internal static class StrictJson
             return Verdict.Unreadable;
         }
 
-        return Verdict.Clean;
+        // A well-formed document that contains no object at all — a bare scalar, an array of scalars — has
+        // no scope in which a member could repeat, so the walk established nothing about it and says so. An
+        // EMPTY object is different and stays Clean: it has a scope, and that scope genuinely repeats nothing.
+        return sawObject ? Verdict.Clean : Verdict.Unreadable;
     }
 }
