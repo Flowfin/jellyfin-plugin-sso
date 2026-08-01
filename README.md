@@ -2,6 +2,7 @@
 
 > [!NOTE]
 >
+> **Paused for 2 Weeks bc of Holidays :)
 > **Status: Release Candidate** — the fourth rung of the maturity ladder (In-Development → Alpha → Beta → Release Candidate → Full Release). Install it by adding this plugin's own repository to Jellyfin — see [Installing](#installing).
 
 <h1 align="center">Community SSO for Jellyfin</h1>
