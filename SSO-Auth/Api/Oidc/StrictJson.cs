@@ -99,7 +99,8 @@ internal static class StrictJson
     /// <see cref="Verdict.Repeated"/> when one object scope names a member twice;
     /// <see cref="Verdict.Unreadable"/> when the walk could not complete — malformed, truncated, nested past
     /// the depth cap, carrying a member name the decoder refuses (an unpaired surrogate escape is the
-    /// measured instance), or carrying no object at all — a null, empty or whitespace body, and equally a
+    /// measured instance), carrying a char with no UTF-8 encoding at all (a RAW unpaired surrogate, refused
+    /// before the walk starts), or carrying no object at all — a null, empty or whitespace body, and equally a
     /// bare scalar or a document whose root is not and contains no object. None of those establishes
     /// anything, which is what <see cref="Verdict.Unreadable"/> means, and reporting <c>Clean</c> for them
     /// would hand a caller an affirmative answer about a document nothing read.

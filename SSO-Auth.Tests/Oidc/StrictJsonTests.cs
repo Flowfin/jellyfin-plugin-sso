@@ -28,6 +28,20 @@ public class StrictJsonTests
 
     private const string LoneSurrogateName = "{\"a\\ud800\":1}";
 
+    // The same lone surrogate as a RAW char rather than an escape, which is a different input reaching a
+    // different arm. The escape above is thirteen ASCII bytes the reader decodes. This is a char with no
+    // UTF-8 encoding at all, so it is refused while the document is being encoded and the reader never sees
+    // it. Without that refusal the default replacement fallback would rewrite it to U+FFFD in silence, and
+    // the walk would report Clean about bytes it had altered itself.
+    private const string RawLoneSurrogateName = "{\"a\uD800\":1}";
+
+    // Two DIFFERENT member names, each ending in a different unpaired surrogate. This is what makes the
+    // throwing fallback a rule rather than a sentence about one. Under the default replacement fallback both
+    // names encode to the same bytes, because every unpaired surrogate maps to the same U+FFFD, so the walk
+    // would report Repeated for a document whose two members are not the same name. That is a false
+    // accusation against a provider, which is the one direction a screen must never fail in.
+    private const string TwoRawLoneSurrogateNames = "{\"a\uD800\":1,\"a\uDC00\":1}";
+
     // A UTF-8 BOM, which a provider serving a BOM-prefixed file emits. Utf8JsonReader treats it as
     // content, so without stripping it every such document reads as malformed — and Unreadable is a
     // refusal at the seam, so that would lock the provider out.
@@ -99,6 +113,8 @@ public class StrictJsonTests
         "not-json",
         "{\"a\":1,",
         LoneSurrogateName,
+        RawLoneSurrogateName,
+        TwoRawLoneSurrogateNames,
     };
 
     public static TheoryData<string, string> RepeatedFixtures()
@@ -207,10 +223,12 @@ public class StrictJsonTests
     [MemberData(nameof(UnreadableFixtures))]
     public void HostileInput_IsUnreadable_NeverThrows(string json)
     {
-        // One fixture per raised type. `not-json` and the truncation raise JsonException; the thirteen bytes
-        // of LoneSurrogateName raise InvalidOperationException from GetString — NOT JsonException, so a walk
-        // catching only the latter hands the crash to a caller that catches neither. Unreadable is what the
-        // caller refuses on, so the fail-closed direction holds.
+        // One fixture per raised type, because each is raised by a different party and a walk that catches
+        // one hands the others to a caller that catches none. `not-json` and the truncation raise
+        // JsonException from the reader. The thirteen bytes of LoneSurrogateName raise
+        // InvalidOperationException from GetString, NOT JsonException. The two RAW surrogate fixtures raise
+        // EncoderFallbackException from the encoder, before any of the walk has run. Unreadable is what the
+        // caller refuses on, so the fail-closed direction holds for all three.
         var verdict = StrictJson.Inspect(json, out var repeated);
 
         Assert.Equal(StrictJson.Verdict.Unreadable, verdict);
@@ -218,7 +236,7 @@ public class StrictJsonTests
     }
 
     private static string NestedTo(int depth) =>
-        string.Concat(Enumerable.Repeat("{\"a\":", depth)) + "1" + new string(char.Parse("}"), depth);
+        string.Concat(Enumerable.Repeat("{\"a\":", depth)) + "1" + new string('}', depth);
 
     [Fact]
     public void NestingPastTheDepthCap_IsUnreadable()
@@ -226,14 +244,11 @@ public class StrictJsonTests
         // The behaviour at the boundary, and only that. An earlier row claimed to pin the cap CONSTANT from
         // both directions; it could not, because the value equals the reader's own default and deleting the
         // constant leaves every verdict identical. The claim is withdrawn rather than restated.
-        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(NestedTo(64), out _));
-        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(NestedTo(65), out _));
-
+        //
         // 65 opens against the reader's own default of 64: a document this walk cannot reach the bottom of is
         // one its consumers could not read either, so it is refused rather than passed on half-inspected.
-        var tooDeep = string.Concat(Enumerable.Repeat("{\"a\":", 65)) + "1" + new string('}', 65);
-
-        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(tooDeep, out _));
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(NestedTo(64), out _));
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(NestedTo(65), out _));
     }
 
     [Fact]
@@ -264,5 +279,4 @@ public class StrictJsonTests
         Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(string.Empty, out _));
         Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("   ", out _));
     }
-
 }
