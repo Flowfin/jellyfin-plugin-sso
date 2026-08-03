@@ -112,6 +112,38 @@ public class ConfigExportImportTests
     }
 
     [Fact]
+    public void Import_RoundTrip_CarriesAllowPrivateNetworkAddresses_AndDefaultsItOffWhenAbsent()
+    {
+        // The private-network opt-in (#1178) is ordinary non-secret provider config, so it must survive an
+        // export/import cycle like any other toggle. The absent case matters more: a document written
+        // before the field existed must land as false, keeping the safe default rather than inheriting a
+        // relaxed transport the exporting admin never chose.
+        var source = new PluginConfiguration();
+        source.OidConfigs["lan-idp"] = new OidConfig
+        {
+            OidEndpoint = "https://authelia.internal.example",
+            OidClientId = "client-1",
+            AllowPrivateNetworkAddresses = true,
+        };
+        source.OidConfigs["public-idp"] = new OidConfig
+        {
+            OidEndpoint = "https://idp.example.com",
+            OidClientId = "client-2",
+        };
+
+        var target = new PluginConfiguration();
+        ConfigImport.Apply(target, WireRoundTrip(ConfigExport.Build(source)));
+
+        Assert.True(target.OidConfigs["lan-idp"].AllowPrivateNetworkAddresses);
+
+        // Flipping it on one provider leaves every other provider strict.
+        Assert.False(target.OidConfigs["public-idp"].AllowPrivateNetworkAddresses);
+
+        // A brand-new OidConfig - the shape a pre-#1178 saved config deserializes into - is off.
+        Assert.False(new OidConfig().AllowPrivateNetworkAddresses);
+    }
+
+    [Fact]
     public void Import_SamlProvider_KeepsTargetSigningKeys_WhenImportRedacted()
     {
         var source = new PluginConfiguration();

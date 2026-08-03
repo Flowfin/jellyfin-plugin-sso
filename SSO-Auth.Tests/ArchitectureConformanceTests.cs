@@ -1420,6 +1420,7 @@ public class ArchitectureConformanceTests
         {
             "EnableAuthorization", "OidSecret", "DisableHttps", "DisablePushedAuthorization",
             "DoNotValidateEndpoints", "DoNotValidateIssuerName", "DoNotValidateResponseIssuer",
+            "AllowPrivateNetworkAddresses",
             "DoNotLoadProfile", "RequirePkce", "AllowExistingAccountLink",
             "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
             "RequireAcr", "AcrValues",
@@ -1487,10 +1488,11 @@ public class ArchitectureConformanceTests
             "RequirePkce", "AllowExistingAccountLink", "ProvisionNewUsersDisabled", "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
             "AcrValues", "Prompt", "MaxAge", "RequireAcr",
             "DisableHttps", "DisablePushedAuthorization", "DoNotValidateEndpoints", "DoNotValidateIssuerName", "DoNotValidateResponseIssuer",
+            "AllowPrivateNetworkAddresses",
             "HideLoginButton", "LoginButtonText", "PostLogoutRedirectUri",
         };
 
-        Assert.Equal(44, expected.Length);
+        Assert.Equal(45, expected.Length);
         var missing = expected.Where(id => !markedIds.Contains(id)).ToList();
         Assert.True(
             missing.Count == 0,
@@ -1905,7 +1907,7 @@ public class ArchitectureConformanceTests
             body);
 
         // The flag / auto-expand trigger set must contain only settings whose ENABLED state is a downgrade or
-        // an attack-surface widening: the five insecure toggles and AllowExistingAccountLink. It must NOT
+        // an attack-surface widening: the six insecure toggles and AllowExistingAccountLink. It must NOT
         // contain the fail-closed hardening toggles (RequireVerifiedEmailForAdoption/ForLogin, RequirePkce),
         // which are OFF by default and whose ON state is MORE secure - flagging those is backwards (#689
         // re-review). Scoped to the two array literals so a stray mention elsewhere cannot mask a regression.
@@ -1915,7 +1917,8 @@ public class ArchitectureConformanceTests
         foreach (var id in new[]
         {
             "DisableHttps", "DisablePushedAuthorization", "DoNotValidateEndpoints",
-            "DoNotValidateIssuerName", "DoNotValidateResponseIssuer", "AllowExistingAccountLink",
+            "DoNotValidateIssuerName", "DoNotValidateResponseIssuer", "AllowPrivateNetworkAddresses",
+            "AllowExistingAccountLink",
         })
         {
             Assert.Contains("\"" + id + "\"", trigger, StringComparison.Ordinal);

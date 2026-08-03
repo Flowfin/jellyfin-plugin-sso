@@ -185,6 +185,7 @@ const ssoConfigurationPage = {
     "DoNotValidateEndpoints",
     "DoNotValidateIssuerName",
     "DoNotValidateResponseIssuer",
+    "AllowPrivateNetworkAddresses",
   ],
   // The non-insecure settings whose ENABLED state is still a downgrade / attack-surface widening, so they
   // are surfaced the same way as the insecure toggles (card "Review" flag + auto-expand the enclosing
