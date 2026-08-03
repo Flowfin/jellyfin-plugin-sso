@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// Composes the OIDC redirect_uri this service provider hands to identity providers. The string is
 /// validated byte-for-byte on the other side (RFC 6749 section 4.1.3 redirect_uri equality), so every
 /// method concatenates exactly what the previously scattered call sites produced: lowercase "/sso/", the
-/// "OID" segment, the route-spelling variant, and the route-decoded provider name appended raw — never
+/// "OID" segment, the route-spelling variant, and the route-decoded provider name appended raw, never
 /// re-encoded, since encoding would change the bytes identity providers already have registered.
 /// (Split out of the kernel SsoUrlBuilder in #790 so the OIDC half lives in the Oidc module.)
 /// </summary>

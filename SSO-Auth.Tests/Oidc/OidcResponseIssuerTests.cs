@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcResponseIssuer"/> — the RFC 9207 authorization-response issuer check (#125,
+/// Tests for <see cref="OidcResponseIssuer"/>: the RFC 9207 authorization-response issuer check (#125,
 /// hardened #210). A present response <c>iss</c> must equal the authorization server's discovery issuer
 /// OR the id_token issuer (the id_token anchor keeps templated / <c>DoNotValidateIssuerName</c> setups
 /// working); absence is tolerated only when the server did not advertise the parameter, and rejected
@@ -20,7 +20,7 @@ public class OidcResponseIssuerTests
     private const string DiscoveryIssuer = "https://idp.example.com";
 
     // Builds a parseable (unsigned) id_token carrying the given iss. The check never verifies the
-    // signature — it only reads the issuer — so a JWS with a throwaway signature segment is enough.
+    // signature (it only reads the issuer) so a JWS with a throwaway signature segment is enough.
     private static string IdToken(string? issuer)
     {
         var payload = issuer == null ? "{}" : $"{{\"iss\":\"{issuer}\"}}";
@@ -61,7 +61,7 @@ public class OidcResponseIssuerTests
     {
         // The DoNotValidateIssuerName / templated / multi-tenant case: the discovery issuer is a template
         // that the concrete response iss (== the id_token iss) does not equal, but the login must NOT be
-        // locked out — the id_token issuer is an accepted anchor.
+        // locked out; the id_token issuer is an accepted anchor.
         const string concrete = "https://idp.example.com/tenant-42";
         Assert.False(OidcResponseIssuer.IsRejected(concrete, DiscoveryIssuer, IdToken(concrete), required: false));
         Assert.False(OidcResponseIssuer.IsRejected(concrete, DiscoveryIssuer, IdToken(concrete), required: true));

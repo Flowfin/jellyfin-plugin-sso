@@ -9,7 +9,7 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 
 /// <summary>
-/// Pure operations over the per-session Single Logout store (#727) — the
+/// Pure operations over the per-session Single Logout store (#727): the
 /// <see cref="PluginConfiguration.LogoutSessions"/> map. No I/O: the login path calls <see cref="Capture"/>
 /// and the logout path calls <see cref="Remove"/>/the query helpers inside a <c>MutateConfiguration</c>/
 /// <c>ReadConfiguration</c> lambda, so persistence and locking stay with the config store while the
@@ -78,7 +78,7 @@ internal static class SessionLogoutStore
     }
 
     /// <summary>
-    /// Returns the sessions matching an inbound SAML <c>LogoutRequest</c> — the same provider and subject,
+    /// Returns the sessions matching an inbound SAML <c>LogoutRequest</c>: the same provider and subject,
     /// and the same session index when the request carries one (a blank <paramref name="sessionIndex"/>
     /// matches any). Ordinal comparison; used by the SAML SLO path to resolve which sessions to revoke.
     /// </summary>

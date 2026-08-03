@@ -24,7 +24,7 @@ public class SamlCertificateTests
     [Fact]
     public void IsInvalid_UnderStrengthRsaCertificate_True()
     {
-        // #733: an RSA-1024 signing certificate is loadable but below the 2048-bit floor — rejected at the
+        // #733: an RSA-1024 signing certificate is loadable but below the 2048-bit floor; rejected at the
         // admin write path so the operator gets a clear rejection at save, not a silent login failure later.
         Assert.True(SamlCertificate.IsInvalid(RsaCertificateBase64(1024)));
     }
@@ -63,7 +63,7 @@ public class SamlCertificateTests
     [Fact]
     public void HasAcceptableSigningKey_NonApprovedEcCurve_False()
     {
-        // secp256k1 is a valid EC curve but not one of the approved NIST P-curves — not a signing key this
+        // secp256k1 is a valid EC curve but not one of the approved NIST P-curves, not a signing key this
         // plugin trusts, so its signatures are not accepted (fail-closed).
         using var ecdsa = ECDsa.Create(ECCurve.CreateFromValue("1.3.132.0.10")); // secp256k1
         var request = new CertificateRequest("CN=Test secp256k1 IdP", ecdsa, HashAlgorithmName.SHA256);
@@ -136,7 +136,7 @@ public class SamlCertificateTests
     [Fact]
     public void RejectInvalidSamlSecondaryCertificate_ValidOrBlank_DoesNotThrow()
     {
-        // The inbound secondary verification certificate (#491) is validated exactly like the primary — a
+        // The inbound secondary verification certificate (#491) is validated exactly like the primary: a
         // valid or blank value passes the Add-endpoint guard.
         var exception = Record.Exception(() =>
         {

@@ -22,7 +22,7 @@ internal static class ServerManagedFields
     /// <paramref name="incoming"/> are touched (a deleted provider stays deleted; a newly added one
     /// keeps its own empty map). Two kinds of field are preserved: the per-provider canonical links
     /// (always server-owned, #157), and the write-only secrets (the OpenID client secret #189, the SAML
-    /// signing key #167 and its optional rollover key #491) — the latter only when the incoming value is
+    /// signing key #167 and its optional rollover key #491), the latter only when the incoming value is
     /// blank, since a secret is withheld from JSON responses so a save that did not set a new one arrives
     /// empty and must keep the stored value (a non-blank incoming value is an intentional rotation and is
     /// left as-is).
@@ -36,7 +36,7 @@ internal static class ServerManagedFields
 
         // SSO-only login state is server-managed (#165): the config-page save must not be able to flip
         // DisablePasswordLogin or repoint the break-glass admin. The plugin-config PUT carries no user
-        // context, so it cannot run the last-admin guard or the enforcement sweep — re-injecting the live
+        // context, so it cannot run the last-admin guard or the enforcement sweep; re-injecting the live
         // values here freezes the pair on this path, leaving the RequiresElevation-gated SSO-Only endpoints
         // (which DO run the guard, the sweep, and the audit) as the only way to change them. This is
         // stronger than re-validating an incoming toggle: an unsafe (or accidental) value can never be
@@ -51,13 +51,13 @@ internal static class ServerManagedFields
             // The Single Logout session store is server-managed runtime state (#727): it is withheld from
             // JSON, so a config-page PUT arrives with it empty. Re-inject the live map so a save never wipes
             // the captured sessions (which would strand every live session's id_token_hint) and a config PUT
-            // can neither read the stored id_tokens nor forge session entries — the login/logout paths are the
+            // can neither read the stored id_tokens nor forge session entries; the login/logout paths are the
             // only writers, exactly as for the SSO-only bookkeeping above.
             incoming.LogoutSessions = live.LogoutSessions;
         }
     }
 
-    // One generic loop for both protocols — the maps differ only in the per-provider overload the method
+    // One generic loop for both protocols; the maps differ only in the per-provider overload the method
     // group resolves to. Only providers present in BOTH maps are touched (a deleted provider stays
     // deleted; a newly added one keeps its own empty map), and a null map on either side (a legacy store,
     // a partial post) preserves nothing rather than NRE the save.
@@ -83,8 +83,8 @@ internal static class ServerManagedFields
 
     /// <summary>
     /// Re-injects an OpenID provider's server-managed fields (#157/#189/#186): its canonical links and their
-    /// issuer bindings — carried over only while the discovery endpoint is unchanged, dropped on a repoint so
-    /// a re-identified provider does not silently inherit another's mappings — and its write-only client secret.
+    /// issuer bindings (carried over only while the discovery endpoint is unchanged, dropped on a repoint so
+    /// a re-identified provider does not silently inherit another's mappings) and its write-only client secret.
     /// </summary>
     /// <param name="incoming">The provider config about to be persisted; a null entry is skipped.</param>
     /// <param name="live">The current live provider config to read server-managed values from; null skips.</param>
@@ -97,8 +97,8 @@ internal static class ServerManagedFields
             return;
         }
 
-        // The repoint belt (#186): an OidEndpoint change re-identifies the provider — a different discovery
-        // URL is potentially a different identity provider — exactly as ResolveUpdatedSecret treats it when
+        // The repoint belt (#186): an OidEndpoint change re-identifies the provider (a different discovery
+        // URL is potentially a different identity provider) exactly as ResolveUpdatedSecret treats it when
         // it drops the client secret on the same change. Carrying the accumulated sub-keyed links across
         // such a change is the silent-mapping this issue closes, so DROP them (and their issuer bindings)
         // rather than preserve them. This protects even un-stamped legacy links (a user who has not logged
@@ -121,7 +121,7 @@ internal static class ServerManagedFields
 
     /// <summary>
     /// Re-injects a SAML provider's server-managed fields: its canonical link map (#157) and its write-only
-    /// service-provider signing keys — the primary (#167) and optional rollover key (#491) — each kept when
+    /// service-provider signing keys (the primary (#167) and optional rollover key (#491)) each kept when
     /// the incoming value is blank (a save that did not rotate it) so a config-page save neither wipes the
     /// key nor silently ends a rollover overlap.
     /// </summary>
@@ -140,12 +140,12 @@ internal static class ServerManagedFields
     }
 
     /// <summary>
-    /// Decides which service-provider signing key an updated SAML provider should keep — the one rule shared
+    /// Decides which service-provider signing key an updated SAML provider should keep: the one rule shared
     /// by the primary key (#167) and the OPTIONAL rollover key (#491). A non-blank incoming key is an explicit
     /// rotation and wins; a blank one keeps the stored key, so a config-page save (which never carries the
     /// withheld keys) neither wipes the key nor silently ends a rollover overlap window. Unlike the OpenID
-    /// client secret these carry NO provider-identity guard: a signing key is never transmitted anywhere — it
-    /// signs a public AuthnRequest locally, and only its public certificate is ever published into metadata —
+    /// client secret these carry NO provider-identity guard: a signing key is never transmitted anywhere; it
+    /// signs a public AuthnRequest locally, and only its public certificate is ever published into metadata;
     /// so repointing the endpoint cannot exfiltrate it, and carrying it over keeps a working signed-login
     /// provider from breaking on an unrelated edit.
     /// </summary>
@@ -158,7 +158,7 @@ internal static class ServerManagedFields
     /// <summary>
     /// Decides which OpenID client secret an updated provider should keep (#189), the single rule
     /// shared by the config-page save and <c>OID/Add</c>. A non-blank incoming secret is an explicit
-    /// rotation and wins. A blank one means "keep the stored secret" — but ONLY while the provider
+    /// rotation and wins. A blank one means "keep the stored secret", but ONLY while the provider
     /// identity (endpoint and client id) is unchanged: if either changed, the stored secret is not
     /// carried over (it stays blank, failing the login closed until an admin supplies one), so a
     /// write-only secret cannot be exfiltrated by repointing the provider at a different token

@@ -79,7 +79,7 @@ public class SSOControllerChallengeTests
     [Fact]
     public void SamlChallenge_SigningDisabled_RedirectCarriesNoSignature()
     {
-        // Default off (#167): existing deployments are unaffected — the redirect carries the unsigned
+        // Default off (#167): existing deployments are unaffected; the redirect carries the unsigned
         // AuthnRequest exactly as before, with no SigAlg/Signature parameters.
         var harness = new SsoControllerHarness(c => c.SamlConfigs["adfs"] = EnabledProvider());
 
@@ -237,7 +237,7 @@ public class SSOControllerChallengeTests
     public void SamlChallenge_NewPathChanges_PersistsThroughTheConfigStore()
     {
         // #412: the derived spelling must be recorded through MutateConfiguration (which persists),
-        // not a bare field write on a config object read outside the lock — that write bypassed the
+        // not a bare field write on a config object read outside the lock; that write bypassed the
         // store entirely and never reached the persist delegate. Starting the provider on the legacy
         // spelling and hitting the descriptive route forces an actual change, so this proves the write
         // now reaches SerializeToFile instead of being a purely in-memory mutation.
@@ -255,7 +255,7 @@ public class SSOControllerChallengeTests
     [Fact]
     public void SamlChallenge_NewPathAlreadyCurrent_SkipsTheRedundantPersist()
     {
-        // The common case — every login after the first on a given route — must not pay a config
+        // The common case (every login after the first on a given route) must not pay a config
         // persist on every challenge: the derived spelling already matches what is stored, so the
         // atomic write path (#412) is a locked comparison only, mirroring
         // CanonicalLinkService.ResolveOrCreateAsync's read-first, persist-only-on-change shape.
@@ -289,7 +289,7 @@ public class SSOControllerChallengeTests
 
         // The second is over budget and is throttled before the provider is even looked up. The whole
         // response shape is characterized here (#474): after routing through LoginOutcome.Throttled and the
-        // single mapper it must stay byte-identical — a 429, the fixed plain-text body, and a Retry-After
+        // single mapper it must stay byte-identical: a 429, the fixed plain-text body, and a Retry-After
         // header whose value falls within the configured window.
         var throttled = Assert.IsType<ContentResult>(harness.Controller.SamlChallenge("does-not-exist"));
         Assert.Equal(429, throttled.StatusCode);

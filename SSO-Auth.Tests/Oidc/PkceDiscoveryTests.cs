@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="PkceDiscovery"/> — reading <c>code_challenge_methods_supported</c> from an
+/// Tests for <see cref="PkceDiscovery"/>: reading <c>code_challenge_methods_supported</c> from an
 /// OpenID discovery document and failing closed on anything that does not clearly advertise S256 (#141).
 /// </summary>
 public class PkceDiscoveryTests

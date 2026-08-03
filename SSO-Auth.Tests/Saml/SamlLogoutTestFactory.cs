@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Builds real, cryptographically-signed SAML 2.0 <c>LogoutRequest</c> documents (and deliberately broken
 /// variants) against a throw-away self-signed certificate, so the SLO-3b tests exercise the actual
-/// signature-validation path in <c>SamlLogoutRequest</c> rather than mocks — the LogoutRequest analogue of
+/// signature-validation path in <c>SamlLogoutRequest</c> rather than mocks: the LogoutRequest analogue of
 /// <see cref="SamlTestFactory"/>.
 /// </summary>
 internal static class SamlLogoutTestFactory
@@ -33,7 +33,7 @@ internal static class SamlLogoutTestFactory
     /// <param name="requestId">The request ID attribute (defaults to a fresh one); reuse a fixed value for the replay test.</param>
     /// <param name="sign">When false, the request is left unsigned.</param>
     /// <param name="signWithSha1">When true, sign with RSA-SHA1/SHA1 digest (the weak-algorithm case).</param>
-    /// <param name="wrapSignature">When true, sign a smuggled sibling element and move the (valid) signature to the root — the XML-signature-wrapping case.</param>
+    /// <param name="wrapSignature">When true, sign a smuggled sibling element and move the (valid) signature to the root, the XML-signature-wrapping case.</param>
     /// <param name="signingKeyBits">RSA signing-key size in bits; defaults to 2048.</param>
     /// <returns>A fixture exposing the certificate and the signed document.</returns>
     internal static SamlLogoutFixture Create(
@@ -89,7 +89,7 @@ internal static class SamlLogoutTestFactory
         {
             // Wrapping: sign the smuggled sibling (a cryptographically VALID signature), then move it to the
             // root so it sits at the position-bound location but its reference covers the sibling, not the
-            // root — exactly the shape the reference-covers-root defense must reject.
+            // root, exactly the shape the reference-covers-root defense must reject.
             var referenceId = wrapSignature ? EvilId : rootId;
             SignElement(document, referenceId, rsa, certificate, signWithSha1, moveSignatureToRoot: wrapSignature);
         }

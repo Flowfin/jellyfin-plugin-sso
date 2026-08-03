@@ -36,7 +36,7 @@ public class ConfigXmlLifecycleTests
     {
         // The document the plugin base actually writes to disk is the whole PluginConfiguration, with its
         // OidConfigs/SamlConfigs dictionaries populated. The existing round-trip tests only exercise a single
-        // provider object or a bare dictionary, never the composed document — this pins that the entire
+        // provider object or a bare dictionary, never the composed document; this pins that the entire
         // config, across two providers of each protocol plus the global limiter settings, survives a
         // serialize→deserialize round-trip byte-for-value.
         var original = new PluginConfiguration
@@ -128,7 +128,7 @@ public class ConfigXmlLifecycleTests
     {
         // A config written before the rate-limit feature (#128) has no EnableRateLimit / RateLimitMaxAttempts /
         // RateLimitWindowSeconds elements. XmlSerializer runs the parameterless constructor, so the omitted
-        // integers must come back as the constructor's SAFE defaults (30 / 60) rather than 0 — a
+        // integers must come back as the constructor's SAFE defaults (30 / 60) rather than 0, a
         // 0-max-attempts default would silently mean "limiter effectively off" on every legacy upgrade.
         var modern = new PluginConfiguration
         {
@@ -158,8 +158,8 @@ public class ConfigXmlLifecycleTests
     public void Deserialize_LegacyProvider_MissingNewerElements_UsesFailClosedDefaults()
     {
         // A provider entry written before the newer per-provider toggles existed omits their elements. They
-        // must deserialize to their documented defaults — the security toggles fail closed (false), the
-        // nullable PortOverride to null — without a throw, so an old on-disk provider keeps loading.
+        // must deserialize to their documented defaults: the security toggles fail closed (false), the
+        // nullable PortOverride to null, without a throw, so an old on-disk provider keeps loading.
         var modern = new PluginConfiguration();
         modern.OidConfigs["idp"] = new OidConfig
         {
@@ -200,7 +200,7 @@ public class ConfigXmlLifecycleTests
     public void Deserialize_ConfigWithUnknownElements_DoesNotThrow_AndKeepsKnownValues()
     {
         // Forward compatibility: a config written by a NEWER plugin version can carry elements this version
-        // does not know — at the top level and inside a provider entry. XmlSerializer must skip the unknown
+        // does not know, at the top level and inside a provider entry. XmlSerializer must skip the unknown
         // elements (its default UnknownElement behavior is to ignore, not throw), so a downgrade or a
         // hand-edited config still loads with every known value intact.
         var modern = new PluginConfiguration { RateLimitMaxAttempts = 25 };
@@ -236,7 +236,7 @@ public class ConfigXmlLifecycleTests
         // serializer rather than in-memory objects: a legacy config XML holds plaintext provider secrets;
         // it deserializes, the persist boundary encrypts them (ConfigSecretProtection.ProtectAll), the
         // encrypted config is written back to XML and read again, and the original plaintext is recovered via
-        // SecretStore.Reveal. NOTE: this exercises secret-at-rest migration — a security-surface change of
+        // SecretStore.Reveal. NOTE: this exercises secret-at-rest migration: a security-surface change of
         // this shape belongs to the /security-review gate.
         var keyPath = Path.Combine(Path.GetTempPath(), "sso-cfgxml-" + Guid.NewGuid().ToString("N") + ".key");
         try
@@ -251,7 +251,7 @@ public class ConfigXmlLifecycleTests
             Assert.Contains("legacy-pfx-plaintext", legacyOnDisk, StringComparison.Ordinal);
             Assert.DoesNotContain("ssoenc:", legacyOnDisk, StringComparison.Ordinal);
 
-            // Load it, then encrypt at the persist boundary and write it back — the plugin's save path.
+            // Load it, then encrypt at the persist boundary and write it back, the plugin's save path.
             var loaded = Deserialize<PluginConfiguration>(legacyOnDisk);
             var store = new SecretStore(keyPath);
             ConfigSecretProtection.ProtectAll(loaded, store);
@@ -262,7 +262,7 @@ public class ConfigXmlLifecycleTests
             Assert.DoesNotContain("legacy-pfx-plaintext", encryptedOnDisk, StringComparison.Ordinal);
             Assert.Contains("ssoenc:", encryptedOnDisk, StringComparison.Ordinal);
 
-            // Read the encrypted config back and recover the original secrets — nothing was lost.
+            // Read the encrypted config back and recover the original secrets; nothing was lost.
             var reloaded = Deserialize<PluginConfiguration>(encryptedOnDisk);
             Assert.True(SecretEnvelope.IsProtected(reloaded.OidConfigs["idp"].OidSecret));
             Assert.True(SecretEnvelope.IsProtected(reloaded.SamlConfigs["saml"].SamlSigningKeyPfx));

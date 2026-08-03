@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="CanonicalLinkRevoker"/> — removing a user's canonical links so an admin's SSO
+/// Tests for <see cref="CanonicalLinkRevoker"/>: removing a user's canonical links so an admin's SSO
 /// unregister actually stops SSO login from resolving to the account (#213).
 /// </summary>
 public class CanonicalLinkRevokerTests

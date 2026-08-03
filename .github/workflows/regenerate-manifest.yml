@@ -7,7 +7,7 @@ name: Regenerate manifest
 # manifest WITHOUT building or releasing anything.
 #
 # The plugin identity (the generate action's required plugin-metadata input) comes from a
-# release the OPERATOR names — its *.zip.meta.json asset. Name the NEWEST release of the
+# release the OPERATOR names: its *.zip.meta.json asset. Name the NEWEST release of the
 # channel: the action asserts that the metadata's version survives into the committed
 # manifest, so naming an ancient release fails that assertion by design.
 on:
@@ -35,7 +35,7 @@ permissions: {}
 # Join the SAME per-channel concurrency group as the publish legs, so a recovery run never
 # races a scheduled publish for the manifest branch (the reader-vs-pusher TOCTOU #135 closed).
 # cancel-in-progress is false: a run holding contents:write must never be killed mid-write.
-# Note: a group holds at most one PENDING run — dispatching a recovery while a nightly leg is
+# Note: a group holds at most one PENDING run; dispatching a recovery while a nightly leg is
 # queued (around 04:00 UTC) evicts that queued publish (it self-heals at the next nightly, and
 # nothing is written by a canceled pending run). Check the group's run list after dispatching.
 concurrency:
@@ -61,7 +61,7 @@ jobs:
       # stable release ships a known-vulnerable dependency). The boolean is an explicit,
       # per-run operator statement that the stable channel is being (re)opened on purpose.
       # The predicate MIRRORS the branch selection below (anything that is not exactly 'beta'
-      # writes manifest-release), so no channel value can reach the release branch unguarded —
+      # writes manifest-release), so no channel value can reach the release branch unguarded:
       # deny by default, independent of whether the dispatch API validates choice membership.
       if: inputs.channel != 'beta' && inputs.repopulate-stable != true
       run: |

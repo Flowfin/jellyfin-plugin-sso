@@ -11,7 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for the unified <see cref="RolePrivilegeMapper.Evaluate"/> (#367) — the role→privilege mapping
+/// Tests for the unified <see cref="RolePrivilegeMapper.Evaluate"/> (#367): the role→privilege mapping
 /// shared by the OpenID and SAML callbacks. Every member it reads lives on
 /// <see cref="ProviderConfigBase"/>, so one mapper serves both protocols; the tests run it against both
 /// an <see cref="OidConfig"/> and a <see cref="SamlConfig"/>. The three former per-protocol quirks are
@@ -239,7 +239,7 @@ public class RolePrivilegeMapperTests
     public void FolderRolesEnabled_NullFoldersOnMatchingEntry_DoesNotThrow_GrantsNoFoldersForIt()
     {
         // #675: a matching FolderRoleMap whose Folders list is null (a config/deserialization edge)
-        // formerly threw an ArgumentNullException on AddRange(null) — a 500. It is now null-guarded, so
+        // formerly threw an ArgumentNullException on AddRange(null), a 500. It is now null-guarded, so
         // the entry grants nothing (fail closed) and other valid entries are unaffected.
         var config = Oid(c =>
         {
@@ -264,7 +264,7 @@ public class RolePrivilegeMapperTests
     {
         // #367 reconciliation: the SAML path formerly threw on a null configured admin entry (the
         // comparison receiver was the configured value). Comparison is now null-safe both ways, so a
-        // null entry is simply not a match — no NullReferenceException.
+        // null entry is simply not a match, no NullReferenceException.
         var config = Saml(c => c.AdminRoles = new[] { "admins", null! });
 
         Assert.False(RolePrivilegeMapper.Evaluate(new[] { "x" }, config).Admin);

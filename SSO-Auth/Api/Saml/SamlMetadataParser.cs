@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// Parses an identity provider's SAML 2.0 metadata into the provider-configuration values an administrator
 /// would otherwise hand-copy (#735): the entity id, the Single Sign-On endpoint, and the signing
 /// certificate(s). The metadata is UNTRUSTED input, so it is parsed with the identical fail-closed hardening
-/// <see cref="SamlResponse"/> uses on inbound assertions — DTD/DOCTYPE prohibited (no XXE, no billion-laughs
+/// <see cref="SamlResponse"/> uses on inbound assertions: DTD/DOCTYPE prohibited (no XXE, no billion-laughs
 /// entity expansion), <c>XmlResolver = null</c> (no external-entity fetch / SSRF), and a bound on the DOM the
 /// reader materializes. Any malformed, oversized, or incomplete document throws
 /// <see cref="SamlMetadataException"/> with an admin-facing message; nothing is ever partially extracted.
@@ -51,11 +51,11 @@ internal static class SamlMetadataParser
         ns.AddNamespace("md", MetadataNamespace);
         ns.AddNamespace("ds", DsigNamespace);
 
-        // The IdP role descriptor — anywhere in the tree, so a metadata aggregate (EntitiesDescriptor wrapping
+        // The IdP role descriptor, anywhere in the tree, so a metadata aggregate (EntitiesDescriptor wrapping
         // several EntityDescriptors) resolves to the first entity that actually plays the IdP role.
         if (doc.SelectSingleNode("//md:EntityDescriptor/md:IDPSSODescriptor", ns) is not XmlElement idp)
         {
-            throw new SamlMetadataException("No IDPSSODescriptor was found — this does not look like SAML identity-provider metadata.");
+            throw new SamlMetadataException("No IDPSSODescriptor was found; this does not look like SAML identity-provider metadata.");
         }
 
         var entityId = ((XmlElement)idp.ParentNode!).GetAttribute("entityID").Trim();
@@ -74,7 +74,7 @@ internal static class SamlMetadataParser
         }
 
         // Every extracted certificate must load AND meet the minimum key-strength floor (#733), reusing the
-        // one predicate the SAML config-save path uses — so an import can never pre-fill a cert that the save
+        // one predicate the SAML config-save path uses, so an import can never pre-fill a cert that the save
         // would reject (or that would fail signature validation at login). Fail closed on the first bad one;
         // no partial result.
         foreach (var certificate in certificates)
@@ -98,7 +98,7 @@ internal static class SamlMetadataParser
     {
         // Strip a leading UTF-8 byte-order-mark: a BOM that survived into the string (a pasted document, or a
         // fetch decoded without BOM handling) is a U+FEFF character before the XML declaration, which the
-        // reader rejects as "data at the root level is invalid" — so an otherwise-valid document (ADFS serves
+        // reader rejects as "data at the root level is invalid", so an otherwise-valid document (ADFS serves
         // its FederationMetadata.xml UTF-8-with-BOM) would fail. The fetch path decodes with BOM detection too.
         if (xml.Length > 0 && xml[0] == 0xFEFF)
         {
@@ -121,7 +121,7 @@ internal static class SamlMetadataParser
         }
         catch (XmlException ex)
         {
-            // Malformed XML, a prohibited DOCTYPE/DTD, or the character bound exceeded — all fail closed with
+            // Malformed XML, a prohibited DOCTYPE/DTD, or the character bound exceeded: all fail closed with
             // an admin-facing message; the library's detail stays out of the response.
             throw new SamlMetadataException("The metadata is not well-formed XML, exceeds the size limit, or contains a prohibited DTD/DOCTYPE.", ex);
         }
@@ -136,7 +136,7 @@ internal static class SamlMetadataParser
         var services = idp.SelectNodes("md:SingleSignOnService", ns)?.Cast<XmlElement>().ToList() ?? new List<XmlElement>();
 
         // XmlElement.GetAttribute returns "" (not null) for a missing/empty Location, so normalize a blank to
-        // null — otherwise a matching-binding service with no Location would short-circuit the ?? fallback and
+        // null; otherwise a matching-binding service with no Location would short-circuit the ?? fallback and
         // skip a usable endpoint under another binding.
         string? ByBinding(string binding)
         {

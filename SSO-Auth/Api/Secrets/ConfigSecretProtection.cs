@@ -57,7 +57,7 @@ internal static class ConfigSecretProtection
                 saml.SamlSigningKeyPfx = store.Protect(saml.SamlSigningKeyPfx, configHasEnvelopes);
 
                 // The rollover signing key (#491) carries a private key too, so it is encrypted at rest
-                // exactly like the primary — a plaintext rollover key would be a secrets-at-rest regression.
+                // exactly like the primary; a plaintext rollover key would be a secrets-at-rest regression.
                 saml.SamlRolloverSigningKeyPfx = store.Protect(saml.SamlRolloverSigningKeyPfx, configHasEnvelopes);
             }
         }
@@ -72,7 +72,7 @@ internal static class ConfigSecretProtection
                 }
 
                 // The captured id_token (#727) is a bearer secret used as an id_token_hint at logout, so it
-                // is encrypted at rest exactly like the provider secrets — a plaintext id_token in config.xml
+                // is encrypted at rest exactly like the provider secrets; a plaintext id_token in config.xml
                 // would be a secrets-at-rest regression.
                 session.IdToken = store.Protect(session.IdToken, configHasEnvelopes);
             }

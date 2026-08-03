@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="RouteSuffix.TryRead"/> — the trim/split/anchor mechanics shared by
+/// Tests for <see cref="RouteSuffix.TryRead"/>: the trim/split/anchor mechanics shared by
 /// <see cref="ChallengePath.IsNewPath"/> and <see cref="OidcCallbackPath.RedirectSegment"/> (#509).
 /// <see cref="ChallengePathTests"/> and <see cref="OidcCallbackPathTests"/> already cover the two
 /// callers' terminal comparisons end to end; these tests cover the reader itself in isolation.
@@ -55,7 +55,7 @@ public class RouteSuffixTests
     public void TryRead_InternalDoubledSlash_ShiftsTheSuffixInsteadOfCollapsing()
     {
         // The doubled slash inserts an empty segment, so the suffix read off the END of the path no
-        // longer names the real protocol/path-kind pair — it must not be silently collapsed away.
+        // longer names the real protocol/path-kind pair; it must not be silently collapsed away.
         Assert.True(RouteSuffix.TryRead("/sso/OID//start/keycloak", out var suffix));
         Assert.Equal(string.Empty, suffix.Protocol);
         Assert.Equal("start", suffix.PathKind);

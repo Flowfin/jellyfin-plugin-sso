@@ -10,11 +10,11 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SsoAudit"/> — the structured security audit-log entries (#928 U1). Every
+/// Tests for <see cref="SsoAudit"/>: the structured security audit-log entries (#928 U1). Every
 /// method is pinned on three properties: the level it fires at, the "[SSO Audit]" prefix plus its
 /// key fields, and the inline line-ending strip on EVERY caller-supplied string so an identity-
 /// provider- or admin-supplied value can never forge or split an entry. The sensitive-data posture
-/// is structural — the signatures accept no secret, token, NameID or SessionIndex — and the fixed-
+/// is structural (the signatures accept no secret, token, NameID or SessionIndex) and the fixed-
 /// code discipline (reason codes are enum names/constants, never request-derived text) is asserted
 /// where a code parameter exists.
 /// </summary>
@@ -40,7 +40,7 @@ public class SsoAuditTests
     {
         var logger = new CapturingLogger();
 
-        // A provider name carrying a newline must not split the entry — the sanitizer collapses it.
+        // A provider name carrying a newline must not split the entry; the sanitizer collapses it.
         SsoAudit.InsecureOptionsEnabled(logger, "OpenID", "corp\r\nInjected", new[] { "DisableHttps" });
 
         var message = Assert.Single(logger.Entries).Message;
@@ -115,7 +115,7 @@ public class SsoAuditTests
         var logger = new CapturingLogger();
 
         // The provider is the only foreign value the signature accepts (there IS no subject/username
-        // parameter — the no-sensitive-data posture is structural, T-I1). A newline in it must not split
+        // parameter; the no-sensitive-data posture is structural, T-I1). A newline in it must not split
         // the entry, and the fixed toggle name gives the operator the exact setting to check.
         SsoAudit.AccountDeprovisioned(logger, "OpenID", "corp\r\nInjected");
 
@@ -203,7 +203,7 @@ public class SsoAuditTests
     {
         var logger = new CapturingLogger();
 
-        // The reason is a FIXED code (an enum member name), never request-derived text — the caller
+        // The reason is a FIXED code (an enum member name), never request-derived text; the caller
         // contract SSOControllerSamlLogoutTests pins from the validator side.
         SsoAudit.LogoutRejected(logger, "corp\nX", "Replay");
 

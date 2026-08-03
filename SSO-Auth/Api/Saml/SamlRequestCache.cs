@@ -10,8 +10,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// <summary>
 /// Tracks the IDs of SAML AuthnRequests this service provider has issued but not yet seen answered,
 /// so a response's <c>InResponseTo</c> can be correlated to a request we actually sent (#156). A
-/// response whose <c>InResponseTo</c> is unknown — unsolicited (IdP-initiated), replayed, or minted
-/// for a different flow — is refused. Entries are time-pruned and hard-capped so an abandoned-login
+/// response whose <c>InResponseTo</c> is unknown (unsolicited (IdP-initiated), replayed, or minted
+/// for a different flow) is refused. Entries are time-pruned and hard-capped so an abandoned-login
 /// flood cannot grow the cache without bound.
 /// </summary>
 internal sealed class SamlRequestCache
@@ -19,7 +19,7 @@ internal sealed class SamlRequestCache
     // An approximate ceiling on outstanding entries. Registration is driven by the anonymous
     // challenge endpoint, so this bounds memory under an abandoned-login flood. The check-then-insert
     // is not serialized (that would put a lock on the anonymous hot path), so concurrent registers can
-    // transiently overshoot by at most the number of in-flight threads — immaterial against a
+    // transiently overshoot by at most the number of in-flight threads, immaterial against a
     // best-effort DoS backstop. Given the short request lifetime, real load never approaches it;
     // rate-limiting at the edge (#128) is the primary defense.
 
@@ -28,7 +28,7 @@ internal sealed class SamlRequestCache
 
     // Expired-entry sweeping is throttled to at most once per this interval. The sweep is an O(n)
     // scan; running it on every anonymous challenge would amplify a flood into CPU load. Throttling
-    // is safe because it is only memory reclamation — TryConsume independently rejects an expired
+    // is safe because it is only memory reclamation; TryConsume independently rejects an expired
     // entry via its own expiry check, so a not-yet-swept entry never grants a login.
     private static readonly TimeSpan DefaultPruneInterval = TimeSpan.FromMinutes(1);
 
@@ -38,7 +38,7 @@ internal sealed class SamlRequestCache
 
     // Throttles the sweep to one run per prune interval; the gate owns the atomic cursor and self-heals
     // a backward wall-clock step of at least the interval (re-anchors), while a sub-interval backward step
-    // is a stale sample suppressed with the cursor untouched (#334) — either way it never stalls until the
+    // is a stale sample suppressed with the cursor untouched (#334); either way it never stalls until the
     // clock re-passes its cursor the way the hand-rolled predecessor did. See PruneExpired.
     private readonly IntervalGate _pruneGate;
 
@@ -111,7 +111,7 @@ internal sealed class SamlRequestCache
 
         // At the cap, refuse the NEW registration rather than evicting an existing one: a flood of
         // fresh challenges must not displace a user already mid-login (whose entry we would otherwise
-        // drop, failing their callback). A refused challenge simply won't correlate — that one login
+        // drop, failing their callback). A refused challenge simply won't correlate; that one login
         // fails closed. TryAdd (not the indexer) also refuses a DUPLICATE id, so this rollback stays
         // leak-free even if two registrations of the same CSPRNG id ever raced (the loser's TryAdd
         // fails and releases its reservation); request ids are fresh, so a real duplicate never occurs.
@@ -147,7 +147,7 @@ internal sealed class SamlRequestCache
 
         if (_outstanding.TryRemove(requestId, out var entry))
         {
-            // The slot is freed whether or not the entry was still valid — release on any successful
+            // The slot is freed whether or not the entry was still valid: release on any successful
             // removal (the single winner of TryRemove), so the client's sub-cap slot never leaks (#327).
             _perClient.Release(entry.ClientKey);
             if (entry.ExpiryUtc > nowUtc)
@@ -169,7 +169,7 @@ internal sealed class SamlRequestCache
 
     // Drops expired entries, at most once per PruneInterval. Enumerating a ConcurrentDictionary yields
     // a safe moving snapshot and TryRemove is atomic, so this is correct under concurrent
-    // Register/TryConsume — unlike a buffering LINQ operator (OrderBy/ToArray built via
+    // Register/TryConsume, unlike a buffering LINQ operator (OrderBy/ToArray built via
     // ICollection.CopyTo), which can throw when the dictionary grows mid-copy. Size is bounded by the
     // registration cap, not by eviction here.
     private void PruneExpired(DateTime nowUtc)

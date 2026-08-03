@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Factory for the Jellyfin <see cref="User"/> that SSO tests provision. Every SSO test user shares the same
 /// authentication-provider pair (<c>"SSO-Auth"</c> authentication provider id, <c>"Default"</c> password-reset
 /// provider id); keeping that pair here means renaming the provider id is one edit, not a sweep across every
-/// test file. Composition, not a base class — a test that needs extra state sets it on the returned user.
+/// test file. Composition, not a base class: a test that needs extra state sets it on the returned user.
 /// </summary>
 internal static class TestUsers
 {

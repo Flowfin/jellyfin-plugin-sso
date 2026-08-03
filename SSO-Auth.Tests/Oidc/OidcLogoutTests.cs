@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcLogout"/> — the RP-initiated end_session URL builder (#727, SLO-2). The security
+/// Tests for <see cref="OidcLogout"/>: the RP-initiated end_session URL builder (#727, SLO-2). The security
 /// pins: the endpoint must be host-bound to the discovered issuer, and the post_logout_redirect_uri must be
 /// allow-listed against this server's canonical base, so a logout can never navigate the browser to an
 /// attacker host. A missing endpoint yields null (local-only logout).
@@ -67,7 +67,7 @@ public class OidcLogoutTests
     [Fact]
     public void Build_PostLogoutRedirectOnASiblingPrefixHost_IsRejected()
     {
-        // A host that merely starts with the base host string is a different authority — must not pass.
+        // A host that merely starts with the base host string is a different authority; must not pass.
         var url = OidcLogout.BuildEndSessionUrl(EndSession, Issuer, "t", "c", "https://jellyfin.example.com.evil.net/", Base);
         Assert.DoesNotContain("post_logout_redirect_uri", url, System.StringComparison.Ordinal);
     }
@@ -87,7 +87,7 @@ public class OidcLogoutTests
     }
 
     // The allow-list predicate is now internal and reused by the config-page save validator (#727, SLO-4), so
-    // pin its contract directly — it is the single source of truth both the runtime builder above and
+    // pin its contract directly; it is the single source of truth both the runtime builder above and
     // ProviderConfigValidator.ValidatePostLogoutRedirectUri call.
 
     [Theory]

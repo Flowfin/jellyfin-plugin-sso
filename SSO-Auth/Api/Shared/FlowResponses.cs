@@ -18,14 +18,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Shared;
 /// helpers (<c>ReturnError</c> + the OpenID service's <c>PlainTextError</c> twin, <c>HtmlAuthPage</c>,
 /// <c>MapWrite</c>) that both the OpenID and SAML flows need; consolidating them into one shared home
 /// removes the duplication the OpenID extraction (#500) flagged, so the two flow services render identical
-/// results from one definition rather than from a passed-in controller delegate. Pure static builders — they
+/// results from one definition rather than from a passed-in controller delegate. Pure static builders; they
 /// construct <see cref="ActionResult"/>s directly (never touching <c>ControllerBase</c>), and the only side
 /// effect is setting the defensive headers on the caller's response for the auth page.
 /// </summary>
 internal static class FlowResponses
 {
-    // The restrictive Permissions-Policy applied to both served HTML pages — the auth-completion page and
-    // the browser-navigated error page in BrowserErrorPage — shared as one constant so the two cannot drift.
+    // The restrictive Permissions-Policy applied to both served HTML pages (the auth-completion page and
+    // the browser-navigated error page in BrowserErrorPage) shared as one constant so the two cannot drift.
     // These pages run only a tiny inline script and need no powerful browser feature, so every listed feature
     // is denied with an empty allowlist. HSTS is deliberately NOT set per page: transport security for the
     // whole origin is the operator's reverse proxy / Jellyfin global responsibility (#756), not a per-response
@@ -37,8 +37,8 @@ internal static class FlowResponses
 
     /// <summary>
     /// A plain-text error result (<c>text/plain</c> with the given status), reproducing the controller's
-    /// former <c>ReturnError</c> shape exactly so the non-outcome flow errors — a SAML signing-key failure,
-    /// an OpenID PrepareLogin failure, a store-capacity refusal — stay byte-identical on the wire.
+    /// former <c>ReturnError</c> shape exactly so the non-outcome flow errors (a SAML signing-key failure,
+    /// an OpenID PrepareLogin failure, a store-capacity refusal) stay byte-identical on the wire.
     /// </summary>
     /// <param name="code">The HTTP status code.</param>
     /// <param name="message">The plain-text body.</param>

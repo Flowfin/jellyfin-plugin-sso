@@ -22,12 +22,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 /// </summary>
 /// <remarks>
 /// The change hook uses the plugin's <c>ConfigurationChanged</c> event, whose argument is the just-saved
-/// configuration — so the sync reads that object directly and never re-enters the plugin's config lock (which
+/// configuration, so the sync reads that object directly and never re-enters the plugin's config lock (which
 /// may still be held while the event fires). Writing the branding configuration touches a DIFFERENT
 /// configuration store, so it cannot re-trigger this handler (no loop). Everything is fail-safe: any error is
 /// logged and swallowed, so a branding-sync problem can never block a config save, a login (canonical-link
-/// writes also raise the event), or host startup. The write is guarded — the branding is saved only when the
-/// merge actually changes the disclaimer — so an unrelated config change performs no branding write.
+/// writes also raise the event), or host startup. The write is guarded: the branding is saved only when the
+/// merge actually changes the disclaimer, so an unrelated config change performs no branding write.
 /// </remarks>
 internal sealed class LoginButtonManager : IHostedService
 {

@@ -21,8 +21,8 @@ function format(text, params) {
   );
 }
 
-// Look up a key. When it is not in the loaded catalog — most importantly when the fetch failed and the
-// catalog is empty — fall back to the caller's built-in English default (the same role the hard-coded text
+// Look up a key. When it is not in the loaded catalog (most importantly when the fetch failed and the
+// catalog is empty) fall back to the caller's built-in English default (the same role the hard-coded text
 // on data-i18n markup plays), and only to the key itself if no default was given, so a missing string is
 // never blank. Placeholders are substituted in either case.
 export function t(key, params, fallback) {

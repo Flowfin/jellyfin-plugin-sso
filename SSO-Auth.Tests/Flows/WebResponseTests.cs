@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="WebResponse"/> — the auth-completion page returned to the browser. The
+/// Tests for <see cref="WebResponse"/>: the auth-completion page returned to the browser. The
 /// server-controlled <c>data</c> value (base64 SAML XML / an OpenID state id) is embedded into the
 /// page's JavaScript; it must be emitted as an encoded string literal so it cannot break out of the
 /// script context, independent of the base64 shape the callers currently pass.
@@ -82,7 +82,7 @@ public class WebResponseTests
         // The per-response nonce authorizes the page's single inline script and style under the CSP.
         Assert.Contains("<style nonce=\"r4nd0mNonce==\">", html);
         Assert.Contains("<script nonce=\"r4nd0mNonce==\">", html);
-        // The placeholder must be fully substituted — no literal token may leak into the page.
+        // The placeholder must be fully substituted; no literal token may leak into the page.
         Assert.DoesNotContain("{{NONCE}}", html);
     }
 
@@ -126,7 +126,7 @@ public class WebResponseTests
     [Fact]
     public void Generator_SuccessfulLink_IsTerminal_ShowsSuccessAndDoesNotPostToAuthUnconditionally()
     {
-        // #614: a successful link (a 2xx from .../Link) is a terminal SUCCESS on the page — it renders a
+        // #614: a successful link (a 2xx from .../Link) is a terminal SUCCESS on the page: it renders a
         // clear success message and must NOT fall through to post the same one-time-consumed assertion /
         // state on to .../Auth (which could never redeem it, so the page showed a misleading login failure).
         var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "SAML", "n0nce", isLinking: true);
@@ -157,7 +157,7 @@ public class WebResponseTests
     public void Generator_LinkingPage_KeepsRejectedLinkMessages()
     {
         // The failure path is preserved (#344): a genuinely rejected link still surfaces its own message
-        // rather than the login-failure text — a throttled attempt (429) and any other non-2xx are distinct.
+        // rather than the login-failure text; a throttled attempt (429) and any other non-2xx are distinct.
         var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "SAML", "n0nce", isLinking: true);
 
         Assert.Contains("Too many attempts. Please wait a moment and try again.", html);
@@ -201,7 +201,7 @@ public class WebResponseTests
     {
         // #913: the page's own text is drawn from the localization catalog. HTML-context strings render as
         // text; the return-link label is injected into the script as a JSON-encoded string literal. Every
-        // {{...}} template token must be substituted — no placeholder may leak into the served page.
+        // {{...}} template token must be substituted; no placeholder may leak into the served page.
         var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "OID", "n0nce");
 
         Assert.Contains(">" + SsoLocalizer.GetString("page.logging_in", null) + "</p>", html);

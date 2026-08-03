@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Identity;
 
 /// <summary>
 /// The protocol-agnostic keystone the session-minting path is keyed on (#473): the fully-verified
-/// identity and privileges that an OpenID or SAML login resolves, once — and only once — all of that
+/// identity and privileges that an OpenID or SAML login resolves, once (and only once) all of that
 /// protocol's validation has passed. Both protocols funnel their result into this one shape, so the
 /// shared completion path (<c>ResolveOrCreateAsync -&gt; SessionParameters -&gt; SessionMinter</c>)
 /// takes a <see cref="VerifiedIdentity"/> and nothing else; a caller cannot reach the mint with a raw,
@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Identity;
 /// The constructor is PRIVATE, so the type is unforgeable from outside: the only way to obtain an instance
 /// is one of the two protocol factories (<see cref="FromValidatedOidc"/>, <see cref="FromValidatedSaml"/>),
 /// each of which takes a protocol-agnostic
-/// <see cref="ValidatedLogin"/> — the primitive facts a completed validation resolved. Each protocol builds
+/// <see cref="ValidatedLogin"/>: the primitive facts a completed validation resolved. Each protocol builds
 /// that bundle and calls the factory ONLY once its validation has passed:
 /// <list type="bullet">
 /// <item>OpenID: inside <c>AuthorizeSession.Ready</c>, handed out only by <c>OidcStateStore.TryRedeem</c>
@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Identity;
 /// (<c>ArchitectureConformanceTests.VerifiedIdentity_IsConstructedOnlyByProtocolValidators</c>): the private
 /// constructor keeps <c>new VerifiedIdentity(...)</c> inside this file, and the source scan keeps
 /// each factory's call site to its own validator. Taking a
-/// <see cref="ValidatedLogin"/> instead of the protocol state types is the #790 dependency inversion — the
+/// <see cref="ValidatedLogin"/> instead of the protocol state types is the #790 dependency inversion: the
 /// keystone no longer depends on the OpenID or SAML modules. The two protocol-facing labels
 /// (<see cref="LinkMode"/>, <see cref="AuditProtocol"/>) are the only branch the completion path needs.
 /// </remarks>
@@ -86,7 +86,7 @@ internal sealed record VerifiedIdentity
     internal string Subject { get; }
 
     /// <summary>
-    /// Gets the issuer the account link is bound to — the OpenID id_token's "iss" claim, or null for SAML
+    /// Gets the issuer the account link is bound to: the OpenID id_token's "iss" claim, or null for SAML
     /// (out of scope) and for a token that carried none. Used to stamp and re-check the per-link issuer
     /// binding (#186).
     /// </summary>
@@ -95,7 +95,7 @@ internal sealed record VerifiedIdentity
     /// <summary>Gets the username the login resolves (the OpenID username; the SAML NameID).</summary>
     internal string Username { get; }
 
-    /// <summary>Gets the login's <c>email_verified</c> claim (true/false), or null when absent — SAML always null (#218).</summary>
+    /// <summary>Gets the login's <c>email_verified</c> claim (true/false), or null when absent; SAML always null (#218).</summary>
     internal bool? EmailVerified { get; }
 
     /// <summary>Gets a value indicating whether the login grants administrator rights.</summary>
@@ -110,7 +110,7 @@ internal sealed record VerifiedIdentity
     /// <summary>Gets a value indicating whether the login may manage live TV.</summary>
     internal bool EnableLiveTvManagement { get; }
 
-    /// <summary>Gets the avatar URL the login resolves, or null when none — SAML always null.</summary>
+    /// <summary>Gets the avatar URL the login resolves, or null when none; SAML always null.</summary>
     internal string? AvatarUrl { get; }
 
     /// <summary>
@@ -130,7 +130,7 @@ internal sealed record VerifiedIdentity
     /// <summary>
     /// Mints the verified identity of an OpenID login. Called only from the OpenID redeem path
     /// (<c>AuthorizeSession.Ready</c>), which the store hands out only through its one-time atomic redeem of a
-    /// promoted (role-gate-passed) state — so a raw or unvalidated login can never reach it.
+    /// promoted (role-gate-passed) state, so a raw or unvalidated login can never reach it.
     /// </summary>
     /// <param name="login">The primitive facts the OpenID role-gate resolved for the completed login.</param>
     /// <returns>The verified OpenID identity.</returns>
@@ -147,7 +147,7 @@ internal sealed record VerifiedIdentity
 
     // The two protocol factories set the protocol label + link mode (the only protocol-facing branch, #369)
     // and fold in the protocol-agnostic ValidatedLogin. Taking that neutral bundle rather than the OpenID /
-    // SAML state types is the #790 dependency inversion — the keystone no longer references either protocol
+    // SAML state types is the #790 dependency inversion: the keystone no longer references either protocol
     // module; the arrow points from each protocol INTO the keystone.
     private static VerifiedIdentity Build(ProviderMode linkMode, string auditProtocol, ValidatedLogin login) =>
         new(

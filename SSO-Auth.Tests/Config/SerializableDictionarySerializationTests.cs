@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Serialization round-trip tests for <see cref="SerializableDictionary{TKey,TValue}"/>. This type
 /// backs the persisted plugin configuration (SamlConfigs / OidConfigs / CanonicalLinks), so its XML
-/// format must stay stable — in particular, moving the type into a named namespace must not change
+/// format must stay stable; in particular, moving the type into a named namespace must not change
 /// the on-disk XML, or existing installations' saved configuration would fail to load.
 /// </summary>
 public class SerializableDictionarySerializationTests
@@ -83,7 +83,7 @@ public class SerializableDictionarySerializationTests
         => Deserialize<TKey, TValue>(Serialize(value));
 
     // Deserializes through the XmlReader overload with DTD processing prohibited (the
-    // XmlReaderSettings default) — the hardened pattern CA5369 requires, mirroring how the
+    // XmlReaderSettings default), the hardened pattern CA5369 requires, mirroring how the
     // production type is only ever read through an XmlReader.
     private static SerializableDictionary<TKey, TValue> Deserialize<TKey, TValue>(string xml)
         where TKey : notnull

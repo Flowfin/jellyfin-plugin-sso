@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Routing;
 /// Decides whether a challenge arrived on the "new", descriptive route
 /// (<c>.../OID/start/{provider}</c> or <c>.../SAML/start/{provider}</c>) rather than the legacy route.
 /// The spelling drives the authorization request's redirect_uri, which the token request must later
-/// match (RFC 6749 section 4.1.3), so it has to be read off the route exactly — not by a
+/// match (RFC 6749 section 4.1.3), so it has to be read off the route exactly, not by a
 /// <c>Contains("/start/")</c> substring test, which a provider literally named <c>start</c> on the
 /// legacy route (<c>.../OID/p/start/</c>) would trip, flipping the spelling and breaking the login at
 /// the IdP's redirect_uri check (#337). Same fix family as <see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcCallbackPath.RedirectSegment"/>

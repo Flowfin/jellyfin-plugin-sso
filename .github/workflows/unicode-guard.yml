@@ -57,7 +57,7 @@ jobs:
               echo "No bidirectional or invisible Unicode control characters found."
               ;;
             *)
-              echo "::error::unicode-guard scanner error (git grep exit $rc) — failing closed instead of assuming the tree is clean."
+              echo "::error::unicode-guard scanner error (git grep exit $rc); failing closed instead of assuming the tree is clean."
               exit 1
               ;;
           esac

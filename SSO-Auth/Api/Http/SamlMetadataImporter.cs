@@ -15,9 +15,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// <summary>
 /// Orchestrates a SAML IdP-metadata import (#735): it takes EITHER a metadata URL (fetched server-side) or
 /// pasted metadata XML, and returns the parsed <see cref="SamlMetadataImport"/>. The URL is fetched through
-/// the plugin's SSRF-hardened outbound client (<see cref="SsoHttp"/>) — the same transport the OpenID
+/// the plugin's SSRF-hardened outbound client (<see cref="SsoHttp"/>), the same transport the OpenID
 /// discovery fetch uses, so an admin-supplied URL that resolves to a private/loopback address cannot be used
-/// to probe internal services — with a hard body-size cap and timeout on top. The XML is then parsed with
+/// to probe internal services, with a hard body-size cap and timeout on top. The XML is then parsed with
 /// the fail-closed hardening in <see cref="SamlMetadataParser"/>. Any failure throws
 /// <see cref="SamlMetadataException"/> and nothing is applied.
 /// </summary>
@@ -67,7 +67,7 @@ internal static class SamlMetadataImporter
         client.Timeout = FetchTimeout;
 
         // An overall deadline linked to the caller's token: client.Timeout with ResponseHeadersRead covers
-        // only the header fetch, so this also bounds the streamed body read — a slow-drip server cannot hold
+        // only the header fetch, so this also bounds the streamed body read; a slow-drip server cannot hold
         // the fetch open past FetchTimeout.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(FetchTimeout);
@@ -81,12 +81,12 @@ internal static class SamlMetadataImporter
         catch (HttpRequestException ex)
         {
             // Unreachable host, a blocked (private/loopback) address rejected by the hardened transport, or a
-            // non-success status — all fail closed with an admin-facing message; no library detail is echoed.
+            // non-success status; all fail closed with an admin-facing message; no library detail is echoed.
             throw new SamlMetadataException("The metadata URL could not be fetched (unreachable, blocked, or an error response).", ex);
         }
         catch (IOException ex)
         {
-            // A mid-stream connection reset while reading the body — fail closed as a clean 400, not a 500.
+            // A mid-stream connection reset while reading the body; fail closed as a clean 400, not a 500.
             throw new SamlMetadataException("The metadata could not be read from the URL.", ex);
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)

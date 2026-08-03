@@ -1,5 +1,5 @@
 # Opengrep (open-source Semgrep fork) gate that enforces this repo's greppable
-# security invariants as lint rules (tools/opengrep/rules.yml) — one rule per
+# security invariants as lint rules (tools/opengrep/rules.yml), one rule per
 # invariant, added as each is discovered. The rules are `generic`-mode token
 # patterns, so this gate does not depend on a language parser and is
 # deterministic; every rule is verified to produce zero findings on the current
@@ -38,7 +38,7 @@ jobs:
       contents: read
     env:
       # Pinned Opengrep release (opengrep/opengrep). Bump VERSION and SHA256
-      # together — the SHA is the sha256sum of the opengrep_manylinux_x86 asset
+      # together: the SHA is the sha256sum of the opengrep_manylinux_x86 asset
       # for this exact tag and makes the download tamper-evident.
       OPENGREP_VERSION: "v1.25.0"
       OPENGREP_SHA256: "9ac4aebb47ba3f7b0d8fc641ac8749cb6c2f253f616131a67d9631e00d4bea33"

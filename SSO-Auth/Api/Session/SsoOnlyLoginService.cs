@@ -41,7 +41,7 @@ internal readonly record struct SsoOnlyLoginDecision(string? DefaultProvider, bo
 /// password login" switch, so the only lever is each account's <c>AuthenticationProviderId</c>
 /// (SSO-ONLY-LOGIN-DESIGN.md §2). This service owns that lever: it runs the fail-closed last-admin guard
 /// (<see cref="SsoOnlyLoginGuard"/>) before activation, then sweeps every non-exempt account off the
-/// password provider — leaving the designated break-glass admin's password door untouched — and reverses
+/// password provider (leaving the designated break-glass admin's password door untouched) and reverses
 /// the sweep losslessly on disable (provider routing only; never a password hash, never a permission,
 /// T-E2/T-E3). The controller keeps the HTTP boundary, the elevation guards, and the audit; this keeps the
 /// account enumeration and every read/write of the mode flags under the <see cref="ProviderConfigStore"/>
@@ -71,7 +71,7 @@ internal sealed class SsoOnlyLoginService
     /// Resolves an account by username into the <see cref="BreakGlassAdminState"/> the guard consumes. A
     /// missing account yields <c>Exists = false</c> (default), which the guard fails closed. "Usable
     /// password login" means the account currently routes to Jellyfin's built-in password provider AND has
-    /// a non-empty stored password — an admin already switched to SSO (or to a third-party provider) cannot
+    /// a non-empty stored password: an admin already switched to SSO (or to a third-party provider) cannot
     /// serve as the break-glass door, and a passwordless account cannot log in without SSO.
     /// </summary>
     /// <param name="username">The candidate break-glass admin username.</param>
@@ -105,13 +105,13 @@ internal sealed class SsoOnlyLoginService
     /// the RESOLVED account's own username (the sweep's <c>user.Username</c> basis), NOT the mutable
     /// IdP-supplied username, so a rename, a manual link, or a differing username claim can never treat the
     /// break-glass admin's own SSO login as non-exempt and strip its password door (Finding A). While the
-    /// mode is on, a non-exempt account still on the password provider is TRACKED — persisted to
-    /// <c>SsoOnlyRepointedUserIds</c> — BEFORE the mint repoints it, so the reversible off-switch and the boot
+    /// mode is on, a non-exempt account still on the password provider is TRACKED (persisted to
+    /// <c>SsoOnlyRepointedUserIds</c>) BEFORE the mint repoints it, so the reversible off-switch and the boot
     /// reconciliation restore exactly the accounts the mode moved (Finding B); the break-glass admin and an
     /// account already on the SSO provider (plugin-created natively-SSO accounts included) are never tracked.
     /// The returned <see cref="SsoOnlyLoginDecision.IsBreakGlassAdmin"/> lets the mint keep the recovery
     /// account admin/enabled (Finding H1). An account already on a THIRD-PARTY provider (neither the built-in
-    /// password provider nor the SSO provider) is left on it and never tracked — matching the sweep, which
+    /// password provider nor the SSO provider) is left on it and never tracked, matching the sweep, which
     /// skips it, so the two enforcement paths agree and no account is repointed-but-untracked (#690). When the
     /// mode is off, the configured default is returned unchanged and nothing is tracked (a read only, no
     /// config write).
@@ -151,7 +151,7 @@ internal sealed class SsoOnlyLoginService
 
         if (shouldTrack)
         {
-            // Track FIRST — persisted before the mint repoints — exactly as SweepEnableAsync does: a crash
+            // Track FIRST (persisted before the mint repoints) exactly as SweepEnableAsync does: a crash
             // between tracking and the repoint leaves the account tracked-but-not-moved, which the idempotent,
             // IsSsoProvider-gated restore simply no-ops and clears. The reverse (moved-but-untracked, which the
             // tracked-set restore could never auto-recover) cannot happen. Re-checked under the lock so a
@@ -161,13 +161,13 @@ internal sealed class SsoOnlyLoginService
             // SessionMinter after the avatar fetch and revocation gates. If DisableAsync interleaves in that
             // gap it flips the flag, then RestoreRepointedAccountsAsync reads the tracked set, finds this
             // account still on the PASSWORD provider (the mint has not written yet) so IsSsoProvider is false,
-            // skips it, and clears the whole set — after which the in-flight mint writes SsoProviderId, leaving
+            // skips it, and clears the whole set, after which the in-flight mint writes SsoProviderId, leaving
             // this account repointed-to-SSO, untracked, mode off. Accepted as a residual: it is a single
             // NON-break-glass account (the break-glass admin is never tracked, so recovery is never lost), it
             // is strictly better than the pre-fix state (which left EVERY login-path repoint untracked), and it
             // self-heals on the account's next mode-off SSO login whenever the provider's DefaultProvider
-            // routes to the password provider (the mint then rewrites it). The narrow-window alternative —
-            // keeping unrestored ids tracked instead of clearing — was rejected because it strands the
+            // routes to the password provider (the mint then rewrites it). The narrow-window alternative (
+            // keeping unrestored ids tracked instead of clearing) was rejected because it strands the
             // harmless tracked-but-not-moved id (a revoked-in-flight mint) in the set indefinitely.
             _configStore.Mutate(configuration =>
             {
@@ -199,7 +199,7 @@ internal sealed class SsoOnlyLoginService
         }
 
         // Store the account's own canonical username (not the caller's casing) so the exempt check and the
-        // audit line are unambiguous. resolved is non-null here — the guard proved the account exists.
+        // audit line are unambiguous. resolved is non-null here: the guard proved the account exists.
         var canonicalUsername = resolved!.Username;
         _configStore.Mutate(configuration =>
         {
@@ -229,7 +229,7 @@ internal sealed class SsoOnlyLoginService
     /// Re-designates the break-glass admin. The new target must itself satisfy the guard (an enabled
     /// administrator with a usable password), so the exemption can never point at a non-admin or a
     /// login-incapable account (T-E1). Fail-closed: an unqualified target changes nothing. Changing the
-    /// designation while the mode is ON is not supported here — every other admin has already been repointed
+    /// designation while the mode is ON is not supported here; every other admin has already been repointed
     /// off the password provider, so no other account can satisfy the "usable password" guard; disable the
     /// mode first, re-designate, then re-enable.
     /// </summary>
@@ -250,7 +250,7 @@ internal sealed class SsoOnlyLoginService
     }
 
     /// <summary>
-    /// Turns SSO-only login off and restores native password routing for every account the mode repointed —
+    /// Turns SSO-only login off and restores native password routing for every account the mode repointed,
     /// the reversible, no-SSO off-switch (SSO-ONLY-LOGIN-DESIGN.md §3 option B). It restores
     /// <c>DefaultAuthenticationProvider</c> and NOTHING else: no stored password hash is reset or revealed
     /// (T-E2), so no account gains a known password from the toggle. Turning the mode off never depends on
@@ -265,7 +265,7 @@ internal sealed class SsoOnlyLoginService
 
     /// <summary>
     /// Boot-time reconciliation of the user database to the flag (#165). If SSO-only is OFF but accounts the
-    /// mode repointed are still routed to the SSO provider, restore them — this makes the documented
+    /// mode repointed are still routed to the SSO provider, restore them; this makes the documented
     /// total-lockout recovery ("edit config.xml, set <c>DisablePasswordLogin</c> to <c>false</c>, restart")
     /// genuinely work, because enforcement lives in the user database, not the flag. Idempotent and
     /// fail-safe: a normal boot (flag on, or the tracking set already empty) does nothing, and only accounts
@@ -293,10 +293,10 @@ internal sealed class SsoOnlyLoginService
     // account already on the SSO provider is skipped.
     //
     // Durability: each account is tracked (a persisted Mutate) BEFORE it is repointed, so a crash between the
-    // two steps leaves the account tracked-but-not-moved — harmless, because the off-switch/boot reconcile is
+    // two steps leaves the account tracked-but-not-moved, harmless, because the off-switch/boot reconcile is
     // idempotent and gated on IsSsoProvider, so it no-ops a still-password account and clears the id. The
-    // failure the track-after ordering allowed — moved-but-untracked, which the tracked-set restore could
-    // never auto-recover — cannot happen: the persisted tracked set is always a superset of the accounts
+    // failure the track-after ordering allowed (moved-but-untracked, which the tracked-set restore could
+    // never auto-recover) cannot happen: the persisted tracked set is always a superset of the accounts
     // actually moved. The break-glass admin and accounts already off the password provider are never tracked,
     // so restore never hands a natively-SSO/plugin-created account a password door.
     private async Task<int> SweepEnableAsync(string breakGlassUsername)
@@ -333,7 +333,7 @@ internal sealed class SsoOnlyLoginService
 
     // Enumerate every account across the whole supported Jellyfin range. IUserManager's all-users accessor
     // diverged inside that range: the 10.11.0 ABI floor exposes the `Users` property, while 10.11.11+ and 12.0
-    // replaced it with a `GetUsers()` method — no member is common to all three at compile time. A source
+    // replaced it with a `GetUsers()` method; no member is common to all three at compile time. A source
     // reference to either one therefore breaks EITHER the floor build (proving the shipped artifact would
     // MissingMethod on an early-10.11 server, #142) or the shipping build. Binding whichever member the loaded
     // server actually exposes, at runtime, is the only way to keep the plugin loadable on every 10.11.x and on
@@ -348,7 +348,7 @@ internal sealed class SsoOnlyLoginService
 
         // Fail closed (directive 1): if this Jellyfin build exposes neither the GetUsers() method nor the
         // Users property, we cannot enumerate accounts to enforce the mode. Reject rather than treat the
-        // missing accessor as an empty set — a silent empty here would repoint nobody yet report enable as a
+        // missing accessor as an empty set: a silent empty here would repoint nobody yet report enable as a
         // success, leaving password login recorded OFF while every admin keeps a password door. An empty
         // list from a present accessor (a server with zero users) is legitimate and passes through.
         return accessor as IEnumerable<User>

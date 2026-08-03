@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Tests for the self-healing <c>CanonicalLinks</c> getter (#239): a direct
 /// <c>CanonicalLinks[key] = id</c> must persist into the stored map, not a throwaway. Before the fix
 /// the getter returned a fresh empty map while the backing field was null, so the write was silently
-/// lost — login-critical account-link state.
+/// lost, login-critical account-link state.
 /// </summary>
 public class CanonicalLinksSelfHealingTests
 {

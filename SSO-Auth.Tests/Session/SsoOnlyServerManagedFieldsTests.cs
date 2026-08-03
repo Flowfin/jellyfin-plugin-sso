@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <see cref="ServerManagedFields.Preserve(PluginConfiguration, PluginConfiguration)"/> re-injects the live
 /// <c>DisablePasswordLogin</c>, <c>BreakGlassAdminUsername</c> and <c>SsoOnlyRepointedUserIds</c>, so a
 /// plugin-config PUT can neither flip the mode, repoint the break-glass admin, nor read/forge/clear the
-/// repointed-account tracking set — the only door for those is the elevated, guarded SSO-Only endpoints.
+/// repointed-account tracking set: the only door for those is the elevated, guarded SSO-Only endpoints.
 /// This is stronger than re-validating an incoming toggle: an unsafe (or accidental) value can never be
 /// introduced via the config-page save at all.
 /// </summary>
@@ -50,7 +50,7 @@ public class SsoOnlyServerManagedFieldsTests
     {
         var tracked = Guid.NewGuid();
         var live = new PluginConfiguration { SsoOnlyRepointedUserIds = new List<Guid> { tracked } };
-        // A config-page save that omits (defaults to empty) the tracking set must not drop it — losing the
+        // A config-page save that omits (defaults to empty) the tracking set must not drop it; losing the
         // recorded ids would strand repointed accounts the off-switch/boot reconcile can no longer restore.
         var incoming = new PluginConfiguration { SsoOnlyRepointedUserIds = new List<Guid>() };
 

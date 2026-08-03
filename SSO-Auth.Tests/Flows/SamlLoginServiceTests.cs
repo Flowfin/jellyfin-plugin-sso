@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// challenge/callback/authenticate/link behaviour is still exercised through the thin controller endpoints
 /// in <see cref="SSOControllerSamlPostTests"/>, <see cref="SSOControllerSamlAuthTests"/> and
 /// <see cref="SSOControllerLinkTests"/> (each endpoint is now a one-line delegation, so a passing controller
-/// test is a passing service test); these add coverage that targets the service in isolation — the
+/// test is a passing service test); these add coverage that targets the service in isolation: the
 /// fail-closed guard branches that reject before any collaborator is touched, and the process-wide-state test
 /// hook that moved with the flow. Uses the non-parallel <c>SSOController</c> collection because it sets the
 /// static <see cref="SSOPlugin.Instance"/>.
@@ -44,7 +44,7 @@ public class SamlLoginServiceTests
         context.Request.Path = "/sso/SAML/start/adfs";
 
         // A disabled provider fails closed before any AuthnRequest is built, with the same uniform body the
-        // unknown-provider case gets — so the two cannot be told apart (#318).
+        // unknown-provider case gets, so the two cannot be told apart (#318).
         var result = service.Challenge("adfs", isLinking: false, context.Request, context.Response);
 
         AssertUnknownProvider(result);
@@ -77,7 +77,7 @@ public class SamlLoginServiceTests
         var (service, _) = Build(c => c.SamlConfigs["adfs"] = new SamlConfig { Enabled = false });
 
         // Guard precedes the state consume, so a disabled provider is rejected without touching any
-        // collaborator — the same uniform body an unknown provider gets.
+        // collaborator: the same uniform body an unknown provider gets.
         var result = await service.AuthenticateAsync("adfs", new AuthResponse { Data = "irrelevant" }, bindingCookie: null, () => "127.0.0.1");
 
         AssertUnknownProvider(result);
@@ -89,7 +89,7 @@ public class SamlLoginServiceTests
         var (service, _) = Build(c => c.SamlConfigs["adfs"] = new SamlConfig { Enabled = true, DoNotValidateAudience = true });
 
         // A non-base64 / malformed response is not a live outcome token, so it misses the one-time redeem and
-        // is rejected the same way an invalid one is — a clean 4xx in the uniform SAML body, never an
+        // is rejected the same way an invalid one is: a clean 4xx in the uniform SAML body, never an
         // unhandled 500 (#199).
         var result = await service.AuthenticateAsync("adfs", new AuthResponse { Data = "not-a-saml-response" }, bindingCookie: null, () => "127.0.0.1");
 
@@ -128,7 +128,7 @@ public class SamlLoginServiceTests
         // ChallengeNewPathResolver (unified across both flows in #670), driven with the SAML map selector.
         // `config` mirrors the reference the real caller already captured under ReadConfiguration's lock
         // (FindSamlConfig) before its own Enabled check passed; something then disables the provider in the
-        // LIVE store before this write attempt runs — a race the outer check cannot see. The current
+        // LIVE store before this write attempt runs; a race the outer check cannot see. The current
         // challenge must still get its own freshly-derived spelling for its redirect, but the disabled
         // provider's stored NewPath must be left untouched rather than written into.
         var (_, context) = Build(c => c.SamlConfigs["adfs"] = new SamlConfig { Enabled = true, NewPath = false });

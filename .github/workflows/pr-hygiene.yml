@@ -1,22 +1,22 @@
 # Deterministic PR-hygiene checks (#171). A "Danger-style" gate implemented as a
-# plain workflow + one first-party github-script step — no external Danger runtime,
+# plain workflow + one first-party github-script step: no external Danger runtime,
 # bot, or third-party review service (the merge gate is internal-only by policy;
 # see the Review-Gate wiki page:
 # https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate). It complements,
 # never duplicates, the build/test, Prettier,
 # CodeQL, Opengrep, zizmor, and Unicode-guard checks: those reason about the code;
 # this reasons about the *pull request* (its linkage, size, and changelog/test
-# co-changes) — a class none of them cover.
+# co-changes), a class none of them cover.
 #
 # This workflow is deliberately ADVISORY: it is NOT wired into the "Protect main"
 # required-status-check ruleset, so it never blocks a merge. It surfaces a
 # deterministic hygiene signal for me; I keep the final say. The
 # checks are tiered by confidence so it does not red-flag reasonable PRs:
 #   - FAIL  (high confidence, near-zero false-positive):
-#       * PR body carries an issue reference (Closes/Refs #N) — skipped for bots.
+#       * PR body carries an issue reference (Closes/Refs #N); skipped for bots.
 #       * a build.yaml version bump also touches CHANGELOG.md.
-#   - WARN  (soft convention, annotation only — never fails):
-#       * the diff is large (>=400 changed lines) — advisory; a feature, doc
+#   - WARN  (soft convention, annotation only; never fails):
+#       * the diff is large (>=400 changed lines), advisory; a feature, doc
 #         migration, or bulk rename legitimately exceeds any cap, so size never reds.
 #       * SSO-Auth code changed without a matching SSO-Auth.Tests change.
 #
@@ -53,7 +53,7 @@ jobs:
       # No checkout: every input is read from the PR metadata and the changed-file
       # patches via the API, so there is no untrusted working tree to guard.
       # Untrusted values (the PR body, labels, filenames) are only ever read from
-      # the JS `context`/API objects — never interpolated into a shell `run:` — so
+      # the JS `context`/API objects (never interpolated into a shell `run:`), so
       # there is no template-injection surface (zizmor-clean by construction).
       - name: Run PR-hygiene checks
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -77,7 +77,7 @@ jobs:
             // --- Check 1: PR body references an issue (Closes/Refs #N) ----------
             // Directive: every change is issue-driven and linked. Bots (Dependabot)
             // open PRs with no issue, so they are exempt. A bare `#123`, a keyword
-            // form (`Closes #123`), or a full issue URL all satisfy it — lenient on
+            // form (`Closes #123`), or a full issue URL all satisfy it; lenient on
             // purpose so a legitimately-linked PR is never flagged on phrasing.
             const body = pr.body || "";
             const hasIssueRef =
@@ -91,11 +91,11 @@ jobs:
             }
 
             // --- Check 1b: every commit subject carries [#N] refs (#817) ---------
-            // Maintainer rule: traceability must survive down to the single commit —
+            // Maintainer rule: traceability must survive down to the single commit:
             // blame/bisect/log show a commit's SUBJECT line without its PR, so the
             // PR-body link (check 1) is not enough. The reference lives in the
             // subject, bracketed, one bracket per issue: `Fix the thing [#12][#34]`.
-            // (GitHub's auto-close keywords still go in the body — `[#N]` in a
+            // (GitHub's auto-close keywords still go in the body; `[#N]` in a
             // subject does not close anything.) Bots and merge commits (subject
             // starts with "Merge ") are exempt; merge commits are machine-generated
             // and inherit the merged PR's own linkage.
@@ -144,8 +144,8 @@ jobs:
               );
             }
 
-            // --- Check 3: PR size (WARN only — never fails) --------------------
-            // Rationale (#171): reviewer effectiveness — human and AI — degrades on
+            // --- Check 3: PR size (WARN only, never fails) ---------------------
+            // Rationale (#171): reviewer effectiveness, human and AI, degrades on
             // very large diffs, so a big PR is worth a closer look. But "large" is
             // not "wrong": a feature, a doc migration, or a bulk rename legitimately
             // exceeds any line cap, so size is ADVISORY ONLY and never reds a
@@ -162,13 +162,13 @@ jobs:
             if (churn >= WARN_AT) {
               warnings.push(
                 `PR changes ${churn} lines (excluding generated/lock files). ` +
-                  `Large PRs get a closer look — reviews degrade past ~${WARN_AT} lines.`,
+                  `Large PRs get a closer look: reviews degrade past ~${WARN_AT} lines.`,
               );
             }
 
             // --- Check 4: code changed without a matching test change (WARN) ----
             // Soft convention: a behavioural change to SSO-Auth should move a test.
-            // Warn only — a docs/comment-only edit, a pure refactor, or a project-file
+            // Warn only: a docs/comment-only edit, a pure refactor, or a project-file
             // tweak legitimately touches no test, and hard-failing those would be the
             // exact false-positive friction #171 warns against.
             const codeChanged = changed.some(

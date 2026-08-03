@@ -1,5 +1,5 @@
 # Developer Certificate of Origin (DCO) sign-off gate (#746). A contributor
-# legal-authorization mechanism — OpenSSF Silver / OSPS-LE-01.01 — implemented as a
+# legal-authorization mechanism (OpenSSF Silver / OSPS-LE-01.01) implemented as a
 # self-contained first-party check, no external DCO App or third-party action (the
 # same internal-only posture as the PR-hygiene gate). It verifies every non-merge
 # commit in the PR carries a `Signed-off-by:` trailer matching its author, i.e. the
@@ -56,7 +56,7 @@ jobs:
             author_email=$(git show -s --format='%ae' "$sha")
             # Trusted first-party automation authors bot commits that cannot
             # self-sign; exempt them, as the DCO App does. An explicit allowlist of
-            # GitHub's own bot identities — not a `*[bot]@...` glob — so a human
+            # GitHub's own bot identities (not a `*[bot]@...` glob), so a human
             # cannot self-exempt by crafting a `[bot]`-shaped author email.
             case "$author_email" in
               *"+dependabot[bot]@users.noreply.github.com" \

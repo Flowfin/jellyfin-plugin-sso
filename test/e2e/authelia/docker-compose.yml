@@ -1,4 +1,4 @@
-# End-to-end SSO login harness — Authelia provider (#921). Boots a real Jellyfin 10.11 server with the
+# End-to-end SSO login harness: Authelia provider (#921). Boots a real Jellyfin 10.11 server with the
 # packaged plugin installed, a real Authelia OpenID Provider, and the SHARED harness driving a full OIDC
 # login round-trip. It reuses ../harness/harness.sh and the ../jellyfin/config plugin drop from the
 # canonical Keycloak harness (#720); only the IdP container, its file config, and the harness's provider
@@ -6,12 +6,12 @@
 #
 # Authelia is reached at https://login.example.com:9091 from BOTH legs (Jellyfin server-to-server discovery/
 # token, and the harness browser role), so the issuer is byte-identical from both sides. Two deliberate
-# choices: (1) the dotted alias login.example.com — Authelia's session-cookie domain must be a real parent
-# domain, which a single-label docker service name is not; (2) TLS — Authelia 4.38 requires its session URL
+# choices: (1) the dotted alias login.example.com: Authelia's session-cookie domain must be a real parent
+# domain, which a single-label docker service name is not; (2) TLS: Authelia 4.38 requires its session URL
 # to use a secure scheme, so it serves a self-signed cert that Jellyfin (SSL_CERT_FILE) and the harness
 # (CURL_CA_BUNDLE) are pointed at as their trust anchor. This exercises the plugin's REAL https OIDC path.
 #
-# Local run (build the plugin zip first — see test/e2e/README.md):
+# Local run (build the plugin zip first; see test/e2e/README.md):
 #   docker compose -f test/e2e/authelia/docker-compose.yml up \
 #     --abort-on-container-exit --exit-code-from harness
 name: sso-e2e-authelia

@@ -1,4 +1,4 @@
-# End-to-end SSO login harness — Zitadel provider (#924). Boots a real Jellyfin 10.11 server with the
+# End-to-end SSO login harness: Zitadel provider (#924). Boots a real Jellyfin 10.11 server with the
 # packaged plugin installed and a real Zitadel instance (postgres + zitadel), driven by the SHARED harness.
 #
 # Zitadel cannot be seeded from a static file the way Keycloak's realm or authentik's blueprint can: only the
@@ -6,7 +6,7 @@
 # project, the OIDC application, the role and the user grants are created by the harness through Zitadel's
 # management API using that token, which is written to a volume both containers share.
 #
-# Local run (build the plugin zip first — see test/e2e/README.md). This stack is NOT re-runnable in place:
+# Local run (build the plugin zip first; see test/e2e/README.md). This stack is NOT re-runnable in place:
 # the seeding is not idempotent and both Postgres and the token volume are stateful, so a second `up` dies
 # on ALREADY_EXISTS at the project create. Always tear it down with -v between runs.
 #   docker compose -f test/e2e/zitadel/docker-compose.yml up \
@@ -52,13 +52,13 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: zitadel-e2e-db
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       # The issuer Zitadel advertises. It must be the service-DNS name so Jellyfin (server-to-server) and the
-      # harness (browser role) resolve a byte-identical issuer — the trap the whole harness design avoids.
+      # harness (browser role) resolve a byte-identical issuer, the trap the whole harness design avoids.
       ZITADEL_EXTERNALDOMAIN: zitadel
       ZITADEL_EXTERNALPORT: 8080
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_TLS_ENABLED: "false"
       # Zitadel derives its sonyflake machine id from a PRIVATE (RFC1918) IP by default and panics at startup
-      # when it finds none — and this network is deliberately public-looking (see the subnet note below), so
+      # when it finds none, and this network is deliberately public-looking (see the subnet note below), so
       # that method can never succeed here. Identify by hostname instead; the container name is stable and
       # unique within the stack, which is all the id generator needs.
       ZITADEL_MACHINE_IDENTIFICATION_PRIVATEIP_ENABLED: "false"

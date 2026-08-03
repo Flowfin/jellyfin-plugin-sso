@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// <c>SamlCertificate</c> makes the <see cref="SamlResponse"/> constructor throw on every callback
 /// (<see cref="FormatException"/> on non-base64, <see cref="CryptographicException"/> on bytes that are
 /// not a certificate), which escaped as an unhandled HTTP 500. Rejecting an invalid certificate at every
-/// admin write path — and treating it as a parse failure at login — keeps that fail-closed and out of the
+/// admin write path (and treating it as a parse failure at login) keeps that fail-closed and out of the
 /// 500 path.
 /// </summary>
 internal static class SamlCertificate
@@ -50,7 +50,7 @@ internal static class SamlCertificate
     /// <summary>
     /// Whether the certificate's public key meets the minimum signing-key strength (#733): an RSA key at least
     /// <see cref="SigningKeyStrength.MinimumRsaKeyBits"/> bits, or an EC key on an approved NIST P-curve. A
-    /// weaker key — or an unrecognised key algorithm — is not trusted, so the SAML signature it produced is
+    /// weaker key (or an unrecognised key algorithm) is not trusted, so the SAML signature it produced is
     /// not accepted (fail-closed). The single floor is shared with the OpenID id_token JWKS path so the two
     /// cannot drift.
     /// </summary>

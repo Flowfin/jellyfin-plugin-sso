@@ -27,7 +27,7 @@ public class SamlSecondaryCertificateTests
     {
         // With no secondary configured the trial narrows to the primary: a within-validity primary that
         // matches verifies, and a non-matching primary is rejected. (The primary is additionally subject to
-        // the validity-window gate — see ExpiredPrimary_NoSecondary_Rejects.)
+        // the validity-window gate; see ExpiredPrimary_NoSecondary_Rejects.)
         var fixture = SamlTestFactory.Create();
 
         Assert.True(Load(fixture, fixture.CertificateBase64, null).IsValid());
@@ -48,7 +48,7 @@ public class SamlSecondaryCertificateTests
     [Fact]
     public void VerifiesAgainstSecondary_AssertionScopeSignature()
     {
-        // The either-cert trial applies whichever element is signed — an assertion-scope signature must
+        // The either-cert trial applies whichever element is signed: an assertion-scope signature must
         // also authenticate via the secondary certificate.
         var fixture = SamlTestFactory.Create(scope: SamlTestFactory.SignatureScope.Assertion);
 
@@ -59,7 +59,7 @@ public class SamlSecondaryCertificateTests
     public void RejectsWhenNeitherCertificateVerifies()
     {
         // Fail closed: two configured certificates that both fail to verify the signature must reject the
-        // response — "a certificate is configured" is never acceptance.
+        // response; "a certificate is configured" is never acceptance.
         var fixture = SamlTestFactory.Create();
 
         Assert.False(Load(fixture, SamlFixture.ForeignCertificateBase64(), SamlFixture.ForeignCertificateBase64()).IsValid());
@@ -69,7 +69,7 @@ public class SamlSecondaryCertificateTests
     public void ExpiredPrimary_ValidSecondary_AcceptsViaSecondary()
     {
         // The common cutover: the primary certificate has expired (the identity provider rolled its key
-        // away) while the new certificate — within its validity window — is staged in the secondary. The
+        // away) while the new certificate (within its validity window) is staged in the secondary. The
         // login must still succeed, against the secondary.
         var expiredPrimary = SamlTestFactory.Create(
             certNotBefore: DateTimeOffset.UtcNow.AddDays(-30),
@@ -98,7 +98,7 @@ public class SamlSecondaryCertificateTests
     public void ExpiredPrimary_NoSecondary_Rejects()
     {
         // The certificate-expiry gate applies to the primary too: an expired primary that still matches the
-        // signature must NOT authenticate. This is the property that makes the overlap window terminate — an
+        // signature must NOT authenticate. This is the property that makes the overlap window terminate; an
         // old key is rejected once it expires rather than working forever.
         var expiredResponse = SamlTestFactory.Create(
             certNotBefore: DateTimeOffset.UtcNow.AddDays(-30),

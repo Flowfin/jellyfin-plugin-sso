@@ -15,7 +15,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SSOViewsController.GetView"/> — the endpoint that serves the plugin's embedded
+/// Tests for <see cref="SSOViewsController.GetView"/>: the endpoint that serves the plugin's embedded
 /// view assets (the linking page, its stylesheet and scripts). The action itself resolves the requested
 /// name against <see cref="SSOPlugin.GetViews"/>, streams the matching embedded resource, and tags the
 /// response with the version-derived <c>AssetETag</c> so clients can 304-revalidate (#253). These tests

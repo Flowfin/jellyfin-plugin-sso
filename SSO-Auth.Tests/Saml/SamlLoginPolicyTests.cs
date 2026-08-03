@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlLoginPolicy"/> — the login allow-list gate that must hold at both the
+/// Tests for <see cref="SamlLoginPolicy"/>: the login allow-list gate that must hold at both the
 /// assertion-consumer page and the session-minting endpoint (enforcing it only at the page is
 /// fail-open). Fail-closed: an assertion whose roles are not on a non-empty allow-list is denied.
 /// </summary>
@@ -58,7 +58,7 @@ public class SamlLoginPolicyTests
     /// <summary>
     /// The whitespace variant of the blank class (#952, follow-up to #935): a whitespace-only
     /// configured entry (hand-edited or imported config XML) must not be satisfiable by a
-    /// whitespace-only assertion role — XML text nodes preserve whitespace and the assertion
+    /// whitespace-only assertion role: XML text nodes preserve whitespace and the assertion
     /// roles are compared raw, so the pair is producible. Aligns SAML login validity with the
     /// OIDC allow-list, which skips whitespace-only entries since #935.
     /// </summary>

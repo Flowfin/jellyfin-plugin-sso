@@ -14,18 +14,18 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
 /// Validates an inbound OpenID Connect back-channel <c>logout_token</c> (OIDC Back-Channel Logout 1.0
-/// §2.4–§2.6, #962). The endpoint that calls this is ANONYMOUS — the token's signature is the only
-/// authenticator — so every §2.6 rule is fail-closed and each maps to a fixed reason code (never
+/// §2.4–§2.6, #962). The endpoint that calls this is ANONYMOUS: the token's signature is the only
+/// authenticator, so every §2.6 rule is fail-closed and each maps to a fixed reason code (never
 /// request-derived text, so a rejection leaves an audit trail without a subject-identifier oracle,
 /// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification goes through the
-/// SAME <see cref="OidcSignatureKeys"/> basis the id_token validator uses — there is no second, laxer
+/// SAME <see cref="OidcSignatureKeys"/> basis the id_token validator uses; there is no second, laxer
 /// verification path. On success it yields the (sub, sid) pair the revocation lookup keys on; the
 /// validator itself revokes nothing.
 /// </summary>
 internal sealed class OidcLogoutTokenValidator
 {
     // The logout event the events claim MUST contain (§2.4). A member-presence check, not equality on the
-    // whole claim — the claim is a JSON object whose keys are event URIs.
+    // whole claim: the claim is a JSON object whose keys are event URIs.
     private const string BackChannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout";
 
     // Distinct from the login-path id_token replay set and the SAML logout set: a consumed logout_token jti
@@ -40,7 +40,7 @@ internal sealed class OidcLogoutTokenValidator
     /// Parses and fully validates a <c>logout_token</c> for a provider.
     /// </summary>
     /// <param name="logoutToken">The raw compact-serialized logout_token.</param>
-    /// <param name="validationParameters">The signature/issuer/audience/lifetime parameters — the SAME basis the id_token uses.</param>
+    /// <param name="validationParameters">The signature/issuer/audience/lifetime parameters, the SAME basis the id_token uses.</param>
     /// <param name="clockSkew">The validation clock skew (used for the jti-retention window; matches the parameters' ClockSkew).</param>
     /// <param name="nowUtc">The current time (injected for determinism).</param>
     /// <returns>The validation outcome.</returns>
@@ -55,7 +55,7 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.Malformed);
         }
 
-        // Signature / issuer / audience / lifetime — the SAME hardened basis as the id_token (the caller
+        // Signature / issuer / audience / lifetime: the SAME hardened basis as the id_token (the caller
         // builds validationParameters via OidcSignatureKeys); any failure is fail-closed.
         var handler = new JsonWebTokenHandler { MapInboundClaims = false };
         var result = await handler.ValidateTokenAsync(logoutToken, validationParameters).ConfigureAwait(false);
@@ -67,7 +67,7 @@ internal sealed class OidcLogoutTokenValidator
         var token = (JsonWebToken)result.SecurityToken;
 
         // azp / additional-audience restriction (OIDC Core 3.1.3.7 rules 3-5), the SAME check the id_token
-        // validator applies — §2.4 says the logout_token aud follows OpenID.Core, so the two token types
+        // validator applies; §2.4 says the logout_token aud follows OpenID.Core, so the two token types
         // must not drift on it: when azp is present it MUST equal this client's id, and a multi-audience
         // token MUST carry azp (a token minted for a different party that merely co-lists this client is
         // refused). ValidateAudience already confirmed this client is AMONG the audiences.
@@ -120,7 +120,7 @@ internal sealed class OidcLogoutTokenValidator
     }
 
     // The events claim is a JSON object; presence of the back-channel-logout member is what makes this a
-    // logout_token. Read it as a JsonElement and require the member — a claim that is absent, not an object,
+    // logout_token. Read it as a JsonElement and require the member: a claim that is absent, not an object,
     // or an object without the member is rejected. Any parse failure is a fail-closed "not a logout_token".
     private static bool HasBackChannelLogoutEvent(JsonWebToken token)
     {
@@ -135,7 +135,7 @@ internal sealed class OidcLogoutTokenValidator
 
     /// <summary>
     /// The outcome of validating a <c>logout_token</c>: on success the (sub, sid) pair the caller keys its
-    /// <c>FindByProviderSubject</c> lookup on (either may be null, but never both — §2.4); on failure a
+    /// <c>FindByProviderSubject</c> lookup on (either may be null, but never both, §2.4); on failure a
     /// fixed <see cref="RejectReason"/> code.
     /// </summary>
     /// <param name="IsValid">Whether the token is a valid logout_token.</param>
@@ -144,7 +144,7 @@ internal sealed class OidcLogoutTokenValidator
     /// <param name="ReasonCode">A fixed rejection reason code on failure, else empty.</param>
     internal readonly record struct Result(bool IsValid, string? Subject, string? SessionIndex, string ReasonCode);
 
-    /// <summary>The fixed rejection reason codes — request-independent, safe to audit and never a subject oracle.</summary>
+    /// <summary>The fixed rejection reason codes: request-independent, safe to audit and never a subject oracle.</summary>
     internal static class RejectReason
     {
         /// <summary>The token was absent, unparseable, or not a JWT.</summary>
@@ -153,16 +153,16 @@ internal sealed class OidcLogoutTokenValidator
         /// <summary>Signature, issuer, audience, algorithm, or lifetime validation failed (unsigned, wrong key, weak alg, expired).</summary>
         internal const string Invalid = "signature_or_time_invalid";
 
-        /// <summary>The events claim is absent or does not contain the back-channel-logout event — this is not a logout_token.</summary>
+        /// <summary>The events claim is absent or does not contain the back-channel-logout event; this is not a logout_token.</summary>
         internal const string NotALogoutToken = "not_a_logout_token";
 
         /// <summary>The token carries a nonce, which §2.4 forbids (an id_token replayed as a logout_token).</summary>
         internal const string ProhibitedNonce = "prohibited_nonce";
 
-        /// <summary>Neither sub nor sid is present — nothing to match a session on.</summary>
+        /// <summary>Neither sub nor sid is present; nothing to match a session on.</summary>
         internal const string NoSubjectOrSid = "no_subject_or_sid";
 
-        /// <summary>The jti was already consumed — a replayed logout_token.</summary>
+        /// <summary>The jti was already consumed: a replayed logout_token.</summary>
         internal const string Replay = "replay";
     }
 }

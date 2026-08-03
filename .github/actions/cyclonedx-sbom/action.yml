@@ -6,7 +6,7 @@ description: >-
   for every publish leg (DRY): each leg calls this action, none re-implements it.
   The SBOM covers the plugin's FULL multi-target dependency closure (both the
   net9.0 / Jellyfin 10.11 and net10.0 / Jellyfin 12.0 lines) as pinned in the
-  committed packages.lock.json — a conservative superset for any single leg's
+  committed packages.lock.json, a conservative superset for any single leg's
   shipped ABI, never an under-report. Which target framework a given release
   ships is identified by its tag and zip.
 inputs:
@@ -25,7 +25,7 @@ runs:
     - name: Generate CycloneDX SBOM
       id: generate
       shell: bash
-      # CycloneDX is a NuGet global tool, so it is pinned by VERSION — the correct
+      # CycloneDX is a NuGet global tool, so it is pinned by VERSION; the correct
       # pin mechanism for a NuGet package, and stricter than adopting a single-
       # release third-party wrapper action into the SHA-pin trust set. It reads the
       # caller's already-restored graph (`--disable-package-restore`): the real

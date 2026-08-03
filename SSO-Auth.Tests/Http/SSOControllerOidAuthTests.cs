@@ -62,7 +62,7 @@ public class SSOControllerOidAuthTests
     {
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
 
-        // No state was seeded, so the token does not resolve — a client-caused 400, not a 500, and the
+        // No state was seeded, so the token does not resolve: a client-caused 400, not a 500, and the
         // same body an expired or replayed state gets, so a replay is indistinguishable from an expiry.
         var result = await harness.Controller.OidAuth("kc", new AuthResponse { Data = "no-such-state" });
 
@@ -94,7 +94,7 @@ public class SSOControllerOidAuthTests
 
         Assert.IsType<OkObjectResult>(result);
 
-        // The state is claimed atomically (TryRemove), so a replay of the same token no longer redeems —
+        // The state is claimed atomically (TryRemove), so a replay of the same token no longer redeems;
         // it rejects as an invalid state (a client-caused 400), indistinguishable from an expiry.
         var replay = await harness.Controller.OidAuth("kc", new AuthResponse { Data = "state-token" });
         var content = Assert.IsType<ContentResult>(replay);
@@ -126,7 +126,7 @@ public class SSOControllerOidAuthTests
             AppVersion = "1.0",
         });
 
-        // #326: refused with the uniform invalid-state body, and — crucially — the state was NOT consumed
+        // #326: refused with the uniform invalid-state body, and (crucially) the state was NOT consumed
         // (the binding check precedes the atomic remove), so a wrong-browser attempt cannot burn a
         // legitimate user's in-flight state, and nothing was provisioned.
         var content = Assert.IsType<ContentResult>(rejected);
@@ -152,7 +152,7 @@ public class SSOControllerOidAuthTests
     public async Task OidAuth_RequireVerifiedEmailForLoginOff_Succeeds_RegardlessOfEmailVerified()
     {
         // The availability-critical property (#166): with the flag off (the default), the login succeeds
-        // even when email_verified is absent (null) — behaviour is byte-identical to before the gate, so no
+        // even when email_verified is absent (null); behaviour is byte-identical to before the gate, so no
         // existing deployment or claim-omitting IdP is affected on upgrade.
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -195,7 +195,7 @@ public class SSOControllerOidAuthTests
     public async Task OidAuth_RequireVerifiedEmailForLoginOn_EmailNotVerified_RejectsAndMintsNothing(bool? emailVerified)
     {
         // Fail closed (#166): with the flag on, anything other than email_verified == true rejects the whole
-        // login with the 403 gate body, and — crucially — no account is provisioned and no session minted.
+        // login with the 403 gate body, and (crucially) no account is provisioned and no session minted.
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,

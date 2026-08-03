@@ -10,11 +10,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
 /// Safely constructs a <see cref="SamlResponse"/> from an untrusted SAML response string (#199). The
-/// <see cref="SamlResponse"/> constructor throws on malformed input — <see cref="FormatException"/> for a
+/// <see cref="SamlResponse"/> constructor throws on malformed input: <see cref="FormatException"/> for a
 /// non-base64 body and <see cref="XmlException"/> for malformed XML or a prohibited DOCTYPE (the P2#9
 /// XXE guard). Left unhandled, those surface to an unauthenticated caller as an HTTP 500 with a stack
 /// trace; this maps them to a fail-closed <see langword="false"/> so the callback endpoints reject a
-/// malformed response the same way they reject an invalid one — a clean 4xx.
+/// malformed response the same way they reject an invalid one: a clean 4xx.
 /// </summary>
 internal static class SamlResponseLoader
 {
@@ -22,7 +22,7 @@ internal static class SamlResponseLoader
     // generous headroom for role-heavy assertions and bounds the base64 decode + whitespace-preserving DOM
     // parse on the unauthenticated callback path (#249), where a multi-MB body would otherwise cost ~100 MB
     // of transient allocations before any signature is checked. The DTD prohibition stops entity expansion
-    // but not raw bulk, and the rate limiter is opt-in — this is the always-on cap.
+    // but not raw bulk, and the rate limiter is opt-in; this is the always-on cap.
 
     /// <summary>The always-on ceiling (256 KB) on the Base64 SAMLResponse length, bounding the decode and DOM parse on the unauthenticated callback path before any signature is checked (#249).</summary>
     internal const int MaxEncodedResponseLength = 256 * 1024;
@@ -41,7 +41,7 @@ internal static class SamlResponseLoader
 
     /// <summary>
     /// Tries to parse a SAML response against the primary signing certificate OR an optional secondary
-    /// certificate — the identity-provider verification-key overlap window (#491) — returning
+    /// certificate (the identity-provider verification-key overlap window (#491)) returning
     /// <see langword="false"/> (rather than throwing) on the malformed-input exceptions the
     /// <see cref="SamlResponse"/> constructor raises.
     /// </summary>
@@ -61,7 +61,7 @@ internal static class SamlResponseLoader
             return false;
         }
 
-        // Reject an oversized body before decoding/parsing it (#249) — fail closed, same clean rejection
+        // Reject an oversized body before decoding/parsing it (#249): fail closed, same clean rejection
         // as any other malformed response, with no crypto or allocation spent on the untrusted bulk.
         if (responseString.Length > MaxEncodedResponseLength)
         {
@@ -77,7 +77,7 @@ internal static class SamlResponseLoader
         catch (Exception ex) when (ex is FormatException or XmlException or CryptographicException or ArgumentException)
         {
             // FormatException/XmlException: a malformed response body (#199). CryptographicException/
-            // ArgumentException: a null/garbage configured SamlCertificate (#206) — the save-time
+            // ArgumentException: a null/garbage configured SamlCertificate (#206); the save-time
             // validation blocks that, but a legacy or hand-edited config could still carry one, so fail
             // closed to a clean rejection here rather than an unhandled 500.
             response = null;

@@ -8,10 +8,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 /// </summary>
 public enum LoginButtonProtocol
 {
-    /// <summary>OpenID Connect — links to <c>/sso/OID/start/{name}</c>.</summary>
+    /// <summary>OpenID Connect, links to <c>/sso/OID/start/{name}</c>.</summary>
     Oidc,
 
-    /// <summary>SAML 2.0 — links to <c>/sso/SAML/start/{name}</c>.</summary>
+    /// <summary>SAML 2.0, links to <c>/sso/SAML/start/{name}</c>.</summary>
     Saml,
 }
 

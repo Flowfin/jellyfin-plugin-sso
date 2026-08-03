@@ -1,8 +1,8 @@
-# End-to-end SSO login harness — Pocket ID provider (#922). Boots a real Jellyfin 10.11 server with the
+# End-to-end SSO login harness: Pocket ID provider (#922). Boots a real Jellyfin 10.11 server with the
 # packaged plugin installed and a real Pocket ID instance, driven by the SHARED harness.
 #
 # Pocket ID authenticates people with PASSKEYS ONLY, so it is the one provider in the matrix with no
-# browser-drivable password login. It is driven instead through its own one-time-access-token mechanism —
+# browser-drivable password login. It is driven instead through its own one-time-access-token mechanism,
 # the flow it ships for the case where a user loses their passkey. That flow is real product behaviour, not
 # a test backdoor: a token is exchanged at POST /api/one-time-access-token/<token> for the same session
 # cookie a passkey login would mint.
@@ -10,13 +10,13 @@
 # BOOTSTRAP COST, deliberate and documented: a fresh Pocket ID has no non-interactive way in at all. Its
 # user-creation API needs a session, open signup is off and is itself an admin-only setting, there is no
 # setup endpoint, and its `one-time-access-token` CLI refuses because no user exists yet. So the harness
-# seeds the very first admin, and the one-time tokens, straight into Pocket ID's SQLite file — the only
+# seeds the very first admin, and the one-time tokens, straight into Pocket ID's SQLite file, the only
 # place in this matrix that reaches past a provider's API into its database. Everything after that runs
 # through the normal admin API. The trade-off is that a Pocket ID schema change breaks this harness rather
 # than the plugin: a false RED, never a false green.
 #
-# Local run (build the plugin zip first — see test/e2e/README.md). Like the Zitadel stack this one is NOT
-# re-runnable in place — the seeded rows and the consumed tokens are stateful:
+# Local run (build the plugin zip first; see test/e2e/README.md). Like the Zitadel stack this one is NOT
+# re-runnable in place: the seeded rows and the consumed tokens are stateful:
 #   docker compose -f test/e2e/pocket-id/docker-compose.yml up \
 #     --abort-on-container-exit --exit-code-from harness
 #   docker compose -f test/e2e/pocket-id/docker-compose.yml down -v

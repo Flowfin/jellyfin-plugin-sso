@@ -138,7 +138,7 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     public async Task UnknownSigningKey_ReturnsInvalidSignature_ForKeyRefreshRetry()
     {
         // The exact "invalid_signature" string is the contract that makes OidcClient refresh the
-        // JWKS and retry once — the path that heals a signing-key rotation.
+        // JWKS and retry once, the path that heals a signing-key rotation.
         using var otherRsa = RSA.Create(2048);
         var descriptor = Descriptor();
         descriptor.SigningCredentials = new SigningCredentials(
@@ -172,7 +172,7 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     public async Task MultiAudience_WithoutAzp_IsRejected()
     {
         // OIDC Core 3.1.3.7 rules 3-4: our client id is among the audiences, but the token is also
-        // scoped to another party and carries no azp — reject rather than accept a co-audience token.
+        // scoped to another party and carries no azp; reject rather than accept a co-audience token.
         var descriptor = Descriptor();
         descriptor.Audience = null;
         descriptor.Audiences.Add(ClientId);
@@ -253,7 +253,7 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     public async Task EncryptionOnlyKey_IsNotUsedForSignatures()
     {
         // The signing key is advertised as use:"enc": it must be excluded from signature validation,
-        // leaving no usable key — the key-not-found path, i.e. "invalid_signature".
+        // leaving no usable key, the key-not-found path, i.e. "invalid_signature".
         var p = _rsa.ExportParameters(false);
         var options = Options(jwks: $$"""
             {"keys":[{"kty":"RSA","use":"enc","kid":"{{KeyId}}",
@@ -269,7 +269,7 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     [Fact]
     public async Task UnderStrengthRsaKeyInJwks_IsSkipped_LoginFailsClosed()
     {
-        // #733: an RSA JWKS key below the 2048-bit floor is as forgeable as a broken key — it is skipped
+        // #733: an RSA JWKS key below the 2048-bit floor is as forgeable as a broken key; it is skipped
         // exactly like malformed material, so a token SIGNED by that weak key has no usable key to resolve
         // against and the login fails closed via the key-not-found ("invalid_signature") path.
         using var weakRsa = RSA.Create(1024);

@@ -1,7 +1,7 @@
 # Weekly coverage-guided fuzzing of the login-path parse/validate surface (#174).
 #
 # Runs the out-of-band SharpFuzz harness (SSO-Auth.Fuzz, #402) under libFuzzer on
-# Linux — the only platform where the `sharpfuzz` instrumentation CLI and the
+# Linux: the only platform where the `sharpfuzz` instrumentation CLI and the
 # libFuzzer runtime work. The headline target is the SAML response parse/validate
 # path (`SamlResponseLoader.TryParse` -> `SamlResponse` ctor + `IsValid` + every
 # claim getter, seeded from the SamlTestFactory-shaped corpus), which is what
@@ -9,7 +9,7 @@
 # parse readers, fuzzed in the same sweep at no extra maintenance.
 #
 # NON-GATING BY CONSTRUCTION: this workflow runs ONLY on a weekly schedule and on
-# manual dispatch — never on push or pull_request — so it is not a PR check and
+# manual dispatch (never on push or pull_request), so it is not a PR check and
 # gates no merge. A crasher is treated as its own security finding (triage +
 # minimise + a separate parser fix, GHSA path if exploitable; see the harness
 # README), never a silent in-harness patch. The job therefore ARCHIVES every
@@ -153,7 +153,7 @@ jobs:
           retention-days: 90
 
       - name: Archive evolved corpus
-        # The corpus libFuzzer grew this run — reseeds the next run and documents
+        # The corpus libFuzzer grew this run: reseeds the next run and documents
         # the coverage reached.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -167,7 +167,7 @@ jobs:
         # Non-gating notification: if libFuzzer wrote any reproducer, surface it
         # loudly and fail THIS leg so the scheduled run goes red and notifies
         # me. This is a signal to open a security finding, not a merge
-        # gate — the workflow never runs on a pull request.
+        # gate: the workflow never runs on a pull request.
         env:
           TARGET: ${{ matrix.target }}
         run: |

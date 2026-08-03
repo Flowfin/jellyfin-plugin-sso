@@ -39,7 +39,7 @@ entries:
       is_active: true
 
   # SAML uses distinct users from OIDC (carol/dave vs alice/bob) so the two protocols never contend over the
-  # same Jellyfin account — the same split the Keycloak realm uses.
+  # same Jellyfin account, the same split the Keycloak realm uses.
   - model: authentik_core.user
     id: user-carol
     identifiers:
@@ -140,7 +140,7 @@ entries:
       audience: jellyfin-saml
       sp_binding: post
       # The plugin validates an enveloped assertion signature, so the assertion must be signed with a real
-      # keypair — the same reason the OAuth2 provider pins a signing key above.
+      # keypair, the same reason the OAuth2 provider pins a signing key above.
       sign_assertion: true
       sign_response: false
       signing_kp:

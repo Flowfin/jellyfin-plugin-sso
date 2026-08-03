@@ -95,7 +95,7 @@ public class ConfigSecretProtectionTests
         WithStore(store =>
         {
             // The rollover signing key (#491) carries a private key, so it must be encrypted at rest exactly
-            // like the primary — a plaintext rollover key would be a secrets-at-rest regression.
+            // like the primary; a plaintext rollover key would be a secrets-at-rest regression.
             var config = new PluginConfiguration();
             config.SamlConfigs["keycloak"] = new SamlConfig
             {
@@ -118,7 +118,7 @@ public class ConfigSecretProtectionTests
         WithStore(store =>
         {
             // The Single Logout id_token (#727) is a bearer secret used as an id_token_hint at logout, so it
-            // must be encrypted at rest exactly like the provider secrets — a plaintext id_token in config.xml
+            // must be encrypted at rest exactly like the provider secrets; a plaintext id_token in config.xml
             // would be a secrets-at-rest regression.
             var config = new PluginConfiguration();
             config.LogoutSessions["session-1"] = new LogoutSession

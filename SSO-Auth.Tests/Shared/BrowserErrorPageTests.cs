@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="BrowserErrorPage"/> — the re-render of a browser-navigated login rejection (#668).
+/// Tests for <see cref="BrowserErrorPage"/>: the re-render of a browser-navigated login rejection (#668).
 /// A plain-text error reached by a browser becomes a styled HTML page with a return link; the XHR Auth leg
 /// (Accept: application/json) and every non-error result pass through unchanged.
 /// </summary>
@@ -50,7 +50,7 @@ public class BrowserErrorPageTests
     public void Wrap_ResolvesLangFromAcceptLanguage_FallsToEnglishWhileEnglishIsTheOnlyCatalog()
     {
         // The lang attribute is driven by the request's Accept-Language (#913). With only the English
-        // catalog loaded, a German preference resolves to English — the wiring must not throw on a real
+        // catalog loaded, a German preference resolves to English; the wiring must not throw on a real
         // header, and the page must stay a valid, English-tagged document.
         var ctx = Context("text/html");
         ctx.Request.Headers.AcceptLanguage = "de-DE,de;q=0.9,en;q=0.5";

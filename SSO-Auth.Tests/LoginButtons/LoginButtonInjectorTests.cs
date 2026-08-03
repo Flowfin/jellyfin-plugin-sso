@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="LoginButtonInjector"/> — the pure render/merge core of the managed login-page
+/// Tests for <see cref="LoginButtonInjector"/>: the pure render/merge core of the managed login-page
 /// buttons (#722). The output is HTML rendered on the anonymous, pre-auth login page, so the encoding tests
 /// are the security pins: a hostile provider name or button label must never break out into markup.
 /// </summary>
@@ -71,7 +71,7 @@ public class LoginButtonInjectorTests
     public void BuildBlock_HtmlEncodesAHostileName_OnTheSamlStartRouteToo()
     {
         // The SAML sibling of the pin above (#928 U4): the encoding runs through the shared builder, but the
-        // SAML start route was only ever asserted with a clean name — this pins the hostile case per route so
+        // SAML start route was only ever asserted with a clean name; this pins the hostile case per route so
         // a route-specific regression cannot hide behind the shared-code argument.
         var block = LoginButtonInjector.BuildBlock(One("a\"b<c", "a\"b<c", LoginButtonProtocol.Saml));
 
@@ -140,7 +140,7 @@ public class LoginButtonInjectorTests
     public void Merge_MalformedFence_IsTreatedAsNoRegion_NeverCorruptsContent()
     {
         // Only a BEGIN marker (END hand-deleted): not a well-formed region, so a fresh block appends rather
-        // than trying to parse the partial fence — the mangled content is preserved untouched.
+        // than trying to parse the partial fence; the mangled content is preserved untouched.
         var mangled = "Note.\n" + LoginButtonInjector.BeginMarker + "\nleftover";
         var block = LoginButtonInjector.BuildBlock(One("keycloak", "Keycloak"));
         var merged = LoginButtonInjector.Merge(mangled, block);
@@ -154,7 +154,7 @@ public class LoginButtonInjectorTests
     {
         // Stronger inertness proof than a per-payload substring check: after removing the ONLY markup the
         // template itself emits (the marker comments, the wrapping div, and the fixed anchor tags), no '<'
-        // from the input survives — so no provider name or label can introduce an element on the login page.
+        // from the input survives, so no provider name or label can introduce an element on the login page.
         var block = LoginButtonInjector.BuildBlock(One("<x>", "<img src=x onerror=alert(1)>"));
 
         var stripped = block
@@ -183,7 +183,7 @@ public class LoginButtonInjectorTests
         var once = LoginButtonInjector.Merge(mangled, next);
         var twice = LoginButtonInjector.Merge(once, next);
 
-        Assert.Equal(once, twice); // converges — no per-sync growth
+        Assert.Equal(once, twice); // converges, no per-sync growth
         Assert.Equal(1, CountOccurrences(once, LoginButtonInjector.BeginMarker));
         Assert.Contains("authelia", once, System.StringComparison.Ordinal);
         Assert.DoesNotContain("keycloak", once, System.StringComparison.Ordinal);

@@ -63,7 +63,7 @@ public class SSOControllerAdminTests
                 c.RateLimitMaxAttempts = 1;
                 c.RateLimitWindowSeconds = 60;
             },
-            // A public address (the limiter fails open for non-public sources — reverse-proxy defense),
+            // A public address (the limiter fails open for non-public sources, reverse-proxy defense),
             // dedicated to this test so the process-static counter is its alone.
             clientIp: IPAddress.Parse("8.8.8.8"));
 

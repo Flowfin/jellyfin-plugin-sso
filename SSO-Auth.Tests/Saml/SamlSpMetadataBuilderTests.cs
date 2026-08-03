@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Tests for the pure <see cref="SamlSpMetadataBuilder"/> (#162): the emitted document is well-formed SAML
 /// 2.0 SP metadata, its entity id and HTTP-POST assertion-consumer URL are the exact values it is handed, a
 /// signing <c>KeyDescriptor</c> is present precisely when (and carries exactly) the certificate given, and
-/// the builder never invents a spoofable value of its own — it only serializes its inputs.
+/// the builder never invents a spoofable value of its own; it only serializes its inputs.
 /// </summary>
 public class SamlSpMetadataBuilderTests
 {
@@ -165,7 +165,7 @@ public class SamlSpMetadataBuilderTests
     [Fact]
     public void Build_RolloverWithoutPrimary_EmitsNoKeyDescriptor()
     {
-        // A rollover with no primary is nonsensical (signing is off), so no key is advertised at all — the
+        // A rollover with no primary is nonsensical (signing is off), so no key is advertised at all: the
         // rollover is only ever meaningful alongside a primary.
         using var rollover = SamlSigningKeyFactory.CreateCertificate();
         var rolloverBase64 = Convert.ToBase64String(rollover.RawData);
@@ -240,7 +240,7 @@ public class SamlSpMetadataBuilderTests
     [Fact]
     public void Build_LegacyAcsEqualToPrimary_EmitsExactlyOneAssertionConsumerService()
     {
-        // A legacy URL identical to the primary is redundant — the SP already advertises that exact endpoint —
+        // A legacy URL identical to the primary is redundant (the SP already advertises that exact endpoint)
         // so the second entry is dropped, leaving the single-ACS output unchanged (#569 dedup).
         var withDuplicateLegacy = SamlSpMetadataBuilder.Build(EntityId, AcsUrl, signingCertificateBase64: null, legacyAssertionConsumerServiceUrl: AcsUrl);
         var withoutLegacy = SamlSpMetadataBuilder.Build(EntityId, AcsUrl, signingCertificateBase64: null);
@@ -258,7 +258,7 @@ public class SamlSpMetadataBuilderTests
         // The combined worst case for XSD element order: signing-key rollover (#491) emits TWO KeyDescriptors
         // and the legacy ACS (#569) emits TWO AssertionConsumerService entries in the SAME document. The
         // metadata XSD requires every KeyDescriptor to precede every AssertionConsumerService, so pin that the
-        // last KeyDescriptor still comes before the first ACS when both features are on at once — a future edit
+        // last KeyDescriptor still comes before the first ACS when both features are on at once; a future edit
         // that interleaves them (invalid for strict IdPs like ADFS/Azure AD) fails here, not only in the field.
         using var primary = SamlSigningKeyFactory.CreateCertificate();
         using var rollover = SamlSigningKeyFactory.CreateCertificate();

@@ -14,8 +14,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Tests for <see cref="SamlLogoutResponseBuilder"/> (#727, SLO-3c): the OUTBOUND signed <c>LogoutResponse</c>
-/// the SP returns to close the IdP's Single-Logout loop. It mirrors <see cref="SamlLogoutRequestBuilder"/> —
-/// the same DEFLATE/Base64 encoding and the shared <see cref="SamlRedirectSigner"/> — so these assertions pin
+/// the SP returns to close the IdP's Single-Logout loop. It mirrors <see cref="SamlLogoutRequestBuilder"/>,
+/// the same DEFLATE/Base64 encoding and the shared <see cref="SamlRedirectSigner"/>, so these assertions pin
 /// (a) the document is a well-formed LogoutResponse carrying the Issuer, InResponseTo, Destination, and a
 /// Success status, and (b) the emitted redirect (under the SAMLResponse parameter, echoing RelayState) carries
 /// a detached signature that verifies against the signer's public key over the exact octets.

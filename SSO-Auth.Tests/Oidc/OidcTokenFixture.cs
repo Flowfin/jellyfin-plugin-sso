@@ -63,7 +63,7 @@ internal sealed class OidcTokenFixture : IDisposable
         }
 
         // The moment the user authenticated, for the max_age freshness gate (#961); omitted when null (the
-        // common provider case AND the max_age-ignored rejection path — a provider that returns no auth_time).
+        // common provider case AND the max_age-ignored rejection path, a provider that returns no auth_time).
         if (authTimeUnixSeconds is long authTime)
         {
             claims["auth_time"] = authTime;

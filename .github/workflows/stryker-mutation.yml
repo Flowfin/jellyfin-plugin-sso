@@ -1,4 +1,4 @@
-# Stryker.NET mutation testing — scoped to the SAML/OIDC validation and
+# Stryker.NET mutation testing, scoped to the SAML/OIDC validation and
 # login/role-mapping core (#169).
 #
 # Why mutation testing, and why non-blocking:
@@ -7,20 +7,20 @@
 #   fails; a SURVIVING mutant is a fault our tests would miss, i.e. a concrete
 #   test-writing prompt (kill it with a new negative test, or document why it is
 #   an equivalent/acceptable mutant). This deliberately does NOT add a raw
-#   line-coverage percentage gate — line coverage correlates weakly with fault
+#   line-coverage percentage gate; line coverage correlates weakly with fault
 #   detection. The standing bar stays "every security branch has a negative
 #   test"; mutation score measures whether we actually met it.
 #
 # NON-BLOCKING for the SCORE, loud for BREAKAGE (#899):
 #   1. No `pull_request` trigger. This workflow never runs as a PR check, so it
-#      is not — and cannot silently become — a required status check on the
+#      is not (and cannot silently become) a required status check on the
 #      protected branch. It runs on manual dispatch (and, when re-enabled,
 #      weekly).
 #   2. `thresholds.break` is 0 in stryker-config.json, so `dotnet stryker` never
 #      exits non-zero on a LOW SCORE. The score is reported, not enforced.
 #   3. An infrastructure failure, by contrast, MUST show red: the former
 #      `continue-on-error: true` + `if-no-files-found: warn` combination let a
-#      run that produced no report at all end green — exactly how the MTP
+#      run that produced no report at all end green, exactly how the MTP
 #      migration's Stryker breakage stayed invisible until the #718 review
 #      predicted it and a dispatch confirmed it. A run with no report now fails
 #      visibly (fail-closed reporting; the run is still never a merge gate).
@@ -29,7 +29,7 @@
 # runs through VSTest and cannot mutate the Microsoft.Testing.Platform-v2 test
 # project (stryker-mutator/stryker-net#3094; upstream's in-progress MTP runner
 # targets MTP v1 first). SSO-Auth.Tests.Stryker compiles the SAME test sources
-# as a classic VSTest container purely for this run — verified empirically:
+# as a classic VSTest container purely for this run, verified empirically:
 # a scoped mutation run kills mutants again (40/40 on RolePrivilegeMapper).
 # Delete the twin and point this back at SSO-Auth.Tests when Stryker ships
 # MTP v2 support.
@@ -55,7 +55,7 @@ on:
 permissions:
   contents: read
 
-# A newer run on the same ref supersedes an in-flight one — this is an
+# A newer run on the same ref supersedes an in-flight one; this is an
 # informational scan, so cancelling a superseded run is safe.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -66,7 +66,7 @@ jobs:
     name: Mutation testing (${{ matrix.scope.name }})
     runs-on: ubuntu-latest
     # Mutation testing re-runs the covered tests once per mutant. The full scoped
-    # core is ~1379 mutants — ~3.5h serial on a 2-core runner, which killed the
+    # core is ~1379 mutants, ~3.5h serial on a 2-core runner, which killed the
     # first VSTest-twin run at the old 60-minute limit. The matrix splits the
     # scope into three parallel legs (~1-1.5h each); the timeout is sized for the
     # largest leg with headroom. Weekly + informational, so wall clock is cheap.
@@ -107,7 +107,7 @@ jobs:
         # --locked-mode fails the restore if the committed packages.lock.json
         # files would change, matching the main build job's supply-chain posture.
         # The VSTest twin is deliberately outside the solution (it must never join
-        # the normal build/test path), so it is restored explicitly — otherwise
+        # the normal build/test path), so it is restored explicitly; otherwise
         # Stryker's implicit build would restore it WITHOUT locked-mode.
         run: |
           dotnet restore --locked-mode
@@ -120,10 +120,10 @@ jobs:
       - name: Run Stryker (scoped, score-non-blocking)
         # break=0 in config keeps a LOW SCORE from exiting non-zero (the score is
         # a signal, not a gate). A tool/infrastructure failure, however, exits
-        # non-zero and now fails the run visibly — no continue-on-error, per the
+        # non-zero and now fails the run visibly; no continue-on-error, per the
         # fail-closed-reporting note at the top (#899). Run from the VSTest twin
         # directory so Stryker picks up stryker-config.json and drives the twin
-        # (the MTP-v2 test project is not VSTest-mutable — see the header note).
+        # (the MTP-v2 test project is not VSTest-mutable; see the header note).
         working-directory: SSO-Auth.Tests.Stryker
         env:
           # This leg's mutate scope (comma-separated globs). CLI -m REPLACES the
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload mutation report
         # Publish the HTML/markdown report as a run artifact even when the scan
-        # step failed, so whatever partial output exists can be reviewed — but a
+        # step failed, so whatever partial output exists can be reviewed, but a
         # run that produced NO report fails here (if-no-files-found: error), so
         # silent signal loss is impossible (#899).
         if: always()

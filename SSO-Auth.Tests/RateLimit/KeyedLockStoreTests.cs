@@ -11,7 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="KeyedLockStore"/> — the per-key async mutual-exclusion primitive the avatar store
+/// Tests for <see cref="KeyedLockStore"/>: the per-key async mutual-exclusion primitive the avatar store
 /// serializes on (#400). The overlap tests are deterministic: a held handle keeps the second acquirer
 /// parked by construction, never by timing. The collectible property (a key's holder is dropped once its
 /// last acquirer leaves) is what keeps the map from leaking a semaphore per key ever seen.
@@ -27,7 +27,7 @@ public class KeyedLockStoreTests
         var first = await store.AcquireAsync("A", ct);
         var second = store.AcquireAsync("A", ct);
 
-        // The permit is held, so the second acquire cannot complete — deterministic, not a timing race.
+        // The permit is held, so the second acquire cannot complete; deterministic, not a timing race.
         Assert.False(second.IsCompleted);
 
         first.Dispose();

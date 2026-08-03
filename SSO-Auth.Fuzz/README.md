@@ -21,7 +21,7 @@ are what the harness drives (selected per run by the `SSO_FUZZ_TARGET` environme
 | `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                          | The raw id_token JWT string                                                                          |
 
 The property under test is uniform: on **any** input the entry point must terminate with a fail-closed
-result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps — it must never
+result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps; it must never
 leak an unmapped exception (which on the real callback becomes an unauthenticated HTTP 500 / DoS) and
 must never hang. A crash libFuzzer records is therefore a genuine finding: an exception type the
 fail-closed filters do not catch, or a hang.
@@ -43,7 +43,7 @@ fail-closed filters do not catch, or a hang.
 ## Why SharpFuzz, not ClusterFuzzLite (or OSS-Fuzz)
 
 The acceptance criteria ask us to pick between ClusterFuzzLite and SharpFuzz, or document why neither
-fits. They are not really alternatives — one is the .NET fuzzing _engine_, the other a CI _runner_:
+fits. They are not really alternatives; one is the .NET fuzzing _engine_, the other a CI _runner_:
 
 - **OSS-Fuzz** has **no .NET support**, so the Scorecard-preferred managed-fuzzing path is unavailable to
   us. (This is also why #174 is framed as a _self-hosted_ weekly job.)
@@ -51,7 +51,7 @@ fits. They are not really alternatives — one is the .NET fuzzing _engine_, the
   drives it under libFuzzer. **This is the engine we adopt**, and this project is built on it.
 - **ClusterFuzzLite** is a CI _harness_ around libFuzzer that Scorecard recognises. It _can_ drive a
   SharpFuzz target, but only through a `.clusterfuzzlite/` Dockerfile + `build.sh` that reimplements the
-  instrumentation build, plus its own workflow — a non-trivial, CI/supply-chain-touching addition that
+  instrumentation build, plus its own workflow, a non-trivial, CI/supply-chain-touching addition that
   belongs in its own gated change, not this evaluation prototype.
 
 **Decision:** adopt **SharpFuzz** as the engine now (this harness + seed corpus + the per-entry-point
@@ -61,7 +61,7 @@ value is the fuzzing itself, which the scheduled job delivers regardless of whet
 
 ## Feasibility: local Windows vs CI Linux (honest)
 
-- The **managed harness compiles cross-platform** — it builds cleanly on the maintainer's Windows box
+- The **managed harness compiles cross-platform**: it builds cleanly on the maintainer's Windows box
   (validated in Debug and Release under `--warnaserror`), so it cannot silently bitrot when touched.
 - **Actual fuzzing is Linux-only.** The `sharpfuzz` instrumentation CLI and the libFuzzer runtime are
   Linux-oriented; a coverage-guided run on Windows is impractical. So the _run_ lives in CI, never on the
@@ -72,14 +72,14 @@ value is the fuzzing itself, which the scheduled job delivers regardless of whet
 ## Value assessment vs. the existing gate
 
 The FsCheck property suite (`PropertyTests.cs`, #126) covers the **pure login-decision helpers**
-(role→privilege mapping monotonicity, the OIDC "valid ⇒ username" invariant) — it does **not** touch the
+(role→privilege mapping monotonicity, the OIDC "valid ⇒ username" invariant); it does **not** touch the
 **byte-level parse path**. The `SamlResponseParsingTests` already pin the known malformed-input classes
 (non-Base64, malformed XML, prohibited DOCTYPE, null/empty, oversized, garbage certificate, malformed
 signature element) as fail-closed. Fuzzing is **complementary**: it searches the same parse path for an
-_un-enumerated_ crasher — an exception type or a hang the hand-written cases and the explicit
-`catch` filters did not anticipate — which is precisely the residual risk unit and property tests cannot
+_un-enumerated_ crasher (an exception type or a hang the hand-written cases and the explicit
+`catch` filters did not anticipate), which is precisely the residual risk unit and property tests cannot
 exhaust. The marginal value is modest (the raw parsing is delegated to already-hardened platform/library
-parsers — `System.Xml` with DTD prohibited, `Newtonsoft.Json`, `Microsoft.IdentityModel`), but real and
+parsers: `System.Xml` with DTD prohibited, `Newtonsoft.Json`, `Microsoft.IdentityModel`), but real and
 low-maintenance, and it is the surface #174 already committed to.
 
 ## Running it (Linux)
@@ -100,12 +100,12 @@ dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll \
 
 A non-zero exit with a written `crash-*` input is a finding. **Do not fix it in the harness.** Minimise
 the reproducer, file it as its own security issue (GHSA path if it turns out to be exploitable rather than
-a plain 500/DoS), and fix the parser in a separate change — the harness only surfaces findings.
+a plain 500/DoS), and fix the parser in a separate change; the harness only surfaces findings.
 
 ### Smoke mode (any platform, no libFuzzer)
 
 Because libFuzzer is Linux-only, set `SSO_FUZZ_SMOKE=1` to replay a corpus directory through the selected
-target **once** and exit — no instrumentation, no native runtime. It proves the dispatch + parse wiring
+target **once** and exit: no instrumentation, no native runtime. It proves the dispatch + parse wiring
 runs and that every seed is handled fail-closed, so the harness can be validated on Windows and as a cheap
 CI sanity check. This is how the prototype was validated at delivery (all three targets, exit 0):
 
@@ -123,7 +123,7 @@ response, a DOCTYPE body, non-Base64; a full and a minimal discovery document pl
 
 ## Scorecard alert #36 and #174
 
-This prototype does not itself flip the Scorecard Fuzzing check — that check only credits a wired-in
+This prototype does not itself flip the Scorecard Fuzzing check; that check only credits a wired-in
 ClusterFuzzLite/OSS-Fuzz integration, which we deliberately deferred above. So alert #36 is **re-dismissed
 with this documented outcome**: SharpFuzz adopted as the engine, this harness + corpus landed, and the
 recurring run tracked by #174 (weekly scheduled Linux job). Adopting ClusterFuzzLite later, if we want the

@@ -16,7 +16,7 @@ internal static class SsoManagedProviderId
     /// </summary>
     /// <remarks>
     /// SECURITY / PERSISTENCE: this exact string is written to <c>User.AuthenticationProviderId</c> and
-    /// persisted in Jellyfin's user database. It MUST NEVER change — every account provisioned by an
+    /// persisted in Jellyfin's user database. It MUST NEVER change: every account provisioned by an
     /// earlier version carries this literal, and both the stamp (<c>CanonicalLinkService</c>) and the
     /// SSO-only detector (<c>SsoAuthenticationProviders.IsSsoProvider</c>) compare against it. It is
     /// deliberately a fixed literal and NOT <c>typeof(SSOController).FullName</c>: coupling a persisted

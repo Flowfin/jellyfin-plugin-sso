@@ -17,9 +17,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// In-process tests of the OpenID challenge via <see cref="SsoControllerHarness"/>. They cover the
-/// PKCE-discovery gate (#141, RFC 9700 §2.1.1) — when a provider is marked <c>RequirePkce</c>, the
+/// PKCE-discovery gate (#141, RFC 9700 §2.1.1): when a provider is marked <c>RequirePkce</c>, the
 /// challenge must fail closed unless the authorization server's discovery document advertises PKCE
-/// (S256), so a document without S256 or one that cannot be read is refused with a 400 — and the
+/// (S256), so a document without S256 or one that cannot be read is refused with a 400, and the
 /// enabled-provider happy path, where a served discovery document yields a redirect to the authorization
 /// endpoint. The discovery document is served in-process through the harness's stub HTTP responder; the
 /// harness resets the shared authorize-state store between tests (#289).
@@ -33,7 +33,7 @@ public class SSOControllerOidChallengeTests
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc"] = new OidConfig { Enabled = false });
 
         // A disabled provider shares the unknown provider's uniform in-process 400, so the two cannot
-        // be told apart (no enumeration oracle) — fail-closed either way (#318).
+        // be told apart (no enumeration oracle), fail-closed either way (#318).
         var content = Assert.IsType<ContentResult>(await harness.Controller.OidChallenge("kc"));
         Assert.Equal(400, content.StatusCode);
         Assert.Equal("No matching provider found", content.Content);
@@ -62,7 +62,7 @@ public class SSOControllerOidChallengeTests
 
         Assert.Equal(400, Assert.IsType<ContentResult>(result).StatusCode);
         // The 400 must come from the PKCE gate, which only fires after the discovery document is fetched
-        // and found to lack S256 — so the discovery endpoint must actually have been contacted.
+        // and found to lack S256, so the discovery endpoint must actually have been contacted.
         Assert.Contains("https://idp-no-s256.example.com/.well-known/openid-configuration", requested);
     }
 
@@ -138,7 +138,7 @@ public class SSOControllerOidChallengeTests
     public async Task OidChallenge_ReadsDiscoveryExactlyOnce()
     {
         // #450: the challenge sources the PKCE-S256 (#141) and RFC 9207 response-iss (#210) facts from the
-        // SAME discovery response it feeds the login, so it must fetch the discovery document ONCE — not the
+        // SAME discovery response it feeds the login, so it must fetch the discovery document ONCE, not the
         // pre-#450 pair of a best-effort probe plus OidcClient's own internal discovery. JWKS may be fetched
         // separately; only the well-known document is counted.
         const string authority = "https://idp-once.example.com";
@@ -177,7 +177,7 @@ public class SSOControllerOidChallengeTests
     {
         // #450 fail-closed: when the discovery document cannot be read there is no authoritative source for
         // the iss-required / PKCE facts and no metadata to build the authorize request from, so the login is
-        // refused — NOT silently proceeded on a tolerant default. This holds even when RequirePkce is not
+        // refused, NOT silently proceeded on a tolerant default. This holds even when RequirePkce is not
         // set, matching the pre-#450 net behaviour (PrepareLoginAsync could not build the redirect either).
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -222,7 +222,7 @@ public class SSOControllerOidChallengeTests
     public async Task OidChallenge_NewPathChanges_PersistsThroughTheConfigStore()
     {
         // #412: the derived spelling must be recorded through MutateConfiguration (which persists),
-        // not a bare field write on a config object read outside the lock — that write bypassed the
+        // not a bare field write on a config object read outside the lock; that write bypassed the
         // store entirely and never reached the persist delegate. Starting the provider on the legacy
         // spelling and hitting the descriptive route forces an actual change, so this proves the write
         // now reaches SerializeToFile instead of being a purely in-memory mutation.
@@ -251,7 +251,7 @@ public class SSOControllerOidChallengeTests
     [Fact]
     public async Task OidChallenge_NewPathAlreadyCurrent_SkipsTheRedundantPersist()
     {
-        // The common case — every login after the first on a given route — must not pay a config
+        // The common case (every login after the first on a given route) must not pay a config
         // persist on every challenge: the derived spelling already matches what is stored, so the
         // atomic write path (#412) is a locked comparison only, mirroring
         // CanonicalLinkService.ResolveOrCreateAsync's read-first, persist-only-on-change shape.

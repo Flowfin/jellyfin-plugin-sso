@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
 /// The ONE OpenID signature-validation basis, shared by every token the plugin verifies against a
-/// provider's discovery JWKS — the id_token (<see cref="OidcIdTokenValidator"/>) and the back-channel
+/// provider's discovery JWKS: the id_token (<see cref="OidcIdTokenValidator"/>) and the back-channel
 /// <c>logout_token</c> (<see cref="OidcLogoutTokenValidator"/>, #962). Centralising the asymmetric-only
 /// algorithm allowlist and the JWK→<see cref="SecurityKey"/> conversion here means there is provably no
 /// second, laxer verification path: a token type cannot accidentally accept HS*, <c>none</c>, an
@@ -24,7 +24,7 @@ internal static class OidcSignatureKeys
     /// <summary>
     /// Gets the asymmetric signature algorithms the plugin accepts (RFC 7518). Symmetric HS* would accept a
     /// token minted by anyone holding the shared client secret, and <c>none</c> is unauthenticated by
-    /// definition — both are rejected regardless of what the discovery document advertises.
+    /// definition; both are rejected regardless of what the discovery document advertises.
     /// </summary>
     internal static string[] AllowedSignatureAlgorithms { get; } =
     {
@@ -35,13 +35,13 @@ internal static class OidcSignatureKeys
 
     /// <summary>
     /// Builds the signature/issuer/audience/lifetime validation parameters every JWT the plugin verifies
-    /// against a provider uses — the id_token and the back-channel logout_token share this ONE builder, so
+    /// against a provider uses: the id_token and the back-channel logout_token share this ONE builder, so
     /// their signature posture cannot drift apart. Signed + expiring tokens are required (fail closed); the
     /// provider-level <c>DoNotValidateIssuerName</c> escape hatch relaxes ONLY the issuer match.
     /// </summary>
     /// <param name="options">The provider's client options (discovery issuer + JWKS, client id, skew, policy).</param>
     /// <param name="ephemeralKeys">Collects disposable ECDsa handles for the caller to release.</param>
-    /// <param name="requireExpiration">Whether an <c>exp</c> claim is mandatory. True for the id_token (OIDC Core 3.1.3.7 mandates exp); false for the back-channel logout_token, where OIDC Back-Channel Logout 1.0 §2.4 does NOT list exp among the required claims (replay is bounded by the jti one-time-use instead) — requiring it would silently no-op a spec-compliant exp-less IdP (#962).</param>
+    /// <param name="requireExpiration">Whether an <c>exp</c> claim is mandatory. True for the id_token (OIDC Core 3.1.3.7 mandates exp); false for the back-channel logout_token, where OIDC Back-Channel Logout 1.0 §2.4 does NOT list exp among the required claims (replay is bounded by the jti one-time-use instead); requiring it would silently no-op a spec-compliant exp-less IdP (#962).</param>
     /// <returns>The hardened validation parameters.</returns>
     internal static TokenValidationParameters BuildValidationParameters(OidcClientOptions options, List<IDisposable> ephemeralKeys, bool requireExpiration = true)
     {
@@ -62,7 +62,7 @@ internal static class OidcSignatureKeys
             ValidateIssuer = options.Policy.Discovery.ValidateIssuerName,
 
             // The downstream claim scan compares raw JWT claim names ordinally, so the principal must carry
-            // the payload names verbatim — these two only name the identity's Name/Role accessors.
+            // the payload names verbatim; these two only name the identity's Name/Role accessors.
             NameClaimType = "name",
             RoleClaimType = "role",
         };
@@ -70,7 +70,7 @@ internal static class OidcSignatureKeys
 
     /// <summary>
     /// Converts the advertised JWKS into usable signing keys, skipping any key that is null, not a signing
-    /// key (<c>use != "sig"</c>), under the RSA size floor (#733), or of un-decodable/invalid material — so
+    /// key (<c>use != "sig"</c>), under the RSA size floor (#733), or of un-decodable/invalid material, so
     /// one broken key in the set cannot take down verification against a good one. Never throws.
     /// </summary>
     /// <param name="keySet">The advertised JSON Web Key Set (may be null/empty).</param>
@@ -100,8 +100,8 @@ internal static class OidcSignatureKeys
     // The exclusions and the skip-on-malformed contract live here: a literal null entry (["keys":[null]])
     // must be skipped rather than dereferenced (otherwise the whole verification 500s), a key marked
     // use!="sig" is not a signing key, and un-decodable/invalid key material is caught and skipped so one
-    // broken key in the set cannot take down verification signed by a good one. Returns false — never
-    // throws — on every reject path so the caller drops the key without aborting the scan.
+    // broken key in the set cannot take down verification signed by a good one. Returns false (never
+    // throws) on every reject path so the caller drops the key without aborting the scan.
     private static bool TryConvertSigningKey(Duende.IdentityModel.Jwk.JsonWebKey? webKey, List<IDisposable> ephemeralKeys, [NotNullWhen(true)] out SecurityKey? key)
     {
         key = null;
@@ -138,7 +138,7 @@ internal static class OidcSignatureKeys
 
     // RSA signing key from the JWK e/n pair (RFC 7518). Returns null when the key does not carry both
     // parameters (not RSA-shaped, so the EC conversion is tried instead) OR when the built key is below the
-    // minimum size floor (#733) — an under-strength RSA key from the discovery JWKS (or a compromised one) is
+    // minimum size floor (#733): an under-strength RSA key from the discovery JWKS (or a compromised one) is
     // as forgeable as a weak hash, so it is skipped exactly like a malformed key; the remaining advertised
     // keys decide, and if none is usable verification fails via the key-not-found path. A non-base64url
     // exponent/modulus throws FormatException, surfaced to TryConvertSigningKey's skip path.
@@ -162,7 +162,7 @@ internal static class OidcSignatureKeys
     // EC signing key from the JWK crv/x/y triple. Returns null when a coordinate is absent or the curve is
     // unsupported (TryGetCurve false), so the key is skipped. The ECDsa instance is registered in
     // ephemeralKeys for disposal by the caller. A non-base64url coordinate throws FormatException and an
-    // invalid point throws CryptographicException — both surfaced to TryConvertSigningKey's skip path.
+    // invalid point throws CryptographicException; both surfaced to TryConvertSigningKey's skip path.
     private static ECDsaSecurityKey? ConvertEcSigningKey(Duende.IdentityModel.Jwk.JsonWebKey webKey, List<IDisposable> ephemeralKeys)
     {
         if (string.IsNullOrEmpty(webKey.X) || string.IsNullOrEmpty(webKey.Y) || !TryGetCurve(webKey.Crv, out var curve))

@@ -11,7 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ReplayCache"/> — one-time-use of SAML assertion IDs, the retention
+/// Tests for <see cref="ReplayCache"/>: one-time-use of SAML assertion IDs, the retention
 /// window that keeps a consumed id long enough that it cannot be replayed while still acceptable, and
 /// the throttled cap-refusal capacity-warning signal (#470).
 /// </summary>
@@ -72,7 +72,7 @@ public class SamlReplayCacheTests
     {
         // The security regression: a live consumed assertion must NEVER be evicted to make room, or its
         // replay would be re-admitted. Record X (live), fill the rest of the cap with other live logins,
-        // then push a new distinct login (refused fail-closed), then replay X — X must still be rejected,
+        // then push a new distinct login (refused fail-closed), then replay X; X must still be rejected,
         // proving its live entry survived the cap pressure.
         var cache = SmallCache(cap: 3);
         var expiry = Now.AddMinutes(10);
@@ -120,7 +120,7 @@ public class SamlReplayCacheTests
     {
         // The sweep must be throttled, not run on every consume. Add an entry that expires, then a consume
         // WITHIN the prune interval must leave the expired entry in place (an unthrottled sweep would drop
-        // it) — proving the IntervalGate throttle is in effect.
+        // it), proving the IntervalGate throttle is in effect.
         var cache = new ReplayCache(); // production cap: the cap path never fires here
         Assert.True(cache.TryConsume("_a", Now.AddSeconds(30), Now, out _)); // enters the gate
 
@@ -159,7 +159,7 @@ public class SamlReplayCacheTests
     [Fact]
     public void TryConsume_ReplayRejection_DoesNotSignalCapacityWarning()
     {
-        // A replay returns false but is NOT a capacity refusal, so it must not raise the capacity signal —
+        // A replay returns false but is NOT a capacity refusal, so it must not raise the capacity signal;
         // only a genuine cap refusal does. This keeps the warning a true capacity signal, not a replay tally.
         var cache = SmallCache(cap: 3);
         var expiry = Now.AddMinutes(10);
@@ -183,7 +183,7 @@ public class SamlReplayCacheTests
         // The warning is bounded exactly like the sweeps: the first refusal signals, further refusals inside
         // the interval stay silent (so a compromised IdP replaying at the cap cannot amplify into log
         // volume), and the next interval signals again. The gate is the cache's OWN cap-warn gate, driven by
-        // nowUtc — distinct from the prune gate.
+        // nowUtc, distinct from the prune gate.
         var cache = SmallCache(cap: 2);
         var expiry = Now.AddHours(2); // live well past every nowUtc below, so the cache stays full
         Assert.True(cache.TryConsume("_a", expiry, Now, out _));

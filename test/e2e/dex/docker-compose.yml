@@ -1,6 +1,6 @@
-# End-to-end SSO login harness — Dex provider (#925). Boots a real Jellyfin 10.11 server with the packaged
+# End-to-end SSO login harness: Dex provider (#925). Boots a real Jellyfin 10.11 server with the packaged
 # plugin installed and a real Dex OpenID Provider, driven by the SHARED harness. Dex is the lightest IdP in
-# the matrix: one container, no database, plain http, and a server-rendered HTML login form — so it reuses
+# the matrix: one container, no database, plain http, and a server-rendered HTML login form, so it reuses
 # the harness's HTML-form login path, differing only in the form's user field name (`login`, not `username`).
 #
 # SCOPE LIMIT, deliberate and documented: Dex's local password database carries NO group membership (groups
@@ -8,9 +8,9 @@
 # therefore runs with an EMPTY LOGIN ALLOW-LIST (`OID_ROLES_JSON: "[]"`, the setting that disarms that gate;
 # the separate EnableAuthorization switch stays on here as in every harness) and the role-gate phase skipped,
 # covering the login round-trip and the one-time-use negative. The role gate is proven by the group-capable
-# providers (Keycloak, Authelia, authentik) — see test/e2e/README.md.
+# providers (Keycloak, Authelia, authentik); see test/e2e/README.md.
 #
-# Local run (build the plugin zip first — see test/e2e/README.md):
+# Local run (build the plugin zip first; see test/e2e/README.md):
 #   docker compose -f test/e2e/dex/docker-compose.yml up \
 #     --abort-on-container-exit --exit-code-from harness
 name: sso-e2e-dex
@@ -53,8 +53,8 @@ services:
       # RELATIVE form action, which the shared HTML-form login resolves against the provider origin.
       LOGIN_USER_FIELD: login
       USERNAME_CLAIM: name
-      # No group claim is possible from Dex's local password DB, so the login allow-list is empty — which is
-      # what turns the role gate off — and its phase is skipped rather than asserted against a control this
+      # No group claim is possible from Dex's local password DB, so the login allow-list is empty (which is
+      # what turns the role gate off) and its phase is skipped rather than asserted against a control this
       # provider cannot express.
       OID_ROLES_JSON: "[]"
       DO_NOT_LOAD_PROFILE: "true"

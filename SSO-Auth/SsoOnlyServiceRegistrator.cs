@@ -36,13 +36,13 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
 
         // The plugin's SSRF-hardened outbound client (#755). The OpenID discovery / token / JWKS fetches
         // resolve this named client through SsoHttp.CreateClient, so a provider endpoint that resolves to a
-        // private/loopback address is rejected at the transport layer — the same connect-time guard the
+        // private/loopback address is rejected at the transport layer, the same connect-time guard the
         // avatar fetch uses (SsoHttp.CreateHardenedHandler). A test's stub or loopback factory supplies its
         // own handler for this name, so an in-process test IdP stays reachable while production is fail-closed.
         serviceCollection.AddHttpClient(SsoHttp.OutboundClientName)
             .ConfigurePrimaryHttpMessageHandler(SsoHttp.CreateHardenedHandler)
             // The hardened handler manages its own connection freshness via PooledConnectionLifetime, so the
-            // factory need not also rotate (and rebuild) the handler on its default 2-minute cadence — the
+            // factory need not also rotate (and rebuild) the handler on its default 2-minute cadence; the
             // documented pattern when you own PooledConnectionLifetime. Keeps one long-lived hardened handler
             // (the ConnectCallback still fires on every connect) instead of churning a new one every 2 minutes.
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);

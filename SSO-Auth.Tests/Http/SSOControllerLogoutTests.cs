@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// In-process tests of the RP-initiated OpenID logout endpoint (#727, SLO-2) via
 /// <see cref="SsoControllerHarness"/>. They pin the fail-safe contract: the local Jellyfin logout always
 /// runs, a captured session redirects to the issuer-host-bound end_session URL, and the absence of a
-/// captured session degrades to a local (host-independent) redirect — never a 500 or an external redirect.
+/// captured session degrades to a local (host-independent) redirect, never a 500 or an external redirect.
 /// </summary>
 [Collection("SSOController")]
 public class SSOControllerLogoutTests
@@ -83,7 +83,7 @@ public class SSOControllerLogoutTests
     public async Task OidLogout_EndSessionBuildThrows_LocalLogoutStands_AndDegradesToALocalRedirect()
     {
         // The fail-safe catch (#928 U6, previously untested): a captured session whose stored id_token
-        // cannot be revealed (an ssoenc envelope with no at-rest key — the harness's plugin data dir is a
+        // cannot be revealed (an ssoenc envelope with no at-rest key; the harness's plugin data dir is a
         // fresh temp, so no key exists) makes the end-session URL build throw. The contract: the local
         // logout already ran and STANDS, the browser degrades to a LOCAL redirect, never a 500 and never
         // a half-built external redirect.

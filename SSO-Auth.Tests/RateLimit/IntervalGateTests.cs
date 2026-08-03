@@ -11,7 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Characterization tests pinning IntervalGate's once-per-interval semantics — the shared throttle the
+/// Characterization tests pinning IntervalGate's once-per-interval semantics: the shared throttle the
 /// anonymous-path sweeps and log signals rely on to not amplify a flood into CPU or log volume (#246,
 /// #195). The wall-clock cases (boundary, backward step) are the primary evidence for the #318 step 2b
 /// unification because CI cannot move real time. The guard suppresses a sub-interval span in either
@@ -71,8 +71,8 @@ public class IntervalGateTests
     [Fact]
     public void TryEnter_BackwardClockStepOfAtLeastTheInterval_EntersAndReAnchors()
     {
-        // #246 self-heal: a genuine wall-clock correction — a backward span of at least the interval (DST
-        // fall-back, NTP step) — must not stall the gate. It enters and re-anchors to the earlier time, so
+        // #246 self-heal: a genuine wall-clock correction (a backward span of at least the interval (DST
+        // fall-back, NTP step)) must not stall the gate. It enters and re-anchors to the earlier time, so
         // throttling then resumes from there. Only sub-interval backward spans are treated as stale (#334).
         var gate = new IntervalGate(Interval);
         Assert.True(gate.TryEnter(At(12, 0)));
@@ -87,7 +87,7 @@ public class IntervalGateTests
     public void TryEnter_BackwardStepOfExactlyTheInterval_EntersAndReAnchors()
     {
         // The suppression guard is strict (|span| < interval), so a backward span of exactly one interval is
-        // a correction, not a stale sample: it enters and re-anchors — the backward mirror of the forward
+        // a correction, not a stale sample: it enters and re-anchors; the backward mirror of the forward
         // exactly-the-interval case, keeping the self-heal boundary symmetric.
         var gate = new IntervalGate(Interval);
         var t0 = At(12, 0);
@@ -98,8 +98,8 @@ public class IntervalGateTests
     [Fact]
     public void TryEnter_StaleSubIntervalOlderSample_IsSuppressed()
     {
-        // A caller whose captured 'now' is merely stale — descheduled between reading the clock and entering,
-        // so it lands just behind the cursor (a sub-interval backward span) — is now suppressed, closing the
+        // A caller whose captured 'now' is merely stale (descheduled between reading the clock and entering,
+        // so it lands just behind the cursor (a sub-interval backward span)) is now suppressed, closing the
         // #334 fail-open second admission. The cursor is left untouched, so throttling still lifts exactly one
         // interval after the real entry; a stale blip can neither re-admit nor stall the gate.
         var gate = new IntervalGate(Interval);
@@ -115,7 +115,7 @@ public class IntervalGateTests
     [Fact]
     public void TryEnter_RepeatedSubIntervalBackwardBlips_NeverStallBeyondOneInterval()
     {
-        // The dangerous direction is a stall — a capped store refusing forever. Suppressing sub-interval
+        // The dangerous direction is a stall: a capped store refusing forever. Suppressing sub-interval
         // backward blips leaves the cursor untouched, so admission is still guaranteed one interval after the
         // last real entry no matter how many stale blips arrive; the wait can never exceed one interval.
         var gate = new IntervalGate(Interval);
@@ -141,7 +141,7 @@ public class IntervalGateTests
     public async Task TryEnter_ConcurrentCallersInOneInterval_AdmitExactlyOne()
     {
         // The CAS guarantees a single winner per interval, so a flood of concurrent anonymous hits runs the
-        // throttled action at most once — the property that makes it a DoS-safe throttle at every call site.
+        // throttled action at most once, the property that makes it a DoS-safe throttle at every call site.
         var gate = new IntervalGate(Interval);
         var now = At(0, 0);
         var winners = 0;

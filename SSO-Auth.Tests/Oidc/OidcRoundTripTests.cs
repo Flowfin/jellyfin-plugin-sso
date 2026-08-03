@@ -20,23 +20,23 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// End-to-end OpenID round-trip tests (#192, layer 3) that drive the FULL plugin login flow —
-/// <c>OidChallenge</c> → <c>OidCallback</c> → <c>OidAuth</c> — against a self-consistent in-test identity
+/// End-to-end OpenID round-trip tests (#192, layer 3) that drive the FULL plugin login flow (
+/// <c>OidChallenge</c> → <c>OidCallback</c> → <c>OidAuth</c>) against a self-consistent in-test identity
 /// provider, with NO test-seeded state. Unlike <see cref="SSOControllerOidAuthTests"/> (which seeds a
 /// Ready state directly) and <see cref="SSOControllerOidPostTests"/> (whose callback tests seed the
 /// Pending state via <c>ArrangeCallback</c>), here the state token, the PKCE <c>code_verifier</c>, and the
-/// browser-binding cookie are all minted by the real challenge leg and carried through the redeem — so the
+/// browser-binding cookie are all minted by the real challenge leg and carried through the redeem, so the
 /// test proves those three legs agree on the exact values that pass between them, browser aside.
 ///
 /// The fake IdP is the existing <see cref="OidcTokenFixture"/> (discovery document + JWKS + token endpoint
 /// returning a real signed id_token), served in-process through <see cref="SsoControllerHarness"/>'s stub
-/// HTTP responder — no new provider fake is introduced, since that fixture already IS a complete,
+/// HTTP responder; no new provider fake is introduced, since that fixture already IS a complete,
 /// self-consistent OIDC provider surface.
 ///
 /// The happy path asserts a valid signed id_token yields a logged-in outcome (an <see cref="OkObjectResult"/>
 /// with the account provisioned exactly once). The negative round-trip signs the id_token with a key that
 /// does NOT match the JWKS the same IdP advertises, so the real <see cref="OidcIdTokenValidator"/> rejects
-/// it on signature — the callback fails closed with a 400 and the state is never promoted, so the redeem
+/// it on signature: the callback fails closed with a 400 and the state is never promoted, so the redeem
 /// mints nothing.
 /// </summary>
 [Collection("SSOController")]
@@ -79,7 +79,7 @@ public class OidcRoundTripTests
     {
         using var idp = new OidcTokenFixture(Authority, "jf");
         // A SECOND fixture with its own throw-away RSA key. Its id_token carries byte-for-byte valid claims
-        // (same issuer, audience, lifetime) but is signed by a key the IdP does not advertise in its JWKS —
+        // (same issuer, audience, lifetime) but is signed by a key the IdP does not advertise in its JWKS,
         // so only the signature is wrong. This is the real signature check under test, isolated from every
         // other validation (iss/aud/exp all match), exercising OidcIdTokenValidator against a self-consistent
         // fake IdP whose token was minted by a foreign key.
@@ -91,8 +91,8 @@ public class OidcRoundTripTests
 
         // The callback must fail closed: the signature does not verify against the advertised JWKS, so the
         // real validator rejects and CallbackAsync returns the plain-text 400 login error (never the
-        // text/html auth page). The body is the fixed generic message — the library's error detail
-        // (invalid_signature) is logged server-side, not reflected into the browser page (#708) — so this
+        // text/html auth page). The body is the fixed generic message; the library's error detail
+        // (invalid_signature) is logged server-side, not reflected into the browser page (#708), so this
         // asserts the generic body and that the detail is absent rather than pinning on the reflected reason.
         RepointToCallback(harness, state, binding, query: $"?code=test-code&state={state}");
         var callback = Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state));
@@ -102,7 +102,7 @@ public class OidcRoundTripTests
         Assert.DoesNotContain("invalid_signature", callback.Content);
 
         // End-to-end fail-closed: because the callback never promoted the state to a redeemable Ready, the
-        // authenticate leg finds no state to redeem and provisions nothing — no login is minted from a token
+        // authenticate leg finds no state to redeem and provisions nothing; no login is minted from a token
         // the IdP's own key did not sign.
         var authed = await harness.Controller.OidAuth("kc", Redeem(state));
         var content = Assert.IsType<ContentResult>(authed);
@@ -222,7 +222,7 @@ public class OidcRoundTripTests
     {
         // #961 fail-closed: MaxAge set but the provider ignored max_age and returned no auth_time ⇒ the
         // callback denies before promoting a Ready, so the redeem finds no state and mints nothing. This is
-        // the whole point of the gate — a provider that ignores max_age must not pass silently.
+        // the whole point of the gate: a provider that ignores max_age must not pass silently.
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var idToken = fixture.IdToken(subject: "sub-1", username: "alice"); // no auth_time
         var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, idToken), cfg => cfg.MaxAge = 300);
@@ -288,7 +288,7 @@ public class OidcRoundTripTests
     [Fact]
     public async Task LinkingChallenge_ThreadsIsLinkingIntoTheRegisteredState()
     {
-        // #928 U6: the OIDC linking-mode challenge was never driven end-to-start — only hand-seeded states
+        // #928 U6: the OIDC linking-mode challenge was never driven end-to-start; only hand-seeded states
         // carried the flag. isLinking=true through the real OidChallenge must register an authorize state
         // whose summary says linking, which is what the callback later uses to route to the link workflow
         // instead of a login.
@@ -311,7 +311,7 @@ public class OidcRoundTripTests
         // #928 U3: PAR is ON by default in production (DisablePushedAuthorization defaults false), yet no
         // test anywhere exercised the enabled path. With the provider advertising the RFC 9126 endpoint and
         // the default config, the challenge must POST the authorization parameters to the PAR endpoint and
-        // redirect with ONLY request_uri + client_id — no code_challenge/redirect_uri/scope in the front
+        // redirect with ONLY request_uri + client_id; no code_challenge/redirect_uri/scope in the front
         // channel (that is PAR's confidentiality point).
         using var fixture = new OidcTokenFixture(Authority, "jf");
         string? pushedBody = null;
@@ -363,7 +363,7 @@ public class OidcRoundTripTests
     public async Task ParEnabledButNotAdvertised_ChallengeUsesThePlainRedirect()
     {
         // The compatibility half of the production default: a provider that advertises no PAR endpoint
-        // still gets the ordinary front-channel redirect — PAR-on is safe against non-PAR providers, which
+        // still gets the ordinary front-channel redirect; PAR-on is safe against non-PAR providers, which
         // is what makes default-on shippable.
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var harness = BuildHarness(
@@ -423,7 +423,7 @@ public class OidcRoundTripTests
     }
 
     // Drives a real OidChallenge on the descriptive start route and returns the state token + browser-binding
-    // cookie value it minted — the exact pair the callback and redeem legs must present.
+    // cookie value it minted, the exact pair the callback and redeem legs must present.
     private static async Task<(string State, string Binding)> DriveChallenge(SsoControllerHarness harness)
     {
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";

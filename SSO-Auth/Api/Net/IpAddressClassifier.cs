@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Net;
 /// public address: the avatar-fetch SSRF guard (AvatarUrlValidator) rejects a blocked target
 /// before fetching it, and the login rate limiter (SsoRateLimiter.NormalizeClientKey) exempts a
 /// blocked/non-public connection address from throttling entirely. Neither caller's own file is the right
-/// home for this shared invariant — tuning the avatar SSRF policy must never silently change which clients
+/// home for this shared invariant; tuning the avatar SSRF policy must never silently change which clients
 /// the login rate limiter exempts, and vice versa (#370).
 /// </summary>
 internal static class IpAddressClassifier

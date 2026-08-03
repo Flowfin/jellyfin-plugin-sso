@@ -12,8 +12,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Tests for the malformed-input handling on the SAML callback (#199): <see cref="SamlResponseLoader.TryParse"/>
 /// maps the constructor's malformed-input exceptions to a fail-closed <see langword="false"/> (so the
-/// endpoints return a clean 4xx rather than an unhandled HTTP 500), and <see cref="SamlResponse.GetSignatureAlgorithm"/>
-/// — a failure-log diagnostic — never throws on a malformed signature element.
+/// endpoints return a clean 4xx rather than an unhandled HTTP 500), and <see cref="SamlResponse.GetSignatureAlgorithm"/>,
+/// a failure-log diagnostic, never throws on a malformed signature element.
 /// </summary>
 public class SamlResponseParsingTests
 {
@@ -41,7 +41,7 @@ public class SamlResponseParsingTests
     {
         // A body longer than the pre-decode cap is an unauthenticated pre-signature DoS attempt (#249/#754):
         // it must be refused fail-closed BEFORE any base64 decode / DOM build, spending no crypto or bulk
-        // allocation on the untrusted input. The exact bytes are irrelevant — the length gate fires first —
+        // allocation on the untrusted input. The exact bytes are irrelevant (the length gate fires first)
         // so a plainly over-length string is enough; the result is a clean rejection, never an unmapped throw.
         var fixture = SamlTestFactory.Create();
         var oversized = new string('A', SamlResponseLoader.MaxEncodedResponseLength + 1);
@@ -87,7 +87,7 @@ public class SamlResponseParsingTests
     [Fact]
     public void TryParse_OversizedResponse_ReturnsFalse()
     {
-        // A body over the length cap is rejected before any base64 decode / DOM parse (#249) — fail
+        // A body over the length cap is rejected before any base64 decode / DOM parse (#249): fail
         // closed, with no crypto or bulk allocation spent on an untrusted multi-MB body.
         var fixture = SamlTestFactory.Create();
         var oversized = new string('A', SamlResponseLoader.MaxEncodedResponseLength + 1);

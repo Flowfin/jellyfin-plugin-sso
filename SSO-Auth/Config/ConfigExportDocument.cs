@@ -5,8 +5,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 
 /// <summary>
 /// The portable document produced by the admin config export and consumed by the import (#161): a version
-/// marker plus the redacted plugin configuration. It is a JSON-only transport shape — never persisted to
-/// the config XML — so it carries no XML-serialization attributes. Serializing it applies the config's
+/// marker plus the redacted plugin configuration. It is a JSON-only transport shape, never persisted to
+/// the config XML, so it carries no XML-serialization attributes. Serializing it applies the config's
 /// existing JSON-boundary redaction unchanged: the provider secrets (<see cref="OidConfig.OidSecret"/>,
 /// <see cref="SamlConfig.SamlSigningKeyPfx"/>, <see cref="SamlConfig.SamlRolloverSigningKeyPfx"/>) are
 /// withheld by their <see cref="WriteOnlySecretConverter"/> and the server-managed link maps by

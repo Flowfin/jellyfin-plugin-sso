@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="SamlAuthorizeStateBuilder.Build"/> — the admin/Live TV/
+/// Characterization tests for <see cref="SamlAuthorizeStateBuilder.Build"/>: the admin/Live TV/
 /// folder privilege derivation extracted from the SAML callback. These pin the exact behavior (folder
 /// defaulting, the config-default-then-role-grant merge for Live TV, and the admin/folder grants) so
 /// the extraction is a proven no-op. Login validity and the username are decided elsewhere, so they

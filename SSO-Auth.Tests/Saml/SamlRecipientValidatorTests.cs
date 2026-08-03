@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlRecipientValidator"/> — the pure endpoint-binding check (#156): the
+/// Tests for <see cref="SamlRecipientValidator"/>: the pure endpoint-binding check (#156): the
 /// signed Recipient (required) and the Response Destination (when present) must match one of this
 /// service provider's assertion-consumer URLs.
 /// </summary>
@@ -29,7 +29,7 @@ public class SamlRecipientValidatorTests
     [Fact]
     public void RecipientMatchingLegacyPathForm_IsBound()
     {
-        // Either advertised path spelling (post/p) is accepted — the NewPath-flip robustness.
+        // Either advertised path spelling (post/p) is accepted, the NewPath-flip robustness.
         Assert.True(SamlRecipientValidator.IsBound("https://jf.example/sso/SAML/p/idp", null, AcsUrls));
     }
 

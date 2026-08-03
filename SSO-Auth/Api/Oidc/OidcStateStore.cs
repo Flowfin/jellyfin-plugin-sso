@@ -34,7 +34,7 @@ internal sealed class OidcStateStore
 
     // The expired-state sweep (PruneExpired) is an O(n) scan; throttling it to at most once per this
     // interval stops an anonymous challenge flood from amplifying into CPU load (mirrors
-    // SamlRequestCache). This only defers memory reclamation — the peek/redeem predicates reject an
+    // SamlRequestCache). This only defers memory reclamation; the peek/redeem predicates reject an
     // expired state independently, so a not-yet-swept entry never grants a login (#246).
 
     /// <summary>The minimum interval between expired-state sweeps, keeping the O(n) scan off the anonymous hot path.</summary>
@@ -47,7 +47,7 @@ internal sealed class OidcStateStore
     // sweep); a plain Dictionary corrupts or throws under that interleaving. The pending -> ready
     // transition is a single atomic TryUpdate and the redeem a single atomic TryRemove, so a state is
     // promoted and claimed exactly once with no torn read. StringComparer.Ordinal is what the default
-    // string comparer already is — stated explicitly so the ordinal token matching is visible.
+    // string comparer already is, stated explicitly so the ordinal token matching is visible.
     private readonly ConcurrentDictionary<string, AuthorizeSession> _states = new(StringComparer.Ordinal);
 
     // Throttles the sweep to one run per interval; the gate owns the atomic cursor. See PruneExpired.
@@ -56,7 +56,7 @@ internal sealed class OidcStateStore
     // Throttles the capacity-full warning (#246, CWE-400) to one signal per interval: under a flood
     // every refused challenge would otherwise emit a warning, amplifying the flood into unbounded log
     // volume. The gate self-heals a backward wall-clock step of at least the interval (re-anchors); a
-    // sub-interval backward step is a stale sample, suppressed with the cursor untouched (#334) — still
+    // sub-interval backward step is a stale sample, suppressed with the cursor untouched (#334); still
     // without stalling like the hand-rolled predecessor.
     private readonly IntervalGate _capWarnGate;
 
@@ -97,10 +97,10 @@ internal sealed class OidcStateStore
 
     /// <summary>
     /// Registers a fresh challenge's fully-formed <see cref="AuthorizeSession.Pending"/>, keyed by its
-    /// CSPRNG state token — so the key always equals the token the callback presents. The Pending arrives
+    /// CSPRNG state token, so the key always equals the token the callback presents. The Pending arrives
     /// complete (discovery reuse and the RFC 9207 response-iss requirement folded in at construction), so
     /// registration is a single atomic insert with no post-hoc mutation of a stored entry (#341). At the
-    /// cap a NEW key is refused (that one login fails closed) rather than evicting an in-flight state —
+    /// cap a NEW key is refused (that one login fails closed) rather than evicting an in-flight state;
     /// evicting would drop a user already mid-login (a mass-lockout hazard under a flood). The
     /// check-then-insert is not serialized (no lock on the anonymous hot path), so concurrent adds can
     /// transiently overshoot by at most the number of in-flight threads. On refusal,
@@ -125,7 +125,7 @@ internal sealed class OidcStateStore
             || !_states.TryAdd(pending.Token, pending))
         {
             // The entry never entered the store (global cap, or a CSPRNG-token collision losing the
-            // atomic add) — release the reservation so the client's bucket does not leak a slot.
+            // atomic add): release the reservation so the client's bucket does not leak a slot.
             _perClient.Release(pending.ClientKey);
             shouldWarnCapacity = _capWarnGate.TryEnter(pending.Created);
             return false;
@@ -141,7 +141,7 @@ internal sealed class OidcStateStore
     /// provider, is within its lifetime, and matches the presented browser binding; null otherwise. So a
     /// state issued for one provider cannot be validated on another's callback, and a state whose callback
     /// already ran (now a Ready, or gone) is not peeked again. No removal: the token is an unguessable
-    /// CSPRNG value and expiry pruning is handled by the sweep. A peek structurally cannot mint a session —
+    /// CSPRNG value and expiry pruning is handled by the sweep. A peek structurally cannot mint a session;
     /// only <see cref="Promote"/> produces the redeemable <see cref="AuthorizeSession.Ready"/> (#318, #341).
     /// </summary>
     /// <param name="token">The state token the callback presented.</param>
@@ -165,8 +165,8 @@ internal sealed class OidcStateStore
     /// <see cref="AuthorizeSession.Ready"/> carrying the role-gate result, replacing the in-place field
     /// copy of the old design (#341). The compare-and-set only succeeds while the stored value is still
     /// the exact Pending the callback peeked, so a state is promoted at most once (single winner under
-    /// concurrent callbacks) and a redeemer never observes a half-built Ready — it holds either the whole
-    /// Pending (not redeemable) or the whole Ready. Returns false — a no-op — if the entry was already
+    /// concurrent callbacks) and a redeemer never observes a half-built Ready; it holds either the whole
+    /// Pending (not redeemable) or the whole Ready. Returns false (a no-op) if the entry was already
     /// promoted, redeemed, or pruned in the gap since the peek; the callback still returns its page and
     /// the single Ready (if any) is consumed once at redeem.
     /// </summary>
@@ -180,7 +180,7 @@ internal sealed class OidcStateStore
 
     /// <summary>
     /// The one-time atomic claim: the store is keyed by the authorize-state token, which is exactly the
-    /// presented response value, so this is an O(1) lookup plus an atomic TryRemove(KeyValuePair) — only
+    /// presented response value, so this is an O(1) lookup plus an atomic TryRemove(KeyValuePair); only
     /// the request that wins the removal proceeds, so one state mints at most one session even under
     /// concurrent posts. Redeemable only once it is a <see cref="AuthorizeSession.Ready"/> (the role gate
     /// passed via <see cref="Promote"/>); a still-pending or already-claimed state returns null (#318, #341).

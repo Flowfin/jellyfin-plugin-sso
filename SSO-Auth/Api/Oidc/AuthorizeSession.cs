@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// The in-flight OpenID authorize state as a closed, immutable sum of two variants: a
 /// <see cref="Pending"/> registered at the challenge, atomically swapped for a <see cref="Ready"/> at
 /// the callback once the role gate passes (#341). Which variant the store holds IS the "role gate
-/// passed" fact — there is no mutable validity flag, and there is no in-place field copy, so a
+/// passed" fact: there is no mutable validity flag, and there is no in-place field copy, so a
 /// redeemer racing the promotion observes either the whole <see cref="Pending"/> (never redeemable)
 /// or the whole <see cref="Ready"/>, never a half-applied field set. The hierarchy is closed by a
 /// private constructor: only the two nested variants can derive from it (#318).
@@ -21,8 +21,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 internal abstract class AuthorizeSession
 {
     // Private so the sum is closed to exactly the two nested variants below: a nested type can call the
-    // enclosing type's private constructor through base(...), but no other type — in this assembly or
-    // any other — can introduce a third variant.
+    // enclosing type's private constructor through base(...), but no other type (in this assembly or
+    // any other) can introduce a third variant.
     private AuthorizeSession(string token, string provider, bool isLinking, string bindingId, string? clientKey, DateTime created)
     {
         Token = token;
@@ -63,7 +63,7 @@ internal abstract class AuthorizeSession
     /// <summary>
     /// The challenge-time variant: it carries everything the callback's token exchange needs (the
     /// OidcClient authorize state, the reused discovery metadata, the RFC 9207 response-iss requirement)
-    /// but none of the derived identity or privileges — so holding a <see cref="Pending"/> structurally
+    /// but none of the derived identity or privileges, so holding a <see cref="Pending"/> structurally
     /// cannot mint a session. Immutable: every field is set at construction (#341).
     /// </summary>
     internal sealed class Pending : AuthorizeSession
@@ -114,7 +114,7 @@ internal abstract class AuthorizeSession
 
     /// <summary>
     /// The callback-time variant: an immutable snapshot of the redeemed identity and privileges, produced
-    /// only from a passed role gate. Its existence in the store is the evidence that the login is valid —
+    /// only from a passed role gate. Its existence in the store is the evidence that the login is valid;
     /// <see cref="OidcStateStore.TryRedeem"/> is the only code that hands one out, and only after the
     /// one-time atomic claim, so code taking a <see cref="Ready"/> cannot run before that claim (#318, #341).
     /// </summary>
@@ -133,9 +133,9 @@ internal abstract class AuthorizeSession
         {
             // The role gate has passed, so this is exactly the point at which an OpenID login becomes a
             // fully-verified identity (#473): fold the derived result into the one protocol-agnostic
-            // VerifiedIdentity the mint path is keyed on. Building it here — inside the variant the store
+            // VerifiedIdentity the mint path is keyed on. Building it here (inside the variant the store
             // only ever produces for a promoted state and only hands out through the one-time atomic
-            // redeem — is what makes this the OpenID construction site the keystone's contract names.
+            // redeem) is what makes this the OpenID construction site the keystone's contract names.
             // Destructure the role-gate result into the protocol-agnostic ValidatedLogin the keystone takes
             // (#790). The subject and username are non-null by this point: the callback rejects a valid login
             // that resolved no subject (#155) or no username (#95) before the state is promoted, so the
@@ -170,7 +170,7 @@ internal abstract class AuthorizeSession
         internal VerifiedIdentity Identity { get; }
 
         /// <summary>
-        /// Gets the OpenID logout material captured at the callback (#727) — the id_token and sid the mint
+        /// Gets the OpenID logout material captured at the callback (#727): the id_token and sid the mint
         /// persists for Single Logout when it is enabled.
         /// </summary>
         internal LogoutContext LogoutContext { get; }

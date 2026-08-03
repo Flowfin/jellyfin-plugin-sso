@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 /// <summary>
 /// The single translation from a <see cref="LoginOutcome"/> to an HTTP response. Rejection bodies
 /// are plain text and deliberately uniform per category, so a response does not reveal why it was
-/// rejected beyond what the category already states publicly — the server log disambiguates. This is
+/// rejected beyond what the category already states publicly; the server log disambiguates. This is
 /// also the one place the rate-limit 429 and its Retry-After header are emitted (#474): a Throttled
 /// outcome carries the delay and is rendered through the response-aware overload, which owns the header.
 /// </summary>
@@ -20,21 +20,21 @@ internal static class LoginStatusMapper
 {
     /// <summary>
     /// The uniform denial body for any rejected login. Actionable without enumerating (#668): it tells the
-    /// user their account is not permitted through this provider — the most common trigger is the role
-    /// allow-list not matching — without revealing which accounts or roles are allowed. The server log
+    /// user their account is not permitted through this provider (the most common trigger is the role
+    /// allow-list not matching) without revealing which accounts or roles are allowed. The server log
     /// disambiguates the exact reason.
     /// </summary>
     internal const string PermissionDeniedMessage = "Login denied. Your account is not permitted to sign in through this provider.";
 
     /// <summary>
-    /// The body for an unresolved provider — one wording for both the unknown and the disabled case,
+    /// The body for an unresolved provider: one wording for both the unknown and the disabled case,
     /// so the two cannot be told apart (no provider-enumeration oracle). Shared with the controller's
     /// remaining direct provider-lookup rejections so the wording is defined once.
     /// </summary>
     internal const string NoMatchingProviderMessage = "No matching provider found";
 
     /// <summary>
-    /// The rate-limit 429 body (#128, #474) — deliberately human-readable rather than a bare status, since
+    /// The rate-limit 429 body (#128, #474), deliberately human-readable rather than a bare status, since
     /// the challenge/callback endpoints are navigated directly in the browser and a blank 429 would look
     /// like a broken login (the XHR auth page reads the status, not this body). Worded generically rather
     /// than "login attempts" because the same gate, and so the same body, also fronts the authenticated
@@ -45,7 +45,7 @@ internal static class LoginStatusMapper
 
     /// <summary>
     /// The body for an unusable authorization state (unknown, expired, cross-provider, or cross-browser).
-    /// Shared with the OpenID callback's direct pre-mint state rejection so the wording is defined once —
+    /// Shared with the OpenID callback's direct pre-mint state rejection so the wording is defined once;
     /// the browser error page localizes a rejection body by matching it to its catalog key (#913), so a
     /// duplicated literal that drifted from this one would silently stop localizing.
     /// </summary>
@@ -54,8 +54,8 @@ internal static class LoginStatusMapper
     /// <summary>
     /// Translates a login outcome into its HTTP result, mapping success to the session body and each refusal
     /// to its fail-closed public status/message. A <see cref="LoginOutcome.Throttled"/> cannot be rendered
-    /// here because it needs the response for its Retry-After header — it throws, forcing callers through the
-    /// response-aware overload — and an impossible case is a server fault that also throws (never a
+    /// here because it needs the response for its Retry-After header; it throws, forcing callers through the
+    /// response-aware overload, and an impossible case is a server fault that also throws (never a
     /// default-accept).
     /// </summary>
     /// <param name="outcome">The login outcome to translate.</param>
@@ -68,16 +68,16 @@ internal static class LoginStatusMapper
         LoginOutcome.Rejected rejected => ToActionResult(rejected.Reason),
         // Throttled carries a Retry-After header this pure overload cannot set; it must be rendered through
         // ToActionResult(outcome, response). Reaching here is a wiring fault, so it throws (500) rather than
-        // silently emitting a 429 without the header — fail closed, never a default-accept.
+        // silently emitting a 429 without the header: fail closed, never a default-accept.
         LoginOutcome.Throttled => throw new InvalidOperationException("Throttled must be mapped through the response-aware overload so Retry-After is set."),
         // Unreachable while the sum stays closed, but the compiler cannot prove it; an impossible
-        // case is a genuine server fault, so it throws (500) — never a default-accept.
+        // case is a genuine server fault, so it throws (500), never a default-accept.
         _ => throw new InvalidOperationException($"Unhandled login outcome: {outcome.GetType().Name}"),
     };
 
     /// <summary>
     /// Renders an outcome that may need the response. The only such case is <see cref="LoginOutcome.Throttled"/>,
-    /// whose 429 carries a Retry-After header — this is the single place that header is set. Every other outcome
+    /// whose 429 carries a Retry-After header; this is the single place that header is set. Every other outcome
     /// defers to the pure overload unchanged, so a caller can route all outcomes through this one.
     /// </summary>
     /// <param name="outcome">The login outcome to translate.</param>
@@ -102,7 +102,7 @@ internal static class LoginStatusMapper
         PublicReason.AcrNotSatisfied => Emit(StatusCodes.Status403Forbidden, "A stronger authentication level (for example MFA) is required to log in."),
         PublicReason.AuthTooOld => Emit(StatusCodes.Status403Forbidden, "You authenticated too long ago; please sign in again."),
         // A new PublicReason member without a mapper entry fails loudly here, and the totality test
-        // enumerating every member catches it before it can ship — never a fall-through.
+        // enumerating every member catches it before it can ship, never a fall-through.
         _ => throw new InvalidOperationException($"Unmapped public reason: {reason}"),
     };
 

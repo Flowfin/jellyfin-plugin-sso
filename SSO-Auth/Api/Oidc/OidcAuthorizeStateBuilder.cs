@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// access, avatar) from a verified OpenID login's claims and the provider configuration. Pure: it
 /// reads only (claims, config) and returns the derived values, which the OID callback assigns onto
 /// the fresh authorize state. Mirrors, one-for-one, the derivation that used to live inline in the
-/// callback — including its quirks (username is the last matching claim; the "sub" claim is a
+/// callback, including its quirks (username is the last matching claim; the "sub" claim is a
 /// fallback only when no allow-list made the login valid; a null <c>Roles</c> array in that fallback
 /// still throws, an admin misconfiguration that fails closed).
 /// </summary>
@@ -55,7 +55,7 @@ internal static class OidcAuthorizeStateBuilder
         // OIDC Core requires and (post-#134) the id_token validator has verified. Unlike the username
         // (derived from the mutable preferred_username), it never changes for a given end user at a
         // given provider, so an IdP-side rename cannot detach or re-link the account. The last "sub"
-        // wins, matching the sub fallback below. Independent of validity — the link key is needed
+        // wins, matching the sub fallback below. Independent of validity: the link key is needed
         // whenever the login is valid, not only in the fallback path; the callback rejects a valid
         // login that resolved no subject (fail closed).
         var subject = ResolveSubject(claimList);
@@ -63,12 +63,12 @@ internal static class OidcAuthorizeStateBuilder
         // The provider's assertion that the login's email is verified (#218), carried to the adoption
         // gate so a provider that requires it can refuse a name-based adoption without one. Null when the
         // claim is absent (the IdP does not emit it, or the "email" scope was not requested); the gate
-        // treats absent exactly like false — fail closed — when the requirement is on. Independent of
+        // treats absent exactly like false (fail closed) when the requirement is on. Independent of
         // validity and of the username, like the subject above.
         var emailVerified = ResolveEmailVerified(claimList);
 
         // Assemble the role-derived privileges (folders, admin, Live TV) in the single shared home
-        // (#508); OR the assembled validity into the running validity — the SAML builder ignores it.
+        // (#508); OR the assembled validity into the running validity; the SAML builder ignores it.
         var privileges = RolePrivilegeMapper.AssemblePrivileges(roles, config);
         valid |= privileges.Valid;
         var admin = privileges.Admin;
@@ -88,7 +88,7 @@ internal static class OidcAuthorizeStateBuilder
         // subject was already resolved above (last "sub" wins), so this reuses it instead of scanning
         // the claims a second time. Faithful to the original: unlike the preferred-username branch, this
         // does NOT null-check config.Roles, so a null Roles array throws here (an admin misconfiguration
-        // where RBAC is off and the provider supplies only "sub") — the null-forgiving operator keeps
+        // where RBAC is off and the provider supplies only "sub"); the null-forgiving operator keeps
         // that exact fail-closed behavior, tracked in #89. Reached only when a sub exists (subject is
         // non-null), matching the old loop, which touched Roles only inside a sub-claim iteration.
         if (!valid && subject != null)
@@ -99,7 +99,7 @@ internal static class OidcAuthorizeStateBuilder
 
         // Fail closed (#95): a valid login must also have resolved an identity. A role matching the
         // allow-list can make the login valid while no username/sub claim resolved a username; such a
-        // state used to reach account creation with a null name and fail with a 500 — reject it as an
+        // state used to reach account creation with a null name and fail with a 500; reject it as an
         // invalid login instead. Whitespace-only counts as unresolved: Jellyfin's own username
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
@@ -143,10 +143,10 @@ internal static class OidcAuthorizeStateBuilder
     }
 
     // Resolves the avatar URL. With a configured format the template wins: @{claimType} tokens are
-    // substituted (for a duplicate claim type the first occurrence wins — after the first Replace the
+    // substituted (for a duplicate claim type the first occurrence wins; after the first Replace the
     // token is gone, and Replace on an absent token returns the instance unchanged). With no format
     // (null or empty) the resolver falls back to the standard OIDC `picture` claim verbatim (#723) so a
-    // standards-compliant IdP yields an avatar with zero configuration — UNLESS the admin has opted out
+    // standards-compliant IdP yields an avatar with zero configuration, UNLESS the admin has opted out
     // via DisableAvatarFromPictureClaim, in which case no candidate is produced and nothing is fetched.
     // Either way this only produces a CANDIDATE URL: AvatarService.TrySetAsync still gates the fetch
     // through AvatarUrlValidator, so a `picture` (or templated) URL to a private/loopback host is refused
@@ -181,7 +181,7 @@ internal static class OidcAuthorizeStateBuilder
     }
 
     // Splits the configured role-claim path on unescaped dots; escaped "\." are normalized to ".".
-    // Computed once per login — the path depends only on the configuration, not on any claim.
+    // Computed once per login; the path depends only on the configuration, not on any claim.
     private static string[] SplitRoleClaimPath(OidConfig config)
     {
         return string.IsNullOrEmpty(config.RoleClaim)
@@ -236,7 +236,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="EnableLiveTv">Whether the login grants Live TV access.</param>
     /// <param name="EnableLiveTvManagement">Whether the login grants Live TV management.</param>
     /// <param name="Folders">The enabled folders (statically enabled plus role-granted).</param>
-    /// <param name="AvatarUrl">The resolved avatar candidate URL: the configured AvatarUrlFormat template with @{claim} tokens substituted, or — when no template is configured (null/empty) — the standard OIDC "picture" claim (#723); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator.</param>
+    /// <param name="AvatarUrl">The resolved avatar candidate URL: the configured AvatarUrlFormat template with @{claim} tokens substituted, or, when no template is configured (null/empty), the standard OIDC "picture" claim (#723); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator.</param>
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     internal readonly record struct OidcAuthorizeState(
@@ -256,7 +256,7 @@ internal static class OidcAuthorizeStateBuilder
         /// <summary>
         /// Gets the raw OpenID <c>id_token</c>, captured at the callback for a later RP-initiated logout
         /// <c>id_token_hint</c> (#727, SLO-1b). Set via <c>with</c> after the role gate; null unless Single
-        /// Logout is on. A bearer secret — it rides the one-time in-memory Ready and is encrypted once
+        /// Logout is on. A bearer secret: it rides the one-time in-memory Ready and is encrypted once
         /// persisted at capture.
         /// </summary>
         internal string? IdToken { get; init; }

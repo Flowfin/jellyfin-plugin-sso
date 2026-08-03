@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcIdTokenAcr"/> — the step-up gate reads the acr claim from the RAW, signature-
+/// Tests for <see cref="OidcIdTokenAcr"/>: the step-up gate reads the acr claim from the RAW, signature-
 /// verified id_token (#757), never the UserInfo-merged principal, so a UserInfo-supplied acr cannot satisfy
 /// the requirement. A degenerate token yields null (fail-closed at the gate) rather than throwing.
 /// </summary>

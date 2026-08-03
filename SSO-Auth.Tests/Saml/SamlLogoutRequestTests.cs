@@ -37,7 +37,7 @@ public class SamlLogoutRequestTests
     [Fact]
     public void UnsignedRequest_IsRejected()
     {
-        // T-S1 (spoofing): an unsigned LogoutRequest must never validate — THE core defense.
+        // T-S1 (spoofing): an unsigned LogoutRequest must never validate, THE core defense.
         var fixture = SamlLogoutTestFactory.Create(sign: false);
 
         using var request = Parse(fixture.CertificateBase64, fixture.EncodeRequest());
@@ -48,7 +48,7 @@ public class SamlLogoutRequestTests
     [Fact]
     public void RequestSignedByAnotherCertificate_IsRejected()
     {
-        // T-S1: signed by a real key, but the provider trusts a DIFFERENT certificate — the crypto check
+        // T-S1: signed by a real key, but the provider trusts a DIFFERENT certificate; the crypto check
         // must reject it (a forged/attacker-signed request).
         var fixture = SamlLogoutTestFactory.Create();
 
@@ -71,7 +71,7 @@ public class SamlLogoutRequestTests
     [Fact]
     public void WeakSigningKey_IsRejected()
     {
-        // A 1024-bit RSA key is below the shared signing-key strength floor (SamlCertificate) — its signature
+        // A 1024-bit RSA key is below the shared signing-key strength floor (SamlCertificate); its signature
         // is not accepted even though it verifies.
         var fixture = SamlLogoutTestFactory.Create(signingKeyBits: 1024);
 
@@ -84,7 +84,7 @@ public class SamlLogoutRequestTests
     public void SignatureWrappingOverASmuggledSibling_IsRejected()
     {
         // T-T1 (signature wrapping): a cryptographically valid signature whose single reference covers a
-        // smuggled sibling — not the LogoutRequest root — must be rejected by the reference-covers-root bind.
+        // smuggled sibling (not the LogoutRequest root) must be rejected by the reference-covers-root bind.
         var fixture = SamlLogoutTestFactory.Create(wrapSignature: true);
 
         using var request = Parse(fixture.CertificateBase64, fixture.EncodeRequest());
@@ -124,7 +124,7 @@ public class SamlLogoutRequestTests
     [Fact]
     public void ExpiredNotOnOrAfter_IsRejected()
     {
-        // T-D2 (replay/time): a NotOnOrAfter in the past (beyond the clock skew) is honoured when present —
+        // T-D2 (replay/time): a NotOnOrAfter in the past (beyond the clock skew) is honoured when present,
         // a stale request is rejected even though its signature is valid.
         var fixture = SamlLogoutTestFactory.Create(notOnOrAfter: DateTime.UtcNow.AddHours(-1));
 

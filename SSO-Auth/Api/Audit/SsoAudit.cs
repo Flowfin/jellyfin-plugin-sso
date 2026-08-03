@@ -83,7 +83,7 @@ internal static class SsoAudit
     /// <summary>
     /// Records an existing account being disabled by login-time deprovisioning (#831): its SSO login was
     /// denied by the role allow-list and the provider opts into disabling on denial. Only non-sensitive
-    /// fields are logged — the protocol and provider name, never the subject/username (T-I1) — so an
+    /// fields are logged, the protocol and provider name, never the subject/username (T-I1), so an
     /// offboarding (or a mass-disable incident from a misconfigured allow-list) leaves an operator trail.
     /// </summary>
     /// <param name="logger">The logger.</param>
@@ -238,7 +238,7 @@ internal static class SsoAudit
     /// <summary>
     /// Records a validated inbound SAML <c>LogoutRequest</c> that terminated sessions (#727, SLO-3b). Only
     /// non-sensitive fields are logged: the provider name and the count of Jellyfin users whose tokens were
-    /// revoked — never the raw NameID or SessionIndex, which are subject identifiers (T-I1). The provider is
+    /// revoked, never the raw NameID or SessionIndex, which are subject identifiers (T-I1). The provider is
     /// route input, so its line endings are stripped inline before logging (log-forging defense).
     /// </summary>
     /// <param name="logger">The logger.</param>

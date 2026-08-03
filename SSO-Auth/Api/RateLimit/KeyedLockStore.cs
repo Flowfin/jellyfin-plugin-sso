@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 /// <summary>
 /// A per-key async mutual-exclusion primitive: at most one holder per key at a time, while unrelated
 /// keys never block each other. Each key's semaphore is reference-counted and dropped the moment its
-/// last holder leaves, so the map stays bounded by the keys contending RIGHT NOW — not by the number of
+/// last holder leaves, so the map stays bounded by the keys contending RIGHT NOW, not by the number of
 /// distinct keys ever seen. That is what keeps a churn of one-shot keys (e.g. a login flood over many
 /// usernames) from leaking one <see cref="SemaphoreSlim"/> per key without bound. Acquire returns a
 /// disposable whose disposal releases the key; the lock is not reentrant.
@@ -57,7 +57,7 @@ internal sealed class KeyedLockStore
         {
             // The wait was cancelled before it took the permit (SemaphoreSlim.WaitAsync is atomic: it
             // either returns having taken a permit or throws having taken none), so drop only the
-            // reference — releasing the gate here would hand out a permit we never held.
+            // reference; releasing the gate here would hand out a permit we never held.
             Unclaim(key, holder);
             throw;
         }
@@ -101,12 +101,12 @@ internal sealed class KeyedLockStore
     }
 
     // One key's mutual-exclusion state: the semaphore plus the reference count and retirement flag that
-    // govern its collectible lifetime. Accessed only under its own monitor lock (brief, per-key — no
+    // govern its collectible lifetime. Accessed only under its own monitor lock (brief, per-key, no
     // global contention), the same per-key lock idiom SsoRateLimiter.Counter uses.
     private sealed class Holder
     {
         // Never Dispose()d: SemaphoreSlim allocates an OS wait handle only if AvailableWaitHandle is
-        // accessed (it never is here), so a retired/GC'd holder is pure managed garbage — the same
+        // accessed (it never is here), so a retired/GC'd holder is pure managed garbage, the same
         // reason SsoRateLimiter.Counter needs no disposal.
         internal SemaphoreSlim Gate { get; } = new SemaphoreSlim(1, 1);
 
@@ -116,7 +116,7 @@ internal sealed class KeyedLockStore
     }
 
     // The acquired-lock handle. Disposal releases the semaphore and detaches the acquirer; idempotent,
-    // so a double dispose (or a using plus an explicit Dispose) releases exactly once — a second release
+    // so a double dispose (or a using plus an explicit Dispose) releases exactly once; a second release
     // would let two holders into one key's critical section.
     private sealed class Releaser : IDisposable
     {

@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// A minimal real <see cref="ICryptoProvider"/> for tests. NSubstitute cannot proxy the
 /// <c>ReadOnlySpan&lt;char&gt;</c> overloads (a ref struct cannot cross a dynamic-proxy boundary), so the
-/// account-provisioning path — which hashes a random password — needs a concrete implementation. The
+/// account-provisioning path (which hashes a random password) needs a concrete implementation. The
 /// values are inert; no test asserts on the produced hash.
 /// </summary>
 internal sealed class FakeCryptoProvider : ICryptoProvider

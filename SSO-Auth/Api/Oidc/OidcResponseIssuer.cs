@@ -13,14 +13,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// RFC 9207 authorization-response issuer check (OpenID Connect mix-up defense, #125, hardened in #210).
 /// The library the plugin uses (Duende.IdentityModel.OidcClient 7.1.0) parses the response <c>iss</c>
 /// parameter but never validates it, and strips it from the resulting claims, so the check has to live
-/// here. A present response <c>iss</c> must match the authorization server this callback is bound to —
+/// here. A present response <c>iss</c> must match the authorization server this callback is bound to;
 /// identified by its discovery issuer (<see cref="Duende.IdentityModel.OidcClient.ProviderInformation.IssuerName"/>,
 /// the value RFC 9207 §2.4 names) OR by the redeemed id_token's own issuer. Both are accepted because a
 /// provider whose issuer legitimately differs from its discovery location (the <c>DoNotValidateIssuerName</c>
-/// escape hatch — templated / multi-tenant setups) emits a response <c>iss</c> equal to the concrete
+/// escape hatch: templated / multi-tenant setups) emits a response <c>iss</c> equal to the concrete
 /// id_token issuer, not the templated discovery issuer; requiring the discovery issuer alone would lock
 /// that supported configuration out. A response <c>iss</c> that matches neither means the response came
-/// from a different authorization server than the one this callback is bound to — a mix-up — so reject.
+/// from a different authorization server than the one this callback is bound to (a mix-up) so reject.
 /// </summary>
 internal static class OidcResponseIssuer
 {
@@ -54,7 +54,7 @@ internal static class OidcResponseIssuer
     /// Reports whether the discovery document advertises the RFC 9207 authorization-response <c>iss</c>
     /// parameter (<c>authorization_response_iss_parameter_supported: true</c>, §2.4). Read at challenge
     /// and carried on the authorize state so the callback can require <c>iss</c> without a second fetch.
-    /// Fails tolerant (<c>false</c>) on absence, a non-true value, or malformed/blank JSON — an
+    /// Fails tolerant (<c>false</c>) on absence, a non-true value, or malformed/blank JSON: an
     /// unreadable flag must not lock out a provider that omits <c>iss</c>.
     /// </summary>
     /// <param name="discoveryJson">The raw OpenID discovery document JSON.</param>
@@ -80,7 +80,7 @@ internal static class OidcResponseIssuer
     /// <summary>
     /// The validated id_token's issuer (its <c>iss</c> claim), or null when the token is absent/degenerate.
     /// Read from the RAW token rather than the redeemed <c>result.User</c> claims because OidcClient filters
-    /// the standard protocol claims (<c>iss</c>, <c>aud</c>, <c>exp</c>, …) out of the principal — the same
+    /// the standard protocol claims (<c>iss</c>, <c>aud</c>, <c>exp</c>, …) out of the principal, the same
     /// reason the mix-up check above re-reads it here. This is the authoritative (iss, sub) issuer the
     /// canonical link is bound to (#186).
     /// </summary>

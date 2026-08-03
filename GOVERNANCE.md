@@ -15,7 +15,7 @@ Development is **AI-assisted** (see the README's "AI-assisted, human-owned"
 section): Claude (Anthropic) executes process steps under my direction, and I
 review and sign off on what ships. The additional accounts named in
 `.github/CODEOWNERS` operate under the same AI-assisted model and are annotated
-as such there — their reviews are **not independent human auditing**, and this
+as such there; their reviews are **not independent human auditing**, and this
 project claims otherwise nowhere. The quality gates that stand in for a review
 team are the CI gate (build with warnings-as-errors, the full test suite,
 conformance checks, CodeQL, supply-chain checks) and the adversarial multi-lens
@@ -48,11 +48,11 @@ permissions are never granted implicitly or in bulk.
 
 A one-person project carries an honest bus factor of one. Mitigations in place:
 
-- Everything needed to build, test, and release is **in the repository** —
+- Everything needed to build, test, and release is **in the repository**:
   reproducible CI, documented release pipeline, no private build secrets beyond
   standard GitHub tokens.
 - The license (GPL-3.0) guarantees the community can fork and continue at any
-  time; the archived upstream (`9p4/jellyfin-plugin-sso`) proves the model —
+  time; the archived upstream (`9p4/jellyfin-plugin-sso`) proves the model, and
   this project _is_ such a continuation.
 - If I can no longer maintain it, the intent is to archive the repository with
   a clear notice rather than leave it silently stale.

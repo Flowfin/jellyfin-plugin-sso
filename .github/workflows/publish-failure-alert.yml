@@ -1,13 +1,13 @@
 name: Publish failure alert
 
 # Release-channel watchdog (#982). A scheduled or dispatched publish that fails does NOT email me the
-# way a push failure to the author does, so a broken release channel can go unnoticed — the 2026-07-23
+# way a push failure to the author does, so a broken release channel can go unnoticed; the 2026-07-23
 # beta.12 incident: the GitHub release was created but the manifest commit failed on a jq arg-length
 # error, and nothing alerted, so the build silently never reached Jellyfin until a user noticed.
 #
 # This watches the nightly scheduler, the release-publish workflows, and the manifest-freshness check
 # and, on any non-success outcome, opens or updates a single tracking issue (label release-alert)
-# naming the failed run — turning a silent failure into an active, visible signal.
+# naming the failed run, turning a silent failure into an active, visible signal.
 #
 # Uses only the built-in gh CLI with the workflow token; no third-party action, so nothing to SHA-pin.
 # A workflow_run workflow always runs from the default branch with the default-branch definition, which
@@ -44,10 +44,10 @@ concurrency:
 jobs:
   alert:
     name: Open or update the release-failure tracking issue
-    # Fire on any non-success terminal outcome — expressed as a DENYLIST so a new/rare conclusion class is
+    # Fire on any non-success terminal outcome, expressed as a DENYLIST so a new/rare conclusion class is
     # caught by default rather than silently dropped. The beta.12 mode (release created, then the job dies
     # before the manifest commit) can surface as `failure`, `timed_out`, or `startup_failure` (a YAML/
-    # config error), and GitHub also has `neutral` / `action_required` / `stale` — all of which should
+    # config error), and GitHub also has `neutral` / `action_required` / `stale`, all of which should
     # alert. Only `success` and `skipped` (e.g. the gate job short-circuits an unchanged day) are no-ops;
     # `cancelled` is treated as an intentional human action and is not alerted.
     if: >-
@@ -78,7 +78,7 @@ jobs:
             --description "Automated alert: a release channel may be broken/stale (see #982)" \
             --force >/dev/null 2>&1 || true
 
-          title="Release publish/monitoring failed — a channel may be silently stale"
+          title="Release publish/monitoring failed: a channel may be silently stale"
           body="The **${WF_NAME}** workflow run ended with conclusion \`${CONCLUSION}\` (trigger: ${EVENT}).
 
           A scheduled publish or monitoring failure is not emailed, so a release channel may not have

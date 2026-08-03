@@ -14,7 +14,7 @@ using System.Xml;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
-/// Parses and validates an inbound IdP-initiated SAML 2.0 <c>LogoutRequest</c> (#727, SLO-3b) — the
+/// Parses and validates an inbound IdP-initiated SAML 2.0 <c>LogoutRequest</c> (#727, SLO-3b): the
 /// unauthenticated, session-destructive surface. It deliberately MIRRORS the signed-XML hardening of
 /// <see cref="SamlResponse"/> (DTD-prohibited size-bounded parse, exactly-one enveloped signature whose
 /// single reference covers the signed root, the RSA/ECDSA-SHA-256-or-stronger algorithm allowlist, the
@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// element is the <c>samlp:LogoutRequest</c> root itself (there is no assertion, no bearer confirmation,
 /// no audience). It is a FOCUSED validator that reuses the shared primitives
 /// (<see cref="SamlSignatureAlgorithms"/>, <see cref="SamlCertificate"/>, <see cref="SamlAssertionTime"/>)
-/// rather than re-implementing the algorithm lists or certificate strength policy — a separate type from
+/// rather than re-implementing the algorithm lists or certificate strength policy; a separate type from
 /// <see cref="SamlResponse"/> so hardening the logout path cannot regress the heavily-tested login path.
 /// </summary>
 /// <remarks>
@@ -36,7 +36,7 @@ internal sealed class SamlLogoutRequest : IDisposable
 {
     // The only position an enveloped LogoutRequest signature may occupy: a direct child of the
     // LogoutRequest root. A relative //ds:Signature would also match a signature relocated into a wrapper,
-    // so the XPath is anchored to the root — the LogoutRequest analogue of SamlResponse.SignatureXPath.
+    // so the XPath is anchored to the root, the LogoutRequest analogue of SamlResponse.SignatureXPath.
     private const string SignatureXPath = "/samlp:LogoutRequest/ds:Signature";
 
     /// <summary>The always-on ceiling (256 KB) on the Base64 SAMLRequest length, bounding the decode and DOM parse on the unauthenticated logout path before any signature is checked (mirrors <see cref="SamlResponseLoader.MaxEncodedResponseLength"/>).</summary>
@@ -56,7 +56,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     /// <summary>
     /// Tries to parse an untrusted, Base64-encoded <c>LogoutRequest</c> against the provider's primary
     /// signing certificate OR an optional secondary certificate (the verification-key overlap window, #491),
-    /// returning <see langword="false"/> (rather than throwing) on the malformed-input the parse raises —
+    /// returning <see langword="false"/> (rather than throwing) on the malformed-input the parse raises,
     /// a non-base64 body, malformed XML, a prohibited DOCTYPE, or an unloadable configured certificate. The
     /// caller rejects a false the same fail-closed way it rejects a failed signature (a uniform 400).
     /// </summary>
@@ -76,7 +76,7 @@ internal sealed class SamlLogoutRequest : IDisposable
             return false;
         }
 
-        // Reject an oversized body before decoding/parsing it — fail closed, no crypto or allocation spent on
+        // Reject an oversized body before decoding/parsing it: fail closed, no crypto or allocation spent on
         // untrusted bulk (mirrors SamlResponseLoader.MaxEncodedResponseLength on the unauthenticated path).
         if (requestString.Length > MaxEncodedRequestLength)
         {
@@ -95,7 +95,7 @@ internal sealed class SamlLogoutRequest : IDisposable
         {
             // A malformed request body (FormatException/XmlException, incl. a prohibited DOCTYPE) or a
             // null/garbage configured certificate (CryptographicException/ArgumentException) fails closed to a
-            // clean rejection here rather than an unhandled 500 — the same mapping SamlResponseLoader uses.
+            // clean rejection here rather than an unhandled 500, the same mapping SamlResponseLoader uses.
             if (certificates != null)
             {
                 foreach (var certificate in certificates)
@@ -125,7 +125,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     /// <summary>
     /// Checks whether the request is valid: a single enveloped signature, at the position-bound root
     /// location, whose one reference covers the LogoutRequest document root, whose algorithms are on the
-    /// allowlist, that verifies against a candidate certificate — AND, when the request carries a
+    /// allowlist, that verifies against a candidate certificate, AND, when the request carries a
     /// <c>NotOnOrAfter</c>, that it has not expired (honoured when present, per SAML core §3.7). Fail-closed
     /// on any missing/malformed piece.
     /// </summary>
@@ -158,7 +158,7 @@ internal sealed class SamlLogoutRequest : IDisposable
         catch (Exception ex) when (ex is CryptographicException or ArgumentException or FormatException or XmlException)
         {
             // A malformed signature on this untrusted-input path is rejected as invalid rather than surfacing
-            // as an unhandled 500 (fail closed) — the same exception set SamlResponse.IsValid catches.
+            // as an unhandled 500 (fail closed), the same exception set SamlResponse.IsValid catches.
             return false;
         }
     }
@@ -181,7 +181,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     }
 
     /// <summary>
-    /// Gets the subject <c>saml:NameID</c> the request names — the value matched (exact ordinal) against the
+    /// Gets the subject <c>saml:NameID</c> the request names: the value matched (exact ordinal) against the
     /// captured login-time NameID to resolve which sessions to revoke. Direct child of the LogoutRequest root.
     /// </summary>
     /// <returns>The NameID, or null when absent.</returns>
@@ -226,7 +226,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     }
 
     // Loads the candidate identity-provider signing certificates: the primary always, the optional secondary
-    // only when configured (#491). Identical policy to SamlResponse.LoadCandidateCertificates — both are the
+    // only when configured (#491). Identical policy to SamlResponse.LoadCandidateCertificates; both are the
     // IdP's PUBLIC signing certificate, and an unloadable value throws the same load exceptions TryParse maps.
     private static List<X509Certificate2> LoadCandidateCertificates(string certificateStr, string? secondaryCertificateStr)
     {
@@ -244,7 +244,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     }
 
     // Parses the untrusted, Base64-encoded LogoutRequest into a hardened XmlDocument. The DTD-prohibit /
-    // PreserveWhitespace / null-resolver / size-cap hardening is IDENTICAL to SamlResponse.ParseResponseXml —
+    // PreserveWhitespace / null-resolver / size-cap hardening is IDENTICAL to SamlResponse.ParseResponseXml;
     // PreserveWhitespace is load-bearing for signature canonicalization, DtdProcessing.Prohibit blocks the
     // billion-laughs/XXE class, and MaxCharactersInDocument bounds the DOM on the pre-signature path.
     private static XmlDocument ParseRequestXml(string base64Request)
@@ -272,7 +272,7 @@ internal sealed class SamlLogoutRequest : IDisposable
         return xmlDoc;
     }
 
-    // A single same-document reference is required, and it must cover the LogoutRequest document root — the
+    // A single same-document reference is required, and it must cover the LogoutRequest document root; the
     // element whose NameID/SessionIndex/ID are actually read. .NET's CheckSignature validates the digest but
     // not WHAT is signed, so without this a signature over a smuggled sibling would pass (signature-wrapping).
     // The signature must additionally be enveloped inside the root it covers. Mirrors
@@ -288,7 +288,7 @@ internal sealed class SamlLogoutRequest : IDisposable
         var reference = (Reference)signedInfo.References[0]!;
 
         // The SAME reference rule the login path enforces, from the one shared home (SamlSignatureReference):
-        // a "#id" shorthand pointer with an NCName fragment only. Sharing it is the point — the two validators
+        // a "#id" shorthand pointer with an NCName fragment only. Sharing it is the point: the two validators
         // must never drift on the question of WHAT a signature covers.
         if (!SamlSignatureReference.TryGetSameDocumentId(reference.Uri, out var referenceId))
         {
@@ -321,7 +321,7 @@ internal sealed class SamlLogoutRequest : IDisposable
 
     // Rejects weak/legacy signature and digest algorithms (RSA-SHA1, SHA-1 digest) and any
     // canonicalization/transform outside the comment-free-C14N + enveloped-signature allowlist, by delegating
-    // to the SHARED SamlSignatureAlgorithms allowlist — the SAME lists the login path enforces, never a copy.
+    // to the SHARED SamlSignatureAlgorithms allowlist, the SAME lists the login path enforces, never a copy.
     private static bool IsSignatureAlgorithmAllowed(SignedXml signedXml)
     {
         var signedInfo = signedXml.SignedInfo;
@@ -358,7 +358,7 @@ internal sealed class SamlLogoutRequest : IDisposable
     // The signature must verify against at least one candidate certificate that is CURRENTLY within its
     // validity window and meets the shared signing-key strength floor. Only the cryptographic key trial spans
     // the primary and optional secondary; the reference/algorithm binding above runs cert-independently.
-    // Delegates the strength floor to the SHARED SamlCertificate.HasAcceptableSigningKey — never a copy.
+    // Delegates the strength floor to the SHARED SamlCertificate.HasAcceptableSigningKey, never a copy.
     private bool VerifiesAgainstCandidateCertificate(SignedXml signedXml)
     {
         var utcNow = DateTime.UtcNow;
@@ -385,7 +385,7 @@ internal sealed class SamlLogoutRequest : IDisposable
 
     // Time-bounding for a LogoutRequest: NotOnOrAfter is OPTIONAL (unlike an assertion, which must carry an
     // upper bound). When absent, the request is time-unbounded and accepted (replay one-time-use is the DoS
-    // backstop). When present, it is honoured with the shared clock skew — a stale request is rejected.
+    // backstop). When present, it is honoured with the shared clock skew; a stale request is rejected.
     private bool IsWithinTimeBounds()
     {
         var raw = (_xmlDoc.SelectSingleNode("/samlp:LogoutRequest", _xmlNameSpaceManager) as XmlElement)?.GetAttribute("NotOnOrAfter");

@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// In-process tests of the SAML session-minting leg (<c>SamlAuth</c>) via <see cref="SsoControllerHarness"/>.
 /// Since #251 that leg redeems the one-time login-outcome token the ACS callback minted, and since #528 it
-/// accepts ONLY that token — the assertion is validated once at the callback (covered by
+/// accepts ONLY that token: the assertion is validated once at the callback (covered by
 /// <see cref="SSOControllerSamlPostTests"/> and the validator suites) and never re-parsed here. These tests
 /// therefore drive the mint leg through the real token flow (callback renders a token, the token posts to
 /// SamlAuth) and pin the fail-closed browser-binding / correlation branches of <c>CorrelateAndBind</c> that
@@ -86,7 +86,7 @@ public class SSOControllerSamlAuthTests
     {
         // #415 on the token path: a solicited login's token is redeemed by a browser presenting a DIFFERENT
         // browser's binding id. The mint leg consumes the outstanding request, finds the binding mismatch, and
-        // fails closed — nothing is provisioned.
+        // fails closed, nothing is provisioned.
         var fixture = SamlTestFactory.Create(nameId: "alice", inResponseTo: AuthnRequestId);
         var harness = ProvisioningHarness(fixture);
         SamlLoginService.SeedSamlRequestForTests("adfs", AuthnRequestId, Binding, DateTime.UtcNow.AddMinutes(15));
@@ -106,7 +106,7 @@ public class SSOControllerSamlAuthTests
     public async Task SamlAuth_TokenCarriesInResponseToButNoOutstandingRequest_RejectsEvenWithValidateOff()
     {
         // The lost-correlation bypass the binding closes: the redeemed outcome carries an InResponseTo (so it
-        // claims to be solicited) but the outstanding entry is gone — expired, evicted, lost to a restart or a
+        // claims to be solicited) but the outstanding entry is gone: expired, evicted, lost to a restart or a
         // non-sticky multi-node hop. With no entry there is no binding to check, so it MUST fail closed even
         // when ValidateInResponseTo is off (the default); otherwise a response replayed past its 15-minute
         // window would defeat the binding.
@@ -129,7 +129,7 @@ public class SSOControllerSamlAuthTests
     {
         // With ValidateInResponseTo on and no AuthnRequest issued, the callback still renders a token (it does
         // not gate on InResponseTo), but the redeemed outcome carries no InResponseTo, so the mint leg refuses
-        // it under the opt-in solicited-only mode — a client-caused 400 in the uniform SAML body, nothing
+        // it under the opt-in solicited-only mode: a client-caused 400 in the uniform SAML body, nothing
         // provisioned.
         var fixture = SamlTestFactory.Create(nameId: "alice"); // no InResponseTo
         var harness = ProvisioningHarness(fixture, validateInResponseTo: true);

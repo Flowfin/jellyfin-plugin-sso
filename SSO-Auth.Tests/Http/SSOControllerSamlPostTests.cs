@@ -74,7 +74,7 @@ public class SSOControllerSamlPostTests
     public async Task SamlPost_RoleDeniedWithDeprovisionOn_DisablesTheLinkedNonAdmin()
     {
         // #831 end-to-end on the SAML leg: a signed assertion whose role is not on the allow-list is denied,
-        // and with the opt-in on the account already linked under this NameID is disabled — the mirror of the
+        // and with the opt-in on the account already linked under this NameID is disabled, the mirror of the
         // OpenID deprovisioning path, pinned directly because the SAML callback resolves the subject key (the
         // NameID) on its own denied branch.
         var linked = Guid.Parse("77777777-7777-7777-7777-777777777777");
@@ -101,7 +101,7 @@ public class SSOControllerSamlPostTests
     [Fact]
     public async Task SamlPost_RoleDeniedWithDeprovisionOff_LeavesTheLinkedAccountEnabled()
     {
-        // #831 default (opt-in off) on the SAML leg — the sibling of the OpenID OFF case, added for #928
+        // #831 default (opt-in off) on the SAML leg: the sibling of the OpenID OFF case, added for #928
         // protocol parity: the same role-denied assertion must NOT disable the linked account when the
         // toggle is off (the default). Deprovisioning is strictly opt-in, so an existing deployment sees no
         // behavior change and a transient IdP role glitch cannot silently lock users out.
@@ -121,7 +121,7 @@ public class SSOControllerSamlPostTests
         var result = await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse());
 
         Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode); // still a clean denial
-        Assert.False(user.HasPermission(PermissionKind.IsDisabled)); // untouched — deprovisioning is opt-in
+        Assert.False(user.HasPermission(PermissionKind.IsDisabled)); // untouched, deprovisioning is opt-in
         await harness.UserManager.DidNotReceive().UpdateUserAsync(user);
     }
 

@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// request carries <c>max_age=&lt;n&gt;</c> (OidcFrontChannelParameters), and OIDC Core §3.1.2.1 then
 /// REQUIRES the id_token to carry <c>auth_time</c> and expects the RP to verify the user authenticated no
 /// longer than <c>max_age</c> seconds ago. Fail-closed: a MISSING <c>auth_time</c> (a provider that ignored
-/// <c>max_age</c>) or an <c>auth_time</c> older than the window is refused — otherwise a stale session
+/// <c>max_age</c>) or an <c>auth_time</c> older than the window is refused; otherwise a stale session
 /// silently satisfies a forced-reauthentication requirement it did not meet. The five-minute skew
 /// tolerance mirrors the id_token / SAML-assertion lifetime checks so a small IdP/SP clock difference
 /// does not spuriously reject a genuinely fresh login.
@@ -35,14 +35,14 @@ internal static class MaxAgePolicy
     {
         if (authTimeUnixSeconds is not long authTime)
         {
-            // max_age was requested but the provider returned no auth_time — treat as not fresh, per the
+            // max_age was requested but the provider returned no auth_time; treat as not fresh, per the
             // fail-closed contract: an ignored max_age must not pass.
             return false;
         }
 
         var authenticatedAt = DateTimeOffset.FromUnixTimeSeconds(authTime);
 
-        // A future auth_time beyond the skew is not a genuine "recent authentication" — reject it rather
+        // A future auth_time beyond the skew is not a genuine "recent authentication"; reject it rather
         // than let a clock-forward IdP satisfy the window indefinitely.
         if (authenticatedAt > nowUtc + ClockSkew)
         {

@@ -13,8 +13,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 /// <summary>
 /// Boot-time reconciliation of the user database to the SSO-only flag (#165). SSO-only enforcement is
 /// stateful in each account's <c>AuthenticationProviderId</c>, not in the config flag, so the documented
-/// total-lockout recovery — edit <c>config.xml</c>, set <c>DisablePasswordLogin</c> to <c>false</c>, restart
-/// — only works if something reconciles the user DB to the flag on startup. That is this hosted service:
+/// total-lockout recovery (edit <c>config.xml</c>, set <c>DisablePasswordLogin</c> to <c>false</c>, restart)
+/// only works if something reconciles the user DB to the flag on startup. That is this hosted service:
 /// once, at host start, it restores the accounts the mode repointed when the flag is off. It runs in the
 /// Jellyfin generic host (registered by <see cref="SsoOnlyServiceRegistrator"/>), where <c>IUserManager</c>
 /// is available. Fail-safe: any error is logged and swallowed so a reconciliation problem can never block
@@ -47,7 +47,7 @@ internal sealed class SsoOnlyReconciliationService : IHostedService
         if (plugin is null)
         {
             // The plugin is constructed during plugin load, before host services start, so this is normally
-            // set. If it is not, there is no configuration to reconcile against — skip rather than throw.
+            // set. If it is not, there is no configuration to reconcile against; skip rather than throw.
             return;
         }
 

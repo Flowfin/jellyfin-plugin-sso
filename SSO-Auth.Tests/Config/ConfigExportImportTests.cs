@@ -160,7 +160,7 @@ public class ConfigExportImportTests
 
         ConfigImport.Apply(target, wire);
 
-        // The provider is added, but its secret is blank (redacted out of the export) — the login fails
+        // The provider is added, but its secret is blank (redacted out of the export); the login fails
         // closed until an admin re-enters it; no attacker-chosen secret was imported.
         Assert.True(target.OidConfigs.ContainsKey("fresh"));
         Assert.True(string.IsNullOrEmpty(target.OidConfigs["fresh"].OidSecret));
@@ -206,7 +206,7 @@ public class ConfigExportImportTests
     {
         // The endpoint returns Ok(document); ASP.NET Core MVC serializes with camelCase + case-insensitive
         // read. Prove the write-only secret redaction (which is attribute-, not name-, based) still holds and
-        // a round-trip through those options works — the on-the-wire path the controller actually uses.
+        // a round-trip through those options works: the on-the-wire path the controller actually uses.
         var options = new System.Text.Json.JsonSerializerOptions
         {
             PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,

@@ -11,10 +11,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 /// <summary>
 /// Maps the roles carried by a verified login (OpenID or SAML) to the privileges they grant, according
 /// to the provider configuration. Pure: it derives the grants from (roles, config) and makes no decision
-/// about the session itself — every grant is monotonic (only ever granted), and the caller merges the
+/// about the session itself; every grant is monotonic (only ever granted), and the caller merges the
 /// result into the authorize state (OR-ing the booleans, appending the folders). One mapper for both
 /// protocols, since every member it reads lives on <see cref="ProviderConfigBase"/> (#367). The SAML
-/// caller ignores <see cref="RoleGrants.Valid"/> — SAML login validity is decided by
+/// caller ignores <see cref="RoleGrants.Valid"/>; SAML login validity is decided by
 /// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlLoginPolicy"/>, not here.
 /// </summary>
 internal static class RolePrivilegeMapper
@@ -51,12 +51,12 @@ internal static class RolePrivilegeMapper
                 {
                     // The configured (trusted, admin-authored) map-role is trimmed before comparison; the
                     // IdP-supplied role is compared raw, so there is no whitespace-injection vector (#367).
-                    // A blank configured map-role grants nothing — same blank-skip as IsOnList (#935).
+                    // A blank configured map-role grants nothing, same blank-skip as IsOnList (#935).
                     var mappedRole = folderRoleMap.Role?.Trim();
                     if (!string.IsNullOrEmpty(mappedRole) && string.Equals(role, mappedRole, StringComparison.Ordinal) && folderRoleMap.Folders != null)
                     {
                         // A null Folders on a matching entry (a config/deserialization edge) grants nothing
-                        // for it rather than throwing an ArgumentNullException — fail closed, like IsOnList (#675).
+                        // for it rather than throwing an ArgumentNullException: fail closed, like IsOnList (#675).
                         folders.AddRange(folderRoleMap.Folders);
                     }
                 }
@@ -85,7 +85,7 @@ internal static class RolePrivilegeMapper
     /// merge for admin / Live TV / Live TV management. Single home for the post-<see cref="Evaluate"/>
     /// merge that used to be duplicated, byte-identical, in the OpenID and SAML authorize-state builders
     /// (#508). The OpenID builder OR-s the returned <see cref="AssembledPrivileges.Valid"/> into its own
-    /// running validity; the SAML builder ignores it — validity there is decided by
+    /// running validity; the SAML builder ignores it; validity there is decided by
     /// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlLoginPolicy"/>, not here.
     /// </summary>
     /// <param name="roles">The roles extracted from the verified login (OpenID claims or SAML attributes).</param>
@@ -111,11 +111,11 @@ internal static class RolePrivilegeMapper
     }
 
     // Whether the login's role is on a configured allow-list. Null-safe both ways (ordinal): a null list
-    // or a null entry is simply not a match — never a NullReferenceException — so an admin misconfiguration
+    // or a null entry is simply not a match, never a NullReferenceException, so an admin misconfiguration
     // or a stray null fails closed (grants nothing) instead of throwing a 500. A blank/whitespace
     // configured entry is skipped too (#935): the admin form filters blank lines, but a hand-edited or
     // imported config XML can carry one, and a blank IdP role (a terminal array element "" or, since
-    // #934, an object-map property named "") must never satisfy an allow-list — the same blank-skip
+    // #934, an object-map property named "") must never satisfy an allow-list, the same blank-skip
     // ParentalRatingPolicy already applied and PermissionRolePolicy gained in the same change.
     private static bool IsOnList(IEnumerable<string>? allowed, string role) =>
         allowed != null && allowed.Any(entry =>

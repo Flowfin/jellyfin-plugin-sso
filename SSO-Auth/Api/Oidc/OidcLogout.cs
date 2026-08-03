@@ -17,25 +17,25 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// <item><description>
 /// <b>Issuer host-binding.</b> The <c>end_session_endpoint</c> comes from the provider's own discovery
 /// document, but a tampered/misconfigured discovery could point it at an attacker host. The endpoint is
-/// therefore accepted only when its authority (scheme + host + port) equals the discovered issuer's — so a
+/// therefore accepted only when its authority (scheme + host + port) equals the discovered issuer's, so a
 /// logout can never navigate the browser anywhere but the identity provider itself (an open-redirect / SSRF
 /// defense mirroring the login path's issuer checks). A mismatch yields <c>null</c> (local-only logout).
 /// </description></item>
 /// <item><description>
 /// <b><c>post_logout_redirect_uri</c> allow-listing.</b> The return URL is included only when it normalizes
-/// (via <see cref="CanonicalBaseUrl"/>) and sits at or under this server's canonical base — so logout can
+/// (via <see cref="CanonicalBaseUrl"/>) and sits at or under this server's canonical base, so logout can
 /// only return the browser to this Jellyfin, never to an attacker site. An absent, malformed, or off-base
 /// value is simply omitted; the logout still happens, without a redirect back.
 /// </description></item>
 /// </list>
 /// A blank <c>end_session_endpoint</c> (the OP advertises none, or discovery was unreachable) yields
-/// <c>null</c>, and the caller falls back to a local-only logout — a missing OP endpoint must never break it.
+/// <c>null</c>, and the caller falls back to a local-only logout; a missing OP endpoint must never break it.
 /// </remarks>
 internal static class OidcLogout
 {
     /// <summary>
     /// Builds the RP-initiated <c>end_session</c> URL, or <c>null</c> when RP-initiated logout is not possible
-    /// or not safe (no endpoint, or the endpoint is not host-bound to the issuer) — the caller then performs a
+    /// or not safe (no endpoint, or the endpoint is not host-bound to the issuer); the caller then performs a
     /// local-only logout.
     /// </summary>
     /// <param name="endSessionEndpoint">The OP's advertised <c>end_session_endpoint</c> (may be null/empty).</param>
@@ -108,7 +108,7 @@ internal static class OidcLogout
     /// Whether a <c>post_logout_redirect_uri</c> candidate is allowed: it normalizes to a valid http(s) URL
     /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/> (same origin +
     /// path prefix), so a logout can only return the browser to this Jellyfin. The SINGLE source of truth for
-    /// the return-URL rule — the runtime builder above and the save-time
+    /// the return-URL rule: the runtime builder above and the save-time
     /// <c>ProviderConfigValidator.ValidatePostLogoutRedirectUri</c> both call it, so the config-page save
     /// rejects exactly the values the runtime would silently drop (no second, divergent URL rule). A blank
     /// candidate or blank base yields <see langword="false"/>.
@@ -131,7 +131,7 @@ internal static class OidcLogout
             return false;
         }
 
-        // Same authority as the canonical base, and its path is under the base path — a prefix check on the
+        // Same authority as the canonical base, and its path is under the base path: a prefix check on the
         // canonicalized origin+path, so a sibling host or a path-traversal cannot slip through.
         if (!IsSameAuthority(candidateUri, baseUri))
         {

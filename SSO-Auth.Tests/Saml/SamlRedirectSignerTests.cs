@@ -91,7 +91,7 @@ public class SamlRedirectSignerTests
 
         var url = SamlRedirectSigner.BuildSignedRedirectUrl(Endpoint, "SAMLRequest", Message, relayState: null, signer);
 
-        // Sanity: a different key must not validate the signature — the check is real, not vacuous.
+        // Sanity: a different key must not validate the signature; the check is real, not vacuous.
         Assert.True(SignatureVerifies(url, signer, expectedRelayState: null));
         Assert.False(SignatureVerifies(url, attacker, expectedRelayState: null));
     }
@@ -189,7 +189,7 @@ public class SamlRedirectSignerTests
         Assert.NotEqual(RsaSha1, sigAlg);
     }
 
-    // Reconstructs the exact signed octet string (SAMLRequest[, RelayState], SigAlg — in order, URL-encoded)
+    // Reconstructs the exact signed octet string (SAMLRequest[, RelayState], SigAlg, in order, URL-encoded)
     // from the emitted URL and verifies the Signature parameter against the public key, exactly as an
     // identity provider would.
     private static void AssertSignatureVerifies(string url, RSA publicKey, string? expectedRelayState)

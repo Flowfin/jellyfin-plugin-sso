@@ -12,7 +12,7 @@ using System.Xml;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
-/// Builds an OUTBOUND SAML 2.0 <c>LogoutResponse</c> for the HTTP-Redirect binding (#727, SLO-3c) — the SP's
+/// Builds an OUTBOUND SAML 2.0 <c>LogoutResponse</c> for the HTTP-Redirect binding (#727, SLO-3c): the SP's
 /// signed answer to a validated inbound IdP-initiated <see cref="SamlLogoutRequest"/>. It emits the same
 /// DEFLATE + Base64 encoding as <see cref="SamlLogoutRequestBuilder"/> and hands the encoded message to the
 /// SHARED <see cref="SamlRedirectSigner"/> under the <c>SAMLResponse</c> parameter, so the outbound-signing
@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// </summary>
 /// <remarks>
 /// The response is emitted ONLY after the inbound request passed full signature validation and at least one
-/// session was actually revoked, and it always reports <c>Success</c> — the SP never emits a status-bearing
+/// session was actually revoked, and it always reports <c>Success</c>; the SP never emits a status-bearing
 /// error response, so no rejection cause can leak through this channel (the endpoint keeps its uniform 400 for
 /// every failure). The document carries the SP <c>Issuer</c> (the same entity id the LogoutRequest sends), the
 /// <c>InResponseTo</c> that binds it to the IdP's request, and the <c>Destination</c> pinned to the IdP SLO
@@ -106,14 +106,14 @@ internal sealed class SamlLogoutResponseBuilder
 
     /// <summary>
     /// Gets the redirect URL to the identity provider's Single-Logout endpoint with the LogoutResponse SIGNED
-    /// for the HTTP-Redirect binding — delegating to the SHARED <see cref="SamlRedirectSigner"/> exactly as
+    /// for the HTTP-Redirect binding, delegating to the SHARED <see cref="SamlRedirectSigner"/> exactly as
     /// <see cref="SamlLogoutRequestBuilder.GetSignedRedirectUrl"/> does, so the SigAlg/Signature policy
     /// (key-type derived, allowlist-checked, no SHA-1) is reused rather than re-implemented. The message rides
     /// the <c>SAMLResponse</c> parameter (a response, not a request).
     /// </summary>
     /// <param name="sloEndpoint">The identity provider's Single-Logout (SLO) endpoint URL (the response <c>Destination</c>).</param>
     /// <param name="relayState">The relay state echoed from the inbound request, omitted when null or empty.</param>
-    /// <param name="signingKey">The service-provider private key — RSA or ECDSA.</param>
+    /// <param name="signingKey">The service-provider private key, RSA or ECDSA.</param>
     /// <returns>The signed redirect URL.</returns>
     public string GetSignedRedirectUrl(string sloEndpoint, string? relayState, AsymmetricAlgorithm signingKey)
     {

@@ -1,4 +1,4 @@
-# OpenSSF Scorecard — supply-chain hygiene self-audit.
+# OpenSSF Scorecard: supply-chain hygiene self-audit.
 #
 # Scorecard scores the repository against the OpenSSF supply-chain best-practice
 # checks (Branch-Protection, Token-Permissions, Pinned-Dependencies,
@@ -10,16 +10,16 @@
 # Runs where publishing is valid: on push to the default branch, on a weekly
 # schedule (keeps the Maintained check fresh and re-scores on upstream changes),
 # and on branch_protection_rule changes (the only event that lets the
-# Branch-Protection check see the ruleset). No pull_request trigger — that path
+# Branch-Protection check see the ruleset). No pull_request trigger; that path
 # is experimental upstream and cannot publish results.
 #
 # Hardened per the repo's workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
 # permissions are declared read-only at the top level and the write scopes are
-# granted only on the job that needs them. This is a self-audit only — it does
+# granted only on the job that needs them. This is a self-audit only; it does
 # not build, test, or touch the publish/release pipeline. Note: publish_results
 # below publishes the OpenSSF supply-chain *score* to the OpenSSF API (the public
-# badge), not any software artifact — it is unrelated to the plugin release
+# badge), not any software artifact; it is unrelated to the plugin release
 # pipeline and only works when run from the default branch.
 name: Scorecard supply-chain security
 

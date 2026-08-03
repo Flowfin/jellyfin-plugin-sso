@@ -30,22 +30,22 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 /// The OpenID login flow, extracted whole off <c>SSOController</c> (#160, #318 step 12): the
 /// challenge (redirect the browser to the authorization server), the redirect callback (exchange the code,
 /// validate the id_token, render the intermediate auth page), the session-minting authenticate leg, and the
-/// manual link redeem. The controller's OpenID endpoints are now thin adapters — they apply the shared
-/// rate-limit gate and hand the request to this service — so the OpenID-specific protocol logic lives in one
+/// manual link redeem. The controller's OpenID endpoints are now thin adapters: they apply the shared
+/// rate-limit gate and hand the request to this service, so the OpenID-specific protocol logic lives in one
 /// flow-tier collaborator rather than inline on the controller.
 /// </summary>
 /// <remarks>
 /// The in-flight authorize-state store (<see cref="OidcStateStore"/>) lives here as a <c>static readonly</c>
 /// field, one instance for the whole process exactly as it was on the controller (a fresh per-request
 /// controller reconstructs the service, so an instance field would lose the in-flight state between the
-/// challenge and its callback). The discovery read (<see cref="OidcDiscoveryReader"/>) is stateless — the
+/// challenge and its callback). The discovery read (<see cref="OidcDiscoveryReader"/>) is stateless; the
 /// challenge fetches the document once and feeds it to the login, so there is no cache to hold here (#450).
-/// The shared per-client rate limiter is deliberately NOT here — it also fronts the SAML flow, so it lives in
+/// The shared per-client rate limiter is deliberately NOT here; it also fronts the SAML flow, so it lives in
 /// the shared <see cref="SsoRateLimitGate"/> (Api/Shared) that the controller's endpoints front this service
 /// with, rather than as a per-flow static (#160). Because the challenge and
 /// callback are irreducibly HTTP (cookies, query string, redirect, the intermediate page), those two methods
 /// take the request/response and, for the two response shapes the controller still owns (the security-headered
-/// auth page and the manual-link write mapping), a delegate the controller binds — rather than duplicating the
+/// auth page and the manual-link write mapping), a delegate the controller binds, rather than duplicating the
 /// controller's <c>ControllerBase</c> result construction here. The mint tail stays HttpContext-free like
 /// <see cref="LoginCompletionService"/>: the authenticate leg takes only the redeemed model, the presented
 /// binding cookie value, and the remote-endpoint resolver (#177).
@@ -119,7 +119,7 @@ internal sealed class OidcLoginService
     // Test-only seed of a single authorize-state entry so a test can exercise the callback/authenticate legs
     // (which consume an already-validated state that the browser redirect leg normally populates) without
     // standing up the full token-exchange flow. Same test-only surface as ResetOidStateForTests (internal,
-    // InternalsVisibleTo, no endpoint/DI) — never reachable in production. Moved here with the statics (#160).
+    // InternalsVisibleTo, no endpoint/DI), never reachable in production. Moved here with the statics (#160).
 
     /// <summary>
     /// Test-only. Seeds a single authorize-state entry so a test can exercise the callback/authenticate legs
@@ -147,7 +147,7 @@ internal sealed class OidcLoginService
         {
             // Unknown and disabled providers share one rejection so neither can be probed apart (no
             // enumeration oracle), and the answer no longer depends on host middleware mapping a thrown
-            // ArgumentException — the in-process 400 is fail-closed regardless of the deployment (#318).
+            // ArgumentException; the in-process 400 is fail-closed regardless of the deployment (#318).
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.UnknownProvider));
         }
 
@@ -173,7 +173,7 @@ internal sealed class OidcLoginService
         if (!discovery.Available)
         {
             // Fail closed (#450): the discovery document the login itself needs could not be read, so there
-            // is no authoritative source for the PKCE-S256 (#141) and RFC 9207 response-`iss` (#210) facts —
+            // is no authoritative source for the PKCE-S256 (#141) and RFC 9207 response-`iss` (#210) facts,
             // and no metadata to build the authorization request from. Reject rather than fall back to a
             // second, divergent fetch or a silent tolerant default. This is not a new lockout: without
             // discovery, PrepareLoginAsync could not build the authorize redirect either.
@@ -214,7 +214,7 @@ internal sealed class OidcLoginService
 
         // Step-up / MFA passthrough (#757): add the provider's acr_values / prompt / max_age as front-channel
         // parameters on the authorization request, each only when set. An unconfigured provider gets null, so
-        // the request is byte-identical to before — upgrade-safe.
+        // the request is byte-identical to before, upgrade-safe.
         var state = await oidcClient.PrepareLoginAsync(OidcFrontChannelParameters.FromConfig(config)).ConfigureAwait(false);
 
         if (state.IsError)
@@ -222,7 +222,7 @@ internal sealed class OidcLoginService
             // Keep the library's error detail out of the browser-navigated page (#708): log it server-side
             // for the operator, return a fixed generic message. This challenge-side detail is plugin-local
             // (PrepareLoginAsync builds the authorize request), not attacker-reflected, but the callback
-            // sibling below IS reflected — genericize both so no IdP/library error string ever renders on
+            // sibling below IS reflected; genericize both so no IdP/library error string ever renders on
             // the user-facing error page. Sanitized against log forging. Fail-closed is unchanged (400).
             if (_logger.IsEnabled(LogLevel.Warning))
             {
@@ -245,14 +245,14 @@ internal sealed class OidcLoginService
         // source normalizes to null and is exempt.
         var clientKey = SsoRateLimiter.NormalizeClientKey(request.HttpContext.Connection.RemoteIpAddress);
 
-        // Build the challenge's authorize state complete — the discovery metadata the single read above
+        // Build the challenge's authorize state complete; the discovery metadata the single read above
         // fetched and validated against this provider's DiscoveryPolicy (reused at the callback so
         // ProcessResponseAsync skips a second discovery + JWKS, #247), and whether that same discovery
         // advertised the RFC 9207 response-`iss` parameter (so the callback requires `iss`, its absence
         // being a downgrade, #210). Both come from the one response (#450). Folded in at construction so
         // registration is one atomic insert and the stored Pending is never mutated after it enters the
-        // store (#341). The Created instant — and every expiry comparison the store makes against it
-        // (PruneExpired / PeekCurrent / TryRedeem) — is UTC, not machine-local wall-clock, so a DST
+        // store (#341). The Created instant (and every expiry comparison the store makes against it
+        // (PruneExpired / PeekCurrent / TryRedeem)) is UTC, not machine-local wall-clock, so a DST
         // transition or a clock step cannot expire an in-flight authorize state early or shift its window
         // and spuriously fail a login; this matches the UTC basis the SAML flow already keeps (#676).
         var pending = new AuthorizeSession.Pending(state, provider, isLinking, DateTime.UtcNow, bindingId, clientKey, discovery.ProviderInformation, discovery.Facts.ResponseIssuerAdvertised);
@@ -305,7 +305,7 @@ internal sealed class OidcLoginService
         if (StateStore.PeekCurrent(state, provider, DateTime.UtcNow, request.Cookies[AuthorizeStateBinding.CookieName]) is not { } pending)
         {
             // Unknown, expired, minted for a different provider, or from a different browser than the
-            // one that started the flow (#326) — reject (details on PeekCurrent / AuthorizeStateBinding).
+            // one that started the flow (#326): reject (details on PeekCurrent / AuthorizeStateBinding).
             // The shared constant keeps this wording identical to the mapper's InvalidState body, so the
             // browser error page localizes it and it cannot drift out of the catalog (#913).
             return new BadRequestObjectResult(LoginStatusMapper.InvalidStateMessage);
@@ -320,7 +320,7 @@ internal sealed class OidcLoginService
 
         if (result.IsError)
         {
-            // result.Error / result.ErrorDescription are parsed from the callback query — an authorization
+            // result.Error / result.ErrorDescription are parsed from the callback query; an authorization
             // server returns them on an error redirect, so they are attacker-controllable via a crafted
             // callback URL. Echoing them into this browser-navigated page is a content-spoofing primitive
             // (the on-brand error page would display attacker-chosen text). Log the detail server-side for
@@ -335,11 +335,11 @@ internal sealed class OidcLoginService
         }
 
         // RFC 9207 (#125, hardened #210): the library parses the authorization-response `iss` but never
-        // checks it. When present it must match the authorization server this callback is bound to — its
+        // checks it. When present it must match the authorization server this callback is bound to; its
         // discovery issuer (§2.4's canonical anchor, from the reused #247 or freshly-discovered
         // ProviderInformation) OR the redeemed id_token's issuer. Both are accepted so a provider whose
         // issuer legitimately differs from its discovery location (DoNotValidateIssuerName / templated /
-        // multi-tenant) is not locked out — there the response iss equals the concrete id_token iss, not
+        // multi-tenant) is not locked out; there the response iss equals the concrete id_token iss, not
         // the templated discovery iss. A response iss matching neither is a mix-up, so reject. When the
         // server advertised the parameter (captured at challenge), a missing iss is a downgrade and is
         // likewise rejected; otherwise absence is tolerated so IdPs that never emit `iss` keep working.
@@ -358,16 +358,16 @@ internal sealed class OidcLoginService
         // from the verified login's claims and the provider configuration. The issuer the account link is
         // bound to (#186) is read from the RAW id_token, not result.User: OidcClient filters the standard
         // protocol claims (iss, aud, exp, …) out of the redeemed principal, so the claim list carries no
-        // `iss` — the same reason the RFC 9207 check above re-reads it from result.IdentityToken.
+        // `iss`, the same reason the RFC 9207 check above re-reads it from result.IdentityToken.
         var derived = OidcAuthorizeStateBuilder.Build(result.User.Claims, config, OidcResponseIssuer.IdTokenIssuer(result.IdentityToken));
 
         // Capture the logout material (#727, SLO-1b) onto the in-flight state so it rides the one-time Ready
         // to the mint: the raw id_token (the later RP-initiated logout's id_token_hint) and the OpenID sid
-        // (the IdP session id used for logout matching). Held only in memory here; it is persisted — and
-        // encrypted — only at the mint, and only when Single Logout is enabled. The sid is read from the
+        // (the IdP session id used for logout matching). Held only in memory here; it is persisted (and
+        // encrypted) only at the mint, and only when Single Logout is enabled. The sid is read from the
         // signature-verified id_token (OidcIdTokenSid), NOT result.User: with LoadProfile on the principal
-        // carries the unsigned UserInfo merge, so — as with acr (OidcIdTokenAcr) and iss (OidcResponseIssuer)
-        // — only the id_token's own sid is trustworthy for a value that later keys a logout.
+        // carries the unsigned UserInfo merge, so, as with acr (OidcIdTokenAcr) and iss (OidcResponseIssuer),
+        // only the id_token's own sid is trustworthy for a value that later keys a logout.
         var sid = OidcIdTokenSid.Read(result.IdentityToken);
         derived = derived with
         {
@@ -380,7 +380,7 @@ internal sealed class OidcLoginService
 
         // Fail closed (#155): a valid OpenID login must resolve a stable subject to key the account
         // link on. sub is an OIDC Core MUST and (post-#134) the id_token validator has verified the
-        // token, so a missing sub means a non-conformant provider — reject rather than fall back to
+        // token, so a missing sub means a non-conformant provider; reject rather than fall back to
         // keying on the mutable username.
         if (derived.Valid && string.IsNullOrWhiteSpace(derived.Subject))
         {
@@ -394,7 +394,7 @@ internal sealed class OidcLoginService
 
         if (!derived.Valid)
         {
-            // The role gate did not pass: leave the Pending unpromoted (never redeemable — the redeem
+            // The role gate did not pass: leave the Pending unpromoted (never redeemable; the redeem
             // requires a Ready) so it simply expires. Checked before Promote so no Ready is ever created
             // for a denied login.
             if (_logger.IsEnabled(LogLevel.Warning))
@@ -407,10 +407,10 @@ internal sealed class OidcLoginService
             }
 
             // Login-time deprovisioning (#831): when the provider opts in, a role-denied login disables the
-            // existing linked account (never an admin — the guard lives in the service). Runs only on a
+            // existing linked account (never an admin; the guard lives in the service). Runs only on a
             // denied login that resolved a subject, so an unauthenticated caller can never trigger it. The
             // validated id_token's issuer rides along so the link's issuer binding (#186) gates the disable
-            // exactly as it gates the mint — a colliding sub from a repointed provider resolves nothing.
+            // exactly as it gates the mint: a colliding sub from a repointed provider resolves nothing.
             if (config.DisableAccountOnRoleDenied
                 && await _canonicalLinks.DisableDeniedAccountAsync(ProviderMode.Oid, provider, derived.Subject, derived.Issuer).ConfigureAwait(false))
             {
@@ -422,10 +422,10 @@ internal sealed class OidcLoginService
 
         // Step-up / MFA enforcement (#757): when the provider requires an authentication-context class, the
         // acr claim must be one of the configured acr_values. Read from the RAW, signature-verified id_token
-        // (OidcIdTokenAcr), NOT result.User — with LoadProfile on (the default) OidcClient merges the unsigned
+        // (OidcIdTokenAcr), NOT result.User; with LoadProfile on (the default) OidcClient merges the unsigned
         // UserInfo response into result.User, so only the id_token's own acr is trustworthy (the same reason
         // the RFC 9207 iss check above re-reads iss from result.IdentityToken). Checked here before Promote so
-        // a login lacking the required context never becomes a redeemable Ready — which also covers the
+        // a login lacking the required context never becomes a redeemable Ready, which also covers the
         // manual-link redeem. Off by default; fail closed when on (an absent or non-listed acr is refused). A
         // save with RequireAcr on but no acr_values is rejected by the config validator, so this never lands
         // on an empty allow-list.
@@ -446,7 +446,7 @@ internal sealed class OidcLoginService
         // max_age freshness (#961): when the provider configures MaxAge, the authorize request carried
         // max_age (OidcFrontChannelParameters), so per OIDC Core §3.1.2.1 the id_token MUST carry auth_time
         // and the user must have authenticated within the window. Read auth_time from the RAW,
-        // signature-verified id_token (OidcIdTokenAuthTime), NOT result.User — same reason as the acr gate.
+        // signature-verified id_token (OidcIdTokenAuthTime), NOT result.User; same reason as the acr gate.
         // Fail closed: a MISSING auth_time (a provider that ignored max_age) or a stale one is refused, so a
         // forced re-authentication cannot be silently satisfied by an old session. Checked here before
         // Promote so a too-old login never becomes a redeemable Ready. A negative MaxAge is treated as unset
@@ -466,7 +466,7 @@ internal sealed class OidcLoginService
         }
 
         // Atomically swap the peeked Pending for a redeemable Ready (#341). A false return means a
-        // concurrent callback already promoted it, or it expired/was pruned since the peek — either way
+        // concurrent callback already promoted it, or it expired/was pruned since the peek; either way
         // the browser's redeem is the real gate, which consumes the single Ready once (or cleanly rejects
         // a state that is gone), so the auth page is returned regardless.
         StateStore.Promote(pending, derived);
@@ -497,7 +497,7 @@ internal sealed class OidcLoginService
             return new BadRequestObjectResult("Missing data");
         }
 
-        // Unknown and disabled providers share one rejection so neither can be probed apart — this
+        // Unknown and disabled providers share one rejection so neither can be probed apart; this
         // unifies the previously JSON unknown-provider body and the disabled provider's 500 into the
         // one uniform 400, and a disabled provider does not consume the state (the guard precedes the
         // redeem, as before).
@@ -507,7 +507,7 @@ internal sealed class OidcLoginService
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.UnknownProvider));
         }
 
-        // One-time atomic claim — details on OidcStateStore.TryRedeem. A miss (unknown, expired,
+        // One-time atomic claim; details on OidcStateStore.TryRedeem. A miss (unknown, expired,
         // provider-mismatched, already-redeemed, or from a different browser than started the flow, #326)
         // is a client-caused rejection, not a server fault: one uniform body, so a replay is
         // indistinguishable from an expiry and replay stays hidden. A binding mismatch does not consume
@@ -518,7 +518,7 @@ internal sealed class OidcLoginService
         }
 
         // Verified-email login gate (#166): when the provider opts in, an OpenID login must carry
-        // email_verified == true. Absent, false, or unparseable all fail this check — fail closed — reusing
+        // email_verified == true. Absent, false, or unparseable all fail this check (fail closed) reusing
         // the single value OidcAuthorizeStateBuilder already parsed and carried on the verified identity, so
         // there is no second, divergent parse. Off by default, so a deployment that does not set it (or an
         // IdP that omits the claim) is unaffected. Distinct from the adoption gate below (#218), which only
@@ -587,7 +587,7 @@ internal sealed class OidcLoginService
     }
 
     // Builds the space-delimited OpenID scope string, always leading with the base "openid profile".
-    // OidScopes is null when a provider was stored without scopes (#368, e.g. via the OID/Add API) —
+    // OidScopes is null when a provider was stored without scopes (#368, e.g. via the OID/Add API),
     // normalize to empty so neither the challenge nor the callback throws (an unhandled 500 on the
     // anonymous challenge endpoint) or pads the scope string with null entries. Blank elements inside a
     // non-null array are dropped too, so a persisted null/empty/whitespace scope cannot inject a
@@ -606,7 +606,7 @@ internal sealed class OidcLoginService
             .Prepend("openid profile"));
 
     // Reads a provider's config under the config lock, so an anonymous login-path lookup does not race an
-    // admin Add/Del mutating the live provider dictionary in place — a Dictionary read-during-write is
+    // admin Add/Del mutating the live provider dictionary in place; a Dictionary read-during-write is
     // undefined behaviour in .NET (throw, misread, or a spin on a corrupted chain during a resize) (#252).
     // Returns null for an unknown provider so call sites branch on a null check instead of catching
     // KeyNotFoundException as control flow (#241). An uncontended lock is nanoseconds; it is only held long
@@ -617,7 +617,7 @@ internal sealed class OidcLoginService
     // Runs an options/client build step that reveals the at-rest client secret (#158), failing closed if
     // it cannot be decrypted. Secrets.Reveal (inside BuildOidcOptions) surfaces a missing or corrupt at-rest
     // key file, or a corrupt envelope, as a CryptographicException/FormatException; this catches it and
-    // returns a clean 500 rather than letting it escape as an unhandled framework error — never proceeding
+    // returns a clean 500 rather than letting it escape as an unhandled framework error, never proceeding
     // with an empty or wrong secret. No key material or secret is logged (the message names only the key
     // file). Mirrors the SAML challenge's signing-key fail-closed 500. Generic over the built value because
     // the challenge builds the options (revealing the secret up front, before the discovery read) while the
@@ -644,10 +644,10 @@ internal sealed class OidcLoginService
         }
     }
 
-    // Builds the OidcClient options both sites share — Authority, client credentials, redirect URI, scope,
+    // Builds the OidcClient options both sites share: Authority, client credentials, redirect URI, scope,
     // the discovery policy (RequireHttps / ValidateIssuerName / ValidateEndpoints + the additional base
     // address for providers whose endpoints sit off the authority), and the required id_token signature
-    // validator (#134) — but WITHOUT ProviderInformation. Kept separate from the client construction so the
+    // validator (#134), but WITHOUT ProviderInformation. Kept separate from the client construction so the
     // challenge can configure the policy, read discovery ONCE under it, and only then construct the client
     // with the resulting metadata pre-assigned (#450); the constructor's internal use-discovery flag is
     // decided from whether ProviderInformation is set at construction, so the assignment must happen before
@@ -657,7 +657,7 @@ internal sealed class OidcLoginService
     /// <summary>
     /// Validates an inbound back-channel <c>logout_token</c> for a provider (#962): reads the provider's
     /// discovery document for its JWKS + issuer, builds the SAME hardened validation parameters the id_token
-    /// uses, and runs <see cref="OidcLogoutTokenValidator"/>. No client secret is revealed — verifying a
+    /// uses, and runs <see cref="OidcLogoutTokenValidator"/>. No client secret is revealed; verifying a
     /// signature needs no credential, so the back-channel path never touches the secret at rest. Every
     /// failure (a malformed endpoint, an unreadable discovery document, or any §2.6 rule) is fail-closed and
     /// carries a fixed reason code for the caller to audit; the caller performs the revocation.
@@ -665,7 +665,7 @@ internal sealed class OidcLoginService
     /// <param name="config">The provider configuration.</param>
     /// <param name="provider">The provider name (route input, used only for the SSRF-guarded discovery read).</param>
     /// <param name="logoutToken">The raw <c>logout_token</c> from the anonymous POST body.</param>
-    /// <returns>The validation outcome — on success, the (sub, sid) the caller keys its revocation lookup on.</returns>
+    /// <returns>The validation outcome; on success, the (sub, sid) the caller keys its revocation lookup on.</returns>
     internal async Task<OidcLogoutTokenValidator.Result> ValidateBackChannelLogoutAsync(OidConfig config, string provider, string? logoutToken)
     {
         OidcClientOptions options;
@@ -673,7 +673,7 @@ internal sealed class OidcLoginService
         {
             // Validation-only options: Authority + discovery policy + client id, under the ONE shared
             // discovery posture (RequireHttps / ValidateIssuerName / ValidateEndpoints). A malformed/absent
-            // endpoint throws here — caught as a fail-closed reject rather than a 500.
+            // endpoint throws here, caught as a fail-closed reject rather than a 500.
             options = OidcDiscoveryOptions.Build(config);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
@@ -701,7 +701,7 @@ internal sealed class OidcLoginService
         var ephemeralKeys = new List<IDisposable>();
         try
         {
-            // requireExpiration:false — OIDC Back-Channel Logout 1.0 §2.4 does not mandate exp on a
+            // requireExpiration:false; OIDC Back-Channel Logout 1.0 §2.4 does not mandate exp on a
             // logout_token; replay is bounded by the jti one-time-use, not by exp. Requiring it would
             // silently reject (and thus no-op the logout for) a spec-compliant exp-less IdP (#962).
             var parameters = OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys, requireExpiration: false);
@@ -720,14 +720,14 @@ internal sealed class OidcLoginService
     {
         // Authority and the discovery policy (RequireHttps / ValidateIssuerName / ValidateEndpoints + the
         // additional base address) come from the one shared builder (#163), so the login and the admin
-        // Test-connection probe read discovery under an identical SSRF/TLS posture — the policy cannot drift
+        // Test-connection probe read discovery under an identical SSRF/TLS posture; the policy cannot drift
         // between them. A null/invalid OidEndpoint still throws here (inside the caller's secret-reveal
         // guard) exactly as before, so the challenge fails closed at the same point.
         var options = OidcDiscoveryOptions.Build(config);
         options.ClientId = config.OidClientId?.Trim();
         // The client secret is stored encrypted at rest (#158); reveal it at the point of use. A legacy
         // plaintext value passes through unchanged (transparent migration); a missing/corrupt key throws
-        // (CryptographicException) rather than returning a wrong or empty secret — the login then fails
+        // (CryptographicException) rather than returning a wrong or empty secret; the login then fails
         // closed rather than silently attempting an unauthenticated token exchange.
         options.ClientSecret = SSOPlugin.Instance.Secrets.Reveal(config.OidSecret)?.Trim();
         options.RedirectUri = redirectUri;
@@ -749,7 +749,7 @@ internal sealed class OidcLoginService
     // Callback-side client: the redirect URI is rebuilt from the callback's own route (the IdP calls
     // back on exactly the route the authorization request advertised), so the token request's
     // redirect_uri matches the authorization request's as RFC 6749 requires (#98). The scope string
-    // is normalized the same way as the challenge side (BuildScopeString) — both tolerate a null
+    // is normalized the same way as the challenge side (BuildScopeString); both tolerate a null
     // OidScopes identically (#368). The challenge leg builds its own client inline (BuildOidcOptions +
     // new OidcClient with the discovery metadata pre-assigned, #450), so this is the sole client-assembly
     // site left; the former CreateOidcClient wrapper folded in here (#695).
@@ -758,7 +758,7 @@ internal sealed class OidcLoginService
         var redirectUri = OidcRedirectUriBuilder.CallbackRedirectUri(RequestBaseUrl(request, config), request.Path.Value, provider);
         var options = BuildOidcOptions(config, redirectUri, BuildScopeString(config));
 
-        // Reuse an already-fetched, policy-validated discovery metadata when the caller supplies it — the
+        // Reuse an already-fetched, policy-validated discovery metadata when the caller supplies it; the
         // callback feeds the metadata captured at the challenge (#247) so ProcessResponseAsync does not
         // re-run discovery + JWKS. Pre-assigning ProviderInformation sets the client's internal
         // _useDiscovery = false, which also disables the library's invalid_signature JWKS-refresh-and-retry.
@@ -766,7 +766,7 @@ internal sealed class OidcLoginService
         // rotated IN during the window (the id_token signed by a key the challenge did not capture) fails
         // this callback closed and self-heals on retry (the next challenge fetches fresh keys); a key rotated
         // OUT / revoked during the window stays accepted until the state expires, since the callback validates
-        // against the captured set — a far tighter exposure than the platform-default 24-hour JWKS cache, and
+        // against the captured set, a far tighter exposure than the platform-default 24-hour JWKS cache, and
         // never wider than the state lifetime. Populated only from a validated fetch (never hand-filled), so
         // the DiscoveryPolicy (RequireHttps / ValidateIssuerName / ValidateEndpoints) is not bypassed. The
         // conditional is kept as-is (behaviour-preserving) though the sole caller always supplies non-null.
@@ -778,7 +778,7 @@ internal sealed class OidcLoginService
         return new OidcClient(options);
     }
 
-    // Resolves the canonical base URL from the live request and the provider's overrides — the same pure
+    // Resolves the canonical base URL from the live request and the provider's overrides, the same pure
     // CanonicalBaseUrl.Resolve decision (#242) SamlLoginService.GetRequestBase feeds for SAML. Kept as a
     // thin local read so this flow tier is self-contained.
     private static string RequestBaseUrl(HttpRequest request, OidConfig config) =>

@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Exercises <see cref="OidcLogoutTokenValidator"/> against a static JWKS (#962). Every OIDC Back-Channel
-/// Logout 1.0 §2.6 rule is fail-closed and has a negative test — signature/issuer/audience/lifetime (the
+/// Logout 1.0 §2.6 rule is fail-closed and has a negative test: signature/issuer/audience/lifetime (the
 /// SAME <see cref="OidcSignatureKeys"/> basis the id_token uses), the mandatory back-channel-logout event
 /// member, the forbidden nonce (an id_token replayed as a logout_token), the at-least-one-of-sub/sid rule,
 /// and jti one-time-use. Each rejection carries a fixed reason code and never a subject identifier.
@@ -80,7 +80,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [InlineData(null)]
     public async Task AbsentToken_IsMalformed(string? token)
     {
-        // Nothing was sent — a distinct fail-closed code from a bad token that reached the JWT handler.
+        // Nothing was sent, a distinct fail-closed code from a bad token that reached the JWT handler.
         var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
 
         Assert.False(result.IsValid);
@@ -93,7 +93,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [InlineData("a.b.c")]
     public async Task GarbageNonJwt_IsInvalid_FailClosed(string token)
     {
-        // A non-empty non-JWT reaches the handler and fails signature/parse validation — still fail-closed,
+        // A non-empty non-JWT reaches the handler and fails signature/parse validation, still fail-closed,
         // reported as Invalid (the handler catches it, it never throws a 500).
         var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
 
@@ -161,7 +161,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task EventsWithoutTheBackChannelMember_IsNotALogoutToken()
     {
-        // A valid, signed token whose events claim names a DIFFERENT event — not a back-channel logout.
+        // A valid, signed token whose events claim names a DIFFERENT event, not a back-channel logout.
         var claims = Claims(sub: "user-1");
         claims["events"] = new Dictionary<string, object> { ["http://schemas.openid.net/event/some-other"] = new Dictionary<string, object>() };
         var token = CreateToken(claims: claims);
@@ -175,7 +175,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task TokenCarryingNonce_IsRejected_IdTokenReplayedAsLogout()
     {
-        // §2.4: a logout_token MUST NOT carry a nonce — this is what refuses an id_token replayed here.
+        // §2.4: a logout_token MUST NOT carry a nonce; this is what refuses an id_token replayed here.
         var claims = Claims(sub: "user-1");
         claims["nonce"] = "abc123";
         var token = CreateToken(claims: claims);
@@ -211,7 +211,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task NoJti_ByteIdenticalResend_IsCaughtAsReplay()
     {
-        // A token with no jti still gets one-time-use via its signature — a byte-identical resend collides.
+        // A token with no jti still gets one-time-use via its signature; a byte-identical resend collides.
         var token = CreateToken(claims: Claims(sub: "user-1"));
 
         Assert.True((await _validator.ValidateAsync(token, Params(), Skew, _now)).IsValid);
@@ -221,7 +221,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task NoSubjectIdentifierEverAppearsInAReasonCode()
     {
-        // Fixed codes only — a rejection is never a subject oracle (T-I1).
+        // Fixed codes only; a rejection is never a subject oracle (T-I1).
         var token = CreateToken(claims: Claims(sub: "secret-subject", sid: "secret-session"));
         // Force a replay rejection carrying no subject text.
         await _validator.ValidateAsync(token, Params(), Skew, _now);

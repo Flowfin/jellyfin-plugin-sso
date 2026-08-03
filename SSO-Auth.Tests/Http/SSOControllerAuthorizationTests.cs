@@ -34,7 +34,7 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     private const int StatusCodes403 = (int)HttpStatusCode.Forbidden;
 
     // The admin surface expected to be elevation-gated. The dynamic theories below cover whatever the live
-    // table exposes; this fixed set is the completeness anchor — an endpoint silently losing its guard drops
+    // table exposes; this fixed set is the completeness anchor; an endpoint silently losing its guard drops
     // out of the discovered set and fails CoversExactlyTheKnownElevationSurface.
     private static readonly string[] ExpectedElevationActions =
     {
@@ -45,7 +45,7 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         "EnableSsoOnly", "DisableSsoOnly", "DesignateBreakGlassAdmin", "SsoOnlyStatus",
     };
 
-    // The endpoints guarded by a bare [Authorize] (any authenticated caller, no elevation) — the canonical
+    // The endpoints guarded by a bare [Authorize] (any authenticated caller, no elevation): the canonical
     // link management surface, plus the RP-initiated OpenID logout and the SP-initiated SAML logout (#727),
     // where a user logs THEMSELVES out (every action is scoped to the caller's own user id), so they are
     // deliberately non-elevated.
@@ -100,7 +100,7 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     [Fact]
     public async Task Administrator_PassesTheAuthorizationStageOnEveryElevationEndpoint()
     {
-        // An administrator clears the guard, so the response is whatever the action body produces — never a
+        // An administrator clears the guard, so the response is whatever the action body produces, never a
         // 401/403. Proving "not rejected" is the point: the guard admits the elevated caller.
         await AssertAllAsync(
             _fixture.Endpoints.ElevationGated,

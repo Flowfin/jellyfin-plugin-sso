@@ -148,7 +148,7 @@ public class SamlMetadataParserTests
     [Fact]
     public void Parse_PreferredBindingWithEmptyLocation_FallsBackToTheNextUsableBinding()
     {
-        // A Redirect SingleSignOnService with a blank Location must not short-circuit the fallback — a usable
+        // A Redirect SingleSignOnService with a blank Location must not short-circuit the fallback: a usable
         // POST endpoint present in the same document is used.
         var result = SamlMetadataParser.Parse(Metadata(
             KeyDescriptor(Cert()),
@@ -222,7 +222,7 @@ public class SamlMetadataParserTests
     [Fact]
     public void Parse_UnloadableCertificate_FailsClosed()
     {
-        // Valid base64 ("ABC") that is not an X.509 certificate — rejected like the config-save cert guard.
+        // Valid base64 ("ABC") that is not an X.509 certificate, rejected like the config-save cert guard.
         var ex = Assert.Throws<SamlMetadataException>(() => SamlMetadataParser.Parse(Metadata(KeyDescriptor("QUJD"), Sso(Redirect, RedirectSso))));
         Assert.Contains("certificate", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

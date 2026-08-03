@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="MaxAgePolicy"/> — the fail-closed <c>max_age</c> freshness check (#961). A missing
+/// Tests for <see cref="MaxAgePolicy"/>: the fail-closed <c>max_age</c> freshness check (#961). A missing
 /// <c>auth_time</c> (a provider that ignored the requested <c>max_age</c>) and an <c>auth_time</c> older than
 /// the window both fail; a fresh one within the window (plus the shared clock skew) passes; a future
 /// <c>auth_time</c> beyond the skew is rejected so a clock-forward IdP cannot satisfy the window forever.
@@ -22,7 +22,7 @@ public class MaxAgePolicyTests
     [Fact]
     public void MissingAuthTime_IsNotFresh_FailClosed()
     {
-        // The provider ignored max_age and returned no auth_time — must NOT pass.
+        // The provider ignored max_age and returned no auth_time; must NOT pass.
         Assert.False(MaxAgePolicy.IsFresh(null, maxAgeSeconds: 300, Now));
     }
 

@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="LogoutContext"/> — the id_token it carries is a bearer secret, so its synthesized
+/// Tests for <see cref="LogoutContext"/>: the id_token it carries is a bearer secret, so its synthesized
 /// string form must redact it (#727), so a stray interpolation or logged context can never spill the token.
 /// </summary>
 public class LogoutContextTests

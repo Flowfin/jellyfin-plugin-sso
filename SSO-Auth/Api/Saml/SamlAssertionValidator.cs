@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// <summary>
 /// The single home for inbound SAML assertion validation (#496, #318): parse plus signature, time-bound,
 /// audience, recipient and algorithm-allowlist validation, the one-time replay consume, and the non-empty
-/// NameID guard — the whole <c>IsSamlResponseValid</c>/<c>ValidateSaml</c>/replay path that used to be
+/// NameID guard: the whole <c>IsSamlResponseValid</c>/<c>ValidateSaml</c>/replay path that used to be
 /// spread across <see cref="Flows.SamlLoginService"/>. Consolidating it here makes the "a
 /// <see cref="VerifiedIdentity"/> is produced ONLY after complete validation" invariant local and testable:
 /// the sole SAML call to <see cref="VerifiedIdentity.FromValidatedSaml"/> lives in
@@ -33,7 +33,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// session-fixation correlation against a request this server issued, not assertion validation.</item>
 /// </list>
 /// The one-time replay cache is a <c>static readonly</c> field so it is process-wide exactly as it was on
-/// the flow service — a fresh per-request flow service (and so a fresh validator) must not lose the consumed
+/// the flow service: a fresh per-request flow service (and so a fresh validator) must not lose the consumed
 /// assertion ids between the two-step post-then-authenticate legs.
 /// </remarks>
 internal sealed class SamlAssertionValidator
@@ -46,7 +46,7 @@ internal sealed class SamlAssertionValidator
 
     // One-time-use tracking for consumed SAML assertion IDs (replay protection). One process-wide instance,
     // like the outstanding-request cache the flow service keeps and the OpenID caches the sibling flow
-    // service keeps — the two-step post-then-authenticate legs run across separate per-request instances.
+    // service keeps; the two-step post-then-authenticate legs run across separate per-request instances.
     private static readonly ReplayCache SamlReplays = new ReplayCache();
 
     private readonly ILogger _logger;
@@ -62,7 +62,7 @@ internal sealed class SamlAssertionValidator
     }
 
     // Test-only: clears the process-wide one-time replay cache between tests, the same static-state reset
-    // reason as the flow service's request/outcome resets — a test that consumed an assertion id must not
+    // reason as the flow service's request/outcome resets: a test that consumed an assertion id must not
     // leak it into a sibling test. Internal, reachable only through InternalsVisibleTo; never wired to an
     // endpoint or DI, so it adds no runtime or security surface.
 
@@ -98,11 +98,11 @@ internal sealed class SamlAssertionValidator
     internal bool TryValidate(SamlConfig config, string provider, string requestBaseUrl, string? rawResponse, [NotNullWhen(true)] out SamlResponse? samlResponse)
     {
         // A malformed response (non-base64, malformed XML, prohibited DOCTYPE) fails TryParse and is
-        // rejected the same way an invalid one is — a clean 4xx, never an unhandled 500 (#199). The
+        // rejected the same way an invalid one is: a clean 4xx, never an unhandled 500 (#199). The
         // optional secondary certificate is passed alongside the primary so a response signed by either is
         // accepted across an identity-provider signing-key overlap window (#491); when it is blank the
         // trial narrows to the primary alone (both the primary and any secondary are additionally required
-        // to be within their validity window — see IsWithinValidityPeriod).
+        // to be within their validity window; see IsWithinValidityPeriod).
         if (!SamlResponseLoader.TryParse(config.SamlCertificate ?? string.Empty, config.SamlSecondaryCertificate, rawResponse, out samlResponse))
         {
             return false;
@@ -112,7 +112,7 @@ internal sealed class SamlAssertionValidator
         {
             // The response parsed but failed response-level validation. It owns an unmanaged certificate
             // handle (#674), and the caller only ever consumes samlResponse on the true path, so dispose it
-            // here and null the out parameter — honoring the "otherwise null" out contract so a caller can
+            // here and null the out parameter, honoring the "otherwise null" out contract so a caller can
             // never read (or be handed) a rejected, half-consumed response.
             samlResponse.Dispose();
             samlResponse = null;
@@ -124,7 +124,7 @@ internal sealed class SamlAssertionValidator
 
     /// <summary>
     /// Consumes the SAML assertion's ID against the provider-scoped replay cache for one-time use. Returns
-    /// false when the assertion was already used (or carries no ID — a missing ID stays empty, so TryConsume
+    /// false when the assertion was already used (or carries no ID; a missing ID stays empty, so TryConsume
     /// fails closed). The key is scoped by provider so two IdPs emitting the same assertion ID cannot block
     /// each other. Shared by the session mint and the account linking (#219).
     /// </summary>
@@ -141,8 +141,8 @@ internal sealed class SamlAssertionValidator
         if (shouldWarnCapacity)
         {
             // The replay cache turned away a NEW assertion at its hard cap: the login already failed closed
-            // (consumed is false). This is the single observation point for every replay consume — the login
-            // mint, the deprecation-window mint leg, and the manual link redeem all funnel through here — so
+            // (consumed is false). This is the single observation point for every replay consume: the login
+            // mint, the deprecation-window mint leg, and the manual link redeem all funnel through here, so
             // surfacing it here covers them all, throttled once per interval by the cache's own gate. A full
             // replay cache is only reachable under extreme login volume or a compromised identity provider
             // replaying signed assertions, so it is a genuine operator signal (#470). provider is
@@ -159,7 +159,7 @@ internal sealed class SamlAssertionValidator
     /// <summary>
     /// Completes the SAML session-minting validation on a response that already passed
     /// <see cref="TryValidate"/>, the login allow-list, and the InResponseTo correlation: it enforces the
-    /// one-time replay consume and the non-empty NameID guard, then — and only then — produces the verified
+    /// one-time replay consume and the non-empty NameID guard, then (and only then) produces the verified
     /// identity through <see cref="VerifiedIdentity.FromValidatedSaml"/>. This is the sole SAML construction
     /// site of a <see cref="VerifiedIdentity"/>, so the "produced only after complete validation" invariant
     /// is local here.
@@ -179,7 +179,7 @@ internal sealed class SamlAssertionValidator
         // Enforce one-time use so a captured assertion cannot be replayed to mint another session.
         // Enforced only at the session-minting endpoint (and the link redeem), not at the SAML/post ACS
         // which merely renders the intermediate page, so the two-step post-then-auth flow consumes the id
-        // once. A replay is a client-caused 400 in the uniform SAML body — it no longer discloses the replay
+        // once. A replay is a client-caused 400 in the uniform SAML body; it no longer discloses the replay
         // cache to the attacker who replayed, and the log-side diagnosis is unchanged.
         if (!TryConsumeReplay(samlResponse, provider))
         {
@@ -195,7 +195,7 @@ internal sealed class SamlAssertionValidator
         // neither is derived here.
         var derived = SamlAuthorizeStateBuilder.Build(assertionRoles, config);
 
-        // Fail closed (#95): an assertion without a usable NameID carries no identity to log in — reject it
+        // Fail closed (#95): an assertion without a usable NameID carries no identity to log in; reject it
         // as an invalid login instead of failing downstream on a null canonical name. Whitespace-only counts
         // as unresolved (Jellyfin's username validation rejects it anyway).
         var nameId = samlResponse.GetNameID();
@@ -206,8 +206,8 @@ internal sealed class SamlAssertionValidator
             return false;
         }
 
-        // All SAML validation has now passed — signature, time bounds, audience, recipient, InResponseTo
-        // correlation, the login allow-list, replay one-time-use, and the non-empty-NameID guard — so this
+        // All SAML validation has now passed: signature, time bounds, audience, recipient, InResponseTo
+        // correlation, the login allow-list, replay one-time-use, and the non-empty-NameID guard, so this
         // is the point at which the response becomes a fully-verified SAML identity (#473). SAML keys the
         // link directly on the NameID (subject and username are the same value; no migration path needed)
         // and carries no email_verified claim, so the verified-email gate is not applicable at the caller
@@ -215,7 +215,7 @@ internal sealed class SamlAssertionValidator
         rejection = null;
         // Destructure the validated assertion into the protocol-agnostic ValidatedLogin the keystone takes
         // (#790). SAML keys the link directly on the NameID (subject and username are the same value) and
-        // carries no email_verified claim, avatar, or issuer binding (all null — issuer binding is OpenID
+        // carries no email_verified claim, avatar, or issuer binding (all null; issuer binding is OpenID
         // only, #186).
         identity = VerifiedIdentity.FromValidatedSaml(new ValidatedLogin
         {
@@ -241,7 +241,7 @@ internal sealed class SamlAssertionValidator
     // AuthnRequest, and an empty SamlAudience falls through to the client id.
 
     /// <summary>
-    /// Validates a SAML response's signature and time bounds, and — unless the provider explicitly opts out —
+    /// Validates a SAML response's signature and time bounds, and (unless the provider explicitly opts out)
     /// its AudienceRestriction binding to this service provider. The expected audience is the configured
     /// <c>SamlAudience</c>, falling back to the <c>SamlClientId</c>.
     /// </summary>
@@ -292,7 +292,7 @@ internal sealed class SamlAssertionValidator
         return true;
     }
 
-    // The assertion-consumer URLs this service provider advertises for the provider — the same value the
+    // The assertion-consumer URLs this service provider advertises for the provider, the same value the
     // challenge puts in the AuthnRequest's AssertionConsumerServiceURL, so a signed Recipient (or
     // Destination) must equal one. Both the new ("post") and legacy ("p") path spellings are returned:
     // config.NewPath is process-wide mutable state a concurrent challenge can flip, and the Recipient

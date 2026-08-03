@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcFrontChannelParameters"/> — the optional step-up authorize parameters (#757).
+/// Tests for <see cref="OidcFrontChannelParameters"/>: the optional step-up authorize parameters (#757).
 /// Each of acr_values/prompt/max_age is emitted only when the provider set it; an unconfigured provider
 /// yields null so the request is byte-identical to before (upgrade-safe).
 /// </summary>

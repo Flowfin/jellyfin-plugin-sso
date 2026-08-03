@@ -9,12 +9,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 
 /// <summary>
 /// Why a break-glass admin does (or does not) satisfy the survivor guard. A reason CODE, never a username
-/// or roster — the public refusal message is deliberately singular and non-enumerating (T-I1), so these
+/// or roster: the public refusal message is deliberately singular and non-enumerating (T-I1), so these
 /// verdicts exist only for the unit tests and the audit trail.
 /// </summary>
 internal enum SsoOnlyGuardVerdict
 {
-    /// <summary>The designated account is an enabled administrator with a working password login — activation is safe.</summary>
+    /// <summary>The designated account is an enabled administrator with a working password login; activation is safe.</summary>
     Allow,
 
     /// <summary>No break-glass admin was designated (blank username).</summary>
@@ -37,19 +37,19 @@ internal enum SsoOnlyGuardVerdict
 /// The resolved login state of a candidate break-glass administrator, snapshotted from
 /// <c>IUserManager</c> so the guard predicate stays pure and unit-testable (the controller resolves the
 /// account and fills this in; the guard never touches Jellyfin services). Every field must hold for the
-/// account to be a valid break-glass admin — the single always-available password door SSO-only leaves
+/// account to be a valid break-glass admin: the single always-available password door SSO-only leaves
 /// open (SSO-ONLY-LOGIN-DESIGN.md §3 option A).
 /// </summary>
 /// <param name="Exists">Whether an account with the designated username exists at all.</param>
-/// <param name="IsAdministrator">Whether that account holds <c>PermissionKind.IsAdministrator</c> (the exemption may only spare an EXISTING admin, never grant admin — T-E1).</param>
+/// <param name="IsAdministrator">Whether that account holds <c>PermissionKind.IsAdministrator</c> (the exemption may only spare an EXISTING admin, never grant admin, T-E1).</param>
 /// <param name="IsEnabled">Whether the account is enabled (not <c>PermissionKind.IsDisabled</c>).</param>
-/// <param name="HasUsablePasswordLogin">Whether the account currently routes to Jellyfin's password provider AND has a non-empty stored password — i.e. it can actually log in without SSO.</param>
+/// <param name="HasUsablePasswordLogin">Whether the account currently routes to Jellyfin's password provider AND has a non-empty stored password, i.e. it can actually log in without SSO.</param>
 internal readonly record struct BreakGlassAdminState(bool Exists, bool IsAdministrator, bool IsEnabled, bool HasUsablePasswordLogin);
 
 /// <summary>
 /// The fail-closed activation interlock for SSO-only login (#165), in the style of
 /// <see cref="ProviderConfigValidator"/>: it refuses to let <c>DisablePasswordLogin</c> be turned on unless
-/// a working non-SSO administrator login path is provable — canonically a designated, enabled
+/// a working non-SSO administrator login path is provable: canonically a designated, enabled
 /// administrator account that still has a password (the break-glass admin). Pure and side-effect-free: the
 /// caller resolves the account state into a <see cref="BreakGlassAdminState"/> and this decides. The
 /// success criterion the whole feature rests on is that no reachable configuration can leave zero working
@@ -68,7 +68,7 @@ internal static class SsoOnlyLoginGuard
     /// Classifies whether the resolved break-glass admin satisfies the survivor guard. Fail-closed by
     /// construction: every missing condition (no designation, no such account, not an admin, disabled, no
     /// usable password) is its own refusal verdict; only a fully-qualified break-glass admin returns
-    /// <see cref="SsoOnlyGuardVerdict.Allow"/>. An SSO link is deliberately NOT accepted as the survivor —
+    /// <see cref="SsoOnlyGuardVerdict.Allow"/>. An SSO link is deliberately NOT accepted as the survivor:
     /// its usability depends on the IdP being up, which is exactly what fails in the lockout scenario
     /// (SSO-ONLY-LOGIN-DESIGN.md §3, T-D3).
     /// </summary>
@@ -143,11 +143,11 @@ internal static class SsoOnlyLoginGuard
     /// login can never strip its password door (operators often set a provider's DefaultProvider to the SSO
     /// provider id; without this pin the break-glass admin could lock the whole org out when the IdP later
     /// fails). A non-exempt account is forced onto the SSO (non-password) provider ONLY when it currently
-    /// routes to the built-in password provider — the exact <see cref="SsoAuthenticationProviders.IsDefaultPasswordProvider"/>
+    /// routes to the built-in password provider, the exact <see cref="SsoAuthenticationProviders.IsDefaultPasswordProvider"/>
     /// test the enable sweep uses. An account already on a THIRD-PARTY provider (neither the built-in password
     /// provider nor the SSO provider) keeps its current provider, matching the sweep, which skips it: SSO-only
     /// closes the PASSWORD door, and such an account already has none (#690). Repointing it here would be
-    /// repointed-but-UNTRACKED — the caller's tracking write is gated on the same password-provider test — so
+    /// repointed-but-UNTRACKED (the caller's tracking write is gated on the same password-provider test) so
     /// the off-switch and boot reconcile could never reverse it. An account already on the SSO provider keeps
     /// the SSO provider (a no-op write). Pure: the caller reads it under the config lock and passes the result
     /// to the minter.
@@ -171,7 +171,7 @@ internal static class SsoOnlyLoginGuard
 
         // Match the enable sweep's skip exactly (SweepEnableAsync gates its repoint on this same test): only an
         // account still on the built-in password provider is moved to the SSO provider. An account on any other
-        // provider — the SSO provider (no-op) or a third-party provider (kept) — is left on it, so the login
+        // provider, the SSO provider (no-op) or a third-party provider (kept), is left on it, so the login
         // path and the sweep can never disagree and no account is repointed-but-untracked (#690).
         return SsoAuthenticationProviders.IsDefaultPasswordProvider(currentProviderId)
             ? SsoAuthenticationProviders.SsoProviderId

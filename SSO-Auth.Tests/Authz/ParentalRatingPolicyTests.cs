@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ParentalRatingPolicy"/> — the role → parental-rating-score reducer (#736). Fail
+/// Tests for <see cref="ParentalRatingPolicy"/>: the role → parental-rating-score reducer (#736). Fail
 /// closed toward the LESS permissive outcome: the feature off, no mapping matched, or an empty allow-list
 /// all yield null (leave the existing ceiling), and when several mappings match the MINIMUM (most
 /// restrictive) score wins, never the loosest.

@@ -14,14 +14,14 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcStateStore"/> — the consolidated in-flight OpenID authorize-state store
+/// Tests for <see cref="OidcStateStore"/>: the consolidated in-flight OpenID authorize-state store
 /// (#318, #341). Every behavior is pinned through the public surface (Seed + TryAdd / PeekCurrent /
 /// Promote / TryRedeem / PruneExpired), where the idiom now lives. The store holds a closed sum
 /// <see cref="AuthorizeSession"/>: a <see cref="AuthorizeSession.Pending"/> registered at the challenge,
 /// atomically swapped for a <see cref="AuthorizeSession.Ready"/> at the callback once the role gate
-/// passes — so "the login is valid" is which variant the entry is, never a mutable flag, and the swap is
+/// passes, so "the login is valid" is which variant the entry is, never a mutable flag, and the swap is
 /// torn-read-free (#341). Carries forward the invariants pinned by the predecessor tests: provider-bound
-/// peek (#289), the single-use atomic claim (#138/#133 — the upstream replay fix), the clock-anomaly
+/// peek (#289), the single-use atomic claim (#138/#133, the upstream replay fix), the clock-anomaly
 /// expiry, the cap that refuses new states instead of evicting in-flight ones (#246), and the concurrency
 /// regression that motivated the ConcurrentDictionary (adds racing the prune sweep threw on a plain
 /// Dictionary). Since #326 every peek/redeem also carries the browser-binding gate: the presented binding
@@ -116,7 +116,7 @@ public class OidcStateStoreTests
     public void PeekCurrent_AlreadyPromoted_ReturnsNull()
     {
         // Once the callback promoted the state to a Ready, a second callback must not peek it again as a
-        // pending state to re-run a token exchange — PeekCurrent returns only the Pending variant (#341).
+        // pending state to re-run a token exchange; PeekCurrent returns only the Pending variant (#341).
         var store = Store();
         store.Seed("s", Ready("p", "s", Now));
 
@@ -163,7 +163,7 @@ public class OidcStateStoreTests
     public void TryRedeem_MismatchedBinding_ReturnsNull_AndDoesNotConsume()
     {
         // The key property of #326: a wrong-browser redeem is refused BEFORE the atomic remove, so an
-        // attacker (or a lured victim) cannot burn a legitimate user's in-flight state — the right
+        // attacker (or a lured victim) cannot burn a legitimate user's in-flight state; the right
         // browser can still complete the login afterward.
         var store = Store();
         store.Seed("tok", Ready("p", "tok", Now, binding: "browser-A"));
@@ -212,7 +212,7 @@ public class OidcStateStoreTests
     public void PeekWithoutProviderInformation_ExposesNull_SoTheCallbackFallsBackToDiscovery()
     {
         // A state whose challenge captured no discovery (a flow that predates the capture) exposes null,
-        // so the callback's client build runs a fresh discovery — never a broken login.
+        // so the callback's client build runs a fresh discovery, never a broken login.
         var store = Store();
         Assert.True(store.TryAdd(Pending("p", "s", Now), out _));
 
@@ -239,7 +239,7 @@ public class OidcStateStoreTests
     public void ResponseIssuerRequired_DefaultsFalse_WhenNotMarked()
     {
         // The tolerant default: a state whose provider did not advertise the parameter exposes false, so
-        // the callback keeps tolerating an absent iss — no lockout of older IdPs.
+        // the callback keeps tolerating an absent iss, no lockout of older IdPs.
         var store = Store();
         Assert.True(store.TryAdd(Pending("p", "s", Now), out _));
 
@@ -275,7 +275,7 @@ public class OidcStateStoreTests
     public void Promote_BeforePromotion_TheStateIsNotYetRedeemable()
     {
         // A redeem arriving before the callback promotes the state finds a Pending (role gate not passed),
-        // so it is refused without consuming — the callback can still promote it afterwards.
+        // so it is refused without consuming; the callback can still promote it afterwards.
         var store = Store();
         Assert.True(store.TryAdd(Pending("p", "tok", Now), out _));
 
@@ -308,7 +308,7 @@ public class OidcStateStoreTests
     public void Promote_AfterRedeem_IsRejected()
     {
         // Promotion loses to a redeem that already claimed and removed the entry: the compare-and-set
-        // finds no matching value, so it is a no-op — no resurrected, re-redeemable state.
+        // finds no matching value, so it is a no-op; no resurrected, re-redeemable state.
         var store = Store();
         store.Seed("tok", Ready("p", "tok", Now));
         var alreadyReady = store.PeekCurrent("tok", "p", Now, Binding); // null: it is a Ready, not a Pending
@@ -326,7 +326,7 @@ public class OidcStateStoreTests
     public async Task PromoteRacingRedeem_YieldsEitherNothingOrACompleteReady_NeverAPartialOne()
     {
         // The core #341 property: a redeem racing the promotion observes either the whole Pending (not
-        // redeemable) or the whole Ready with every derived field present — never a half-applied field
+        // redeemable) or the whole Ready with every derived field present, never a half-applied field
         // set, because the swap replaces one immutable value with another atomically. Many rounds exercise
         // the interleaving; any redeemed Ready must be fully populated.
         for (var round = 0; round < 200; round++)
@@ -395,7 +395,7 @@ public class OidcStateStoreTests
     public void TryRedeem_EntryWithNoBindingId_ReturnsNull()
     {
         // Fail closed on the stored side: a state that recorded no binding id (e.g. a legacy or
-        // hand-seeded entry) is never redeemable — not even by presenting an empty or arbitrary id, so
+        // hand-seeded entry) is never redeemable, not even by presenting an empty or arbitrary id, so
         // an unbound state cannot be a bypass.
         var store = Store();
         store.Seed("tok", Ready("p", "tok", Now, binding: null));
@@ -409,7 +409,7 @@ public class OidcStateStoreTests
     public void TryRedeem_NotPromoted_ReturnsNullAndDoesNotConsume()
     {
         // A still-pending state (the role gate has not passed) is not redeemable, and a failed redeem must
-        // not burn it — the callback leg may still promote it.
+        // not burn it; the callback leg may still promote it.
         var store = Store();
         store.Seed("tok", Pending("p", "tok", Now));
 
@@ -450,7 +450,7 @@ public class OidcStateStoreTests
 
     // --- UTC-consistent lifetime boundary (#676): expiry keys on the SAME basis the challenge stamped
     // Created with. The production call sites now pass DateTime.UtcNow (matching the SAML flow), never the
-    // machine-LOCAL DateTime.Now — so a DST transition or a clock step cannot shift an in-flight state's
+    // machine-LOCAL DateTime.Now, so a DST transition or a clock step cannot shift an in-flight state's
     // window and expire a valid login early. These drive the whole basis off a real DateTime.UtcNow to pin
     // the read predicates' lifetime edge and the challenge -> peek -> promote -> redeem round-trip on one
     // consistent UTC clock, the invariant the call-site fix restores. ---
@@ -458,7 +458,7 @@ public class OidcStateStoreTests
     [Fact]
     public void ReadPredicates_OnAConsistentUtcBasis_HonorTheStateThroughItsLifetime_ThenRejectPastIt()
     {
-        // T is a real UTC instant — the same DateTime.UtcNow the production challenge stamps Created with;
+        // T is a real UTC instant: the same DateTime.UtcNow the production challenge stamps Created with;
         // every comparison below is measured on that one basis, so the boundary is exact and clock-anomaly
         // free.
         var t = DateTime.UtcNow;
@@ -472,7 +472,7 @@ public class OidcStateStoreTests
         Assert.Null(peekStore.PeekCurrent("s", "p", t + Lifetime + TimeSpan.FromTicks(1), Binding));
 
         // TryRedeem (the mint/link claim) shares IsCurrentFor over the promoted variant: one tick past the
-        // lifetime is rejected WITHOUT consuming the state (fail closed, non-consuming) — then it still
+        // lifetime is rejected WITHOUT consuming the state (fail closed, non-consuming), then it still
         // redeems within the lifetime, single-use.
         var redeemStore = Store();
         redeemStore.Seed("tok", Ready("p", "tok", t));
@@ -486,7 +486,7 @@ public class OidcStateStoreTests
     public void ChallengeToRedeem_RoundTripsOnOneUtcBasis()
     {
         // The full production path on a single UTC basis (the regression #676 guards): register at UtcNow,
-        // peek + promote at UtcNow, redeem at UtcNow — one session minted, the replay rejected. A state
+        // peek + promote at UtcNow, redeem at UtcNow, one session minted, the replay rejected. A state
         // created and consumed on the same UTC clock round-trips exactly as it did on a same-local-clock
         // basis, but now without the DST/clock-step window shift a machine-local basis carried.
         var t = DateTime.UtcNow;
@@ -504,7 +504,7 @@ public class OidcStateStoreTests
 
     // --- Single-use / invalidate-immediately (#138: upstream 9p4 v4.0.0.4 fix) ---
     // Upstream v4.0.0.3 invalidated the OpenID authorize state only by expiry after a successful
-    // auth, leaving the consumed state redeemable again within its ~15-min lifetime — a replay. The
+    // auth, leaving the consumed state redeemable again within its ~15-min lifetime, a replay. The
     // fix removed the consumed state immediately; TryRedeem claims it atomically (#133), so it is
     // single-use even under concurrent replay. These pin that invariant so a future refactor cannot
     // silently reintroduce the replay window.
@@ -581,7 +581,7 @@ public class OidcStateStoreTests
     public void PruneExpired_WithinTheInterval_IsThrottled_AndTheUnsweptEntryIsStillRejected()
     {
         // The throttle only defers memory reclamation: a suppressed sweep leaves the expired entry in
-        // the store, but the redeem predicate rejects it independently on expiry — fail closed either way.
+        // the store, but the redeem predicate rejects it independently on expiry; fail closed either way.
         var store = Store();
         store.PruneExpired(Now); // anchors the gate
         store.Seed("expired", Ready("p", "expired", Now.AddMinutes(-5)));
@@ -599,7 +599,7 @@ public class OidcStateStoreTests
     {
         // Regression for the login-path race: one request pruning while others add states. On the
         // plain Dictionary predecessor this interleaving threw InvalidOperationException. Each pruner
-        // iteration advances 'now' by one tick — one full (tiny) prune interval — so every iteration
+        // iteration advances 'now' by one tick (one full (tiny) prune interval) so every iteration
         // re-enters the gate and the enumeration genuinely races the adds; the advance stays far
         // below the lifetime, so the fresh entries never expire mid-test.
         var store = new OidcStateStore(10_000, Lifetime, TimeSpan.FromTicks(1));
@@ -715,7 +715,7 @@ public class OidcStateStoreTests
 
         // The unsynchronized check-then-add can transiently overshoot by at most the in-flight thread
         // count, so the invariant is BOUNDED (not "never exceeds cap"): the cap is reached, the store
-        // stays within cap + taskCount, and once full some inserts are rejected — the concurrent
+        // stays within cap + taskCount, and once full some inserts are rejected; the concurrent
         // rejection path.
         Assert.True(store.Count >= cap);
         Assert.True(store.Count <= cap + taskCount);
@@ -738,7 +738,7 @@ public class OidcStateStoreTests
     public void Summaries_ProjectExactlyTheNonSecretFields_AndMapTheVariantToValid()
     {
         // Structural redaction: the Summary record carries Provider/Created/Valid/IsLinking and
-        // nothing else — the authorize-state token and PKCE code_verifier / nonce cannot leak through it,
+        // nothing else: the authorize-state token and PKCE code_verifier / nonce cannot leak through it,
         // even to an admin. "Valid" is now which variant the entry is: a promoted Ready is valid.
         var store = Store();
         store.Seed("secret-ready", Ready("p", "secret-ready", Now, isLinking: true));
@@ -759,7 +759,7 @@ public class OidcStateStoreTests
     // --- Per-client sub-cap (#327): global 200 -> per-key 2 unless noted ---
 
     // Promotes a just-added (still pending) state to redeemable via the production path (peek + Promote),
-    // so TryRedeem — which requires a promoted state — can exercise the per-client release.
+    // so TryRedeem (which requires a promoted state) can exercise the per-client release.
     private static void Validate(OidcStateStore store, string token) =>
         store.Promote(
             store.PeekCurrent(token, "p", Now, Binding)!,
@@ -810,7 +810,7 @@ public class OidcStateStoreTests
     {
         // Global cap 2 -> per-key cap 1. Fill the store to the global cap with exempt (null) keys, then
         // a "A" add reserves A's slot but is refused by the GLOBAL cap and must roll back. After a slot
-        // frees, "A" must still admit — a leaked reservation would leave A at its cap of 1.
+        // frees, "A" must still admit; a leaked reservation would leave A at its cap of 1.
         var store = Store(maxEntries: 2);
         Assert.True(store.TryAdd(Pending("p", "n1", Now, clientKey: null), out _));
         Assert.True(store.TryAdd(Pending("p", "n2", Now, clientKey: null), out _));

@@ -45,7 +45,7 @@ public class SamlLogoutValidatorTests : IDisposable
     [Fact]
     public void ReplayedRequestId_IsRejected()
     {
-        // T-D2 (replay): the same request ID cannot be consumed twice — the second presentation fails closed.
+        // T-D2 (replay): the same request ID cannot be consumed twice; the second presentation fails closed.
         var fixture = SamlLogoutTestFactory.Create(requestId: "_fixed-id");
         var validator = new SamlLogoutValidator();
         var config = ProviderTrusting(fixture.CertificateBase64);
@@ -85,7 +85,7 @@ public class SamlLogoutValidatorTests : IDisposable
     [Fact]
     public void ValidSignatureButNoNameId_IsRejected_WithoutConsumingReplay()
     {
-        // A signature-valid request that resolves no subject is rejected as Invalid — and because the reject
+        // A signature-valid request that resolves no subject is rejected as Invalid, and because the reject
         // happens BEFORE the replay consume, the request ID is NOT burned. Prove it: a corrected request that
         // carries the SAME ID (with a NameID this time) is then accepted, not turned away as a replay.
         const string SharedId = "_no-nameid-id";
@@ -97,7 +97,7 @@ public class SamlLogoutValidatorTests : IDisposable
         Assert.False(firstOk);
         Assert.Equal(SamlLogoutValidator.RejectReason.Invalid, reason);
 
-        // Re-present the SAME request ID, now with a NameID: it must succeed — the slot was never consumed, so
+        // Re-present the SAME request ID, now with a NameID: it must succeed; the slot was never consumed, so
         // this is not rejected as a Replay (which would prove the NameID guard ran before TryConsume).
         var corrected = SamlLogoutTestFactory.Create(nameId: "alice", requestId: SharedId);
         var secondOk = validator.TryValidate(ProviderTrusting(corrected.CertificateBase64), "adfs", corrected.EncodeRequest(), DateTime.UtcNow, out var nameId, out _, out _, out var secondReason);

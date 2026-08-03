@@ -66,7 +66,7 @@ public class SSOControllerConfigTransferTests
 
         Assert.IsType<NoContentResult>(result);
         var merged = harness.Configuration.OidConfigs["idp"];
-        // The stored secret survives the round-trip (blank-means-keep, #189) — revealed because the persist
+        // The stored secret survives the round-trip (blank-means-keep, #189), revealed because the persist
         // path encrypts it at rest (#158).
         Assert.Equal("STORED-SECRET", SSOPlugin.Instance.Secrets.Reveal(merged.OidSecret));
         // The server-managed link is preserved (#157), and the non-secret toggle is merged from the import.

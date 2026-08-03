@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// redaction: the plugin configuration already withholds its secrets and server-managed link maps at the
 /// JSON boundary (the <see cref="WriteOnlySecretConverter"/> on the three secret fields, #189, and
 /// <c>[JsonIgnore]</c> on the canonical-link maps, #157/#186), so serializing the snapshot this builds is
-/// redacted by construction — the export reflects the same withholding an <c>OID/Get</c> response already
+/// redacted by construction: the export reflects the same withholding an <c>OID/Get</c> response already
 /// does, reused rather than duplicated. This type only detaches the live configuration so the JSON
 /// formatter (which runs after the config lock is released) serializes a stable snapshot rather than a
 /// live, concurrently-mutated object.
@@ -43,8 +43,8 @@ internal static class ConfigExport
 
     // A fresh configuration carrying the live scalars and shallow copies of the provider maps. The provider
     // objects are shared (not cloned): their secrets and link maps are withheld by the JSON converters, and
-    // the only in-place write on the login hot path is the NewPath scalar flip — which cannot tear a JSON
-    // serialization — so a shallow copy is the same safe snapshot SSOController.SnapshotConfigs relies on
+    // the only in-place write on the login hot path is the NewPath scalar flip, which cannot tear a JSON
+    // serialization, so a shallow copy is the same safe snapshot SSOController.SnapshotConfigs relies on
     // (#157/F-10).
     private static PluginConfiguration Snapshot(PluginConfiguration live) => new()
     {

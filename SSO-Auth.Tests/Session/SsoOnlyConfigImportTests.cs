@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Pins the SSO-only guard on the config-import persistence path (#165, criterion 3 / T-T2): a document
 /// asserting <c>DisablePasswordLogin</c> must prove a surviving admin login path or the whole import is
 /// rejected fail-closed before anything is merged. The SSO-only globals themselves are instance-local and
-/// are never applied by an import (like the rate-limit settings) — import VALIDATES the assertion but does
+/// are never applied by an import (like the rate-limit settings); import VALIDATES the assertion but does
 /// not flip the target's mode; the operator enables it through the elevated SSO-Only endpoints.
 /// </summary>
 public class SsoOnlyConfigImportTests
@@ -48,7 +48,7 @@ public class SsoOnlyConfigImportTests
     [Fact]
     public void Import_AssertingSsoOnly_WithNullResolver_FailsClosed()
     {
-        // Belt: no resolver at all cannot be read as "safe" — an unresolved account fails the guard closed.
+        // Belt: no resolver at all cannot be read as "safe": an unresolved account fails the guard closed.
         var target = new PluginConfiguration();
         var document = DocumentAsserting(disablePasswordLogin: true, breakGlass: "root");
 
@@ -60,7 +60,7 @@ public class SsoOnlyConfigImportTests
     public void Import_AssertingSsoOnly_WithSafeAdmin_DoesNotThrow_ButStillDoesNotFlipTheMode()
     {
         // Even with a provable safe admin, import validates but does not APPLY the operational mode (it has
-        // no IUserManager to run the per-user enforcement sweep) — the target's own state is unchanged.
+        // no IUserManager to run the per-user enforcement sweep); the target's own state is unchanged.
         var target = new PluginConfiguration();
         var document = DocumentAsserting(disablePasswordLogin: true, breakGlass: "root");
 

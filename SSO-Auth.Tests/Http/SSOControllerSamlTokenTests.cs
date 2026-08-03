@@ -26,8 +26,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// (never the assertion); posting that token to SAML/Auth redeems the already-verified outcome and mints
 /// the session without re-parsing or re-validating the assertion. They pin the token is single-use, an
 /// unknown/expired token is refused, the one-time replay guard fires exactly once (at the callback), the
-/// browser binding still gates a solicited login on the token path, and — since #528 dropped the
-/// deprecation window — a pre-#251 full assertion posted straight to SAML/Auth is now rejected fail-closed
+/// browser binding still gates a solicited login on the token path, and (since #528 dropped the
+/// deprecation window) a pre-#251 full assertion posted straight to SAML/Auth is now rejected fail-closed
 /// (SAML/Auth accepts ONLY the opaque token).
 /// </summary>
 [Collection("SSOController")]
@@ -70,7 +70,7 @@ public class SSOControllerSamlTokenTests
         // The callback validates the assertion once and hands the page a token, not the base64 assertion.
         var token = ExtractToken(await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse()));
 
-        // Posting the token (never the assertion) mints the session — no re-parse, no second validation.
+        // Posting the token (never the assertion) mints the session: no re-parse, no second validation.
         var result = await harness.Controller.SamlAuth("adfs", new AuthResponse { Data = token });
 
         Assert.IsType<OkObjectResult>(result);
@@ -82,7 +82,7 @@ public class SSOControllerSamlTokenTests
     {
         // SLO-3a (#727) end to end: the ACS callback reads the assertion's SessionIndex into the stored
         // outcome, the token mint hands it to the shared completion tail as the SAML logout context (no
-        // id_token — SAML has none), and with EnableSingleLogout on the tail persists it keyed by the
+        // id_token; SAML has none), and with EnableSingleLogout on the tail persists it keyed by the
         // minted session id, so a later Single Logout request can resolve the session.
         var fixture = SamlTestFactory.Create(nameId: "alice", sessionIndex: "_slo-session-1");
         var harness = ProvisioningHarness(fixture, out _);
@@ -109,7 +109,7 @@ public class SSOControllerSamlTokenTests
 
         Assert.IsType<OkObjectResult>(await harness.Controller.SamlAuth("adfs", new AuthResponse { Data = token }));
 
-        // The atomic redeem removed the outcome, so a replay of the token finds nothing and is refused —
+        // The atomic redeem removed the outcome, so a replay of the token finds nothing and is refused,
         // a client-caused 400 in the uniform SAML body, and no second session is minted.
         var replay = Assert.IsType<ContentResult>(await harness.Controller.SamlAuth("adfs", new AuthResponse { Data = token }));
         Assert.Equal(400, replay.StatusCode);
@@ -159,7 +159,7 @@ public class SSOControllerSamlTokenTests
         var token = ExtractToken(await harness.Controller.SamlCallback("adfs", formSamlResponse: assertion));
 
         // Re-posting the SAME assertion to the callback is refused by the replay guard (its id was already
-        // consumed at the first callback) — the token round-trip did not skip the one-time-use control.
+        // consumed at the first callback); the token round-trip did not skip the one-time-use control.
         var replayCallback = Assert.IsType<ContentResult>(await harness.Controller.SamlCallback("adfs", formSamlResponse: assertion));
         Assert.Equal(400, replayCallback.StatusCode);
 
@@ -171,8 +171,8 @@ public class SSOControllerSamlTokenTests
     [Fact]
     public async Task PreDeprecationAssertionPostedToAuth_IsRejectedFailClosed()
     {
-        // #528 (BREAKING): the pre-#251 shape — a full base64 assertion POSTed straight to SAML/Auth,
-        // bypassing the rendered token page — is no longer accepted. It is not a live login-outcome token, so
+        // #528 (BREAKING): the pre-#251 shape (a full base64 assertion POSTed straight to SAML/Auth,
+        // bypassing the rendered token page) is no longer accepted. It is not a live login-outcome token, so
         // it misses the redeem and is rejected fail-closed (a clean 400 in the uniform SAML body), NEVER
         // re-parsed and re-validated as an assertion and never minting a session. This is the wire-contract
         // break #251 flagged: a scripted client that skips the page and posts a raw assertion is refused.
@@ -208,13 +208,13 @@ public class SSOControllerSamlTokenTests
         var fillerIdentity = TestIdentities.Saml("adfs", "filler", SamlAuthorizeStateBuilder.Build(new System.Collections.Generic.List<string>(), new SamlConfig()));
         Assert.True(store.TryAdd(new SamlLoginOutcome(filler, "adfs", fillerIdentity, string.Empty, null, null, DateTime.UtcNow), out _));
 
-        // The callback is refused at the store cap — a fail-closed 500 — and the assertion's one-time replay
+        // The callback is refused at the store cap (a fail-closed 500) and the assertion's one-time replay
         // id is NOT consumed, because the reservation is checked ahead of the consume.
         var refused = Assert.IsType<ContentResult>(await harness.Controller.SamlCallback("adfs", formSamlResponse: assertion));
         Assert.Equal(500, refused.StatusCode);
 
         // Drain the store (redeem the filler), then re-POST the SAME assertion. Because it was never burned,
-        // the retry now validates, consumes the id, and renders a real token — the login was not lost.
+        // the retry now validates, consumes the id, and renders a real token; the login was not lost.
         Assert.NotNull(store.TryRedeem(filler, "adfs", DateTime.UtcNow));
         var token = ExtractToken(await harness.Controller.SamlCallback("adfs", formSamlResponse: assertion));
         Assert.IsType<OkObjectResult>(await harness.Controller.SamlAuth("adfs", new AuthResponse { Data = token }));
@@ -233,8 +233,8 @@ public class SSOControllerSamlTokenTests
     public async Task SolicitedTokenFlow_MatchingBindingCookie_Mints()
     {
         // A solicited login (the assertion carries an InResponseTo for a request this server issued): the
-        // browser binding still gates the token path, and it is enforced at SAML/Auth — the same-origin leg
-        // where the cookie is sent — not at the cross-site callback. The stored outcome carries the
+        // browser binding still gates the token path, and it is enforced at SAML/Auth, the same-origin leg
+        // where the cookie is sent, not at the cross-site callback. The stored outcome carries the
         // InResponseTo so the mint leg can correlate it without the assertion.
         var fixture = SamlTestFactory.Create(nameId: "alice", inResponseTo: AuthnRequestId);
         var harness = ProvisioningHarness(fixture, out _);

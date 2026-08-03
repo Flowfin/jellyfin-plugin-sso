@@ -37,7 +37,7 @@ dotnet_diagnostic.SA1649.severity = none
 # Non-security rules newly surfaced by AnalysisMode Recommended + Roslynator +
 # Meziantou. Demoted to suggestion so the security net lands green; each family
 # is worked through deliberately in follow-ups (several are behavior-relevant
-# on the login path — string-comparison semantics must not change in a config
+# on the login path; string-comparison semantics must not change in a config
 # PR).
 dotnet_diagnostic.CA1309.severity = error
 dotnet_diagnostic.CA1311.severity = suggestion
@@ -50,7 +50,7 @@ dotnet_diagnostic.MA0158.severity = suggestion
 # HIGH-priority backlog: culture-dependent casing/comparison on the identity
 # path (AddCanonicalLink ToLower, WebResponse IndexOf). Fixing changes the
 # canonical-link keys of existing installations, so it needs its own reviewed
-# PR with a migration consideration — not a ride-along in a config change.
+# PR with a migration consideration, not a ride-along in a config change.
 dotnet_diagnostic.CA1304.severity = suggestion
 dotnet_diagnostic.CA1310.severity = suggestion
 # The SSO_Auth namespace underscore is load-bearing: renaming breaks users'
