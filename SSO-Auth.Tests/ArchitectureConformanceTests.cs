@@ -590,6 +590,61 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void PrivateNetworkRelaxation_NeverReachesTheAvatarFetchOrTheSamlMetadataImporter()
+    {
+        // #1179's stated failure mode is a leak of the private-network relaxation to a caller that never
+        // opted in. Two files are named on the issue as out of scope for #1058 and must stay strict: the
+        // avatar fetch, which builds its own handler and would otherwise let an IdP-supplied picture URL
+        // reach the admin's LAN, and the SAML metadata importer, which resolves the named outbound client
+        // and must keep resolving the strict one. SsoHttp's strict-by-default signature is what makes them
+        // correct today, but a default protects nothing against someone later passing the flag explicitly -
+        // so pin the call sites, not just the default. A source scan because this is a call-level property.
+        foreach (var relativePath in new[]
+        {
+            Path.Combine("SSO-Auth", "Api", "Avatar", "AvatarService.cs"),
+            Path.Combine("SSO-Auth", "Api", "Http", "SamlMetadataImporter.cs"),
+        })
+        {
+            var source = File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
+
+            Assert.DoesNotContain("PrivateNetworkPermitted", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("PrivateOutboundClientName", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("allowPrivateNetworkAddresses", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("AllowPrivateNetworkAddresses", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void PrivateNetworkRelaxation_IsSelectedOnlyByTheOidcBackchannelAndItsComposition()
+    {
+        // The other direction: enumerate every file that may name the relaxation at all, so a new caller
+        // wiring itself to the private-permitted tier has to be added here deliberately rather than
+        // arriving unnoticed. The roster is the OIDC backchannel (the login flow, the discovery reader and
+        // the admin "Test connection" probe), the config surface that stores and audits the flag, and the
+        // transport plus its composition root that define and register the two tiers.
+        var allowed = new[]
+        {
+            "AddressPolicy.cs", "IpAddressClassifier.cs", "SsoHttp.cs", "SsoOnlyServiceRegistrator.cs",
+            "OidcLoginService.cs", "OidcDiscoveryReader.cs", "ProviderConnectionTester.cs",
+            "PluginConfiguration.cs", "OidcInsecureToggles.cs",
+        }.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var strays = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => !allowed.Contains(Path.GetFileName(path)))
+            .Where(path => File.ReadAllText(path).Contains("PrivateNetworkAddresses", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("PrivateNetworkPermitted", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("PrivateOutboundClientName", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(
+            strays.Count == 0,
+            "The private-network relaxation (#1058) must reach only the OIDC backchannel, its config surface and the transport; found named in: " + string.Join(", ", strays));
+    }
+
+    [Fact]
     public void Controller_NeverTouchesProviderLinkMaps()
     {
         // Locked in by the link/unlink admin-surface extraction (#372) and completed by #383: the two
