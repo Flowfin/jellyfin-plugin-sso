@@ -169,7 +169,7 @@ internal sealed class OidcLoginService
             return secretError;
         }
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger).ConfigureAwait(false);
+        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
         if (!discovery.Available)
         {
             // Fail closed (#450): the discovery document the login itself needs could not be read, so there
@@ -688,9 +688,12 @@ internal sealed class OidcLoginService
 
         options.ClientId = config.OidClientId?.Trim();
         options.LoggerFactory = _loggerFactory;
-        options.HttpClientFactory = _ => SsoHttp.CreateClient(_httpClientFactory);
+        // Every backchannel leg of this provider - the JWKS fetch below and its discovery read - goes over the
+        // provider's OWN transport tier (#1179). A provider that did not opt in resolves the strict client
+        // exactly as before.
+        options.HttpClientFactory = _ => SsoHttp.CreateClient(_httpClientFactory, config.AllowPrivateNetworkAddresses);
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger).ConfigureAwait(false);
+        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
         if (!discovery.Available)
         {
             return new OidcLogoutTokenValidator.Result(false, null, null, "discovery_unavailable");
@@ -735,7 +738,8 @@ internal sealed class OidcLoginService
         options.DisablePushedAuthorization = config.DisablePushedAuthorization;
         options.LoggerFactory = _loggerFactory;
         options.LoadProfile = !config.DoNotLoadProfile;
-        options.HttpClientFactory = o => SsoHttp.CreateClient(_httpClientFactory);
+        // The token and userinfo legs of the login, over this provider's own transport tier (#1179).
+        options.HttpClientFactory = o => SsoHttp.CreateClient(_httpClientFactory, config.AllowPrivateNetworkAddresses);
 
         // OidcClient 7.x validates nothing about the id_token unless a validator is supplied (its
         // fallback only base64-decodes the payload). Signature validation is required and has no
