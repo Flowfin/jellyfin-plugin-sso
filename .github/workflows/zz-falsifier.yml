@@ -1,0 +1,13 @@
+# TEMPORARY - falsifier for the setup-uv v9.0.0 bump. Reverted before merge.
+# workflow_dispatch only, and dispatch is only offered on the default branch,
+# so this file cannot run. It exists to carry one deliberate zizmor finding
+# (unpinned-uses) and prove the gate still reds after the installer bump.
+name: zz falsifier
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
