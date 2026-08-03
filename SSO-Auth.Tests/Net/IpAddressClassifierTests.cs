@@ -65,4 +65,96 @@ public class IpAddressClassifierTests
     {
         Assert.False(IpAddressClassifier.IsBlockedAddress(IPAddress.Parse(ip)));
     }
+
+    /// <summary>
+    /// The relaxed tier permits exactly the private, admin-routable ranges an on-premises identity
+    /// provider actually lives on (#1177): RFC 1918, carrier-grade NAT, and IPv6 unique-local.
+    /// </summary>
+    /// <param name="ip">The address to classify.</param>
+    [Theory]
+    [InlineData("10.1.2.3")]
+    [InlineData("10.255.255.255")]
+    [InlineData("172.16.0.1")]
+    [InlineData("172.31.255.255")]
+    [InlineData("192.168.0.1")]
+    [InlineData("192.168.255.255")]
+    [InlineData("100.64.0.1")] // CGNAT
+    [InlineData("100.127.255.255")] // CGNAT (upper half)
+    [InlineData("fc00::1")] // IPv6 unique-local
+    [InlineData("fd12:3456:789a::1")] // IPv6 unique-local (the fd00::/8 half in practical use)
+    [InlineData("::ffff:10.1.2.3")] // IPv4-mapped form of an RFC 1918 address
+    [InlineData("64:ff9b::a00:5")] // NAT64 embedding 10.0.0.5
+    [InlineData("2002:c0a8:101::")] // 6to4 embedding 192.168.1.1
+    public void IsBlockedAddress_PrivateNetworkPermitted_AllowsPrivateRanges(string ip)
+    {
+        Assert.False(IpAddressClassifier.IsBlockedAddress(IPAddress.Parse(ip), AddressPolicy.PrivateNetworkPermitted));
+    }
+
+    /// <summary>
+    /// The never-relaxable ranges stay blocked under the relaxed tier too - loopback, link-local
+    /// (where the cloud metadata service lives), the IETF protocol assignments, site-local, the
+    /// unspecified address and multicast/reserved/broadcast. This is the constraint stated on #1058
+    /// that no config setting may negotiate away, including via a transition-address wrapper.
+    /// </summary>
+    /// <param name="ip">The address to classify.</param>
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("127.1.2.3")]
+    [InlineData("::1")]
+    [InlineData("169.254.0.1")] // link-local
+    [InlineData("169.254.169.254")] // cloud metadata service
+    [InlineData("fe80::1")] // IPv6 link-local
+    [InlineData("192.0.0.192")] // Oracle Cloud metadata (192.0.0.0/24 protocol assignments)
+    [InlineData("0.0.0.0")]
+    [InlineData("::")]
+    [InlineData("fec0::1")] // deprecated IPv6 site-local
+    [InlineData("224.0.0.1")] // multicast
+    [InlineData("239.255.255.250")] // multicast (SSDP)
+    [InlineData("240.0.0.1")] // reserved
+    [InlineData("255.255.255.255")] // broadcast
+    [InlineData("192.0.2.10")] // TEST-NET-1
+    [InlineData("198.51.100.10")] // TEST-NET-2
+    [InlineData("203.0.113.10")] // TEST-NET-3
+    [InlineData("198.18.0.1")] // benchmarking 198.18.0.0/15
+    [InlineData("192.88.99.1")] // 6to4 relay anycast
+    [InlineData("::ffff:127.0.0.1")] // IPv4-mapped loopback
+    [InlineData("::ffff:169.254.169.254")] // IPv4-mapped metadata service
+    [InlineData("64:ff9b::7f00:1")] // NAT64 embedding 127.0.0.1
+    [InlineData("64:ff9b::a9fe:a9fe")] // NAT64 embedding 169.254.169.254
+    [InlineData("2002:7f00:1::")] // 6to4 embedding 127.0.0.1
+    [InlineData("2002:a9fe:a9fe::")] // 6to4 embedding 169.254.169.254
+    [InlineData("::7f00:1")] // deprecated IPv4-compatible ::127.0.0.1
+    [InlineData("::a9fe:a9fe")] // deprecated IPv4-compatible ::169.254.169.254
+    public void IsBlockedAddress_PrivateNetworkPermitted_StillBlocksNeverRelaxableRanges(string ip)
+    {
+        Assert.True(IpAddressClassifier.IsBlockedAddress(IPAddress.Parse(ip), AddressPolicy.PrivateNetworkPermitted));
+    }
+
+    /// <summary>
+    /// A public address stays reachable under the relaxed tier - widening the policy must not narrow it.
+    /// </summary>
+    /// <param name="ip">The address to classify.</param>
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("172.32.0.1")]
+    [InlineData("100.63.255.255")]
+    [InlineData("2606:4700:4700::1111")]
+    public void IsBlockedAddress_PrivateNetworkPermitted_StillAllowsPublicAddresses(string ip)
+    {
+        Assert.False(IpAddressClassifier.IsBlockedAddress(IPAddress.Parse(ip), AddressPolicy.PrivateNetworkPermitted));
+    }
+
+    /// <summary>
+    /// The tier defaults to strict, so the three existing callers keep byte-identical behaviour without
+    /// naming a policy at their call sites (#1177).
+    /// </summary>
+    [Fact]
+    public void IsBlockedAddress_DefaultPolicy_IsStrict()
+    {
+        var privateAddress = IPAddress.Parse("10.1.2.3");
+
+        Assert.True(IpAddressClassifier.IsBlockedAddress(privateAddress));
+        Assert.True(IpAddressClassifier.IsBlockedAddress(privateAddress, AddressPolicy.Strict));
+        Assert.False(IpAddressClassifier.IsBlockedAddress(privateAddress, AddressPolicy.PrivateNetworkPermitted));
+    }
 }
