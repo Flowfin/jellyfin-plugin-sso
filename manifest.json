@@ -9,6 +9,14 @@
     "owner": "iderex",
     "versions": [
       {
+        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.38).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** — no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Add the per-object-scope repeated-member walk by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1071\n* Move every codeql-action pin to v4.37.3 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1198\n* Bump scorecard-action to v2.4.4 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1200\n* Bump setup-uv to v9.0.0 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1201\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.16...5.0.0-JF12-beta.38",
+        "checksum": "de3192141055c0b32cd73b1cc5f53be7",
+        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.38/community-sso-for-jellyfin_5.0.0.38.zip",
+        "targetAbi": "12.0.0.0",
+        "timestamp": "2026-08-04T06:40:00Z",
+        "version": "5.0.0.38"
+      },
+      {
         "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.30).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** — no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Move every codeql-action pin to v4.37.1 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1026\n* Bump the checkout and setup-dotnet pins off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1028\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.15...5.0.0-JF12-beta.30",
         "checksum": "400c789fc832dbf84458531781a18880",
         "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.30/community-sso-for-jellyfin_5.0.0.30.zip",
@@ -119,14 +127,6 @@
         "targetAbi": "12.0.0.0",
         "timestamp": "2026-07-18T21:55:44Z",
         "version": "5.0.0.13"
-      },
-      {
-        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.12).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* publish-beta: shared publish-manifest-beta concurrency group by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/606\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.1.2-beta.4...5.0.0-JF12-beta.12",
-        "checksum": "3f441c08ea392895974017fecb8af99b",
-        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.12/sso-authentication_5.0.0.12.zip",
-        "targetAbi": "12.0.0.0",
-        "timestamp": "2026-07-18T21:52:59Z",
-        "version": "5.0.0.12"
       },
       {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.24).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Add the per-object-scope repeated-member walk by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1071\n* Move every codeql-action pin to v4.37.3 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1198\n* Bump scorecard-action to v2.4.4 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1200\n* Bump setup-uv to v9.0.0 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1201\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.16...4.3.0-beta.24",
