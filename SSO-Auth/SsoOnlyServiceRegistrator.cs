@@ -39,12 +39,24 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // private/loopback address is rejected at the transport layer - the same connect-time guard the
         // avatar fetch uses (SsoHttp.CreateHardenedHandler). A test's stub or loopback factory supplies its
         // own handler for this name, so an in-process test IdP stays reachable while production is fail-closed.
+        // This is the tier every caller gets by default, including the SAML metadata importer.
         serviceCollection.AddHttpClient(SsoHttp.OutboundClientName)
-            .ConfigurePrimaryHttpMessageHandler(SsoHttp.CreateHardenedHandler)
+            .ConfigurePrimaryHttpMessageHandler(() => SsoHttp.CreateHardenedHandler())
             // The hardened handler manages its own connection freshness via PooledConnectionLifetime, so the
             // factory need not also rotate (and rebuild) the handler on its default 2-minute cadence - the
             // documented pattern when you own PooledConnectionLifetime. Keeps one long-lived hardened handler
             // (the ConnectCallback still fires on every connect) instead of churning a new one every 2 minutes.
+            .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+
+        // The second outbound tier (#1179): the same hardened handler, but its connect guard additionally
+        // permits the private, admin-routable ranges. Only an OpenID provider with AllowPrivateNetworkAddresses
+        // set resolves this name, and only for its own backchannel - that is the supported answer for an IdP
+        // that deliberately lives on the administrator's network (#1058). Loopback, link-local and the
+        // cloud-metadata ranges are refused here too. Registering it as a separate NAME rather than as a mode
+        // over the shared handler is deliberate: the handler below is long-lived and shared across concurrent
+        // logins, so a relaxation that was not part of the client's identity could leak to another provider.
+        serviceCollection.AddHttpClient(SsoHttp.PrivateOutboundClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted))
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
     }
 }
