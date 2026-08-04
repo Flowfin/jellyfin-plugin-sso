@@ -86,15 +86,16 @@ public class SamlRecipientValidatorTests
             // suffix, echo shorter: the echo is a suffix of an expected URL, here with the scheme stripped.
             { "suffix: echo is the expected URL without its scheme", "jf.example/sso/SAML/post/idp" },
 
-            // parent domain: the expected host is a string prefix of a longer registrable name that somebody
-            // else can register. It is not the parent domain of the expected host, it is a different one.
-            { "parent domain: expected host extended by a label", "https://jf.example.evil/sso/SAML/post/idp" },
+            // neighbouring registrable name: the expected host is a string prefix of a longer name that
+            // somebody else can register. #1182 files it under parent domain; it is not the parent of the
+            // expected host, so the label says what it is rather than repeating that.
+            { "neighbouring name: expected host extended by a label", "https://jf.example.evil/sso/SAML/post/idp" },
 
             // subdomain: a name below the expected host, which anybody holding the zone can create. #1182
-            // lists these two under different bullets, but they are one shape (one extra label) and no
-            // comparison can accept one and refuse the other. Both are kept because both are named there.
-            { "subdomain: label below the expected host", "https://evil.jf.example/sso/SAML/post/idp" },
-            { "subdomain: label below the expected host", "https://a.jf.example/sso/SAML/post/idp" },
+            // lists these two under different bullets and they are the same shape, one extra label. Both are
+            // kept because it names both, and the labels differ so a failure says which row broke.
+            { "subdomain: hostile label below the expected host", "https://evil.jf.example/sso/SAML/post/idp" },
+            { "subdomain: ordinary label below the expected host", "https://a.jf.example/sso/SAML/post/idp" },
 
             // scheme: the same host and path over plaintext. Nothing in #1182 names this family, and it is
             // the one row here with a direct consequence beyond binding: it aims the assertion POST at a
@@ -106,44 +107,52 @@ public class SamlRecipientValidatorTests
             // a comparison anchored on "the expected host appears after the scheme" would accept.
             { "authority: expected host as userinfo", "https://jf.example@evil.example/sso/SAML/post/idp" },
 
-            // url equivalence: strings a URL parser would fold into the expected URL and an ordinal compare
-            // refuses. They are grouped because they fail together: the most likely future loosening of this
-            // predicate is parsing both sides as Uri instead of comparing bytes, and Uri lowercases the host,
-            // elides the default port, resolves dot segments and folds percent-encoding. Every row here would
-            // start binding under that change, which is what makes them worth carrying.
+            // url equivalence: strings a URL parser treats as the expected URL, or nearly so, and an ordinal
+            // compare refuses. The likeliest future loosening of this predicate is parsing both sides as Uri
+            // instead of comparing bytes, so these rows exist to make that change visible. Measured rather
+            // than assumed, because the folding is narrower than it looks: under Uri equality the default
+            // port, the dot segment, the percent-encoded segment and the host case all bind, and the trailing
+            // slash does NOT, since Uri keeps a trailing path slash. The slash row is carried anyway as the
+            // shortest echo-longer-by-one-character case there is.
             { "url equivalence: trailing slash", "https://jf.example/sso/SAML/post/idp/" },
             { "url equivalence: explicit default port", "https://jf.example:443/sso/SAML/post/idp" },
             { "url equivalence: dot segment", "https://jf.example/sso/SAML/post/../post/idp" },
             { "url equivalence: percent-encoded provider segment", "https://jf.example/sso/SAML/post/%69dp" },
 
-            // case, and this is the family that carries a decision rather than an attack.
+            // case, and this is the family that carries a decision rather than an attack. The three rows are
+            // below this block, in the order host, path segment, provider segment.
             //
-            // The comparison is StringComparer.Ordinal, so all three rows are refused. For the path and the
-            // provider segment that is plainly right: ASP.NET routing is case-insensitive, so
-            // "/sso/saml/post/idp" is a working POST target, and the provider segment is route-decoded input
-            // that keys a byte-exact provider dictionary, in which "idp" and "IDP" are two different
-            // providers with independent role and admin mappings. Binding an assertion across that boundary
-            // is exactly what this predicate exists to stop.
+            // Only the provider row is a plain security refusal. The provider segment is route-decoded input
+            // that keys a byte-exact dictionary, so "idp" and "IDP" are two different providers with
+            // independent role and admin mappings, and binding an assertion across that boundary is what this
+            // predicate exists to stop.
             //
-            // The host row is the deliberate one. DNS host names are case-insensitive, so a host echoed back
-            // in a different case is the same endpoint, and refusing it refuses a well-behaved identity
-            // provider. It is refused anyway, fail closed, and this row pins that as intended.
+            // The host row and the path row are the deliberate ones, and they are the same decision. DNS host
+            // names are case-insensitive and ASP.NET attribute routing is case-insensitive, so
+            // "https://JF.EXAMPLE/sso/SAML/post/idp" and "https://jf.example/sso/saml/post/idp" both name the
+            // endpoint the assertion was meant for. Refusing them refuses a well-behaved identity provider,
+            // usually one whose ACS URL was typed into a console rather than echoed from the AuthnRequest.
+            // Both are refused anyway, fail closed, and these rows pin that as intended.
             //
             // What a reader meeting this cold needs to know before "fixing" it:
             //
             // 1. Moving the comparison to StringComparer.OrdinalIgnoreCase is the wrong repair. The compared
-            //    value is one string, so the same edit also case-folds the path and the provider segment, and
-            //    the two rows above it would go red for a reason. Accepting a re-cased host means normalising
-            //    the host alone before the compare, which is a production change and its own issue.
-            // 2. The expected bytes are not a constant, so this is not only about the identity provider. With
-            //    BaseUrlOverride set, CanonicalBaseUrl.Resolve runs the value through Uri, which lowercases
-            //    the host, so the expected set is stable. With no override (the default) the base URL is
-            //    built by UriBuilder from the request Host header, which preserves whatever case the proxy
-            //    forwarded, so the expected host case can differ between the challenge and the callback.
-            // 3. So the operator-facing remedy for a deployment locked out by this is to pin BaseUrlOverride
-            //    (#139), which makes the emitted bytes stable, and only then to look at the identity
-            //    provider, which may be echoing a console-registered string rather than the
-            //    AssertionConsumerServiceURL it was sent.
+            //    value is one string, so the same edit also case-folds the provider segment, and the provider
+            //    row below would go red for a reason. Accepting a re-cased host or path means normalising
+            //    those parts alone before the compare, which is a production change and its own issue.
+            // 2. For an operator whose whole SAML userbase is locked out, in order: turn ValidateRecipient
+            //    off, which restores logins immediately because the binding is opt-in and off by default;
+            //    then pin BaseUrlOverride (#139); then re-register the ACS URL at the identity provider in
+            //    the exact spelling this server publishes, which after step two is a lowercase host.
+            // 3. Why step two is not enough on its own. The expected bytes are not a constant. With
+            //    BaseUrlOverride set, CanonicalBaseUrl.Resolve puts the value through Uri, which lowercases
+            //    the host, so the expected set is stable AND lowercase; an identity provider echoing an
+            //    uppercase host stays refused, which is what step three is for. With no override the base URL
+            //    is built by UriBuilder from the request Host header, which keeps whatever case the proxy
+            //    forwarded, so the expected host case can differ between the challenge and the callback, and
+            //    the same header is the one CanonicalBaseUrl documents as influenceable through an unfiltered
+            //    X-Forwarded-Host. Pinning the override is therefore the fix for the expected side of this,
+            //    not a nicety.
             { "case: host in a different case", "https://JF.EXAMPLE/sso/SAML/post/idp" },
             { "case: path segment in a different case", "https://jf.example/sso/saml/post/idp" },
             { "case: provider segment in a different case", "https://jf.example/sso/SAML/post/IDP" },
@@ -198,6 +207,13 @@ public class SamlRecipientValidatorTests
         // one thing that runs before it. Trim() strips every Unicode whitespace category, not just spaces,
         // so a tab, a CRLF or a no-break space around the echo still binds. Each of these normalises to the
         // exact expected URL, so none of them binds a DIFFERENT endpoint.
+        //
+        // The asymmetry is worth knowing and cannot be pinned from here: only the ECHO is trimmed, never the
+        // expected set, and provider names may legally carry leading or trailing whitespace because
+        // ProviderNameValidator permits it and SamlAcsUrlBuilder appends the name raw. So a provider named
+        // with edge whitespace publishes an ACS URL this predicate can never match once the identity provider
+        // echoes it back, and in the other direction two providers whose names differ only by edge whitespace
+        // are not told apart. Both are production questions, reported on #1182 rather than repaired here.
         Assert.True(SamlRecipientValidator.IsBound(pad + "https://jf.example/sso/SAML/post/idp" + pad, null, AcsUrls));
     }
 
