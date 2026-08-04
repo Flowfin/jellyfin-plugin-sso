@@ -286,6 +286,9 @@ public class ProviderConfigValidatorTests
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/%2E%2E%2Fevil")]
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%5C..%5Cevil")]
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..;/evil")] // segment parameter
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%3b/evil")] // and its encoded form
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%252f..%252fevil")] // double-encoded
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%c0%afevil")]
     public void ValidatePostLogoutRedirectUri_OutsideTheBase_Throws(string baseUrlOverride, string postLogoutRedirectUri)
     {
         var ex = Assert.Throws<ArgumentException>(() =>

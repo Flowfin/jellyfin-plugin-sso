@@ -132,12 +132,17 @@ public class OidcLogoutTests
     [InlineData(Base, "https://jellyfin.example.com.evil.net/web/")]
     [InlineData(Base, "https://eviljellyfin.example.com/")]
     [InlineData(PathBase, "https://jf.example.com/notjellyfin")]
-    // Escaped separators and a segment parameter: Uri leaves them intact, so without the guard on them a
-    // hop that decodes or strips them resolves the path outside the base after the check has passed.
+    // Escapes and segment parameters: Uri leaves them intact, so without the guard a hop that decodes or
+    // strips them resolves the path outside the base after the check has passed. Enumerating the dangerous
+    // ones is not enough, which is why the guard refuses the whole family - the double-encoded and
+    // encoded-semicolon rows below reach the same place one decoding hop further out.
     [InlineData(PathBase, "https://jf.example.com/jellyfin/..%2f..%2fevil")]
     [InlineData(PathBase, "https://jf.example.com/jellyfin/%2E%2E%2Fevil")]
     [InlineData(PathBase, "https://jf.example.com/jellyfin/..%5C..%5Cevil")]
     [InlineData(PathBase, "https://jf.example.com/jellyfin/..;/evil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..%3b/evil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..%252f..%252fevil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..%c0%afevil")]
     // Subdomain family, in both directions: neither contains the other.
     [InlineData(Base, "https://sub.jellyfin.example.com/")]
     [InlineData("https://sub.jellyfin.example.com", "https://jellyfin.example.com/")]
@@ -172,10 +177,12 @@ public class OidcLogoutTests
     }
 
     [Fact]
-    public void IsAllowedPostLogoutRedirect_PaddedCandidate_IsAcceptedTrimmed_SoWhatIsEmittedIsWhatWasChecked()
+    public void IsAllowedPostLogoutRedirect_PaddedCandidate_IsAcceptedWithThePaddingRemoved()
     {
-        // Uri.TryCreate parses the trimmed form, so the padding is not part of what the checks above ran on.
-        // Emitting it would break the OP's exact match against the registered URI.
+        // Uri.TryCreate parses the value with leading and trailing space, CR, LF and TAB removed, so that
+        // padding is not part of what the checks above ran on. Emitting it would break the OP's exact match
+        // against the registered URI. This narrows the gap between the checked and the emitted form rather
+        // than closing it: the emitted value is still the admin's string, not the canonicalized one.
         Assert.True(OidcLogout.IsAllowedPostLogoutRedirect("  " + Base + "/web/  ", Base, out var allowed));
         Assert.Equal(Base + "/web/", allowed);
     }

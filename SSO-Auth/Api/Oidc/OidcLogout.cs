@@ -115,9 +115,9 @@ internal static class OidcLogout
     /// <item><description>the SAME authority - scheme, host (<c>OrdinalIgnoreCase</c>, which for the ASCII
     /// hosts Uri lower-cases makes host case irrelevant) and effective port - so a sibling host such as
     /// <c>base.example.com.evil.net</c> and any subdomain of the base are refused;</description></item>
-    /// <item><description>no escaped separator (<c>%2f</c>, <c>%5c</c>) and no <c>;</c> segment parameter in
-    /// the path, because Uri leaves those intact and a hop that decodes or strips them would resolve the
-    /// path outside the base after this check has passed;</description></item>
+    /// <item><description>no percent-escape and no <c>;</c> segment parameter anywhere in the path, because
+    /// Uri leaves both intact and a hop that decodes or strips them would resolve the path outside the base
+    /// after this check has passed;</description></item>
     /// <item><description>a path that EQUALS the base path or continues it at a SEGMENT boundary, compared
     /// ordinally, so URL path case is significant - under a base of <c>https://host/jellyfin</c>,
     /// <c>/jellyfin</c> and <c>/jellyfin/web</c> are under it while <c>/jellyfinevil/x</c> and
@@ -160,14 +160,13 @@ internal static class OidcLogout
         var candidatePath = candidateUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
 
         // The path is compared in the form Uri canonicalizes it to, and that form is only as good as what the
-        // NEXT hop does with it. Uri resolves literal and %2e dot segments here, but leaves an escaped
-        // separator escaped and keeps a ";" segment parameter, so "/jellyfin/..%2f..%2fevil" and
+        // NEXT hop does with it. Uri resolves literal and %2e dot segments here, but leaves every other
+        // escape escaped and keeps a ";" segment parameter, so "/jellyfin/..%2f..%2fevil" and
         // "/jellyfin/..;/evil" would satisfy the boundary rule below and still resolve outside the base at any
-        // proxy that decodes or strips them. A return URL to this server needs neither, so refuse both rather
-        // than guess how the next hop normalizes (#1181).
-        if (candidatePath.Contains("%2f", StringComparison.OrdinalIgnoreCase)
-            || candidatePath.Contains("%5c", StringComparison.OrdinalIgnoreCase)
-            || candidatePath.Contains(';'))
+        // proxy that decodes or strips them. Enumerating the dangerous escapes does not close that: %252f and
+        // %3b reach the same place one decoding hop further out. A return URL to this server needs no escape
+        // in its path at all, so refuse the whole family rather than guess how the next hop normalizes (#1181).
+        if (candidatePath.Contains('%') || candidatePath.Contains(';'))
         {
             return false;
         }
