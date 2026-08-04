@@ -3,6 +3,7 @@
 
 using System;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Xunit;
 
@@ -141,6 +142,35 @@ public class ConfigExportImportTests
 
         // A brand-new OidConfig - the shape a pre-#1178 saved config deserializes into - is off.
         Assert.False(new OidConfig().AllowPrivateNetworkAddresses);
+    }
+
+    [Fact]
+    public void Import_DocumentOmittingAllowPrivateNetworkAddresses_LandsOff_EvenOverAnEnabledTarget()
+    {
+        // The import arrival path for a document that has no opinion at all about the flag - a backup taken
+        // before the option existed, or a hand-edited document. The test above covers a document that
+        // carries it; this one removes the property outright, which is the case that would otherwise fall
+        // through to whatever the importing instance already had.
+        var source = new PluginConfiguration();
+        source.OidConfigs["idp"] = new OidConfig { OidEndpoint = "https://idp.example.com", OidClientId = "client-1" };
+
+        var json = JsonSerializer.Serialize(ConfigExport.Build(source));
+        var node = JsonNode.Parse(json)!;
+        var provider = node["Configuration"]!["OidConfigs"]!["idp"]!.AsObject();
+
+        // Prove the property is there to remove, so a rename cannot turn this test into a no-op.
+        Assert.True(provider.Remove("AllowPrivateNetworkAddresses"));
+
+        var wire = JsonSerializer.Deserialize<ConfigExportDocument>(node.ToJsonString())!;
+
+        // The target already has the provider relaxed. An omitted field must not be read as "keep what you
+        // had": the document is the authority for what it describes, and it describes a strict provider.
+        var target = new PluginConfiguration();
+        target.OidConfigs["idp"] = new OidConfig { OidEndpoint = "https://idp.example.com", AllowPrivateNetworkAddresses = true };
+
+        ConfigImport.Apply(target, wire);
+
+        Assert.False(target.OidConfigs["idp"].AllowPrivateNetworkAddresses);
     }
 
     [Fact]
