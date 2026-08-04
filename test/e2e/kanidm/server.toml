@@ -2,7 +2,7 @@
 #
 # The database and the ADMIN UNIX SOCKET live under /data, which is a NAMED VOLUME the harness also mounts:
 # that socket is the only non-interactive way into a fresh Kanidm (see the compose header), and over a bind
-# mount it is unusable — the socket file appears but every connect is refused. The TLS material and this
+# mount it is unusable - the socket file appears but every connect is refused. The TLS material and this
 # file come in through a separate read-only bind mount at /certs, which a bind mount handles fine.
 version = "2"
 bindaddress = "[::]:8443"

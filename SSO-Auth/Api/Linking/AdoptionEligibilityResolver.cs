@@ -39,13 +39,13 @@ internal readonly record struct AdoptionGate(bool RequireVerifiedEmail, bool? Em
 /// identity provider to make usernames unique and non-reassignable (#218). Two protocol-agnostic gates
 /// raise that bar, both fail closed:
 /// <list type="bullet">
-/// <item>An administrator account is NEVER adopted by name-matching — it is the highest-value takeover
+/// <item>An administrator account is NEVER adopted by name-matching - it is the highest-value takeover
 /// target, so the operator must link it explicitly through the admin link endpoint. This holds regardless
 /// of the verified-email gate or protocol.</item>
 /// <item>When the provider sets <c>RequireVerifiedEmailForAdoption</c>, the login must additionally carry
 /// <c>email_verified == true</c>; an absent or false claim is refused. Jellyfin accounts store no email to
 /// cross-check against, so this proves the principal holds a provider-verified email rather than matching
-/// it to the target account — it does not replace the IdP's unique-username assumption, it narrows who can
+/// it to the target account - it does not replace the IdP's unique-username assumption, it narrows who can
 /// exploit it. Off by default so a conformant deployment that already relies on name-based adoption is not
 /// silently locked out on upgrade; opt in once the provider is confirmed to emit <c>email_verified</c>
 /// (which needs the <c>email</c> scope).</item>

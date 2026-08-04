@@ -16,11 +16,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Shared;
 /// The shared per-client rate-limit gate over the SSO flow endpoints (#128, #160): the anonymous login
 /// endpoints, the authenticated link/unlink admin write surface (#382) and the admin SSO-revoke (#516). It owns the ONE
 /// process-wide <see cref="SsoRateLimiter"/> instance and the opt-in check every rate-limited endpoint
-/// fronts itself with — the last mutable process-wide static that lived on <c>SSOController</c> (#318).
+/// fronts itself with - the last mutable process-wide static that lived on <c>SSOController</c> (#318).
 /// Relocating it into the shared tier leaves the controller a stateless request dispatcher (every store,
 /// cache and limiter now lives in a flow service or here) while keeping the gate byte-for-byte identical: the
 /// same fire points, the same fail-open classifier, and the same <see cref="LoginOutcome.Throttled"/> 429
-/// rendered by the single mapper (#474). Pure static home — one shared instance, no per-request allocation,
+/// rendered by the single mapper (#474). Pure static home - one shared instance, no per-request allocation,
 /// and no <c>ControllerBase</c> coupling, so both login flows and the admin link endpoints call the one gate
 /// rather than a controller-owned static, each under its own endpoint-class budget.
 /// </summary>
@@ -37,12 +37,12 @@ internal static class SsoRateLimitGate
     /// Applies the opt-in per-client rate limit (#128) to one rate-limited endpoint: returns null when the
     /// request may proceed, else the throttled outcome rendered by the single mapper (#474). Reads the
     /// settings under the config lock; an unattributable or non-public client is never throttled (fail open,
-    /// availability over throttling). Keys on the connection's remote address only — proxy attribution is the
+    /// availability over throttling). Keys on the connection's remote address only - proxy attribution is the
     /// host's job (Jellyfin's "Known proxies" setting resolves the real client into it); see
     /// <see cref="SsoRateLimiter.NormalizeClientKey"/>. The endpoint class (challenge/callback/auth for the
     /// anonymous login flows, "link" for the authenticated link/unlink write surface, #382, and "unregister"
     /// for the admin SSO-revoke write, #516) is part of the key, so each class carries an independent budget:
-    /// one login — which hits all three login classes — gets the full budget at each stage rather than a third
+    /// one login - which hits all three login classes - gets the full budget at each stage rather than a third
     /// of it, keeping the default generous for shared egress addresses (NAT/CGNAT).
     /// </summary>
     /// <param name="endpointClass">The endpoint class folded into the rate-limit key (e.g. challenge/callback/auth/link/unregister).</param>
@@ -75,7 +75,7 @@ internal static class SsoRateLimitGate
         // Bounded observability signal (#195): so an operator can notice a sustained brute-force or a
         // reverse proxy misconfigured to pool every client into one bucket, without the notice itself
         // becoming a log/CPU amplifier. The limiter emits at most one line per interval, carrying only
-        // an aggregate count (no client key — nothing to sanitize or forge); a returned 0 stays silent.
+        // an aggregate count (no client key - nothing to sanitize or forge); a returned 0 stays silent.
         var throttledCount = RateLimiter.RecordThrottledHit(now);
         if (throttledCount > 0)
         {

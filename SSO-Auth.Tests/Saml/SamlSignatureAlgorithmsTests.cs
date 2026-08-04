@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="SamlSignatureAlgorithms"/> — the XML-DSig algorithm allowlist that
+/// Unit tests for <see cref="SamlSignatureAlgorithms"/> - the XML-DSig algorithm allowlist that
 /// rejects weak/legacy primitives (A-3). Uses the standard XML-DSig algorithm identifier URIs.
 /// </summary>
 public class SamlSignatureAlgorithmsTests
@@ -167,7 +167,7 @@ public class SamlSignatureAlgorithmsTests
     [Fact]
     public void AreTransformsAllowed_UnknownTransform_ReturnsFalse()
     {
-        // An XPath/XSLT filter transform is a wrapping lever — reject the whole chain.
+        // An XPath/XSLT filter transform is a wrapping lever - reject the whole chain.
         Assert.False(SamlSignatureAlgorithms.AreTransformsAllowed(new[] { EnvelopedSignature, "http://www.w3.org/TR/1999/REC-xslt-19991116" }));
     }
 

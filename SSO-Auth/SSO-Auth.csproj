@@ -18,7 +18,7 @@
          CA53xx crypto) that Recommended leaves off. CodeAnalysisTreatWarningsAsErrors
          selects the SDK's error-severity configs for the CA rules, so every
          Security-category finding fails EVERY build (local, JPRM package,
-         any downstream analysis) — not only the CI job that passes warnaserror; the mode's
+         any downstream analysis) - not only the CI job that passes warnaserror; the mode's
          per-rule severities outrank any .editorconfig category-bulk entry, which
          makes this property the load-bearing fail-closed mechanism. Third-party
          analyzer findings (Meziantou/Roslynator/StyleCop) are not covered by it
@@ -59,12 +59,12 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <!-- OidcClient is version-matched to the target's .NET host (#590, #135). Its assemblies reference
-         Microsoft.Extensions.Logging.Abstractions — a HOST-PROVIDED assembly, deliberately not shipped —
+         Microsoft.Extensions.Logging.Abstractions - a HOST-PROVIDED assembly, deliberately not shipped -
          and .NET rolls a host assembly reference FORWARD but never DOWN a major version. So the compiled
          reference must not exceed the host's:
            - net9.0 (Jellyfin 10.11, host ships Logging.Abstractions 9.0.0.0): OidcClient 6.0.1, whose
              manifest references 8.0.0.0 (rolls forward onto 9.0.0.0). 7.x here references 10.0.0.0 and
-             throws FileNotFoundException at construction — the 4.1.0.0 field regression.
+             throws FileNotFoundException at construction - the 4.1.0.0 field regression.
            - net10.0 (Jellyfin 12.0, host ships 10.0.0.0): OidcClient 7.1.0, whose 10.0.0.0 reference the
              .NET 10 host satisfies exactly. 6.x would also work (8.0.0.0 rolls forward) but 7.x is the
              current, maintained line for the .NET 10 target.

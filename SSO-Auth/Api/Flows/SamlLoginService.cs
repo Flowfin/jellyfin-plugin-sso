@@ -32,8 +32,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 /// <see cref="OidcLoginService"/>: the challenge (redirect the browser to the identity provider with an
 /// optionally-signed AuthnRequest, #167), the assertion-consumer callback (validate the signed response and
 /// render the intermediate auth page), the session-minting authenticate leg, and the manual link redeem. The
-/// controller's SAML endpoints are now thin adapters — they apply the shared rate-limit gate and hand the
-/// request to this service — so the SAML-specific protocol logic lives in one flow-tier collaborator rather
+/// controller's SAML endpoints are now thin adapters - they apply the shared rate-limit gate and hand the
+/// request to this service - so the SAML-specific protocol logic lives in one flow-tier collaborator rather
 /// than inline on the controller.
 /// </summary>
 /// <remarks>
@@ -41,16 +41,16 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 /// (<see cref="SamlRequestCache"/>, #156/#415) lives here as a <c>static readonly</c> field, one instance for
 /// the whole process exactly as it was on the controller (a fresh per-request controller reconstructs the
 /// service, so an instance field would lose the in-flight state between the challenge and its callback). The
-/// inbound-assertion validation — signature/time/audience/recipient, the one-time replay cache, and the sole
-/// SAML <see cref="VerifiedIdentity"/> construction — moved into the dedicated
+/// inbound-assertion validation - signature/time/audience/recipient, the one-time replay cache, and the sole
+/// SAML <see cref="VerifiedIdentity"/> construction - moved into the dedicated
 /// <see cref="SamlAssertionValidator"/> (#496); this service keeps the InResponseTo correlation because that
 /// is request-issued session-fixation correlation, not assertion validation.
-/// The shared per-client rate limiter is deliberately NOT here — it also fronts the OpenID flow, so it lives
+/// The shared per-client rate limiter is deliberately NOT here - it also fronts the OpenID flow, so it lives
 /// in the shared <see cref="SsoRateLimitGate"/> (Api/Shared) that the controller's endpoints front this
 /// service with, rather than as a per-flow static (#160). The methods take the
 /// request/response because SAML is irreducibly HTTP (the redirect, the ACS POST form, the binding cookie, the
 /// security-headered page, and the request-host-derived assertion-consumer URL the Recipient is bound to); the
-/// two response shapes both flows share — the security-headered auth page and the manual-link write mapping —
+/// two response shapes both flows share - the security-headered auth page and the manual-link write mapping -
 /// are rendered from the shared <see cref="FlowResponses"/> home rather than a controller delegate (#160).
 /// </remarks>
 internal sealed class SamlLoginService
@@ -59,7 +59,7 @@ internal sealed class SamlLoginService
     // browser binding (#415). One process-wide instance.
     private static readonly SamlRequestCache SamlRequests = new SamlRequestCache();
 
-    // How long an issued SAML AuthnRequest ID stays valid for correlation — the interactive leg
+    // How long an issued SAML AuthnRequest ID stays valid for correlation - the interactive leg
     // (challenge -> IdP login/MFA -> POST back -> mint), matching the OpenID authorize-state lifetime the
     // sibling flow service keeps.
     private static readonly TimeSpan SamlRequestLifetime = TimeSpan.FromMinutes(15);
@@ -67,7 +67,7 @@ internal sealed class SamlLoginService
     // The in-flight login-outcome store (#251): the ACS callback validates the assertion ONCE, stores the
     // resulting verified outcome keyed by a CSPRNG token, and hands the intermediate page only that token;
     // the session-mint leg redeems the token instead of re-parsing and re-validating the assertion. One
-    // process-wide instance, like the outstanding-request cache above — the callback and the mint leg run
+    // process-wide instance, like the outstanding-request cache above - the callback and the mint leg run
     // across separate per-request flow-service instances. Reassigned only by the test-only reset/swap hooks
     // below (production sets it once); the field is not readonly solely so those hooks can install a
     // small-cap store to exercise the cap path that the production ceiling makes unreachable.
@@ -138,7 +138,7 @@ internal sealed class SamlLoginService
     internal static void ResetSamlOutcomesForTests() => _outcomes = new SamlOutcomeStore();
 
     // Test-only: swaps in a specific outcome store so a test can drive the cap path the production ceiling
-    // (100k) makes unreachable — e.g. proving a cap refusal at the ACS callback no longer burns the assertion
+    // (100k) makes unreachable - e.g. proving a cap refusal at the ACS callback no longer burns the assertion
     // (#539). Un-swapped by the next ResetSamlOutcomesForTests. Internal, InternalsVisibleTo, no endpoint/DI.
 
     /// <summary>
@@ -159,7 +159,7 @@ internal sealed class SamlLoginService
     internal static void SeedSamlOutcomeForTests(SamlLoginOutcome outcome) => _outcomes.Seed(outcome);
 
     // Test-only seed of an outstanding SAML AuthnRequest so a test can exercise SamlAuth's browser
-    // binding (#415) — normally populated by the challenge redirect leg — without deriving the random
+    // binding (#415) - normally populated by the challenge redirect leg - without deriving the random
     // request id from the emitted AuthnRequest. Same test-only surface as SeedOidStateForTests
     // (internal, InternalsVisibleTo, no endpoint/DI); never reachable in production. Moved here (#160).
 
@@ -187,7 +187,7 @@ internal sealed class SamlLoginService
     /// <returns>The rendered auth page on success, or a fail-closed rejection.</returns>
     internal async Task<ActionResult> CallbackAsync(string provider, string? relayState, string? formSamlResponse, HttpRequest request, HttpResponse response)
     {
-        // Unknown and disabled providers share one rejection so neither can be probed apart — this
+        // Unknown and disabled providers share one rejection so neither can be probed apart - this
         // retires the unique "No active providers found" wording that distinguished the disabled case
         // (a disabled provider now short-circuits before the relayState log line).
         var config = FindSamlConfig(provider);
@@ -210,13 +210,13 @@ internal sealed class SamlLoginService
         // Bind SAMLResponse via [FromForm] rather than reading Request.Form directly: a non-form
         // content-type binds null (the form value provider is skipped, so Request.Form is never
         // touched and cannot throw the InvalidOperationException that escaped as a 500, #206), and a
-        // null body is rejected the same way as any other malformed response — a clean 400.
+        // null body is rejected the same way as any other malformed response - a clean 400.
         var requestBase = GetRequestBase(request, config.SchemeOverride, config.PortOverride, config.BaseUrlOverride);
         var culture = AcceptLanguage.Resolve(request.Headers.AcceptLanguage.ToString());
         if (!_validator.TryValidate(config, provider, requestBase, formSamlResponse, out var samlResponse))
         {
             // A malformed response (non-base64, malformed XML, prohibited DOCTYPE) or a failed
-            // signature/time/audience/recipient check is rejected the same way — a clean 4xx, never an
+            // signature/time/audience/recipient check is rejected the same way - a clean 4xx, never an
             // unhandled 500 (#199).
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.SamlResponseInvalid));
         }
@@ -224,13 +224,13 @@ internal sealed class SamlLoginService
         // Own the parsed response for the rest of this method: it wraps the identity provider's
         // signing-certificate unmanaged handle and must be disposed once fully read (#674). Every claim read
         // below completes before any return (the intermediate auth page's XML is rendered eagerly), and the
-        // stored login outcome copies out only strings and the verified identity — never this object — so
+        // stored login outcome copies out only strings and the verified identity - never this object - so
         // method scope is the correct disposal boundary; the using declaration disposes on every exit path.
         using var ownedResponse = samlResponse;
 
         // Evaluate the assertion's role attribute ONCE per response (#479): the same list feeds the allow-list
         // gate here, the denied-path warning below, and the privilege derivation in TryProduceVerifiedIdentity
-        // on the mint path — the assertion is immutable here, so the role XPath runs once instead of at each use.
+        // on the mint path - the assertion is immutable here, so the role XPath runs once instead of at each use.
         var assertionRoles = SamlAssertionValidator.GetAssertionRoles(samlResponse);
 
         if (!SamlLoginPolicy.IsLoginAllowed(assertionRoles, config.Roles))
@@ -259,10 +259,10 @@ internal sealed class SamlLoginService
 
         // Linking keeps the assertion-embedded page (#251 is scoped to the login round-trip): the page JS
         // posts its data to SAML/Link. The link redeem (SamlLoginService.Link) consumes the assertion's
-        // one-time-use id on its own leg. Since #614 a definitive Link outcome is TERMINAL on the page — a
+        // one-time-use id on its own leg. Since #614 a definitive Link outcome is TERMINAL on the page - a
         // successful link (204) renders success and the page does NOT go on to post to SAML/Auth. That
         // follow-on post could never have succeeded anyway: it carried the same, now-consumed assertion (not
-        // a login-outcome token), so it fail-closed at the mint leg — but left in place it rendered a
+        // a login-outcome token), so it fail-closed at the mint leg - but left in place it rendered a
         // misleading 'Login failed' over a link that had actually completed. Dropping the follow-on post
         // removes that false failure without touching the Link leg's validation or its one-time consume.
         if (isLinking)
@@ -278,13 +278,13 @@ internal sealed class SamlLoginService
                     culture: culture));
         }
 
-        // Login path (#251): validate the assertion exactly ONCE here — the one-time replay consume, the
-        // non-empty-NameID guard, and the sole SAML VerifiedIdentity construction — then store the verified
+        // Login path (#251): validate the assertion exactly ONCE here - the one-time replay consume, the
+        // non-empty-NameID guard, and the sole SAML VerifiedIdentity construction - then store the verified
         // outcome server-side keyed by a CSPRNG token and hand the page only that token. The signed XML never
         // crosses to the browser, so SAML/Auth redeems the outcome instead of parsing and validating a second
         // copy. The InResponseTo correlation and browser binding are NOT enforced here: the ACS POST is
         // cross-site and would not carry the SameSite=Lax binding cookie, so that check stays at the
-        // same-origin mint leg (below), where the cookie is present — the assertion's InResponseTo is carried
+        // same-origin mint leg (below), where the cookie is present - the assertion's InResponseTo is carried
         // in the stored outcome so the mint leg can correlate it without the XML.
         //
         // Reserve the outcome-store slot BEFORE the replay consume (#539). The consume is one-time: an
@@ -293,14 +293,14 @@ internal sealed class SamlLoginService
         // legitimate user out even though nothing malicious happened. Reserving first means a capacity refusal
         // fails closed here with the assertion untouched, so the user can retry once the store drains. Replay
         // protection is unchanged: the consume below is still the atomic one-time claim, it now runs only once
-        // a slot is secured, and any failure between reserve and commit releases the reservation — so a
+        // a slot is secured, and any failure between reserve and commit releases the reservation - so a
         // committed login always consumed the assertion and a consumed assertion always completed (or was a
         // genuine replay/invalid assertion, which still fails closed without minting).
         var clientKey = SsoRateLimiter.NormalizeClientKey(request.HttpContext.Connection.RemoteIpAddress);
         _outcomes.PruneExpired(DateTime.UtcNow);
         if (!_outcomes.TryReserve(clientKey, DateTime.UtcNow, out var shouldWarnCapacity))
         {
-            // The per-client sub-cap or the global cap refused this login's outcome slot — fail closed BEFORE
+            // The per-client sub-cap or the global cap refused this login's outcome slot - fail closed BEFORE
             // the replay consume, so the assertion is not recorded as used and the login can be retried once
             // the store drains. The store throttles the capacity warning to one signal per interval so a flood
             // cannot amplify into log volume (CWE-400).
@@ -317,7 +317,7 @@ internal sealed class SamlLoginService
 
         // Slot secured: now consume the one-time replay cache and build the verified identity. Everything from
         // here until the outcome is committed runs under a finally that releases the reservation unless it was
-        // handed to a committed outcome — so "exactly one release per reservation" is structural, covering both
+        // handed to a committed outcome - so "exactly one release per reservation" is structural, covering both
         // the fail-closed returns (a genuine replay or a NameID-less assertion, which mint nothing) AND any
         // unexpected throw between reserve and commit; a per-client slot can never leak.
         bool committed = false;
@@ -326,7 +326,7 @@ internal sealed class SamlLoginService
             if (!_validator.TryProduceVerifiedIdentity(config, provider, samlResponse, assertionRoles, out var identity, out var rejection))
             {
                 // A genuine replay (or an assertion with no usable NameID) still fails closed here, minting
-                // nothing — so moving the capacity check ahead of the consume never lets a replayed assertion
+                // nothing - so moving the capacity check ahead of the consume never lets a replayed assertion
                 // through. The reserved slot is freed by the finally.
                 return LoginStatusMapper.ToActionResult(rejection);
             }
@@ -341,7 +341,7 @@ internal sealed class SamlLoginService
                 DateTime.UtcNow);
             if (!_outcomes.CommitReserved(outcome))
             {
-                // Only reachable on an effectively-impossible CSPRNG-token collision — the capacity was already
+                // Only reachable on an effectively-impossible CSPRNG-token collision - the capacity was already
                 // reserved, so this is not a cap refusal. The assertion is one-time and already consumed here,
                 // so this ~2^-256 event fails closed (unretryable) rather than rendering a token that could
                 // never redeem. The finally frees the reserved slot.
@@ -401,16 +401,16 @@ internal sealed class SamlLoginService
 
         // Bind this login to the initiating browser (#415): mint a binding id, set it as a cookie, and
         // record it against the request id so the session-mint endpoint (Authenticate) can require the
-        // response's browser to be the one that started the flow — closing the SP-initiated forced-login
+        // response's browser to be the one that started the flow - closing the SP-initiated forced-login
         // / session-fixation vector, the SAML analogue of #326. Only for login flows: the linking
         // callback (Link) is a separate flow that does not consume the outstanding request, so a
         // linking registration would only leave an id to expire unused. Registration now happens for
         // every login challenge (not only under ValidateInResponseTo), so the binding is enforced for
-        // every SOLICITED login this plugin initiated — the case ValidateInResponseTo alone left open.
+        // every SOLICITED login this plugin initiated - the case ValidateInResponseTo alone left open.
         // It does NOT bind an unsolicited (IdP-initiated) response, which carries no matching request;
         // fully closing forced login for an IdP that issues unsolicited responses additionally requires
         // ValidateInResponseTo (which refuses them). Because the cookie is __Host-/Secure, the browser
-        // only returns it over HTTPS — SP-initiated SAML now needs HTTPS at the browser edge, as OIDC
+        // only returns it over HTTPS - SP-initiated SAML now needs HTTPS at the browser edge, as OIDC
         // already does.
         if (!isLinking)
         {
@@ -431,7 +431,7 @@ internal sealed class SamlLoginService
                 // entry (#327). Fail closed HERE rather than redirect to the IdP for a login that could
                 // then only be refused at the callback (no correlation entry). The store throttles the
                 // capacity warning to one signal per interval so a flood cannot amplify into log volume
-                // (CWE-400) — parity with the OpenID challenge refusal.
+                // (CWE-400) - parity with the OpenID challenge refusal.
                 if (shouldWarnCapacity)
                 {
                     if (_logger.IsEnabled(LogLevel.Warning))
@@ -459,9 +459,9 @@ internal sealed class SamlLoginService
             // Signing is enabled for this provider but the request could not be signed: the key is
             // missing/unusable (InvalidOperationException), the endpoint is empty (ArgumentException from
             // the signer), the platform key store refused the signing operation, or the at-rest signing
-            // key could not be decrypted — the key file is missing/corrupt (CryptographicException) or the
+            // key could not be decrypted - the key file is missing/corrupt (CryptographicException) or the
             // stored envelope is corrupt (FormatException, #158). ANY of these fails closed with a clean
-            // 500 — never a silent unsigned request — rather than escaping as a raw host 500. The key
+            // 500 - never a silent unsigned request - rather than escaping as a raw host 500. The key
             // material is not part of the message, so nothing sensitive is logged.
             if (_logger.IsEnabled(LogLevel.Error))
             {
@@ -477,8 +477,8 @@ internal sealed class SamlLoginService
     /// <summary>
     /// Serves this service provider's SAML 2.0 metadata for <paramref name="provider"/> (#162), so an
     /// administrator can register the SP at the identity provider by URL rather than hand-configuring the
-    /// entity id, assertion-consumer URL and signing certificate. Anonymous by design — SP metadata is
-    /// public — and deliberately request-free: unlike the login flow, it refuses to derive the published
+    /// entity id, assertion-consumer URL and signing certificate. Anonymous by design - SP metadata is
+    /// public - and deliberately request-free: unlike the login flow, it refuses to derive the published
     /// entity id/ACS from the request <c>Host</c>. Both are built ONLY from the provider's configured
     /// canonical Base URL (<see cref="Config.ProviderConfigBase.BaseUrlOverride"/>, #139); if that is not
     /// configured the endpoint fails closed rather than publish a spoofable ACS an attacker could point the
@@ -501,7 +501,7 @@ internal sealed class SamlLoginService
         // Base URL, never the request Host (which a reverse proxy forwarding an unfiltered X-Forwarded-Host
         // could influence). With no canonical Base URL configured, fail closed rather than bake a
         // request-derived value into metadata an identity provider consumes to decide where to POST
-        // assertions — the login flow may fall back to the request host, but published metadata must not.
+        // assertions - the login flow may fall back to the request host, but published metadata must not.
         if (!CanonicalBaseUrl.TryNormalize(config.BaseUrlOverride, out var baseUrl))
         {
             return FlowResponses.PlainTextError(
@@ -529,7 +529,7 @@ internal sealed class SamlLoginService
 
         if (!TryResolveSigningCertificates(config, out var signingCertificateBase64, out var rolloverSigningCertificateBase64))
         {
-            // Request signing is enabled but a configured signing key could not be loaded — the same
+            // Request signing is enabled but a configured signing key could not be loaded - the same
             // fail-closed posture the signed challenge takes, so metadata never advertises signing the
             // challenge would then fail to perform, and never emits a broken KeyDescriptor for a set-but-
             // unloadable rollover key (#491).
@@ -547,13 +547,13 @@ internal sealed class SamlLoginService
     }
 
     // Resolves the PUBLIC signing certificate(s) to advertise in the metadata. Both out values are null when
-    // request signing is off (no KeyDescriptor). When it is on, the PRIMARY is mandatory — a set-but-
+    // request signing is off (no KeyDescriptor). When it is on, the PRIMARY is mandatory - a set-but-
     // unloadable primary fails closed (false), mirroring BuildChallengeRedirectUrl so metadata never
     // advertises signing the challenge could not perform. The ROLLOVER (#491) is optional: a blank stored
     // value means no overlap window (single descriptor, byte-for-byte the pre-#491 output); a set-but-
     // unloadable rollover key also fails closed (false), so a hand-corrupted rollover key surfaces loudly as
     // a 409 rather than silently dropping a key the admin configured. When the rollover certificate is
-    // identical to the primary — the natural end state after promoting the rollover into the primary field —
+    // identical to the primary - the natural end state after promoting the rollover into the primary field -
     // the redundant second descriptor is dropped, returning to a single descriptor without needing to blank
     // the write-only, blank-keeps-stored rollover key. Only the public RawData of each certificate is
     // exported; no private key ever leaves this method.
@@ -591,7 +591,7 @@ internal sealed class SamlLoginService
 
     // Reveals a stored signing key (encrypted at rest, #158) and exports its PUBLIC certificate as Base64
     // (DER). Fail-closed: a missing/corrupt at-rest key throws CryptographicException, and a garbage or
-    // private-key-less PKCS#12 fails to load — both return false so the caller emits no descriptor for it.
+    // private-key-less PKCS#12 fails to load - both return false so the caller emits no descriptor for it.
     // The private key never leaves this method; only certificate.RawData (the public DER) is exported.
     private static bool TryRevealPublicCertificate(string? storedPfx, out string? publicCertificateBase64)
     {
@@ -624,8 +624,8 @@ internal sealed class SamlLoginService
     /// The SAML session-minting authenticate leg: redeems the one-time login-outcome token the ACS callback
     /// minted (#251), correlates the carried InResponseTo to an AuthnRequest this server issued (browser
     /// binding, #156/#415), then hands the already-verified identity to the shared completion tail. Since #528
-    /// this leg accepts ONLY the token — the assertion was validated once at the callback and is never
-    /// re-parsed here — so a request that does not redeem a live token fails closed. The controller applies the
+    /// this leg accepts ONLY the token - the assertion was validated once at the callback and is never
+    /// re-parsed here - so a request that does not redeem a live token fails closed. The controller applies the
     /// shared rate-limit gate before delegating and supplies the binding cookie and remote-endpoint resolver.
     /// </summary>
     /// <param name="provider">The provider to authenticate against.</param>
@@ -635,7 +635,7 @@ internal sealed class SamlLoginService
     /// <returns>The minted session, or a fail-closed rejection.</returns>
     public async Task<ActionResult> AuthenticateAsync(string provider, AuthResponse response, string? bindingCookie, Func<string> remoteEndPointResolver)
     {
-        // Unknown and disabled providers share one rejection so neither can be probed apart — this
+        // Unknown and disabled providers share one rejection so neither can be probed apart - this
         // unifies the previously JSON unknown-provider body and the disabled provider's 500.
         var config = FindSamlConfig(provider);
         if (config is not { Enabled: true })
@@ -644,12 +644,12 @@ internal sealed class SamlLoginService
         }
 
         // The one-time outcome-token path (#251) is now the ONLY shape SAML/Auth accepts (#528): the plugin
-        // renders a token (never the assertion) for login flows. Redeem it once — an atomic claim, so a
+        // renders a token (never the assertion) for login flows. Redeem it once - an atomic claim, so a
         // replayed token misses and a token minted for another provider is refused (details on
         // SamlOutcomeStore.TryRedeem). A miss fails CLOSED right here: an unknown, expired, or replayed token,
         // OR the pre-#251 assertion-embedded shape a legacy page still posts (the deprecation branch #251 kept
         // for one release, dropped by #528). That legacy body is NOT re-parsed or re-validated as an assertion
-        // — it simply is not a live token, so it is rejected the same uniform way as any other non-token, never
+        // - it simply is not a live token, so it is rejected the same uniform way as any other non-token, never
         // falling through open. The removal is the wire-contract break #251 flagged: a scripted client that
         // POSTs a raw assertion straight to SAML/Auth (bypassing the rendered page) is now rejected.
         if (response is null || _outcomes.TryRedeem(response.Data, provider, DateTime.UtcNow) is not { } outcome)
@@ -670,7 +670,7 @@ internal sealed class SamlLoginService
         // From here the SAML and OpenID paths are one: the verified identity flows into the shared completion
         // tail. SAML keys the link on the NameID and carries no email_verified claim, so AdoptionGate.None; the
         // resolver's admin-adoption refusal (#218) still applies. The logout context carries the assertion's
-        // SessionIndex captured at the callback (#727, SLO-3a) — SAML has no id_token — so the completion tail
+        // SessionIndex captured at the callback (#727, SLO-3a) - SAML has no id_token - so the completion tail
         // can persist the Single Logout state (EnableSingleLogout-gated, fail-safe) exactly as for OpenID.
         return await _loginCompletion.CompleteAsync(
             outcome.Identity,
@@ -684,7 +684,7 @@ internal sealed class SamlLoginService
     // Correlates a response to an AuthnRequest this server issued (#156, #415) and enforces the browser
     // binding for a solicited login. A NON-EMPTY InResponseTo means the response claims to answer a request
     // this server issued, so it must actually correlate to a live outstanding request AND carry that
-    // request's binding cookie — anything less fails closed. Crucially, a non-empty InResponseTo whose entry
+    // request's binding cookie - anything less fails closed. Crucially, a non-empty InResponseTo whose entry
     // is gone (expired past the 15-minute window, evicted at the cap, lost to a restart or a non-sticky
     // multi-node hop) is a LOST correlation, not an unsolicited response: treating it as unsolicited would
     // let a validated response complete a login with no binding check when ValidateInResponseTo is off, which
@@ -708,7 +708,7 @@ internal sealed class SamlLoginService
         else if (validateInResponseTo)
         {
             // No InResponseTo at all: a genuinely unsolicited (IdP-initiated) response. It is refused only
-            // when the opt-in solicited-only mode is on; otherwise it proceeds — unchanged and non-breaking
+            // when the opt-in solicited-only mode is on; otherwise it proceeds - unchanged and non-breaking
             // for IdP-initiated deployments.
             _logger.LogWarning("SAML login denied: the response was not solicited by this server (no InResponseTo).");
             return false;
@@ -741,7 +741,7 @@ internal sealed class SamlLoginService
         var requestBase = GetRequestBase(request, config.SchemeOverride, config.PortOverride, config.BaseUrlOverride);
         if (!_validator.TryValidate(config, provider, requestBase, response?.Data, out var samlResponse))
         {
-            // Malformed input is rejected the same way an invalid response is — clean 4xx, not 500 (#199).
+            // Malformed input is rejected the same way an invalid response is - clean 4xx, not 500 (#199).
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.SamlResponseInvalid));
         }
 
@@ -751,7 +751,7 @@ internal sealed class SamlLoginService
 
         // Enforce one-time use here too (#219): without it, a captured, still-valid assertion could be
         // replayed to bind its NameID to the caller's account. The linking flow issues no AuthnRequest,
-        // so InResponseTo is not correlated here — the replay cache is the applicable one-time-use
+        // so InResponseTo is not correlated here - the replay cache is the applicable one-time-use
         // control. A replay is a client-caused 400 in the uniform SAML body, never a 500, and no longer
         // discloses the replay cache to the attacker who replayed.
         if (!_validator.TryConsumeReplay(samlResponse, provider))
@@ -761,7 +761,7 @@ internal sealed class SamlLoginService
 
         // GetNameID is null when the assertion carries no NameID; coalesce to empty so it flows into
         // TryCreateLink's fail-closed empty-subject guard (which rejects a blank key as EmptyKey), never
-        // creating a canonical link keyed on an absent subject — the same fail-closed treatment the
+        // creating a canonical link keyed on an absent subject - the same fail-closed treatment the
         // session-mint path applies (#95).
         var providerUserId = samlResponse.GetNameID();
 
@@ -769,7 +769,7 @@ internal sealed class SamlLoginService
     }
 
     // Reads a provider's config under the config lock, so an anonymous login-path lookup does not race an
-    // admin Add/Del mutating the live provider dictionary in place — a Dictionary read-during-write is
+    // admin Add/Del mutating the live provider dictionary in place - a Dictionary read-during-write is
     // undefined behaviour in .NET (throw, misread, or a spin on a corrupted chain during a resize) (#252).
     // Returns null for an unknown provider so call sites branch on a null check instead of catching
     // KeyNotFoundException as control flow (#241). An uncontended lock is nanoseconds; it is only held long
@@ -780,7 +780,7 @@ internal sealed class SamlLoginService
 
     // Builds the redirect URL to the identity provider, signing the outgoing AuthnRequest when the provider
     // opts in (#167). Fail-closed: signing enabled but the signing key missing/unloadable throws, so the
-    // caller returns an error rather than silently sending an unsigned request — an operator who turned
+    // caller returns an error rather than silently sending an unsigned request - an operator who turned
     // signing on never gets a silent downgrade. Default off is byte-for-byte the previous unsigned URL.
     private static string BuildChallengeRedirectUrl(SamlConfig config, SamlAuthnRequest request, string? relayState)
     {
@@ -811,7 +811,7 @@ internal sealed class SamlLoginService
         }
     }
 
-    // Thin adapter feeding the live request values into the pure CanonicalBaseUrl.Resolve decision (#242) —
+    // Thin adapter feeding the live request values into the pure CanonicalBaseUrl.Resolve decision (#242) -
     // the same decision OidcLoginService.RequestBaseUrl feeds for OpenID, kept as a local read so this flow
     // tier is self-contained.
     private static string GetRequestBase(HttpRequest request, string schemeOverride, int? portOverride, string baseUrlOverride) =>

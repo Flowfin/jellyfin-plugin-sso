@@ -9,10 +9,10 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ProviderNameValidator"/> — the shared predicate behind the provider-name
+/// Tests for <see cref="ProviderNameValidator"/> - the shared predicate behind the provider-name
 /// registration gate (#336, #360). Covers every character of the reserved set individually (RFC 3986
 /// gen-delims, sub-delims, the percent escape, the backslash), boundary samples of the control ranges
-/// (#360 — C0 ends, DEL, a C1 pair; enumerating all 65 would test the BCL, not this predicate), the
+/// (#360 - C0 ends, DEL, a C1 pair; enumerating all 65 would test the BCL, not this predicate), the
 /// concrete round-trip breakers from the issue, and the deliberately accepted shapes: unreserved
 /// characters, spaces, non-ASCII (all pinned as surviving the raw URL round-trip in SsoUrlBuilderTests),
 /// and blank.

@@ -3,8 +3,8 @@
 #
 # SCOPE LIMIT, deliberate: Dex's local password database carries NO group membership (groups reach Dex only
 # through an upstream connector), so this harness cannot exercise the plugin's role gate and does not pretend
-# to — it covers the login round-trip and the one-time-use negative, and the compose runs with an EMPTY LOGIN
-# ALLOW-LIST (`Roles: []`, which is what disarms that gate — not the separate EnableAuthorization switch,
+# to - it covers the login round-trip and the one-time-use negative, and the compose runs with an EMPTY LOGIN
+# ALLOW-LIST (`Roles: []`, which is what disarms that gate - not the separate EnableAuthorization switch,
 # which stays on here as in every harness) and the role-gate phase skipped. The role gate is proven by the
 # group-capable providers.
 issuer: http://dex:5556/dex
@@ -23,13 +23,13 @@ enablePasswordDB: true
 
 staticPasswords:
   # Dex's local connector looks a user up by `email`, while `username` becomes the id_token's `name` claim
-  # (this connector emits NO preferred_username at all — hence the harness's USERNAME_CLAIM: name). Both
+  # (this connector emits NO preferred_username at all - hence the harness's USERNAME_CLAIM: name). Both
   # fields are set to the bare `alice` so the shared harness can use one identifier for the login form and
   # for the /Users/Me assertion, without a provider-specific "login identifier" knob just for this stack.
   - email: "alice"
     username: "alice"
     userID: "alice-e2e"
-    # bcrypt of "alice" — test-only, and the only credential this stack has.
+    # bcrypt of "alice" - test-only, and the only credential this stack has.
     hash: "$2y$10$w4pe0lpntAF2rReQrctec.mKpiR0Kr36xUbZGXqc5Uwj6hXfJYJj2"
 
 staticClients:

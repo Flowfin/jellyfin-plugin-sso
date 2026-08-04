@@ -25,7 +25,7 @@ public class ConfigPreservationTests
         live.OidConfigs["idp"] = new OidConfig { CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = User } };
         live.SamlConfigs["saml"] = new SamlConfig { CanonicalLinks = new SerializableDictionary<string, Guid> { ["nameid-1"] = User } };
 
-        // The incoming (stale) config has the providers but empty link maps — as a client snapshot
+        // The incoming (stale) config has the providers but empty link maps - as a client snapshot
         // taken before the login that created the links would.
         var incoming = new PluginConfiguration();
         incoming.OidConfigs["idp"] = new OidConfig();
@@ -125,7 +125,7 @@ public class ConfigPreservationTests
     {
         // Criterion 1 (#186), the belt: repointing the endpoint at a (potentially) different IdP drops the
         // accumulated sub-keyed links AND their issuer bindings rather than carrying them across, so a
-        // new-IdP user whose sub collides with an old link cannot inherit the old account — even an
+        // new-IdP user whose sub collides with an old link cannot inherit the old account - even an
         // un-stamped legacy link (a user who had not logged in since the upgrade) is protected here.
         var live = new PluginConfiguration();
         live.OidConfigs["idp"] = new OidConfig
@@ -228,7 +228,7 @@ public class ConfigPreservationTests
     public void OidSecret_IsDeserializedFromJson_SoItCanBeSetAndRotated()
     {
         // The write half: unlike a bidirectional [JsonIgnore], an incoming secret on a save (config
-        // PUT / OID/Add) must survive System.Text.Json deserialization — this is the exact boundary
+        // PUT / OID/Add) must survive System.Text.Json deserialization - this is the exact boundary
         // the config page crosses, and the case that a bidirectional ignore silently broke.
         const string body = "{\"OidClientId\":\"client\",\"OidSecret\":\"typed-secret\"}";
         var parsed = System.Text.Json.JsonSerializer.Deserialize<OidConfig>(body);
@@ -239,7 +239,7 @@ public class ConfigPreservationTests
     public void Rotation_ThroughJsonThenPreserve_KeepsTheNewSecret()
     {
         // The realistic rotation path: a config PUT carrying a new secret is deserialized, then
-        // ServerManagedFields.Preserve runs against the live config — the new secret must win.
+        // ServerManagedFields.Preserve runs against the live config - the new secret must win.
         var live = new PluginConfiguration();
         live.OidConfigs["idp"] = new OidConfig { OidSecret = "old-secret" };
 
@@ -259,7 +259,7 @@ public class ConfigPreservationTests
     public void Preserve_BlankIncomingSecret_KeepsLiveSecret(string? incomingSecret)
     {
         // A save that did not set a new secret arrives blank (the value is withheld from JSON), and
-        // must keep the stored one — fail closed, a blank save never wipes the live secret.
+        // must keep the stored one - fail closed, a blank save never wipes the live secret.
         // Whitespace-only counts as blank, to match the Trim() where the secret is consumed.
         var live = new PluginConfiguration();
         live.OidConfigs["idp"] = new OidConfig { OidSecret = "live-secret" };
@@ -474,7 +474,7 @@ public class ConfigPreservationTests
     public void Preserve_PrimaryAndRolloverKeys_ArePreservedIndependently()
     {
         // A save that rotates ONLY the primary (blank rollover) must keep the stored rollover, and vice
-        // versa — the two write-only keys never bleed into each other.
+        // versa - the two write-only keys never bleed into each other.
         var live = new PluginConfiguration();
         live.SamlConfigs["adfs"] = new SamlConfig { SamlSigningKeyPfx = "live-primary", SamlRolloverSigningKeyPfx = "live-rollover" };
         var incoming = new PluginConfiguration();
@@ -583,7 +583,7 @@ public class ConfigPreservationTests
     {
         // They survive the URL round-trip today (appended raw, pinned in SsoUrlBuilderTests), so the
         // registration gate rejects only what breaks the round-trip (control characters, the backslash,
-        // and the URI-reserved set, #336/#360) — rejecting more would strand working names.
+        // and the URI-reserved set, #336/#360) - rejecting more would strand working names.
         var incoming = new PluginConfiguration();
         incoming.OidConfigs["my provider"] = new OidConfig();
         incoming.SamlConfigs["käse"] = new SamlConfig();
@@ -891,8 +891,8 @@ public class ConfigPreservationTests
     [Fact]
     public void LogoutSessions_AreOmittedFromJson_UnderEveryNamingPolicy_SoTheIdTokenNeverLeaks()
     {
-        // The captured id_token is a bearer secret; the whole map is [JsonIgnore] (#727). Pin that it — its
-        // key, its fields, and above all the raw id_token — never appears in a JSON response, under both the
+        // The captured id_token is a bearer secret; the whole map is [JsonIgnore] (#727). Pin that it - its
+        // key, its fields, and above all the raw id_token - never appears in a JSON response, under both the
         // default and the camelCase policy, exactly as OidSecret/CanonicalLinks are pinned. The field-level
         // [JsonIgnore] on IdToken is a second layer, checked by serializing a LogoutSession directly too.
         var config = new PluginConfiguration();
@@ -925,7 +925,7 @@ public class ConfigPreservationTests
     public void LogoutSessions_RoundTripThroughConfigXml_KeepingTheIdTokenAndFields()
     {
         // The load-bearing claim is that a captured session survives a restart with a usable id_token_hint, so
-        // pin the config XML round-trip (the id_token persists to disk as-is — encryption is layered on at the
+        // pin the config XML round-trip (the id_token persists to disk as-is - encryption is layered on at the
         // persist boundary and covered by ConfigSecretProtectionTests). Mirrors CanonicalLinks_...ButKeptInXml.
         var config = new PluginConfiguration();
         config.LogoutSessions["session-key-1"] = new LogoutSession
@@ -949,7 +949,7 @@ public class ConfigPreservationTests
         Assert.Contains("ssoenc:v1:PERSISTED-ENVELOPE", xml, StringComparison.Ordinal);
 
         // Hardened reader (DTD prohibited, no resolver) so the round-trip deserialize is not itself an XXE
-        // sink (CA5369) — the same fail-closed XML posture the SAML parsers use.
+        // sink (CA5369) - the same fail-closed XML posture the SAML parsers use.
         using var reader = System.Xml.XmlReader.Create(
             new System.IO.StringReader(xml),
             new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });

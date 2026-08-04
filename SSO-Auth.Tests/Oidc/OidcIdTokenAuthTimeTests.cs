@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcIdTokenAuthTime"/> — the max_age gate reads auth_time from the RAW, signature-
+/// Tests for <see cref="OidcIdTokenAuthTime"/> - the max_age gate reads auth_time from the RAW, signature-
 /// verified id_token (#961), never the UserInfo-merged principal. A numeric auth_time parses; an absent,
 /// non-numeric, negative, or degenerate one yields null so the caller's fail-closed check refuses it.
 /// </summary>

@@ -38,7 +38,7 @@ public class SSOControllerTestConnectionTests
     {
         // The harness calls the action directly, bypassing MVC's authorization filter, so the "not an
         // anonymous SSRF probe" property is pinned structurally: the [Authorize(RequiresElevation)] filter
-        // rejects a non-elevated caller (401/403) before the body — and thus before any outbound fetch —
+        // rejects a non-elevated caller (401/403) before the body - and thus before any outbound fetch -
         // runs. This is the deliberate difference from the anonymous OID/SAML GetNames (#540).
         var authorize = typeof(SSOController).GetMethod(nameof(SSOController.OidTest))!
             .GetCustomAttribute<AuthorizeAttribute>();
@@ -110,7 +110,7 @@ public class SSOControllerTestConnectionTests
     public async Task OidTest_UnreadableDiscovery_ReturnsOkResultThatFailedClosed()
     {
         // No httpResponder: the discovery fetch fails. The endpoint still returns 200 with a well-formed
-        // result whose Ok is false and whose message is actionable — the probe reports failure, it does not
+        // result whose Ok is false and whose message is actionable - the probe reports failure, it does not
         // throw an unhandled 500.
         var harness = new SsoControllerHarness(
             c => c.OidConfigs["kc"] = new OidConfig { Enabled = true, OidEndpoint = "https://idp-down.example.com", OidClientId = "jf" });
@@ -164,7 +164,7 @@ public class SSOControllerTestConnectionTests
     public void ProviderGetEndpoints_MvcCamelCaseSerialization_NeverCarriesASecret()
     {
         // #928 U6: the OID/Get and SAML/Get snapshots were asserted as objects, but the redaction lives in
-        // WriteOnlySecretConverter attributes — so the property that matters is what the MVC serializer
+        // WriteOnlySecretConverter attributes - so the property that matters is what the MVC serializer
         // actually EMITS. Serialize both snapshots with the camelCase options MVC uses and pin that neither
         // the OIDC client secret nor the SAML signing key reaches the wire.
         const string OidSecretSentinel = "get-endpoint-oid-secret";

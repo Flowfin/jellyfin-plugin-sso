@@ -17,19 +17,19 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 /// cache is observable rather than silent (#470).
 ///
 /// The cap is applied differently from the siblings, on purpose. Recording a consumed assertion is what
-/// makes a replay detectable, so this cache must never drop a still-valid entry to free a slot — that
+/// makes a replay detectable, so this cache must never drop a still-valid entry to free a slot - that
 /// would reopen the replay window for exactly that assertion (#32). Eviction is therefore tied strictly
 /// to expiry: an entry is removed only once the assertion it guards can no longer be validly presented.
 /// At the cap, a NEW distinct login is refused (returns false, so the login fails closed) rather than
-/// evicting a live entry — a bounded DoS backstop that never trades away replay protection. This path is
+/// evicting a live entry - a bounded DoS backstop that never trades away replay protection. This path is
 /// reached only after full XML-DSig signature validation, so it is not anonymously floodable; filling the
 /// cap requires a large volume of legitimately signed, rate-limited assertions.
 /// </summary>
 internal sealed class ReplayCache
 {
     // An approximate ceiling on retained consumed-assertion IDs, bounding memory (CWE-400 parity with the
-    // siblings). Unlike the siblings this is not an anti-flood cap on an anonymous endpoint — TryConsume
-    // runs only after signature validation — but a defense-in-depth memory bound. The check-then-insert is
+    // siblings). Unlike the siblings this is not an anti-flood cap on an anonymous endpoint - TryConsume
+    // runs only after signature validation - but a defense-in-depth memory bound. The check-then-insert is
     // not serialized, so concurrent consumes can transiently overshoot by at most the number of in-flight
     // threads; immaterial against a best-effort backstop.
 
@@ -38,7 +38,7 @@ internal sealed class ReplayCache
 
     // The expired-entry sweep is an O(n) scan; throttling it to at most once per this interval matches the
     // siblings and keeps the sweep off every consume. Throttling is safe because it is only memory
-    // reclamation — TryConsume rejects a live entry independently (see the replay check), and at the cap it
+    // reclamation - TryConsume rejects a live entry independently (see the replay check), and at the cap it
     // forces an unthrottled reclaim before refusing, so a not-yet-swept expired entry neither grants a
     // replay nor false-rejects a fresh login.
     private static readonly TimeSpan DefaultPruneInterval = TimeSpan.FromMinutes(1);
@@ -53,7 +53,7 @@ internal sealed class ReplayCache
 
     // Throttles the cap-refusal capacity warning to one signal per interval (CWE-400): its OWN gate,
     // distinct from the prune gate, so a full cache signals at most once per interval rather than once per
-    // refused assertion — a compromised identity provider replaying signed assertions at the cap cannot
+    // refused assertion - a compromised identity provider replaying signed assertions at the cap cannot
     // amplify the refusal into unbounded log volume. Mirrors the sibling caches (OidcStateStore,
     // SamlRequestCache) so the SAML replay refusal has the same operator visibility (#470). The warning
     // LINE itself stays at the caller, which owns the logger, so the log-forging inline sanitizer never
@@ -143,7 +143,7 @@ internal sealed class ReplayCache
         // Global cap. Only a NEW id would grow the set (an id already present is either a replay we reject
         // below or an expired entry we replace in place, neither of which grows it). At the cap, reclaim
         // expired entries the throttled sweep may have skipped, and only if the cache is STILL full of
-        // unexpired entries refuse the login (return false) — never evict a live entry, which would drop a
+        // unexpired entries refuse the login (return false) - never evict a live entry, which would drop a
         // within-window consumed assertion and reopen its replay window (#32).
         if (_consumed.Count >= _maxEntries && !_consumed.ContainsKey(assertionId))
         {
@@ -151,8 +151,8 @@ internal sealed class ReplayCache
             if (_consumed.Count >= _maxEntries && !_consumed.ContainsKey(assertionId))
             {
                 // A genuine fail-closed cap refusal: the cache is full of still-live consumed assertions and
-                // this new one is turned away (the login fails closed). Signal it once per interval — its own
-                // gate, so a flood of refusals cannot amplify into log volume — so an operator can see the
+                // this new one is turned away (the login fails closed). Signal it once per interval - its own
+                // gate, so a flood of refusals cannot amplify into log volume - so an operator can see the
                 // replay cache is under real pressure (#470). The refusal itself is unchanged.
                 shouldWarnCapacity = _capWarnGate.TryEnter(nowUtc);
                 return false;
@@ -183,7 +183,7 @@ internal sealed class ReplayCache
 
             // Present but expired: a reused xsd:ID from a genuinely new login (assertion IDs are unique in
             // practice, so this is a correctness belt, not a hot path). It must not false-reject the new
-            // login, so replace it — but only if it is still the exact stale value we read, so a racing
+            // login, so replace it - but only if it is still the exact stale value we read, so a racing
             // consumer of the same id cannot also win. A lost race loops and re-evaluates (the value is now
             // fresh, so it is treated as a replay).
             if (_consumed.TryUpdate(assertionId, expiryUtc, existing))
@@ -195,7 +195,7 @@ internal sealed class ReplayCache
 
     // Drops expired entries, at most once per prune interval. Enumerating a ConcurrentDictionary yields a
     // safe moving snapshot and the KeyValuePair TryRemove overload is atomic, so this is correct under
-    // concurrent TryConsume — the size is bounded by the cap in TryConsume, not by this sweep.
+    // concurrent TryConsume - the size is bounded by the cap in TryConsume, not by this sweep.
     private void PruneExpired(DateTime nowUtc)
     {
         if (_pruneGate.TryEnter(nowUtc))

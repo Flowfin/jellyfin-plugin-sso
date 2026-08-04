@@ -33,7 +33,7 @@ internal static class SamlSignatureAlgorithms
 
     // Only comment-free canonicalization is accepted, exclusive or inclusive. The "#WithComments"
     // variants are deliberately excluded: they preserve XML comments through canonicalization, which
-    // breaks "sign what is seen" (content can differ from what was digested) — Microsoft flags them
+    // breaks "sign what is seen" (content can differ from what was digested) - Microsoft flags them
     // for exactly this reason. These serve both as the SignedInfo CanonicalizationMethod and as the
     // canonicalization step allowed inside a reference's transform chain.
     private static readonly HashSet<string> AllowedCanonicalizationMethods = new HashSet<string>(StringComparer.Ordinal)
@@ -43,7 +43,7 @@ internal static class SamlSignatureAlgorithms
     };
 
     // A reference transform chain may contain only the enveloped-signature transform and comment-free
-    // canonicalization. Anything else — XPath/XSLT filters, decryption, or comment-preserving c14n —
+    // canonicalization. Anything else - XPath/XSLT filters, decryption, or comment-preserving c14n -
     // is rejected: those are the levers XML-signature-wrapping uses to make the digested bytes differ
     // from the element that is actually read.
     private static readonly HashSet<string> AllowedTransforms = new HashSet<string>(StringComparer.Ordinal)
@@ -93,7 +93,7 @@ internal static class SamlSignatureAlgorithms
     // The fail-closed shape both the transform chain and the reference digests require: a non-null
     // enumerable with at least one element, every element on the allowlist. A null enumerable is
     // rejected, an empty chain is rejected (nothing was actually signed/canonicalized), and a null
-    // element normalizes to string.Empty — never on any allowlist — so it is rejected too. Short-circuits
+    // element normalizes to string.Empty - never on any allowlist - so it is rejected too. Short-circuits
     // on the first off-list element. Defined once so the two call sites cannot drift apart (#395).
     private static bool AllOnList(HashSet<string> allow, IEnumerable<string?> values)
     {

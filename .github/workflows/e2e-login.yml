@@ -1,13 +1,13 @@
 # End-to-end SSO login harness (#720/#727/#919). Boots a real Jellyfin 10.11 + identity-provider stack with
 # the PACKAGED plugin zip installed, and drives full login round-trips headlessly, asserting a Jellyfin
 # session token is minted and usable, that the role gate refuses a role-less user, and that a replayed
-# one-time state/token is refused. It supplements — never replaces — the manual Release-QA checklist.
+# one-time state/token is refused. It supplements - never replaces - the manual Release-QA checklist.
 #
 # Provider-matrix policy (#919): a PR touching the harness, the nightly run, and a DEFAULT manual dispatch
-# exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger — the PR run already
+# exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger - the PR run already
 # validated it, and paying the ~10-min Docker run again on the merge commit is wasteful). The FULL provider
-# matrix (one entry per shipped test/e2e/<provider>/ harness) runs at a release and a beta-release — so the
-# cross-provider pass is release-gate evidence, not a per-commit cost — and on a manual dispatch with
+# matrix (one entry per shipped test/e2e/<provider>/ harness) runs at a release and a beta-release - so the
+# cross-provider pass is release-gate evidence, not a per-commit cost - and on a manual dispatch with
 # `providers: all`, which is how a newly added harness is proven green BEFORE a release. This runs on
 # the GitHub runners' working Docker; it also runs locally once Docker is restored (see test/e2e/README.md).
 name: E2E Login Harness
@@ -18,7 +18,7 @@ on:
   schedule:
     - cron: "17 3 * * *"
   # Re-validate whenever the harness itself changes (a PR touching the compose/realm/driver or this
-  # workflow), so the E2E stays green as it evolves — without paying the ~10-min Docker run on every push.
+  # workflow), so the E2E stays green as it evolves - without paying the ~10-min Docker run on every push.
   pull_request:
     paths:
       - "test/e2e/**"
@@ -27,7 +27,7 @@ on:
   release:
     types: [published, prereleased]
   # On-demand from any branch. `providers: all` runs the FULL matrix, which is the only way to exercise a
-  # newly-added provider harness before a release actually happens — without it a new entry's first-ever run
+  # newly-added provider harness before a release actually happens - without it a new entry's first-ever run
   # would be on release day.
   workflow_dispatch:
     inputs:
@@ -42,7 +42,7 @@ on:
 # Deny-all at the workflow level; the e2e job reads the repo to build the plugin and needs nothing else.
 permissions: {}
 
-# Cancel a superseded run on the same ref — this is a test harness, not a publish, so cancelling an
+# Cancel a superseded run on the same ref - this is a test harness, not a publish, so cancelling an
 # obsolete run is safe.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,7 +53,7 @@ jobs:
   # `providers: all`; every other trigger (a PR touching the harness, the nightly schedule, a default
   # dispatch) runs just the one canonical Keycloak harness. A provider joins that matrix by adding one
   # { name, compose } object below, at its
-  # test/e2e/<provider>/ compose file — the matrix grows one line per issue (#919).
+  # test/e2e/<provider>/ compose file - the matrix grows one line per issue (#919).
   select:
     runs-on: ubuntu-latest
     outputs:
@@ -114,7 +114,7 @@ jobs:
       - name: Install the packaged plugin into the Jellyfin config
         # Unpack the exact packaged zip the release ships (meta.json + the plugin and its
         # non-host-provided dependency DLLs) into the bind-mounted Jellyfin plugins directory, so the
-        # harness exercises the SAME artifact users install — including the packaged crypto DLL load
+        # harness exercises the SAME artifact users install - including the packaged crypto DLL load
         # path on Linux (#181) that `dotnet test` cannot see. World-writable so the Jellyfin container
         # can persist the plugin's own provider configuration under /config regardless of its uid.
         env:
@@ -130,7 +130,7 @@ jobs:
 
       - name: Generate the Authelia test TLS cert
         # Authelia 4.38 requires a secure session URL, so its harness serves TLS. The self-signed test cert
-        # is generated here (never committed — no private key in the repo) for the authelia matrix entry.
+        # is generated here (never committed - no private key in the repo) for the authelia matrix entry.
         if: contains(matrix.compose, 'authelia')
         run: |
           set -euo pipefail
@@ -141,7 +141,7 @@ jobs:
 
       - name: Generate the Kanidm test TLS cert
         # Kanidm is TLS-only and its image has no shell to sequence its own cert-generate, so the harness
-        # gets a self-signed test cert the same way Authelia does (never committed — no private key in the
+        # gets a self-signed test cert the same way Authelia does (never committed - no private key in the
         # repo). The CN/SAN must match the service-DNS alias and server.toml's domain/origin.
         if: contains(matrix.compose, 'kanidm')
         run: |
@@ -177,7 +177,7 @@ jobs:
           if grep -q "ssoenc:v1:" "$config"; then
             echo "OK: the persisted provider secret is an ssoenc:v1 envelope, not plaintext"
           else
-            echo "::error::no ssoenc:v1 envelope in the persisted config — a provider secret may be stored in plaintext"; exit 1
+            echo "::error::no ssoenc:v1 envelope in the persisted config - a provider secret may be stored in plaintext"; exit 1
           fi
 
           echo "===== audit trail ====="

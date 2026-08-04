@@ -2,15 +2,15 @@
 """Drift guard for the project wiki (#873).
 
 The wiki is a separate repository with no pull-request gate, so it can drift from
-the code silently — exactly how the Architecture pages once claimed a module split
+the code silently - exactly how the Architecture pages once claimed a module split
 that was already done. This lints a local wiki checkout against the code tree and
 fails on the drift classes the consolidation (#871/#872) removed, so they cannot
 creep back:
 
-  1. Broken internal anchors  — a [text](Page#anchor) whose page or heading is gone.
-  2. file:line citations      — pinning `Something.cs:123` in prose; the rule is to
+  1. Broken internal anchors  - a [text](Page#anchor) whose page or heading is gone.
+  2. file:line citations      - pinning `Something.cs:123` in prose; the rule is to
                                 cite modules and type names, never paths that move.
-  3. Dead source links        — a blob/<ref>/<path> link to a file not in the tree.
+  3. Dead source links        - a blob/<ref>/<path> link to a file not in the tree.
 
 Usage: wiki-lint.py <wiki_dir> <code_repo_dir>
 Exit code 1 (with a report) on any finding; 0 when clean.
@@ -81,7 +81,7 @@ def check_file_line_citations(wiki: Path) -> list[str]:
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for hit in _FILELINE.findall(line):
                 findings.append(
-                    f"{path.name}:{n}: file:line citation '{hit}' — cite the module/type, not a path that moves"
+                    f"{path.name}:{n}: file:line citation '{hit}' - cite the module/type, not a path that moves"
                 )
     return findings
 

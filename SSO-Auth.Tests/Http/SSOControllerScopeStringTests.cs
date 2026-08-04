@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Pins <see cref="OidcLoginService.BuildScopeString"/> — the shared OpenID scope-string builder used by
+/// Pins <see cref="OidcLoginService.BuildScopeString"/> - the shared OpenID scope-string builder used by
 /// both the challenge and the callback client. Guards #368: a provider stored without scopes leaves
 /// <see cref="OidConfig.OidScopes"/> null, which previously threw an unhandled 500 on the anonymous
 /// challenge (<c>OidScopes.Prepend</c> on null) and null-padded the callback scope string

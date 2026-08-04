@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlRequestCache"/> — the outstanding-AuthnRequest tracking that lets the
+/// Tests for <see cref="SamlRequestCache"/> - the outstanding-AuthnRequest tracking that lets the
 /// callback accept only solicited responses (#156), carries the browser-binding id minted at the
 /// challenge (#415), and bounds per-client occupancy so one source cannot fill the cache (#327): a
 /// response's InResponseTo must match a request this server issued, each request answers at most once,
@@ -70,7 +70,7 @@ public class SamlRequestCacheTests
     {
         // A pre-#415 in-flight entry (or any registration with no binding id) still consumes as
         // solicited but yields an empty binding, which the caller treats as unbound rather than a
-        // mismatch — so an upgrade does not break a login already in flight.
+        // mismatch - so an upgrade does not break a login already in flight.
         var cache = new SamlRequestCache();
         cache.Register("_req-1", null!, Now.AddMinutes(15), Now, clientKey: null, out _);
 
@@ -176,7 +176,7 @@ public class SamlRequestCacheTests
     {
         // Global cap 2 -> per-key cap 1. Fill the store to the global cap with exempt (null) entries,
         // then a Register for "A" reserves A's slot but is refused by the GLOBAL cap and must roll the
-        // reservation back. After freeing a global slot, "A" must still be admittable — if the rollback
+        // reservation back. After freeing a global slot, "A" must still be admittable - if the rollback
         // had leaked, A would already sit at its cap of 1 and this would be refused.
         var cache = new SamlRequestCache(2, TimeSpan.FromMinutes(1));
         var expiry = Now.AddMinutes(15);

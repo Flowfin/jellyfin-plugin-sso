@@ -45,14 +45,14 @@ public class SsoOnlyLoginServiceTests
         return user;
     }
 
-    // A third-party IAuthenticationProvider id (e.g. an LDAP plugin) — neither Jellyfin's built-in password
+    // A third-party IAuthenticationProvider id (e.g. an LDAP plugin) - neither Jellyfin's built-in password
     // provider nor this plugin's SSO provider. Named once so the #690 skip tests read intent.
     private const string ThirdPartyProviderId = "Some.ThirdParty.LdapAuthenticationProvider";
 
     private static User ThirdPartyUser(string name, Guid id)
     {
         // An account already routed to a third-party auth provider: it has no built-in-password door, so the
-        // enable sweep skips it and (post-#690) the login path must skip it too — keep its current provider.
+        // enable sweep skips it and (post-#690) the login path must skip it too - keep its current provider.
         var user = new User(name, "SSO-Auth", "Default") { Id = id, Password = "hash-" + name };
         user.AuthenticationProviderId = ThirdPartyProviderId;
         return user;
@@ -114,7 +114,7 @@ public class SsoOnlyLoginServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.TryEnableAsync("root"));
 
         // Fail closed (directive 1): a sweep that cannot enumerate must NOT leave the mode recorded on with
-        // enforcement unapplied — DisablePasswordLogin is rolled back so no admin is silently locked to SSO.
+        // enforcement unapplied - DisablePasswordLogin is rolled back so no admin is silently locked to SSO.
         Assert.False(config.DisablePasswordLogin);
     }
 
@@ -229,10 +229,10 @@ public class SsoOnlyLoginServiceTests
     [Fact]
     public async Task Enable_SoleAdminHasOnlySsoLink_Refused_GuardNeverCountsAnSsoLink()
     {
-        // The only administrator is already routed to the SSO provider — its login depends entirely on the
+        // The only administrator is already routed to the SSO provider - its login depends entirely on the
         // IdP. Even with a live SSO canonical link (here on a DISABLED provider), the survivor guard never
         // counts it: only a password door qualifies (SSO-ONLY-LOGIN-DESIGN.md §3, T-D3/§7). So activation is
-        // refused and nothing is persisted — exactly the lockout the guard exists to prevent.
+        // refused and nothing is persisted - exactly the lockout the guard exists to prevent.
         var admin = new User("root", "SSO-Auth", "Default") { Id = RootId, Password = "random" };
         admin.AuthenticationProviderId = SsoAuthenticationProviders.SsoProviderId;
         admin.SetPermission(PermissionKind.IsAdministrator, true);
@@ -262,7 +262,7 @@ public class SsoOnlyLoginServiceTests
 
         var outcome = service.TryDesignateBreakGlass("alice");
 
-        // The exemption can never point at a non-administrator (T-E1) — it cannot grant admin.
+        // The exemption can never point at a non-administrator (T-E1) - it cannot grant admin.
         Assert.Equal(SsoOnlyGuardVerdict.BreakGlassNotAdministrator, outcome.Verdict);
         Assert.True(string.IsNullOrEmpty(config.BreakGlassAdminUsername));
     }
@@ -309,7 +309,7 @@ public class SsoOnlyLoginServiceTests
     public async Task Reconcile_DoesNotTouchNativelySsoAccounts()
     {
         // A plugin-created account permanently carries the SSO provider id and is NOT in the tracking set.
-        // Reconciliation must never hand it a password door — only accounts the mode itself recorded.
+        // Reconciliation must never hand it a password door - only accounts the mode itself recorded.
         var alice = SsoOnlyUser("alice", AliceId); // repointed by the mode (tracked)
         var carol = SsoOnlyUser("carol", SsoUserId); // natively SSO-created (never tracked)
         var (service, _, users) = Build(
@@ -330,7 +330,7 @@ public class SsoOnlyLoginServiceTests
     [Fact]
     public async Task Reconcile_ModeOn_IsNoOp()
     {
-        // A normal boot with the mode ON leaves enforcement in place — nothing is restored.
+        // A normal boot with the mode ON leaves enforcement in place - nothing is restored.
         var alice = SsoOnlyUser("alice", AliceId);
         var (service, config, users) = Build(
             new[] { alice },
@@ -353,7 +353,7 @@ public class SsoOnlyLoginServiceTests
     public void ResolveLoginEnforcement_ModeOff_ReturnsConfiguredDefault_NotBreakGlass_TracksNothing_DoesNotPersist()
     {
         // Mode off (the default): the provider's own configured default is returned unchanged, the account is
-        // not the break-glass admin, nothing is tracked — and, being a pure read, the common no-op login pays
+        // not the break-glass admin, nothing is tracked - and, being a pure read, the common no-op login pays
         // NO config persist.
         var alice = PasswordUser("alice", AliceId);
         var cfg = new PluginConfiguration { DisablePasswordLogin = false, BreakGlassAdminUsername = "root" };
@@ -377,7 +377,7 @@ public class SsoOnlyLoginServiceTests
         // The `modeOn &&` conjunct guarding the break-glass flag is load-bearing: DisableAsync does NOT clear
         // BreakGlassAdminUsername, so mode-off with the ex-break-glass name still configured is reachable, and
         // here the RESOLVED account's username ("root") equals it. With the mode off that account must NOT be
-        // flagged break-glass — otherwise the mint would wrongly SKIP its legitimate role-derived
+        // flagged break-glass - otherwise the mint would wrongly SKIP its legitimate role-derived
         // administrator demotion. (Dropping the conjunct would flag it, so this pins the guard.)
         var root = PasswordAdmin("root", RootId);
         var cfg = new PluginConfiguration { DisablePasswordLogin = false, BreakGlassAdminUsername = "root" };
@@ -398,7 +398,7 @@ public class SsoOnlyLoginServiceTests
     {
         // Fail-closed branch (repo rule: a negative test per fail-closed branch): the account vanished between
         // resolution and here, so GetUserById returns null. Enforce nothing (the mint fails closed on the null
-        // user), flag no break-glass, track nothing — and, being a pure read, pay NO config persist. The mode
+        // user), flag no break-glass, track nothing - and, being a pure read, pay NO config persist. The mode
         // is ON here, so this exercises the null guard specifically, not the mode-off short-circuit.
         var cfg = new PluginConfiguration { DisablePasswordLogin = true, BreakGlassAdminUsername = "root" };
         var persists = 0;
@@ -420,7 +420,7 @@ public class SsoOnlyLoginServiceTests
     {
         // Finding A: the break-glass identity is judged on the RESOLVED account's own username ("root"), so
         // the break-glass admin's own SSO login is pinned to the password provider and flagged for the mint to
-        // keep it admin/enabled — never routed to the SSO provider and never tracked. Even with the provider's
+        // keep it admin/enabled - never routed to the SSO provider and never tracked. Even with the provider's
         // DefaultProvider pointing at the SSO provider (the common operator setup), the door survives.
         var root = PasswordAdmin("root", RootId);
         var (service, config, _) = Build(new[] { root }, c =>
@@ -460,7 +460,7 @@ public class SsoOnlyLoginServiceTests
     public void ResolveLoginEnforcement_ModeOn_NativelySsoAccount_ForcedToSso_ButNeverTracked()
     {
         // A plugin-created (natively-SSO) account is already off the password provider, so the login path must
-        // NOT track it — tracking it would wrongly hand it a password door on restore. It still resolves to
+        // NOT track it - tracking it would wrongly hand it a password door on restore. It still resolves to
         // the SSO provider (a no-op write), and it is not the break-glass admin.
         var root = PasswordAdmin("root", RootId);
         var carol = SsoOnlyUser("carol", SsoUserId);
@@ -481,7 +481,7 @@ public class SsoOnlyLoginServiceTests
     {
         // #690: an account currently on a THIRD-PARTY provider (neither the built-in password provider nor the
         // SSO provider) already has no password door, and the enable sweep skips it. The login path must skip
-        // it too — keep it on its current provider and never track it. Before the fix the login path repointed
+        // it too - keep it on its current provider and never track it. Before the fix the login path repointed
         // it to SSO while the tracking write (gated on IsDefaultPasswordProvider) left it UNTRACKED, so
         // DisableAsync/ReconcileOnStartupAsync could never reverse the move. This pins the two paths in
         // agreement, mirroring the natively-SSO sweep-skip assertion above.
@@ -505,7 +505,7 @@ public class SsoOnlyLoginServiceTests
     public async Task ResolveLoginEnforcement_LoginPathRepoint_IsRestoredByDisable()
     {
         // Finding B end-to-end: an account driven onto the SSO provider by the LOGIN PATH (not the enable
-        // sweep) is restored to the password provider by the off-switch — because the login path tracked it.
+        // sweep) is restored to the password provider by the off-switch - because the login path tracked it.
         // The mint performs the actual provider write, modelled here by setting the provider id after the
         // login-path decision recorded the account.
         var root = PasswordAdmin("root", RootId);

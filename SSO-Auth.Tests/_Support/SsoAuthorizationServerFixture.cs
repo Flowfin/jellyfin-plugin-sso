@@ -54,8 +54,8 @@ public static class TestRoles
 /// <summary>
 /// Hosts the real <see cref="SSOController"/> in an in-process Kestrel server so the
 /// <c>[Authorize(Policy = Policies.RequiresElevation)]</c> attributes on the production endpoints are
-/// enforced by the genuine ASP.NET Core routing + authentication + authorization middleware — the same
-/// pipeline that runs inside Jellyfin — rather than merely asserted present by reflection.
+/// enforced by the genuine ASP.NET Core routing + authentication + authorization middleware - the same
+/// pipeline that runs inside Jellyfin - rather than merely asserted present by reflection.
 ///
 /// What is REAL here (not mocked away):
 ///   * the production controller type, loaded via <c>AddApplicationPart</c> over the shipped assembly;
@@ -67,7 +67,7 @@ public static class TestRoles
 /// What the FIXTURE supplies (the host's responsibility inside Jellyfin, not the plugin's):
 ///   * a test authentication scheme keyed off the <see cref="TestRoles.Header"/> header, and
 ///   * the <see cref="Policies.RequiresElevation"/> policy registered to require an authenticated caller
-///     in the "Administrator" role — mirroring Jellyfin's own RequiresElevation handler
+///     in the "Administrator" role - mirroring Jellyfin's own RequiresElevation handler
 ///     (<c>context.User.IsInRole(UserRoles.Administrator)</c>). The plugin's contract is only that it marks
 ///     these endpoints with the attribute and relies on the host to enforce it; this fixture stands in for
 ///     that host so the enforcement path is exercised end to end.

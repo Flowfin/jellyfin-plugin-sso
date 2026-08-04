@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// In-process tests of the provider-add endpoints via <see cref="SsoControllerHarness"/>: a valid
 /// config is stored, a malformed base-URL override is rejected fail-closed, a re-save preserves the
-/// server-managed canonical links (#157) and the write-only OpenID secret (#189 — kept when the provider
+/// server-managed canonical links (#157) and the write-only OpenID secret (#189 - kept when the provider
 /// identity is unchanged, dropped when the endpoint changes) that the API body never carries, and a NEW
 /// provider name containing URI-reserved characters is rejected while an existing one stays updatable (#336).
 /// </summary>
@@ -111,7 +111,7 @@ public class SSOControllerAddTests
     {
         // #189 blank-means-keep at the OidAdd door: a re-save carrying a blank secret (as the write-only
         // API body does) but the same provider identity keeps the stored secret. Pins the SECRET half of
-        // ServerManagedFields.Preserve at the endpoint — the links half is covered above, but the
+        // ServerManagedFields.Preserve at the endpoint - the links half is covered above, but the
         // zero-occurrence conformance rule (#383) no longer guarantees the Preserve CALL routes the
         // secret, so a future links-only substitute must fail here rather than silently wipe #189.
         var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
@@ -141,7 +141,7 @@ public class SSOControllerAddTests
 
         var stored = SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"]);
         // The identity genuinely changed (so the drop is via the ResolveUpdatedSecret identity-change
-        // branch, not the unchanged branch), and the stored secret was dropped, not carried to it — this
+        // branch, not the unchanged branch), and the stored secret was dropped, not carried to it - this
         // arm guards against an always-keep regression (Test 1 covers the links-only/never-keep case).
         Assert.Equal("https://attacker.example/", stored.OidEndpoint);
         Assert.True(string.IsNullOrEmpty(stored.OidSecret));
@@ -232,7 +232,7 @@ public class SSOControllerAddTests
     {
         // The grandfather exemption is keyed on the ordinal, case-sensitive dictionary the login lookup
         // also uses, so a case variant of an existing name is a genuinely different runtime provider,
-        // not the exempt one — it must be rejected, not silently accepted as "already configured".
+        // not the exempt one - it must be rejected, not silently accepted as "already configured".
         var harness = new SsoControllerHarness(c => c.OidConfigs["kc=prod"] = new OidConfig());
 
         Assert.Throws<ArgumentException>(() => harness.Controller.OidAdd("KC=prod", new OidConfig()));
@@ -258,7 +258,7 @@ public class SSOControllerAddTests
     [Fact]
     public async Task OidAdd_DisablingAProviderWithLinkedUsers_DoesNotRevokeAnyTokens()
     {
-        // #468 documented decision — per-provider disable is intentionally NOT a token-revocation trigger.
+        // #468 documented decision - per-provider disable is intentionally NOT a token-revocation trigger.
         // Jellyfin attributes no live session to the originating SSO provider (RevokeUserTokens is scoped to
         // a user id, not a provider), so revoking on disable would be an unscoped mass-logout of every linked
         // user's password and other-provider sessions too. Disabling only fails FUTURE logins closed (#343);

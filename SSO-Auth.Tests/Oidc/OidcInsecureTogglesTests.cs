@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcInsecureToggles"/> — the helper that names the enabled RFC 9700
+/// Tests for <see cref="OidcInsecureToggles"/> - the helper that names the enabled RFC 9700
 /// escape-hatch options on a provider (#140), so a save with any of them set can be audit-logged.
 /// </summary>
 public class OidcInsecureTogglesTests

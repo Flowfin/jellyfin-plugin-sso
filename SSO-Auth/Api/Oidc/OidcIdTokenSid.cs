@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// Reads the <c>sid</c> (identity-provider session identifier) claim from the RAW, already-validated
 /// id_token for the Single Logout capture (#727), NOT from the redeemed <c>result.User</c> principal. With
 /// <c>LoadProfile</c> on (the default), OidcClient merges the UNSIGNED UserInfo response into
-/// <c>result.User</c>, so a UserInfo-supplied <c>sid</c> is not signature-covered — and <c>sid</c> is an
+/// <c>result.User</c>, so a UserInfo-supplied <c>sid</c> is not signature-covered - and <c>sid</c> is an
 /// ID-Token / Logout-Token claim (OpenID Connect Session Management / Back-Channel Logout), not a UserInfo
 /// one. Reading it from the signature-verified id_token keeps a divergent or attacker-influenced UserInfo
 /// <c>sid</c> from poisoning the persisted logout key, exactly as <see cref="OidcIdTokenAcr"/> reads

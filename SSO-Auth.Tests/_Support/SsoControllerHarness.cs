@@ -48,7 +48,7 @@ internal sealed class SsoControllerHarness
 
     /// <summary>
     /// Gets the mocked XML serializer the plugin persists through. Exposed so a test can assert on
-    /// <c>SerializeToFile</c> call counts — e.g. to prove a config write actually reached the store's
+    /// <c>SerializeToFile</c> call counts - e.g. to prove a config write actually reached the store's
     /// persist step (#412), or that a no-op resolution did not pay for one.
     /// </summary>
     public IXmlSerializer Xml { get; }
@@ -90,7 +90,7 @@ internal sealed class SsoControllerHarness
         SessionManager = Substitute.For<ISessionManager>();
         AuthContext = Substitute.For<IAuthorizationContext>();
 
-        // With no responder the factory returns null (an unreachable network — the controller's discovery
+        // With no responder the factory returns null (an unreachable network - the controller's discovery
         // fetch fails closed). With one, every CreateClient() hands back a client backed by the stub, so
         // OpenID discovery/JWKS can be served in-process.
         var httpClientFactory = Substitute.For<IHttpClientFactory>();

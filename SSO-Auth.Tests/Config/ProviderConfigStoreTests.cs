@@ -12,7 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ProviderConfigStore"/> — the owner of configuration reads, mutations, and the
+/// Tests for <see cref="ProviderConfigStore"/> - the owner of configuration reads, mutations, and the
 /// validated save pipeline extracted from SSOPlugin (#318). The validation and preservation rules have
 /// their own suite (ConfigPreservationTests); these pin the store's orchestration: what the pipeline
 /// runs for a fresh incoming config, what it skips for the live object, and what reaches the persist
@@ -114,7 +114,7 @@ public class ProviderConfigStoreTests
     public void Save_FreshConfigWithExistingReservedName_IsExempt_AndPersists()
     {
         // The store hands its live config to the validator, so a reserved-character name that is
-        // already configured keeps saving — its callback-URL bytes are what the IdP has registered,
+        // already configured keeps saving - its callback-URL bytes are what the IdP has registered,
         // and blocking the save would strand the deployment behind a rename (#336).
         var (store, live, persisted) = CreateStore();
         live.OidConfigs["kc=prod"] = new OidConfig();
@@ -144,7 +144,7 @@ public class ProviderConfigStoreTests
     public void Save_FreshConfigWithInsecureOptions_PersistsAndAuditsThem()
     {
         // The #140 audit: saving a provider with a disabled security check emits a warning naming the
-        // provider and the option — after the save, so a logging provider cannot fail a completed save.
+        // provider and the option - after the save, so a logging provider cannot fail a completed save.
         var logger = new CapturingLogger();
         var (store, _, persisted) = CreateStore(logger);
         var incoming = new PluginConfiguration();
@@ -200,7 +200,7 @@ public class ProviderConfigStoreTests
         // through Mutate instead of an unsynchronized field write, specifically so two concurrent
         // challenges cannot race a read-modify-write and lose one another's update. This pins the
         // general property that guarantee rests on: every Mutate call is a fully serialized
-        // read-modify-write, so N concurrent increments through the store are never dropped — if the
+        // read-modify-write, so N concurrent increments through the store are never dropped - if the
         // store's lock were removed (or a caller bypassed it, as the pre-fix NewPath write did), some
         // increments would race and the final count would fall short of N.
         var (store, live, _) = CreateStore();
@@ -223,12 +223,12 @@ public class ProviderConfigStoreTests
     public async Task Mutate_ConcurrentChallengeStyleReadThenWrite_NeverThrows_AndSettlesOnADerivedSpelling()
     {
         // Mirrors ChallengeNewPathResolver.ResolveChallengeNewPath's shape (#412, unified in #670): a fast Read,
-        // then a Mutate only when the derived spelling differs from what is stored — never a bare field
+        // then a Mutate only when the derived spelling differs from what is stored - never a bare field
         // write outside the lock. Concurrent callers alternate between the two derivable spellings for
-        // "kc" while OTHER concurrent callers add and remove UNRELATED provider entries — a genuine
+        // "kc" while OTHER concurrent callers add and remove UNRELATED provider entries - a genuine
         // structural dictionary mutation racing the "kc" reads. This is the exact hazard Read's own doc
         // comment cites (a Dictionary read-during-write is undefined behavior in .NET: throw, misread, or
-        // a spin on a corrupted chain during a resize) — without the store's lock, THIS combination could
+        // a spin on a corrupted chain during a resize) - without the store's lock, THIS combination could
         // actually throw or corrupt state; a bool-only workload against a single already-live entry could
         // not, so it would pass whether or not the lock existed. With the lock, every call must complete
         // cleanly and the "kc" entry must survive untouched.
@@ -254,7 +254,7 @@ public class ProviderConfigStoreTests
                 ct);
 
             // Concurrent structural churn on an unrelated key, racing the "kc" reads/writes above on the
-            // SAME dictionary — added and removed within the same task so the map ends the test with only
+            // SAME dictionary - added and removed within the same task so the map ends the test with only
             // "kc" left in it.
             var churnKey = "churn-" + i;
             tasks[concurrency + i] = Task.Run(

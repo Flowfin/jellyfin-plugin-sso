@@ -15,7 +15,7 @@ description: >-
   - It listed releases UNPAGINATED, so only the first 30 were ever considered.
     With one manifest branch shared by both Jellyfin generations and the JF10.11
     line publishing far more often, the JF12 entries were being pushed off the
-    end — after which that generation silently vanishes from the manifest and
+    end - after which that generation silently vanishes from the manifest and
     every Jellyfin 12.0 user's repository goes empty (#943). Here the release
     list is paginated, and the manifest is capped PER targetAbi rather than
     globally, so no generation can be squeezed out by another's cadence however
@@ -34,7 +34,7 @@ inputs:
       discovery has no deterministic answer: the releases API guarantees no
       ordering useful here, so "whichever release the API listed first" can hand
       the catalogue a years-old identity mid-rename. Taking it from the
-      publishing leg is deterministic per run — and because the manifest branch
+      publishing leg is deterministic per run - and because the manifest branch
       is SHARED between the two Jellyfin generations and holds exactly ONE
       plugin object, the plugin-level prose in build.yaml and build-jf12.yaml
       must be kept word-identical (enforced by a comment at both sites), or the
@@ -125,7 +125,7 @@ runs:
         total="$(jq -s 'add | length' "$work/releases.json")"
         echo "releases fetched: $total"
 
-        # Each release's targetAbi and version come from ITS OWN build.yaml — shipped as a
+        # Each release's targetAbi and version come from ITS OWN build.yaml - shipped as a
         # release asset where the leg provides one (the JF12 legs must, or their builds would
         # be labelled with the JF10.11 metadata), otherwise read from the release's tag.
         : > "$work/versions.jsonl"
@@ -137,7 +137,7 @@ runs:
           # only by the prerelease flag. Since #980 the newest JF11 beta is published as a
           # NON-prerelease (so GitHub can mark it the Latest release), so the prerelease flag alone
           # no longer keeps betas out of manifest-release. The tag convention is the reliable
-          # separator — a beta is always tagged X.Y.Z[-JF12]-beta.<run>, a stable never is — so this
+          # separator - a beta is always tagged X.Y.Z[-JF12]-beta.<run>, a stable never is - so this
           # fails closed: a revived stable channel can never pull an immutable non-prerelease beta
           # into the stable manifest, where its four-octet version would even outrank the stable build.
           if [ "$INCLUDE_PRERELEASES" != "true" ]; then
@@ -146,13 +146,13 @@ runs:
 
           # `first(…)`: a draft can carry the same tag_name as a published release (the draft
           # flow the beta leg used to run does exactly that), and without the draft filter plus
-          # this cutoff the lookup emits TWO JSON documents — every jq below then produces two
+          # this cutoff the lookup emits TWO JSON documents - every jq below then produces two
           # values and the shell comparisons downstream read garbage.
           assets="$(jq -c --arg t "$tag" -s 'first(add[] | select((.draft | not) and .tag_name == $t) | .assets)' "$work/releases.json")"
 
           # Is this the release THIS run published? Releases here are immutable, so a defect in
           # an OLD one can never be repaired by attaching the missing asset. Aborting the whole
-          # generation over it would freeze both manifest branches permanently — a worse
+          # generation over it would freeze both manifest branches permanently - a worse
           # outage than dropping that one historical entry. So every integrity check below is
           # fatal for our own release and a loud skip for anyone else's.
           ours=no
@@ -161,7 +161,7 @@ runs:
           fi
 
           # Exactly one zip, or nothing. Picking positionally out of several would publish one
-          # build with the correctly-paired checksum of THAT build — so every downstream
+          # build with the correctly-paired checksum of THAT build - so every downstream
           # integrity check passes and users install an artifact nobody chose. That is the same
           # "select by position, never assert cardinality" shape as #942, one level up, so it
           # gets the same fail-closed treatment the checksum pairing already has.
@@ -181,8 +181,8 @@ runs:
             continue
           fi
 
-          # THE #942 FIX. The checksum is the sidecar belonging to THIS zip — either
-          # <zip-without-.zip>.md5 or <zip>.md5 — never merely the last `.md5` on the
+          # THE #942 FIX. The checksum is the sidecar belonging to THIS zip - either
+          # <zip-without-.zip>.md5 or <zip>.md5 - never merely the last `.md5` on the
           # release. An unresolvable pair is fatal: publishing a checksum that matches
           # nothing breaks every install, so guessing is the one thing not to do here.
           md5_count="$(printf '%s' "$assets" | jq --arg a "${zip_name%.zip}.md5" --arg b "${zip_name}.md5" \
@@ -203,7 +203,7 @@ runs:
             'first(.[] | select(.name == $a or .name == $b)) | .browser_download_url')"
 
           # Version and targetAbi describe THIS release, so they come from the metadata JPRM
-          # wrote beside its zip — plain JSON, read with jq. The runner image ships jq but NOT
+          # wrote beside its zip - plain JSON, read with jq. The runner image ships jq but NOT
           # yq (checked against the runner-images tool list, not assumed), so nothing here
           # parses YAML in the general case.
           meta_url="$(printf '%s' "$assets" | jq -r --arg m "${zip_name}.meta.json" \
@@ -217,7 +217,7 @@ runs:
             fi
           else
             # Releases published before that metadata was shipped. Only two scalars are needed
-            # and both are simple quoted values, so a line match is exact here — this is not a
+            # and both are simple quoted values, so a line match is exact here - this is not a
             # YAML parser and is not asked to be one.
             build_url="$(printf '%s' "$assets" | jq -r 'first(.[] | select(.name == "build.yaml")) | .browser_download_url // empty')"
             : > "$work/release.yaml"
@@ -270,11 +270,11 @@ runs:
         # The one guarantee this action exists to give: the build THIS run published is in the
         # manifest about to be committed. Without it, a transient asset-listing gap makes the
         # loop above skip our own release with a notice, the run stays green, and an immutable
-        # stable release exists that no Jellyfin server is ever offered — silently, until the
+        # stable release exists that no Jellyfin server is ever offered - silently, until the
         # next publish months later.
         if ! jq -e --arg v "$this_version" --arg a "$this_abi" \
             'any(.[]; .version == $v and .targetAbi == $a)' "$work/kept.json" >/dev/null; then
-          echo "::error::the build this run published ($this_version, targetAbi $this_abi) did not survive into the manifest — refusing to publish without it"
+          echo "::error::the build this run published ($this_version, targetAbi $this_abi) did not survive into the manifest - refusing to publish without it"
           exit 1
         fi
 
@@ -282,7 +282,7 @@ runs:
         # here from the history walk, which bounds the sidecar downloads however long the
         # release history grows). The checksum is the sidecar belonging to THIS entry's zip; the
         # sidecar is `md5sum` output (`<32 hex><space><space-or-*><filename>`) and the WHOLE
-        # line is validated, filename included — a sidecar written with `>>` that ended up
+        # line is validated, filename included - a sidecar written with `>>` that ended up
         # holding two lines would otherwise pass on its first line, which may describe an
         # entirely different file, and the manifest would again publish a checksum belonging to
         # something other than the zip beside it. Fatal for the release this run published, a
@@ -296,21 +296,21 @@ runs:
           ours="$(printf '%s' "$entry" | jq -r '._ours')"
           if ! sidecar="$(curl -fsSL --retry 5 --retry-all-errors --max-time 60 "$md5_url")"; then
             if [ "$ours" = "no" ]; then
-              echo "::warning::release $tag — could not fetch the checksum sidecar; dropping its entry from the manifest this run"
+              echo "::warning::release $tag - could not fetch the checksum sidecar; dropping its entry from the manifest this run"
               dropped=$((dropped+1))
               continue
             fi
-            echo "::error::release $tag — could not fetch the checksum sidecar"
+            echo "::error::release $tag - could not fetch the checksum sidecar"
             exit 1
           fi
           checksum="$(printf '%s\n' "$sidecar" | sed -n "1s/^\([0-9a-f]\{32\}\)[[:space:]][[:space:]*]$(printf '%s' "$zip_name" | sed 's/[].[^$*\/]/\\&/g')\$/\1/p")"
           if [ -z "$checksum" ] || [ "$(printf '%s\n' "$sidecar" | grep -c .)" -ne 1 ]; then
             if [ "$ours" = "no" ]; then
-              echo "::warning::release $tag — the checksum sidecar is not a single md5sum line naming $zip_name; dropping its entry from the manifest"
+              echo "::warning::release $tag - the checksum sidecar is not a single md5sum line naming $zip_name; dropping its entry from the manifest"
               dropped=$((dropped+1))
               continue
             fi
-            echo "::error::release $tag — the checksum sidecar is not a single md5sum line naming $zip_name"
+            echo "::error::release $tag - the checksum sidecar is not a single md5sum line naming $zip_name"
             exit 1
           fi
           printf '%s' "$entry" | jq -c --arg c "$checksum" 'del(._md5url, ._zip, ._tag, ._ours) + {checksum:$c}' >> "$work/final.jsonl"
@@ -319,7 +319,7 @@ runs:
         jq -s '.' "$work/final.jsonl" > "$work/final.json"
         final_total="$(jq 'length' "$work/final.json")"
         if [ "$dropped" -gt 0 ]; then
-          echo "::warning::$dropped capped entries were dropped for unusable checksum sidecars — the affected ABI lists are shorter than max-versions-per-abi this run"
+          echo "::warning::$dropped capped entries were dropped for unusable checksum sidecars - the affected ABI lists are shorter than max-versions-per-abi this run"
         fi
         if [ "$final_total" -eq 0 ]; then
           echo "::error::no releases produced a manifest entry"

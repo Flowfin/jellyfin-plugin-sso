@@ -13,7 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="PermissionRolePolicy"/> — the generic role→permission mapping (#164) that extends
+/// Tests for <see cref="PermissionRolePolicy"/> - the generic role→permission mapping (#164) that extends
 /// the dedicated admin/folder/Live TV surface to the full boolean <see cref="PermissionKind"/> surface.
 /// These pin the security-load-bearing guarantees: the mapping is default-deny and authoritative (a
 /// configured permission is granted only when a matching role is present and otherwise EXPLICITLY revoked,
@@ -47,7 +47,7 @@ public class PermissionRolePolicyTests
     public void Map_FeatureOff_EvenWithAMatchingRole_ReturnsEmpty()
     {
         // The master switch is the fail-closed default: with it off, SSO manages no extra permission even
-        // when a mapping would match — byte-for-byte the pre-#164 behavior.
+        // when a mapping would match - byte-for-byte the pre-#164 behavior.
         var config = Config(enable: false, Map("EnableContentDownloading", "media"));
 
         var grants = PermissionRolePolicy.Map(new[] { "media" }, config);
@@ -108,10 +108,10 @@ public class PermissionRolePolicyTests
     [InlineData("EnableAllFolders")]
     [InlineData("EnableLiveTvAccess")]
     [InlineData("EnableLiveTvManagement")]
-    [InlineData("IsDisabled")] // #165 Finding H1: never role-mappable — an SSO login must not disable an account
+    [InlineData("IsDisabled")] // #165 Finding H1: never role-mappable - an SSO login must not disable an account
     public void Map_DedicatedPermission_IsNeverGrantedThroughTheGenericMap_EvenWithAMatchingRole(string permission)
     {
-        // The four permissions with their own dedicated config fields/flows cannot be granted here — this is
+        // The four permissions with their own dedicated config fields/flows cannot be granted here - this is
         // the anti-escalation guarantee: an admin cannot mint IsAdministrator (or all-folders / Live TV)
         // through the generic map, even when the login carries the mapped role. IsDisabled is barred for a
         // stronger reason (#165 Finding H1): a role that mapped to it would let a single SSO login lock the
@@ -127,7 +127,7 @@ public class PermissionRolePolicyTests
     public void Map_IsDisabled_IsNeverEmitted_EvenWithoutAMatchingRole()
     {
         // #165 Finding H1, the negative fail-closed branch: because IsDisabled is barred from the generic map,
-        // it is emitted NEITHER as a grant NOR as an authoritative revoke — it never reaches the mint's grant
+        // it is emitted NEITHER as a grant NOR as an authoritative revoke - it never reaches the mint's grant
         // list in any form, so no SSO login can ever toggle the account-disabled flag. (Contrast an ordinary
         // permission, which is emitted as an explicit revoke when no role matches.)
         var config = Config(enable: true, Map("IsDisabled", "some-role"));
@@ -182,7 +182,7 @@ public class PermissionRolePolicyTests
     public void Map_ConfiguredRoleIsTrimmedBeforeComparison_LoginRoleComparedRaw()
     {
         // The configured (trusted, admin-authored) role is trimmed; the IdP-supplied role is compared raw
-        // and ordinal — mirroring the folder-role comparison hardening (#367), so stray config whitespace is
+        // and ordinal - mirroring the folder-role comparison hardening (#367), so stray config whitespace is
         // not a mismatch while an IdP role cannot inject whitespace to force a match.
         var config = Config(enable: true, Map("EnableContentDownloading", "  downloaders  "));
 
@@ -275,7 +275,7 @@ public class PermissionRolePolicyTests
     [InlineData("NotARealPermission")]
     [InlineData("enablecontentdownloading")] // mis-cased: canonical name comparison is ordinal
     [InlineData("11")] // a numeric string must not resolve to a permission by ordinal value
-    [InlineData("EnableContentDownloading ")] // trailing space is trimmed, so this is actually valid — see below
+    [InlineData("EnableContentDownloading ")] // trailing space is trimmed, so this is actually valid - see below
     public void Classify_UnknownOrMiscasedName_IsUnknown_ExceptTrimmedValid(string permission)
     {
         var status = PermissionRolePolicy.Classify(permission);
@@ -321,7 +321,7 @@ public class PermissionRolePolicyTests
 
         var grants = PermissionRolePolicy.Map(new[] { blankRole }, config);
 
-        // The mapping stays managed (explicit revoke) — the blank entry just can never grant it.
+        // The mapping stays managed (explicit revoke) - the blank entry just can never grant it.
         Assert.Equal(false, GrantFor(grants, PermissionKind.EnableContentDownloading));
     }
 

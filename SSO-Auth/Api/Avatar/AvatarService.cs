@@ -20,9 +20,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 /// <summary>
 /// Fetches an SSO provider's avatar over an SSRF-safe transport and stores it as the user's profile
 /// image. Best-effort by design: any fetch or save failure is logged and the login proceeds without the
-/// avatar. The security-relevant parts — the URL allow-list, the per-connection IP validation (closing
+/// avatar. The security-relevant parts - the URL allow-list, the per-connection IP validation (closing
 /// SSRF and DNS-rebinding on every hop, including redirects), the content-type allow-list, and the size
-/// cap — all fail closed (no fetch, no store).
+/// cap - all fail closed (no fetch, no store).
 /// </summary>
 internal sealed class AvatarService
 {
@@ -30,7 +30,7 @@ internal sealed class AvatarService
     internal const long MaxAvatarBytes = 10 * 1024 * 1024;
 
     // Bounds the wait for the per-user store lock (#448). This flow tier is deliberately HttpContext-free
-    // (see LoginCompletionService/SessionMinter), so no ambient request-abort token reaches this far — a
+    // (see LoginCompletionService/SessionMinter), so no ambient request-abort token reaches this far - a
     // self-contained deadline is the same pattern TrySetAsync already uses for the fetch. This bound stacks
     // with TrySetAsync's 10s fetch deadline on the synchronous login path, so it is kept well below that
     // fetch bound rather than matching it (#541): the store step is purely local disk/DB work (SaveImage,
@@ -40,7 +40,7 @@ internal sealed class AvatarService
     private static readonly TimeSpan StoreLockAcquireTimeout = TimeSpan.FromSeconds(3);
 
     // Serializes the store step per user across ALL logins (#400). Static because the controller builds a
-    // fresh AvatarService per request, so two concurrent same-user logins hold different instances — an
+    // fresh AvatarService per request, so two concurrent same-user logins hold different instances - an
     // instance lock would not serialize them. Keyed by user, so unrelated users never block each other,
     // and collectible, so the map cannot leak a semaphore per username ever seen. Ordinal because the key
     // is exactly the profile-path determinant (Path.Combine on user.Username below).
@@ -48,7 +48,7 @@ internal sealed class AvatarService
 
     // One process-wide HTTP stack reused across every login (#248). Static for the same reason the store
     // lock is: the controller builds a fresh AvatarService per request, so a per-instance client would
-    // open a new connection pool — a full TCP+TLS handshake — on every login. The single shared client
+    // open a new connection pool - a full TCP+TLS handshake - on every login. The single shared client
     // keeps its pool warm across logins while the hardened handler's guards (SSRF ConnectCallback, redirect
     // bound, proxy-off) are unchanged; PooledConnectionLifetime bounds how long a pooled connection lives
     // so DNS changes are still eventually honored despite the reuse. Thread-safe: concurrent logins call
@@ -157,14 +157,14 @@ internal sealed class AvatarService
             using var request = new HttpRequestMessage(HttpMethod.Get, avatarUri);
             request.Headers.UserAgent.ParseAdd(_userAgent);
 
-            // Conditional refresh (#248) — but only while we still hold this user's avatar ON DISK. When we
+            // Conditional refresh (#248) - but only while we still hold this user's avatar ON DISK. When we
             // have the file, ask the origin for fresh bytes only if the image changed since our last store:
-            // If-Modified-Since carries that store's timestamp (ProfileImage.LastModified) — exactly "when we
-            // last fetched this representation" — so an unchanged avatar answers 304 and we skip the
+            // If-Modified-Since carries that store's timestamp (ProfileImage.LastModified) - exactly "when we
+            // last fetched this representation" - so an unchanged avatar answers 304 and we skip the
             // re-download AND the re-store; only a changed image (200) is fetched and re-stored.
             // Force-refresh on a missing file (#480): if the ImageInfo record is live but the profile.* file
             // was deleted out-of-band, sending the conditional would let a 304 skip the re-download and the
-            // avatar could never self-heal from the live record — so when the local file is absent we omit
+            // avatar could never self-heal from the live record - so when the local file is absent we omit
             // If-Modified-Since and fetch unconditionally to restore it. An origin that ignores the header
             // just answers 200 as before, so the file-present case still degrades safely to the old
             // always-download. SpecifyKind(Utc) makes the DateTimeOffset construction total regardless of the
@@ -182,7 +182,7 @@ internal sealed class AvatarService
             // enforces the size limit; otherwise the cap runs only after the whole download is in memory.
             using var avatarResponse = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
 
-            // 304: the image is unchanged since our last store — keep the existing profile image, fetch and
+            // 304: the image is unchanged since our last store - keep the existing profile image, fetch and
             // store nothing, and deliberately do NOT advance ProfileImage.LastModified (it stays the anchor
             // for the next login's If-Modified-Since; refreshing it here would defeat the conditional). Checked
             // before EnsureSuccessStatusCode, which treats 304 as a non-success throw.
@@ -197,12 +197,12 @@ internal sealed class AvatarService
             var mediaType = avatarResponse.Content.Headers.ContentType?.MediaType;
 
             // Allow only raster image types and derive the stored extension from that allow-list, never
-            // from the raw subtype — image/svg+xml is rejected because a stored SVG can carry script (#217).
+            // from the raw subtype - image/svg+xml is rejected because a stored SVG can carry script (#217).
             if (!AvatarContentType.TryResolveExtension(mediaType, out var extension))
             {
                 // Log the rejected type sanitized inline at the log call (mediaType is server-controlled),
                 // and keep the thrown/caught exception message generic so no untrusted text reaches the
-                // logged exception — mirrors the disallowed-URL warning above.
+                // logged exception - mirrors the disallowed-URL warning above.
                 _logger.LogWarning("Refusing avatar with disallowed content type: {MediaType}", (mediaType ?? "(none)").ReplaceLineEndings(string.Empty));
                 throw new InvalidOperationException("Avatar content type is not an allowed raster image.");
             }
@@ -228,10 +228,10 @@ internal sealed class AvatarService
     /// Writes the fetched avatar to disk and only then updates the user's profile-image reference, so a
     /// failed save leaves the previous profile-image record intact instead of a cleared record pointing
     /// at a never-written path (#377). (When the target path is unchanged the host writes the file in
-    /// place, so a mid-write failure can still truncate the bytes — that is ImageSaver's contract, not
+    /// place, so a mid-write failure can still truncate the bytes - that is ImageSaver's contract, not
     /// ours to fix.) Throws on save failure; <see cref="TrySetAsync"/>'s best-effort catch owns the logging.
     /// Returns silently instead, logging its own warning, if the per-user store lock cannot be acquired
-    /// within the bound (#448) — a timed-out wait skips the store entirely rather than throwing.
+    /// within the bound (#448) - a timed-out wait skips the store entirely rather than throwing.
     /// </summary>
     /// <param name="user">The user whose profile image is set.</param>
     /// <param name="image">The fetched avatar bytes.</param>
@@ -251,7 +251,7 @@ internal sealed class AvatarService
         // on the host DB) could park every other concurrent login for this SAME user indefinitely.
         // KeyedLockStore.AcquireAsync already honors cancellation and leaks no waiter/permit on it
         // (KeyedLockStoreTests); a timed-out wait here acquires nothing, so the store below never runs
-        // unguarded — it is skipped entirely, exactly like the other best-effort fail-closed branches in
+        // unguarded - it is skipped entirely, exactly like the other best-effort fail-closed branches in
         // this class (disallowed URL, disallowed content type, unsafe username).
         using var acquireTimeout = new CancellationTokenSource(_storeLockAcquireTimeout);
         IDisposable storeLock;
@@ -282,11 +282,11 @@ internal sealed class AvatarService
 
         // The profile path's middle component is user.Username, which for an SSO login is IdP-controlled
         // (OIDC preferred_username / SAML NameID). The only host-side check is CreateUserAsync's username
-        // regex ^(?!\s)[\w \-'._@+]+(?<!\s)$ — which the plugin cannot even reference (it lives in the
+        // regex ^(?!\s)[\w \-'._@+]+(?<!\s)$ - which the plugin cannot even reference (it lives in the
         // server, off the Controller/Model surface) and which ADMITS '.' and '..' (#447). A username of
         // ".." makes Path.Combine write the fetched image into the PARENT of the user-config directory.
         // Treat the username as untrusted and fail closed: an unsafe component skips the avatar entirely.
-        // The store is best-effort, so login still succeeds with no avatar — we never throw from here.
+        // The store is best-effort, so login still succeeds with no avatar - we never throw from here.
         if (!IsUsernameSafeForProfilePath(root, user.Username))
         {
             _logger.LogWarning(
@@ -309,7 +309,7 @@ internal sealed class AvatarService
         else if (string.Equals(user.ProfileImage.Path, newPath, StringComparison.Ordinal))
         {
             // Same target file (the common same-extension re-login), just overwritten in place: the
-            // record is already correct, so clearing it (which removes only the DB row — the host's
+            // record is already correct, so clearing it (which removes only the DB row - the host's
             // ClearProfileImageAsync does not touch the file) would drop and re-insert it for nothing.
             // Keep the record and refresh the timestamp so clients re-fetch the changed image.
             user.ProfileImage.LastModified = DateTime.UtcNow;
@@ -317,7 +317,7 @@ internal sealed class AvatarService
         else
         {
             // The content type (and so the stored path) changed: drop the old RECORD only now that the
-            // new bytes are safely on disk, then point the user at them. The old file stays on disk —
+            // new bytes are safely on disk, then point the user at them. The old file stays on disk -
             // ClearProfileImageAsync removes just the DB row, the same residue Jellyfin's own image
             // replace leaves behind.
             await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
@@ -329,7 +329,7 @@ internal sealed class AvatarService
     // safe path component that resolves to exactly the intended per-user directory. Two independent layers:
     // (1) a character check that rejects '.'/'..', either separator, and any invalid file-name char on every
     // platform (GetInvalidFileNameChars excludes '\' on Linux, so both separators are rejected explicitly);
-    // (2) belt-and-suspenders, an exact round-trip check — Path.GetFullPath(root/username) must equal
+    // (2) belt-and-suspenders, an exact round-trip check - Path.GetFullPath(root/username) must equal
     // root/username with nothing normalized away. That keeps the write under the root AND rejects platform
     // tricks the character check can't see: Windows silently strips trailing dots/spaces, so "victim." would
     // otherwise fold onto another user's "victim" directory (an in-root cross-user overwrite), and an
@@ -356,7 +356,7 @@ internal sealed class AvatarService
         }
         catch (Exception e) when (e is ArgumentException or IOException or NotSupportedException)
         {
-            // The path could not be resolved (e.g. an over-long component) — not provably the intended
+            // The path could not be resolved (e.g. an over-long component) - not provably the intended
             // directory, so fail closed rather than trust it. Never let this bubble into the login path.
             return false;
         }
@@ -371,14 +371,14 @@ internal sealed class AvatarService
     // The process-wide shared client (#248): one hardened handler + one connection pool for the whole
     // process, reused across every login instead of rebuilt per fetch. Timeout stays 10s; because the
     // fetch uses ResponseHeadersRead the per-request CancellationTokenSource is the real end-to-end
-    // deadline (see TrySetAsync), so this Timeout bounds only connect + header wait. Never disposed —
+    // deadline (see TrySetAsync), so this Timeout bounds only connect + header wait. Never disposed -
     // it lives for the process, the intended lifetime of a shared HttpClient.
     private static HttpClient CreateHardenedClient() =>
         new HttpClient(SsoHttp.CreateHardenedHandler(), disposeHandler: true) { Timeout = TimeSpan.FromSeconds(10) };
 
     // Copies the response body into memory, aborting if it exceeds the cap, so a hostile endpoint cannot
     // exhaust resources with an unbounded (or Content-Length-lying) download. Internal so the streamed
-    // size cap (#220) — the most security-relevant branch — is unit-testable over a StreamContent body
+    // size cap (#220) - the most security-relevant branch - is unit-testable over a StreamContent body
     // without live HTTP (#385).
 
     /// <summary>

@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="StrictJson"/> — the per-object-scope walk that decides whether a provider document
+/// Tests for <see cref="StrictJson"/> - the per-object-scope walk that decides whether a provider document
 /// names a member twice (#1005). Every reader the plugin depends on keeps the LAST occurrence of a repeated
 /// member silently, so a document that repeats one means two things at once; a repeated <c>issuer</c>
 /// re-points the anchor a login binds to and a repeated <c>jwks_uri</c> re-points the validation keys. They
@@ -43,7 +43,7 @@ public class StrictJsonTests
     private const string TwoRawLoneSurrogateNames = "{\"a\uD800\":1,\"a\uDC00\":1}";
 
     // A UTF-8 BOM, which a provider serving a BOM-prefixed file emits. Utf8JsonReader treats it as
-    // content, so without stripping it every such document reads as malformed — and Unreadable is a
+    // content, so without stripping it every such document reads as malformed - and Unreadable is a
     // refusal at the seam, so that would lock the provider out.
     private const string Bom = "\uFEFF";
 
@@ -56,14 +56,14 @@ public class StrictJsonTests
         ("{\"issuer\":\"https://one.example\",\"issuer\":\"https://two.example\"}", "issuer"),
         ("{\"jwks_uri\":\"https://one.example/jwks\",\"jwks_uri\":\"https://evil.example/jwks\"}", "jwks_uri"),
 
-        // Below the root: a nested object, and an object inside an array — a JWKS entry whose own `kty`
+        // Below the root: a nested object, and an object inside an array - a JWKS entry whose own `kty`
         // repeats, which is where key selection would diverge.
         ("{\"outer\":{\"b\":1,\"b\":2}}", "b"),
         ("{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}", "kty"),
 
         // The two occurrences STRADDLE a nested scope, so the root's name set must survive the push and pop
         // in between. A walk that reset or replaced the set on entering an object passes every row above and
-        // fails only here — and a repeated `issuer` spelled this way is the realistic spelling, since an
+        // fails only here - and a repeated `issuer` spelled this way is the realistic spelling, since an
         // attacker appending to a document puts other members between the two.
         ("{\"issuer\":\"https://one.example\",\"o\":{\"issuer\":\"nested\"},\"issuer\":\"https://two.example\"}", "issuer"),
         ("{\"a\":1,\"k\":[{\"x\":1},{\"y\":2}],\"a\":2}", "a"),
@@ -88,8 +88,8 @@ public class StrictJsonTests
         "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"a1\"}]}",
         RealisticJwks,
 
-        // Nested well inside the cap. This row alone pins nothing about the cap — any value from 11 upward
-        // satisfies it — and an earlier comment here claimed it pinned the tightening direction, which it did
+        // Nested well inside the cap. This row alone pins nothing about the cap - any value from 11 upward
+        // satisfies it - and an earlier comment here claimed it pinned the tightening direction, which it did
         // not. The cap is pinned by its two neighbours in TheDepthCapIsPinnedAtItsBoundary; this fixture is
         // here because a realistically-nested clean document belongs in the corpus regardless.
         "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":1}}}}}}}}}}",
@@ -102,7 +102,7 @@ public class StrictJsonTests
         // documents actually contain: RFC 8705 puts a second `token_endpoint` and `userinfo_endpoint` inside
         // `mtls_endpoint_aliases`, and Google, Microsoft and others serve exactly this. Every other clean
         // fixture reuses names between SIBLINGS, so a walk whose child scope inherited its parent's names
-        // passed all of them — and would refuse the login of any provider advertising mTLS aliases.
+        // passed all of them - and would refuse the login of any provider advertising mTLS aliases.
         "{\"issuer\":\"https://one.example\",\"token_endpoint\":\"https://one.example/token\","
             + "\"mtls_endpoint_aliases\":{\"token_endpoint\":\"https://mtls.one.example/token\","
             + "\"userinfo_endpoint\":\"https://mtls.one.example/userinfo\"}}",
@@ -255,7 +255,7 @@ public class StrictJsonTests
     public void ADocumentCarryingNoObject_IsUnreadable()
     {
         // Widened from "no input" to its actual rule. A bare scalar and an array of scalars are well-formed
-        // and carry no scope in which a member could repeat, so the walk established nothing about them —
+        // and carry no scope in which a member could repeat, so the walk established nothing about them -
         // the same reason an empty body is not Clean. Reporting Clean here would hand a caller an
         // affirmative answer about a document nothing read.
         Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect("17", out _));
@@ -272,7 +272,7 @@ public class StrictJsonTests
     public void NoInputAtAll_IsUnreadable()
     {
         // Not Clean. Clean is an affirmative "no scope names a member twice", which a caller written the
-        // obvious way consumes as approval — and every reader these documents reach rejects an empty body
+        // obvious way consumes as approval - and every reader these documents reach rejects an empty body
         // outright, so Clean would make this walk disagree with its own consumers about one document. Nothing
         // was established, which is exactly what Unreadable means.
         Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(null, out _));

@@ -91,7 +91,7 @@ internal static class AccountLinkResolver
     /// <param name="allowExistingAccountLink">
     /// Whether the provider permits matching an account by its mutable name. The legacy key IS the
     /// mutable username, so following it hands the login an account selected by a name the identity
-    /// provider controls — the exact trust this flag governs for same-named account adoption (#354,
+    /// provider controls - the exact trust this flag governs for same-named account adoption (#354,
     /// CWE-287). With the flag off the legacy link is ignored and the login falls through to the
     /// name-adoption gate, which fails closed.
     /// </param>
@@ -99,7 +99,7 @@ internal static class AccountLinkResolver
     /// The linked user id (or null when neither link resolves), and whether the legacy link must be
     /// re-keyed to the subject. Migration is requested only when there is no subject-keyed link yet, a
     /// legacy one resolves, name-based matching is permitted, AND the legacy target still bears the
-    /// name — a one-time, idempotent hand-off: once re-keyed, later logins hit the subject key directly
+    /// name - a one-time, idempotent hand-off: once re-keyed, later logins hit the subject key directly
     /// and never consult the name again.
     /// </returns>
     internal static (Guid? LinkedUserId, bool MigrateLegacy) ResolveCanonicalLink(
@@ -140,9 +140,9 @@ internal static class AccountLinkResolver
 }
 
 /// <summary>
-/// Thrown when an SSO login must not create, adopt, or link an account — a pre-existing, unlinked
+/// Thrown when an SSO login must not create, adopt, or link an account - a pre-existing, unlinked
 /// Jellyfin account whose adoption the provider forbids, or a login without a resolvable identity.
-/// The controller maps this to an HTTP 403. Messages are deliberately generic — the
+/// The controller maps this to an HTTP 403. Messages are deliberately generic - the
 /// identity-provider-supplied name is not embedded, since exception messages may be logged or
 /// reported elsewhere; the caller logs the sanitized name and context.
 /// </summary>

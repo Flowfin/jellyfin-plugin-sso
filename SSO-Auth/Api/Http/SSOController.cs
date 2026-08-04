@@ -185,12 +185,12 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
-    /// RP-initiated OpenID logout (#727, SLO-2). Ends the CALLER's local Jellyfin session, then — when the
-    /// caller has a captured OpenID session for this provider (Single Logout enabled) — redirects the browser
+    /// RP-initiated OpenID logout (#727, SLO-2). Ends the CALLER's local Jellyfin session, then - when the
+    /// caller has a captured OpenID session for this provider (Single Logout enabled) - redirects the browser
     /// to the identity provider's <c>end_session_endpoint</c> with the stored <c>id_token_hint</c>, so the IdP
     /// session is terminated too. Fail-safe: a missing/unsafe endpoint or a disabled feature degrades to a
     /// local-only logout (the browser returns to this server). Authenticated, and every action is scoped
-    /// strictly to the caller's own user id — a user can only log THEMSELVES out.
+    /// strictly to the caller's own user id - a user can only log THEMSELVES out.
     /// </summary>
     /// <param name="provider">The OpenID provider to end the session at.</param>
     /// <returns>A redirect to the IdP end-session URL, or to this server for a local-only logout.</returns>
@@ -204,7 +204,7 @@ public class SSOController : ControllerBase
         // OpenID capture from a SAML one). Scoped to the caller's own user id, read under the config lock.
         // Best-effort with multiple concurrent sessions: "most recent" may differ from the exact session the
         // local Logout below ends, but both belong to the caller and the id_token_hint is a valid token for
-        // the same subject at the same issuer, so RP-initiated logout is still correct — a within-user,
+        // the same subject at the same issuer, so RP-initiated logout is still correct - a within-user,
         // best-effort SLO, never a cross-user effect (FindByUser is user-id-scoped and empty for Guid.Empty).
         var match = SSOPlugin.Instance.ReadConfiguration(configuration =>
             SessionLogoutStore.FindByUser(configuration, auth.UserId)
@@ -227,7 +227,7 @@ public class SSOController : ControllerBase
         var config = SSOPlugin.Instance.ReadConfiguration(configuration =>
             configuration.OidConfigs.TryGetValue(provider, out var oidConfig) ? oidConfig : null);
 
-        // This server's canonical base — the allow-list root for the post-logout return URL, and the
+        // This server's canonical base - the allow-list root for the post-logout return URL, and the
         // local-only fallback target. Derived exactly as the login builds its own external URLs.
         var canonicalBase = CanonicalBaseUrl.Resolve(
             config?.BaseUrlOverride, Request.Scheme, Request.Host.Host, Request.Host.Port, Request.PathBase, config?.SchemeOverride, config?.PortOverride);
@@ -250,13 +250,13 @@ public class SSOController : ControllerBase
             {
                 // Fail-safe: the local logout already completed above. A reveal fault (a missing/corrupt
                 // at-rest key, as TryReveal guards on the login path) or a build fault must degrade to a
-                // local-only logout, never surface a 500 — honouring the endpoint's stated contract.
+                // local-only logout, never surface a 500 - honouring the endpoint's stated contract.
                 _logger.LogError(ex, "Building the OpenID end-session redirect failed; the local logout stands and the browser returns to this server.");
             }
         }
 
         // Redirect to the IdP end-session URL (an absolute URL host-bound to the discovered issuer by
-        // OidcLogout), or — local-only — back to this server via a LOCAL redirect. The local fallback must NOT
+        // OidcLogout), or - local-only - back to this server via a LOCAL redirect. The local fallback must NOT
         // reuse the canonical base as an absolute target: with no Base URL Override that base is derived from
         // the request Host header, so a spoofed Host would turn the fallback into an open redirect. A local
         // ("~/") redirect is host-independent and ASP.NET Core rejects any non-local value outright.
@@ -266,7 +266,7 @@ public class SSOController : ControllerBase
     /// <summary>
     /// Inbound OpenID Connect back-channel logout (#962, OIDC Back-Channel Logout 1.0). The identity provider
     /// POSTs a signed <c>logout_token</c> here to propagate an IdP-side session termination into Jellyfin.
-    /// The endpoint is ANONYMOUS — the token's signature is the only authenticator — so it is fail-closed at
+    /// The endpoint is ANONYMOUS - the token's signature is the only authenticator - so it is fail-closed at
     /// every step: a disabled feature, an unknown/disabled provider, and a provider without the per-provider
     /// opt-in all collapse to the SAME uniform response WITHOUT parsing the token, and the validated (sub, sid)
     /// revokes only the matched user's OpenID sessions for THIS provider (never cross-provider, never a SAML
@@ -286,7 +286,7 @@ public class SSOController : ControllerBase
 
         // Read the master switch, the per-provider opt-in, AND the provider config in one lock acquisition.
         // A disabled feature, a provider without the opt-in, an unknown provider, and a disabled provider all
-        // collapse to the ONE uniform 400 below, and NONE of them reads the untrusted token — so the signed-JWT
+        // collapse to the ONE uniform 400 below, and NONE of them reads the untrusted token - so the signed-JWT
         // sink is unreachable while the feature is off, and neither the feature state nor the provider set can
         // be probed apart.
         var (enabled, config) = SSOPlugin.Instance.ReadConfiguration(configuration =>
@@ -308,7 +308,7 @@ public class SSOController : ControllerBase
             return UniformBackChannelLogoutRejection();
         }
 
-        // Resolve the targeted sessions — strictly the SAME provider and subject (ordinal exact), AND only
+        // Resolve the targeted sessions - strictly the SAME provider and subject (ordinal exact), AND only
         // OpenID captures. FindByProviderSubject filters by (provider, subject) as the blast-radius bound; the
         // Protocol filter keeps OpenID and SAML apart (an OpenID and a SAML provider can share a config name
         // and a subject string). When the token names a sid, keep only entries whose captured SessionIndex
@@ -342,7 +342,7 @@ public class SSOController : ControllerBase
             return UniformBackChannelLogoutRejection();
         }
 
-        // Revoke the tokens of each DISTINCT matched user — the SAME user-scoped fail-SAFE loop the inbound
+        // Revoke the tokens of each DISTINCT matched user - the SAME user-scoped fail-SAFE loop the inbound
         // SAML logout uses: a revoke fault for one user must not abort the others, and only the entries whose
         // user was actually revoked are consumed (a transient fault leaves the entry for a later retry).
         var succeeded = new HashSet<Guid>();
@@ -380,19 +380,19 @@ public class SSOController : ControllerBase
         SsoAudit.LogoutRequested(_logger, provider, succeeded.Count);
 
         // §2.7: a 200 with no body signals success. The IdP is the only party that can distinguish this from
-        // the uniform 400, and it already knows its own subjects — no oracle for an anonymous caller.
+        // the uniform 400, and it already knows its own subjects - no oracle for an anonymous caller.
         return Ok();
     }
 
     /// <summary>
     /// SP-initiated outbound SAML Single Logout (#727, SLO-3c). Ends the CALLER's local Jellyfin session, then
-    /// — when Single Logout is enabled, the provider has a configured SLO endpoint, a signing key loads, and the
-    /// caller has a captured SAML session with a NameID — redirects the browser to the identity provider's
+    /// - when Single Logout is enabled, the provider has a configured SLO endpoint, a signing key loads, and the
+    /// caller has a captured SAML session with a NameID - redirects the browser to the identity provider's
     /// Single-Logout endpoint with a SIGNED <c>LogoutRequest</c>, so the IdP session is terminated too.
     /// Fail-safe: a missing SLO endpoint, a missing/unloadable signing key, or no captured session degrades to a
-    /// local-only logout (a host-independent redirect back to this server) — none of those must ever break the
+    /// local-only logout (a host-independent redirect back to this server) - none of those must ever break the
     /// local logout or 500. Authenticated, rate-limited, and every action is scoped strictly to the caller's own
-    /// user id — a user can only log THEMSELVES out, and the LogoutRequest can only ever carry the caller's own
+    /// user id - a user can only log THEMSELVES out, and the LogoutRequest can only ever carry the caller's own
     /// NameID.
     /// </summary>
     /// <param name="provider">The SAML provider to end the session at.</param>
@@ -403,14 +403,14 @@ public class SSOController : ControllerBase
     {
         // Deliberately NOT rate-limited, matching the authenticated OID/logout route: the Logout rate-limit
         // class guards the ANONYMOUS inbound SAML LogoutRequest endpoint (SLO-3b). Throttling this
-        // [Authorize] self-logout would risk leaving the caller's own local session live under throttle —
+        // [Authorize] self-logout would risk leaving the caller's own local session live under throttle -
         // a security action must always be able to end the caller's session, and the route already requires
         // a valid session to reach.
         var auth = await _authContext.GetAuthorizationInfo(HttpContext.Request).ConfigureAwait(false);
 
         // Read the Single Logout feature flag, the provider config, AND the caller's most recent captured SAML
         // session for this provider in one lock acquisition. Scoped to the caller's own user id (FindByUser is
-        // user-id-scoped and empty for Guid.Empty), and filtered to a SAML capture — a SAML session carries no
+        // user-id-scoped and empty for Guid.Empty), and filtered to a SAML capture - a SAML session carries no
         // id_token, so the Protocol tag distinguishes it from an OpenID capture for the same provider. The
         // captured Subject is the caller's own NameID; nothing here can read another user's session.
         var (singleLogoutEnabled, config, match) = SSOPlugin.Instance.ReadConfiguration(configuration =>
@@ -435,7 +435,7 @@ public class SSOController : ControllerBase
 
         // Build the signed LogoutRequest redirect only when everything the SP-initiated path needs is present:
         // the feature is on, the caller has a captured SAML session naming a NameID, the provider is configured
-        // with an SLO endpoint, and a signing key loads. ANY missing piece — or any fault building/signing —
+        // with an SLO endpoint, and a signing key loads. ANY missing piece - or any fault building/signing -
         // fails SAFE to a local-only logout, never a 500 (the local logout already completed above).
         string? sloRedirectUrl = null;
         if (singleLogoutEnabled && config is not null && match.Value is { } captured && !string.IsNullOrEmpty(captured.Subject))
@@ -458,8 +458,8 @@ public class SSOController : ControllerBase
             }
         }
 
-        // Redirect to the IdP SLO URL (the SLO endpoint is validated as an absolute https URL at save), or —
-        // local-only — back to this server via a LOCAL redirect. As with the OpenID logout, the local fallback
+        // Redirect to the IdP SLO URL (the SLO endpoint is validated as an absolute https URL at save), or -
+        // local-only - back to this server via a LOCAL redirect. As with the OpenID logout, the local fallback
         // uses a host-independent "~/" redirect rather than a request-Host-derived absolute target, so a spoofed
         // Host can never turn the fallback into an open redirect.
         return sloRedirectUrl is null ? LocalRedirect("~/") : Redirect(sloRedirectUrl);
@@ -468,7 +468,7 @@ public class SSOController : ControllerBase
     // Builds the signed SP-initiated LogoutRequest redirect URL for a captured SAML session (#727, SLO-3c), or
     // null when SP-initiated SLO is not configured (no SLO endpoint). Fail-closed on the signing key: a missing
     // or unloadable key returns null (the caller degrades to local-only) rather than sending an UNSIGNED
-    // LogoutRequest — the SLO redirect binding requires a signature, so an unsigned downgrade is never emitted.
+    // LogoutRequest - the SLO redirect binding requires a signature, so an unsigned downgrade is never emitted.
     // Reuses the outbound-signing infrastructure verbatim: the encrypted-at-rest signing key is revealed at the
     // point of use (mirroring the challenge), loaded through SamlSigningKey, and handed to the shared
     // SamlRedirectSigner via SamlLogoutRequestBuilder. The subject NameID and SessionIndex come only from the
@@ -549,7 +549,7 @@ public class SSOController : ControllerBase
     // Blank is valid (no overlap window configured).
 
     /// <summary>
-    /// Rejects a non-loadable inbound secondary verification certificate at the SAML/Add endpoint (#491) —
+    /// Rejects a non-loadable inbound secondary verification certificate at the SAML/Add endpoint (#491) -
     /// the identity provider's public certificate for a key-overlap window, validated like the primary. A
     /// blank value is valid (no overlap window configured).
     /// </summary>
@@ -584,7 +584,7 @@ public class SSOController : ControllerBase
 
     // Rejects a malformed SAML SLO endpoint (#727, SLO-3c) at the SAML/Add endpoint, the door that mirrors
     // the config-page save-time SLO-endpoint check in ProviderConfigValidator for the Add path that
-    // bypasses it. It must be an absolute https URL — the redirect carries a signed LogoutRequest naming the
+    // bypasses it. It must be an absolute https URL - the redirect carries a signed LogoutRequest naming the
     // subject, so it must not traverse plaintext http. Reuses the same CanonicalBaseUrl.TryNormalize
     // absolute-URL predicate the Base URL override guard uses, narrowed to https. Blank is valid (no
     // SP-initiated Single Logout). The message stays generic (never echoes the caller's endpoint back).
@@ -608,7 +608,7 @@ public class SSOController : ControllerBase
     // Rejects a null provider body at the Add endpoints (#350). ASP.NET model binding hands a null
     // [FromBody] object for an empty or literal "null" JSON payload; storing it would put a null entry
     // in the config map that then NREs the config-page save (ServerManagedFields.Preserve). Reject at
-    // the door so the store never holds a null provider — the same fail-closed posture as the other
+    // the door so the store never holds a null provider - the same fail-closed posture as the other
     // Add-endpoint gates.
 
     /// <summary>
@@ -667,11 +667,11 @@ public class SSOController : ControllerBase
         // agrees on what a valid mapping is.
         ProviderConfigValidator.ValidatePermissionRoleMappings(OpenIdProtocol, provider, config.PermissionRoleMappings);
         // Reject an invalid parental-rating mapping (#736) at the door too (negative score / no roles), like
-        // the permission-role guard above — the Add endpoints bypass the config-page save-time validation.
+        // the permission-role guard above - the Add endpoints bypass the config-page save-time validation.
         ProviderConfigValidator.ValidateParentalRatingMappings(OpenIdProtocol, provider, config.ParentalRatingRoleMappings);
         // Reject RequireAcr with no acr_values at the door too (#757): an empty allow-list would refuse every
         // login for the provider (a silent single-provider lockout). Mirrors the config-page/import validation
-        // so this Add path — which persists through MutateConfiguration and bypasses the save-time Validate —
+        // so this Add path - which persists through MutateConfiguration and bypasses the save-time Validate -
         // shares the same fail-closed guard.
         ProviderConfigValidator.ValidateAcrRequirement(provider, config);
         SSOPlugin.Instance.MutateConfiguration(configuration =>
@@ -681,8 +681,8 @@ public class SSOController : ControllerBase
             var providerExists = configuration.OidConfigs.TryGetValue(provider, out var existing);
             RejectInvalidNewProviderName(provider, providerExists);
 
-            // Re-inject the server-managed fields this API cannot carry — CanonicalLinks ([JsonIgnore],
-            // #157) and the write-only secret's blank-means-keep rule (#189) — through the one shared
+            // Re-inject the server-managed fields this API cannot carry - CanonicalLinks ([JsonIgnore],
+            // #157) and the write-only secret's blank-means-keep rule (#189) - through the one shared
             // ServerManagedFields.Preserve the config-page save also uses, so every write path agrees.
             if (providerExists)
             {
@@ -729,7 +729,7 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
-    /// Lists the names of the enabled OpenID providers only. Intentionally anonymous — see the
+    /// Lists the names of the enabled OpenID providers only. Intentionally anonymous - see the
     /// in-body rationale (#540).
     /// </summary>
     /// <returns>The list of enabled OpenID provider names.</returns>
@@ -739,16 +739,16 @@ public class SSOController : ControllerBase
         // Only enabled providers are offered (#344): this endpoint drives the self-service linking page,
         // and a disabled provider cannot complete a link (the link leg fail-closes on Enabled, #343), so
         // offering it would render an add button that only ever fails. The filter is UX honesty, not the
-        // gate — the server-side rejection stays the real defense in depth.
+        // gate - the server-side rejection stays the real defense in depth.
         // Materialize under the lock (#157/F-10): returning a live view lets the JSON formatter enumerate
         // it outside the lock, tearing against a concurrent provider add/remove.
         //
-        // No [Authorize] here — deliberate, not an oversight (#540). SSOViewsController, which serves the
+        // No [Authorize] here - deliberate, not an oversight (#540). SSOViewsController, which serves the
         // self-service linking page (linking.html/linking.js, the sole caller of this endpoint), carries no
         // [Authorize] of its own either, so the same provider-name list this endpoint returns is already
         // rendered into that page's visible DOM for an anonymous visitor. Gating GetNames would add no
         // confidentiality (the list is public via the page regardless) while breaking that page's render for
-        // any caller who has not first authenticated — including the isLinking=false leg, which is how a
+        // any caller who has not first authenticated - including the isLinking=false leg, which is how a
         // brand-new (not-yet-Jellyfin-authenticated) user discovers which providers they can sign in with.
         // Provider names are configuration, not secrets; the identity-provider connection itself (client
         // secret, signing keys) stays behind the elevation-gated OID/Get and SAML/Get.
@@ -756,7 +756,7 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
-    /// Lists the names of the enabled SAML providers only. Intentionally anonymous — see the
+    /// Lists the names of the enabled SAML providers only. Intentionally anonymous - see the
     /// in-body rationale (#540).
     /// </summary>
     /// <returns>The list of enabled SAML provider names.</returns>
@@ -764,14 +764,14 @@ public class SSOController : ControllerBase
     public ActionResult SamlProviderNames()
     {
         // Enabled-only and materialized under the lock, as OID/GetNames does (#344, #157/F-10).
-        // Anonymous by the same design as OID/GetNames above (#540) — same caller, same already-public
+        // Anonymous by the same design as OID/GetNames above (#540) - same caller, same already-public
         // rendering, same rationale.
         return Ok(SSOPlugin.Instance.ReadConfiguration(c => EnabledProviderNames(c.SamlConfigs)));
     }
 
     // Names of the enabled providers in a config map, materialized to a detached list (the caller holds
     // the config lock). Shared by both GetNames twins so the enabled-only rule lives in one place. A
-    // null-valued entry is skipped rather than dereferenced (#538) — the same fail-closed convention
+    // null-valued entry is skipped rather than dereferenced (#538) - the same fail-closed convention
     // CanonicalLinkService already applies to these maps.
     private static List<string> EnabledProviderNames<TConfig>(SerializableDictionary<string, TConfig> configs)
         where TConfig : ProviderConfigBase =>
@@ -780,7 +780,7 @@ public class SSOController : ControllerBase
     /// <summary>
     /// Tests connectivity and basic config for a stored OpenID provider (#163). Requires administrator
     /// privileges. Reads the provider's discovery document through the SAME hardened reader the login uses
-    /// and reports the issuer, endpoints and JWKS reachability — never the client secret. Deliberately
+    /// and reports the issuer, endpoints and JWKS reachability - never the client secret. Deliberately
     /// elevation-gated (unlike the anonymous GetNames): the server fetches an admin-configured URL, so an
     /// unauthenticated caller must not be able to drive it as an SSRF probe.
     /// </summary>
@@ -800,7 +800,7 @@ public class SSOController : ControllerBase
         }
 
         // Read the stored provider under the config lock, then hand it to the tester (the fetch and any
-        // logging live there). The tester never reveals the client secret — discovery needs no credential.
+        // logging live there). The tester never reveals the client secret - discovery needs no credential.
         var config = SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs.TryGetValue(provider, out var cfg) ? cfg : null);
         if (config is null)
         {
@@ -818,7 +818,7 @@ public class SSOController : ControllerBase
     [HttpGet("OID/States")]
     public ActionResult OidStates()
     {
-        // Non-secret summaries only — the flow service projects the in-flight states to redacted summaries.
+        // Non-secret summaries only - the flow service projects the in-flight states to redacted summaries.
         return Ok(_oidc.StateSummaries());
     }
 
@@ -923,12 +923,12 @@ public class SSOController : ControllerBase
 
     /// <summary>
     /// Inbound IdP-initiated SAML Single Logout (#727, SLO-3b): accepts a signed <c>LogoutRequest</c> and
-    /// revokes the linked Jellyfin sessions. This is the UNAUTHENTICATED, session-destructive surface — its
+    /// revokes the linked Jellyfin sessions. This is the UNAUTHENTICATED, session-destructive surface - its
     /// only trust anchor is the request's XML signature against the provider's configured certificate(s), so
     /// it mirrors the login-side hardening (enveloped-signature + wrapping defense, weak-algorithm rejection,
     /// DTD-prohibited parse, replay one-time-use). POST-binding only (the <c>SAMLRequest</c> form field,
     /// Base64). Single Logout is opt-in and off by default: while it is off the whole surface rejects WITHOUT
-    /// parsing. Every rejection — feature off, unknown provider, bad signature, replay, unknown subject — is
+    /// parsing. Every rejection - feature off, unknown provider, bad signature, replay, unknown subject - is
     /// the SAME uniform 400 with a fixed body, so the causes cannot be told apart (no oracle); only a
     /// validly-signed request that resolves at least one session returns 200.
     /// </summary>
@@ -946,7 +946,7 @@ public class SSOController : ControllerBase
 
         // Read the feature flag AND the provider config in one lock acquisition. Single Logout is opt-in/off
         // by default: a disabled feature, an unknown provider, and a disabled provider all collapse to the ONE
-        // uniform 400 below, and NONE of them parses the untrusted body — so the inbound signed-XML sink is
+        // uniform 400 below, and NONE of them parses the untrusted body - so the inbound signed-XML sink is
         // unreachable while the feature is off, and neither the feature state nor the provider set can be
         // probed apart.
         var (singleLogoutEnabled, config) = SSOPlugin.Instance.ReadConfiguration(configuration =>
@@ -967,7 +967,7 @@ public class SSOController : ControllerBase
             return UniformLogoutRejection();
         }
 
-        // Resolve the targeted sessions — strictly the SAME provider and subject (ordinal exact), AND only
+        // Resolve the targeted sessions - strictly the SAME provider and subject (ordinal exact), AND only
         // SAML captures. This is the blast-radius bound: FindByProviderSubject filters by (provider, subject),
         // so a logout for one subject can never touch another subject's or another provider's sessions. The
         // Protocol filter keeps the SAML and OpenID flows apart exactly as the SP-initiated path does (an
@@ -996,8 +996,8 @@ public class SSOController : ControllerBase
             return UniformLogoutRejection();
         }
 
-        // Revoke the tokens of each DISTINCT matched user. RevokeUserTokens is USER-scoped — Jellyfin exposes
-        // no per-token revoke — so a SessionIndex-scoped request still revokes the whole matched user's tokens;
+        // Revoke the tokens of each DISTINCT matched user. RevokeUserTokens is USER-scoped - Jellyfin exposes
+        // no per-token revoke - so a SessionIndex-scoped request still revokes the whole matched user's tokens;
         // that is honest and safe (a logout can only ever end sessions, never grant or link). A revoke fault
         // for one user must NOT abort the loop (availability fail-safe): the remaining users are still logged
         // out, and a faulted user's store entry is LEFT in place (not consumed) so nothing is silently dropped.
@@ -1031,7 +1031,7 @@ public class SSOController : ControllerBase
 
         // Fail-closed on the destructive action itself: a 200 must mean at least one user was ACTUALLY logged
         // out. Sessions matched but EVERY revoke faulted (succeeded.Count == 0) means no token was invalidated
-        // and the user stays authenticated — so we must NOT tell the IdP the logout succeeded. Audit the fault
+        // and the user stays authenticated - so we must NOT tell the IdP the logout succeeded. Audit the fault
         // and return the uniform 400; the matched entries were left in the store above (nothing was consumed),
         // so a retry can still act. This is the fail-CLOSED half of the per-user fail-SAFE loop: one user's
         // fault does not abort the others (availability), but zero successful revokes is never reported as done.
@@ -1044,10 +1044,10 @@ public class SSOController : ControllerBase
         SsoAudit.LogoutRequested(_logger, provider, succeeded.Count);
 
         // SLO-3c: answer the IdP with a SIGNED LogoutResponse so its Single-Logout loop completes, redirecting
-        // the browser to the IdP SLO endpoint. Emitted ONLY here — on the success path, after a validated
-        // request actually revoked a session — so no rejection can ever produce a signed status-bearing
+        // the browser to the IdP SLO endpoint. Emitted ONLY here - on the success path, after a validated
+        // request actually revoked a session - so no rejection can ever produce a signed status-bearing
         // response (every failure above keeps the uniform 400, no cause oracle). Fail-SAFE: when no SLO
-        // endpoint or signing key is configured, or the build/sign faults, fall back to the bare 200 — the
+        // endpoint or signing key is configured, or the build/sign faults, fall back to the bare 200 - the
         // revocation already stands, and a missing response is degraded interop, never a 500 or an unsigned
         // downgrade. The redirect target is the save-validated absolute-https SamlSloEndpoint (never
         // request-derived), so it cannot be an open redirect.
@@ -1070,7 +1070,7 @@ public class SSOController : ControllerBase
     // Builds the signed outbound SAML LogoutResponse redirect URL answering a validated inbound LogoutRequest
     // (#727, SLO-3c), or null when the response cannot be signed (no SLO endpoint, or no loadable signing key).
     // Fail-closed on the signing key exactly like BuildSamlSloRedirectUrl: a missing/unloadable key returns
-    // null (the endpoint degrades to a bare 200) rather than emitting an UNSIGNED response — the redirect
+    // null (the endpoint degrades to a bare 200) rather than emitting an UNSIGNED response - the redirect
     // binding mandates a signature, so an unsigned downgrade is never sent. Reuses the outbound-signing stack
     // verbatim (revealed-at-use key via SamlSigningKey, the shared SamlRedirectSigner via
     // SamlLogoutResponseBuilder). InResponseTo/Destination are bound to the validated request and the trusted
@@ -1084,7 +1084,7 @@ public class SSOController : ControllerBase
         }
 
         // Without an SP entity id there is no valid Issuer for the response. Fail-safe to null (the endpoint
-        // degrades to a bare 200) rather than emit a malformed empty-Issuer response — and this also removes
+        // degrades to a bare 200) rather than emit a malformed empty-Issuer response - and this also removes
         // any NullReferenceException risk from Trim() on a null-deserialized SamlClientId.
         var issuer = config.SamlClientId?.Trim();
         if (string.IsNullOrEmpty(issuer))
@@ -1106,7 +1106,7 @@ public class SSOController : ControllerBase
             }
 
             // Echo the inbound RelayState only when it is within the SAML HTTP binding's 80-BYTE cap
-            // (saml-bindings-2.0 §3.4.3) — measured in UTF-8 bytes, not UTF-16 chars, so a multi-byte value
+            // (saml-bindings-2.0 §3.4.3) - measured in UTF-8 bytes, not UTF-16 chars, so a multi-byte value
             // cannot slip over the wire limit; anything longer is non-conformant and dropped, not reflected.
             var echoedRelayState = !string.IsNullOrEmpty(relayState) && System.Text.Encoding.UTF8.GetByteCount(relayState) <= 80 ? relayState : null;
 
@@ -1125,7 +1125,7 @@ public class SSOController : ControllerBase
         StatusCode = StatusCodes.Status400BadRequest,
     };
 
-    // The ONE response for every back-channel-logout failure (#962) — a disabled feature, a bad token, an
+    // The ONE response for every back-channel-logout failure (#962) - a disabled feature, a bad token, an
     // unmatched subject, or a revoke fault all return this, so the anonymous caller learns nothing about which
     // branch rejected it (no subject/feature/provider oracle). Distinct wording from the SAML rejection only
     // because the protocols differ; both carry no cause detail.
@@ -1217,7 +1217,7 @@ public class SSOController : ControllerBase
 
     /// <summary>
     /// Tests basic config for a stored SAML provider (#163). Requires administrator privileges. Parses the
-    /// configured PUBLIC identity-provider signing certificate and reports its non-secret facts — never the
+    /// configured PUBLIC identity-provider signing certificate and reports its non-secret facts - never the
     /// service-provider signing key. There is no SAML metadata-URL field, so this makes no network call.
     /// Elevation-gated like the other SAML admin endpoints.
     /// </summary>
@@ -1238,9 +1238,9 @@ public class SSOController : ControllerBase
 
     /// <summary>
     /// Parses SAML identity-provider metadata into the provider-configuration values an administrator would
-    /// otherwise hand-copy — the SSO endpoint and the signing certificate(s) — from EITHER a server-fetched
+    /// otherwise hand-copy - the SSO endpoint and the signing certificate(s) - from EITHER a server-fetched
     /// URL or pasted XML (#735). Requires administrator privileges and is deliberately elevation-gated: the
-    /// server fetches an admin-supplied URL, so — like <see cref="OidTest"/> — an unauthenticated caller must
+    /// server fetches an admin-supplied URL, so - like <see cref="OidTest"/> - an unauthenticated caller must
     /// not be able to drive it as an SSRF probe (the fetch also routes through the SSRF-hardened outbound
     /// client, which refuses a private/loopback address). The metadata XML is parsed with fail-closed
     /// hardening (no DTD/XXE, size-bounded). It RETURNS the parsed values for the admin to review and save; it
@@ -1257,7 +1257,7 @@ public class SSOController : ControllerBase
     {
         // Throttle after the elevation guard, before the outbound fetch (mirrors OidTest): the [Authorize]
         // filter rejects a non-elevated caller before the body runs, so an unauthorized request never reaches
-        // the limiter or the fetch — no SSRF probe, no rate-limit oracle.
+        // the limiter or the fetch - no SSRF probe, no rate-limit oracle.
         if (RateLimitCheck(SsoRateLimitClass.Test) is { } throttled)
         {
             return throttled;
@@ -1282,7 +1282,7 @@ public class SSOController : ControllerBase
 
     /// <summary>
     /// Exports the whole plugin configuration as a redacted, importable document (#161). Requires
-    /// administrator privileges, like the other config endpoints — the document lists every provider's
+    /// administrator privileges, like the other config endpoints - the document lists every provider's
     /// settings. The redaction is the config's OWN JSON-boundary withholding, reused: the provider secrets
     /// (OidSecret, the SAML signing keys) are serialized as null by their WriteOnlySecretConverter (#189) and
     /// the server-managed canonical-link maps are dropped by [JsonIgnore] (#157/#186), so the document carries
@@ -1302,8 +1302,8 @@ public class SSOController : ControllerBase
     /// <summary>
     /// Imports a configuration export document into this instance (#161). Requires administrator privileges.
     /// The import is a fail-closed MERGE: the document is validated through the same ProviderConfigValidator
-    /// the config-page save uses, and only if the whole document is valid is it merged — atomically, through
-    /// MutateConfiguration — reusing ServerManagedFields.Preserve so a redacted (blank) secret keeps this
+    /// the config-page save uses, and only if the whole document is valid is it merged - atomically, through
+    /// MutateConfiguration - reusing ServerManagedFields.Preserve so a redacted (blank) secret keeps this
     /// instance's stored secret and the server-managed links/issuers are never wiped. A provider new to this
     /// instance arrives with a blank secret and fails its login closed until an administrator re-enters it.
     /// The request body is size-capped so an oversized document is rejected before it is parsed.
@@ -1360,7 +1360,7 @@ public class SSOController : ControllerBase
         }
 
         // A mistaken or hostile import that disables a default-on SAML protection (DoNotValidateAudience)
-        // must leave the same [SSO Audit] trace the OpenID escape hatches above do (#672) — the import path
+        // must leave the same [SSO Audit] trace the OpenID escape hatches above do (#672) - the import path
         // is exactly one of the failure scenarios that issue calls out.
         if (document.Configuration?.SamlConfigs is { } samlConfigs)
         {
@@ -1423,7 +1423,7 @@ public class SSOController : ControllerBase
     {
         // Throttle after the elevation guard, before any work (#516): the [Authorize] filter rejects a
         // non-elevated caller before the body runs, so an unauthorized request is refused (401/403) and never
-        // reaches — or is judged by — the limiter (no rate-limit oracle). Once past it, the shared gate caps
+        // reaches - or is judged by - the limiter (no rate-limit oracle). Once past it, the shared gate caps
         // how fast an authorized admin can drive this heavy revoke, which removes the user's canonical links
         // everywhere, persists a provider switch, and revokes the user's active sessions (#440). Its own
         // "unregister" class carries an independent budget, so it neither starves nor is starved by the
@@ -1440,14 +1440,14 @@ public class SSOController : ControllerBase
         }
 
         // SSO login resolves through the per-provider CanonicalLinks maps, not AuthenticationProviderId,
-        // so revoking SSO means removing this user's canonical links from every provider — otherwise the
+        // so revoking SSO means removing this user's canonical links from every provider - otherwise the
         // account would still sign in via SSO (#213). Done under the config lock. NOTE: with a provider's
         // AllowExistingAccountLink enabled, the same-named account can be re-adopted on the next SSO login,
         // so a hard revoke there also needs the local account disabled or renamed; with the fail-closed
         // default (adoption off) the revoke is durable.
         var revoked = _canonicalLinks.RemoveUserEverywhere(user.Id);
 
-        // Switch the account back to the requested auth provider and PERSIST it — the previous version set
+        // Switch the account back to the requested auth provider and PERSIST it - the previous version set
         // this in memory only and never called UpdateUserAsync, so the switch was silently discarded.
         user.AuthenticationProviderId = provider;
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
@@ -1455,7 +1455,7 @@ public class SSOController : ControllerBase
         // Terminate the user's already-established sessions so a hard revoke also invalidates tokens minted
         // before it (#440). Removing the links only fails FUTURE logins closed; a token issued earlier stays
         // valid until it expires. Scoped strictly to this one user's id; null revokes all of their tokens
-        // (including the caller's own, when an admin unregisters their own account — the durable revoke above
+        // (including the caller's own, when an admin unregisters their own account - the durable revoke above
         // is why that is safe). Runs LAST, after the link removal and provider switch are both persisted, so
         // if the revoke throws the unregister is already complete rather than left half-done. Complement to
         // the #232 in-flight re-check, not a substitute: this kills existing sessions, #232 closes the mint race.
@@ -1472,7 +1472,7 @@ public class SSOController : ControllerBase
     /// <summary>
     /// Reports the current SSO-only login state (#165): whether the mode is on, which account is the
     /// designated break-glass admin, and whether that designation still satisfies the fail-closed survivor
-    /// guard. Requires administrator privileges. Read-only — it changes nothing.
+    /// guard. Requires administrator privileges. Read-only - it changes nothing.
     /// </summary>
     /// <returns>The SSO-only login status.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -1541,10 +1541,10 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
-    /// Sets or changes the designated break-glass administrator (#165) — the account SSO-only mode never
+    /// Sets or changes the designated break-glass administrator (#165) - the account SSO-only mode never
     /// repoints. Requires administrator privileges. Fail-closed: the target must be an existing, enabled
     /// administrator that still has a password (the exemption can never point at a non-admin, so it cannot
-    /// grant admin — T-E1); an unqualified target is refused and nothing changes. To change the designation
+    /// grant admin - T-E1); an unqualified target is refused and nothing changes. To change the designation
     /// while the mode is on, disable it first (every other admin has already been repointed off the password
     /// provider, so no other account can satisfy the "usable password" guard), then re-designate and re-enable.
     /// Audited.
@@ -1570,7 +1570,7 @@ public class SSOController : ControllerBase
 
     // Resolves the elevated caller's own username for the audit "actor" field, fail-soft: every SSO-Only
     // endpoint sits behind [Authorize(RequiresElevation)], so the caller is an administrator, but an
-    // unresolved authorization info still yields a non-null placeholder rather than throwing — the audit
+    // unresolved authorization info still yields a non-null placeholder rather than throwing - the audit
     // line must never be the thing that fails a security-relevant transition.
     private async Task<string> ResolveActorAsync()
     {
@@ -1635,7 +1635,7 @@ public class SSOController : ControllerBase
 
         // Throttle after the caller-authz guard (#382): a name-miss DELETE still runs a full persist under the
         // global config lock, so this endpoint is capped too. It shares the "link" budget with AddCanonicalLink
-        // — one bucket per client for the whole link/unlink write surface — while the 403 stays first.
+        // - one bucket per client for the whole link/unlink write surface - while the 403 stays first.
         if (RateLimitCheck(SsoRateLimitClass.Link) is { } throttled)
         {
             return throttled;
@@ -1644,15 +1644,15 @@ public class SSOController : ControllerBase
         var removal = _canonicalLinks.TryRemoveLink(ParseMode(mode), provider, canonicalName, jellyfinUserId);
 
         // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
-        // link (#468) — the terminal "can no longer SSO in at all" state that matches the hard-lockdown
+        // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
         // posture of Unregister (#440). Removing the links only fails FUTURE logins closed; a token minted
         // before the unlink stays valid until it expires, so a security-motivated unlink of a compromised
         // identity must also kill live sessions. A user who unlinks a SECONDARY provider while still holding
         // another link keeps a working SSO identity, so revoking there would be a self-inflicted mass-logout
-        // with no security gain — the availability-preserving choice is to revoke only at the last link
+        // with no security gain - the availability-preserving choice is to revoke only at the last link
         // (UserRetainsAnyLink evaluated atomically with the removal). Scoped strictly to this one user id;
         // null revokes all of their tokens (including the caller's own, when an admin unlinks their own last
-        // link — the durable removal above is why that is safe). Runs AFTER the removal is persisted, so a
+        // link - the durable removal above is why that is safe). Runs AFTER the removal is persisted, so a
         // revoke that throws leaves the unlink already complete rather than half-done. Per-provider disable
         // deliberately does NOT revoke: Jellyfin attributes no live session to the originating SSO provider
         // (RevokeUserTokens is per user id, not per provider), so revoking on disable would be an unscoped
@@ -1716,7 +1716,7 @@ public class SSOController : ControllerBase
     // serialize a detached snapshot rather than the live dictionary (#157/F-10): a concurrent
     // provider add/remove cannot then modify the collection mid-serialization. The provider objects
     // are shared, but their CanonicalLinks are [JsonIgnore] (never serialized), and the only other
-    // in-place write on the hot path is the NewPath bool flipped by a challenge — a scalar write that
+    // in-place write on the hot path is the NewPath bool flipped by a challenge - a scalar write that
     // cannot tear a JSON serialization or throw "collection modified".
     private static SerializableDictionary<string, TValue> SnapshotConfigs<TValue>(SerializableDictionary<string, TValue> source)
     {
@@ -1765,7 +1765,7 @@ public class SSOController : ControllerBase
 
     // Parse the {mode} route token once, at the HTTP boundary (#369): every link endpoint routes its raw
     // route string through here, so the protocol is validated in exactly one place and the typed
-    // ProviderMode is threaded inward — no inner layer re-parses or re-compares the string. Fail closed: an
+    // ProviderMode is threaded inward - no inner layer re-parses or re-compares the string. Fail closed: an
     // unknown token throws (an ArgumentException, surfacing as the same rejection the two former divergent
     // ToLower()/ToLowerInvariant() dispatches produced), never defaulting to a protocol.
     private static ProviderMode ParseMode(string mode) =>
@@ -1779,8 +1779,8 @@ public class SSOController : ControllerBase
     // "link" after its own authz guard, and the admin SSO-revoke passes "unregister" after its elevation
     // guard. The gate owns the one process-wide limiter and the whole check (config read,
     // IP classifier, endpoint-class keying, the #195 observability signal); this wrapper only supplies the
-    // three request-scoped inputs it needs — the endpoint class, the connection's remote address, and the
-    // response the retry-delay header is set on — so the controller keeps no rate-limit state of its own.
+    // three request-scoped inputs it needs - the endpoint class, the connection's remote address, and the
+    // response the retry-delay header is set on - so the controller keeps no rate-limit state of its own.
     private ActionResult? RateLimitCheck(string endpointClass) =>
         SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
 }

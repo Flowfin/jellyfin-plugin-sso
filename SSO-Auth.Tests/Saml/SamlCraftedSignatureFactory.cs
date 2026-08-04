@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// The <c>Reference/@URI</c> spellings that are NOT the SAML-sanctioned <c>#id</c> shorthand pointer, yet
-/// which <see cref="SignedXml"/> resolves and signs correctly — so a service provider that accepted any of
+/// which <see cref="SignedXml"/> resolves and signs correctly - so a service provider that accepted any of
 /// them would be verifying content the plugin's readers never bind to. Public because the theory data of the
 /// (public) attack-shape tests is typed on it.
 /// </summary>
@@ -33,14 +33,14 @@ public enum SamlReferenceForm
 
 /// <summary>
 /// Builds SAML documents whose <c>ds:Signature</c> is CRAFTED rather than produced by
-/// <see cref="SignedXml.ComputeSignature"/> — the shapes the .NET signer refuses to emit but an attacker
+/// <see cref="SignedXml.ComputeSignature"/> - the shapes the .NET signer refuses to emit but an attacker
 /// can hand-assemble (#1003): a <c>Reference</c> naming an ID that resolves to nothing, a whole-document
 /// (<c>URI=""</c>) reference carrying a digest over a different octet stream, and a reference covering an
 /// element other than the one the readers consume.
 ///
 /// The crafted signatures are REAL cryptography, never mocks: the <c>SignedInfo</c> is exclusive-C14N
 /// canonicalized and signed with the fixture's RSA key, so <c>SignedXml.CheckSignature</c> would accept the
-/// signature itself. Only the reference binding is hostile — which is precisely the property the validator's
+/// signature itself. Only the reference binding is hostile - which is precisely the property the validator's
 /// reference checks must reject on, so a test built on these documents fails the moment those checks are
 /// weakened.
 /// </summary>
@@ -54,7 +54,7 @@ internal static class SamlCraftedSignatureFactory
     /// <summary>
     /// Produces a SAML response whose single, position-bound <c>ds:Signature</c> (a direct child of the
     /// Response root) carries the given <c>Reference URI</c> and a <c>DigestValue</c> computed over
-    /// <paramref name="digestedOctets"/> — empty by default, the "void canonicalization" shape where the
+    /// <paramref name="digestedOctets"/> - empty by default, the "void canonicalization" shape where the
     /// digest covers nothing at all.
     /// </summary>
     /// <param name="referenceUri">The literal <c>Reference/@URI</c> value to emit (e.g. <c>#_absent</c> or the empty string).</param>
@@ -78,7 +78,7 @@ internal static class SamlCraftedSignatureFactory
     /// <summary>
     /// Produces a SAML response carrying a CRYPTOGRAPHICALLY COMPLETE whole-document signature: a
     /// <c>Reference URI=""</c> with an honestly computed digest, produced by <see cref="SignedXml"/> itself.
-    /// Nothing about the cryptography is wrong — <c>CheckSignature</c> accepts it — so the only thing that can
+    /// Nothing about the cryptography is wrong - <c>CheckSignature</c> accepts it - so the only thing that can
     /// reject it is the same-document-ID-reference requirement, which makes it the strongest available probe
     /// of that binding (the strictly harder twin of the detached-digest <c>URI=""</c> shape).
     /// </summary>
@@ -90,8 +90,8 @@ internal static class SamlCraftedSignatureFactory
     /// <summary>
     /// Produces a SAML response whose signature is honestly computed by <see cref="SignedXml"/> over whatever
     /// the given <paramref name="form"/> names, including the two XPointer spellings .NET resolves but SAML
-    /// 2.0 does not sanction. Every form here is accepted by <c>SignedXml.CheckSignature</c> — verified by the
-    /// tests' own control — so a rejection is attributable solely to the reference-form binding.
+    /// 2.0 does not sanction. Every form here is accepted by <c>SignedXml.CheckSignature</c> - verified by the
+    /// tests' own control - so a rejection is attributable solely to the reference-form binding.
     /// </summary>
     /// <param name="form">Which reference spelling to emit.</param>
     /// <param name="nameId">The value placed in saml:NameID.</param>
@@ -118,7 +118,7 @@ internal static class SamlCraftedSignatureFactory
 
     /// <summary>
     /// Produces a SAML response whose signature honestly covers the <c>saml:Issuer</c> element (given its own
-    /// ID and genuinely digested) rather than the Response root or the Assertion the readers consume — the
+    /// ID and genuinely digested) rather than the Response root or the Assertion the readers consume - the
     /// "signed element is not the processed element" shape. The signature sits at the position-bound root
     /// location, so only the reference-covers-{root|assertion} binding can reject it.
     /// </summary>
@@ -135,7 +135,7 @@ internal static class SamlCraftedSignatureFactory
         var certificate = SelfSign(rsa);
 
         // Placed at the position-bound root location: the selection and enveloped-within checks must not be
-        // what rejects it — the reference-covers-{root|assertion} binding must.
+        // what rejects it - the reference-covers-{root|assertion} binding must.
         SignHonestly(document, "#" + issuerId, rsa, certificate, document.DocumentElement!);
 
         return new SamlFixture(certificate, document, responseId, assertionId);
@@ -143,7 +143,7 @@ internal static class SamlCraftedSignatureFactory
 
     /// <summary>
     /// Produces a SAML response carrying TWO direct-child assertions, each INDEPENDENTLY and honestly signed
-    /// by the same key — so every signature verifies and only the exactly-one-assertion invariant can reject
+    /// by the same key - so every signature verifies and only the exactly-one-assertion invariant can reject
     /// the document. The second assertion names a different subject.
     /// </summary>
     /// <param name="firstNameId">The subject of the first (document-order) assertion.</param>
@@ -173,7 +173,7 @@ internal static class SamlCraftedSignatureFactory
 
     /// <summary>
     /// Produces a signed <c>samlp:LogoutRequest</c> whose position-bound signature carries the given
-    /// <c>Reference URI</c> and a digest over <paramref name="digestedOctets"/> — the logout-path twin of
+    /// <c>Reference URI</c> and a digest over <paramref name="digestedOctets"/> - the logout-path twin of
     /// <see cref="CreateResponseWithCraftedReference"/>.
     /// </summary>
     /// <param name="referenceUri">The literal <c>Reference/@URI</c> value to emit.</param>
@@ -194,7 +194,7 @@ internal static class SamlCraftedSignatureFactory
 
     /// <summary>
     /// Produces a signed <c>samlp:LogoutRequest</c> whose signature is honestly computed by
-    /// <see cref="SignedXml"/> over whatever the given <paramref name="form"/> names — the logout twin of
+    /// <see cref="SignedXml"/> over whatever the given <paramref name="form"/> names - the logout twin of
     /// <see cref="CreateResponseWithHonestReference"/>. The signed root has no inner element with its own ID,
     /// so the XPointer id() form names the root itself, which is the interesting case here: it is the very
     /// element the readers consume, reached by a spelling the reference rule does not sanction.
@@ -232,7 +232,7 @@ internal static class SamlCraftedSignatureFactory
     }
 
     // Hand-assembles a ds:Signature whose SignedInfo names the given reference URI and digest, then signs the
-    // exclusive-C14N canonical form of that SignedInfo with the fixture key — a signature .NET's signer would
+    // exclusive-C14N canonical form of that SignedInfo with the fixture key - a signature .NET's signer would
     // refuse to produce (it resolves the reference eagerly), yet cryptographically sound over SignedInfo.
     private static XmlNode BuildSignature(XmlDocument document, RSA key, X509Certificate2 certificate, string referenceUri, byte[] digestedOctets)
     {
@@ -267,7 +267,7 @@ internal static class SamlCraftedSignatureFactory
 
     // Exclusive-C14N canonical octets of a standalone SignedInfo fragment. Exclusive canonicalization emits
     // only visibly-utilized prefixes, so the bytes are identical whether the ds prefix is declared on the
-    // SignedInfo (here) or inherited from the enclosing ds:Signature (in the assembled document) — which is
+    // SignedInfo (here) or inherited from the enclosing ds:Signature (in the assembled document) - which is
     // what makes the crafted SignatureValue verify in place.
     private static byte[] Canonicalize(string signedInfoXml)
     {
@@ -281,8 +281,8 @@ internal static class SamlCraftedSignatureFactory
         return buffer.ToArray();
     }
 
-    // Produces an HONEST enveloped signature — SignedXml computes the digest itself, over the element the
-    // reference names or, for an empty URI, over the whole document — and appends it under placeUnder, or
+    // Produces an HONEST enveloped signature - SignedXml computes the digest itself, over the element the
+    // reference names or, for an empty URI, over the whole document - and appends it under placeUnder, or
     // inside the referenced element when that is omitted (where a conformant identity provider puts it). The
     // one signing helper for every honestly-signed fixture here, so the algorithm choice cannot drift between
     // them and a fixture's rejection is never attributable to an accidentally weak algorithm.

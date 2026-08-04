@@ -60,7 +60,7 @@ internal sealed class SamlResponse : IDisposable
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SamlResponse"/> class, verifying against the primary
-    /// signing certificate OR an optional secondary certificate — the identity-provider verification-key
+    /// signing certificate OR an optional secondary certificate - the identity-provider verification-key
     /// overlap window (#491). The response is accepted when its signature verifies against EITHER
     /// certificate under the same fail-closed checks; a blank secondary is byte-for-byte the primary-only
     /// behavior.
@@ -70,7 +70,7 @@ internal sealed class SamlResponse : IDisposable
     /// <param name="responseString">The SAML response formatted as a string.</param>
     public SamlResponse(string certificateStr, string? secondaryCertificateStr, string responseString)
     {
-        // Decode and load the certificate(s), then parse the response — in that exact order, so the
+        // Decode and load the certificate(s), then parse the response - in that exact order, so the
         // exception sequence SamlResponseLoader.TryParse catches is unchanged: FormatException (bad
         // certificate base64), CryptographicException (bad certificate), then FormatException/XmlException
         // (bad body). The XML is loaded here, at construction, and the fields are readonly: a validated
@@ -93,7 +93,7 @@ internal sealed class SamlResponse : IDisposable
     /// managed state (it is not itself IDisposable) and the parse-time <see cref="System.Xml.XmlReader"/> /
     /// <see cref="StringReader"/> are already disposed inside <see cref="ParseResponseXml"/>. Disposal must
     /// therefore happen only AFTER the response is fully consumed (signature validation and every claim
-    /// read), because <see cref="VerifiesAgainstCandidateCertificate"/> uses these certificates — the owning
+    /// read), because <see cref="VerifiesAgainstCandidateCertificate"/> uses these certificates - the owning
     /// callers scope it to the point where the assertion has been read in full.
     /// </summary>
     public void Dispose()
@@ -106,7 +106,7 @@ internal sealed class SamlResponse : IDisposable
 
     // Loads the candidate identity-provider signing certificates: the primary always, and the optional
     // secondary only when configured (#491). The primary is loaded FIRST so the constructor's exception
-    // ordering — and therefore the fail-closed mapping in SamlResponseLoader.TryParse — is unchanged. Both
+    // ordering - and therefore the fail-closed mapping in SamlResponseLoader.TryParse - is unchanged. Both
     // are the identity provider's PUBLIC signing certificate; a configured-but-unloadable secondary throws
     // the same load exceptions as the primary and is rejected the same fail-closed way (the admin write
     // paths reject it up front via SamlCertificate.IsInvalid).
@@ -152,7 +152,7 @@ internal sealed class SamlResponse : IDisposable
 
             // Bound the DOM the reader materializes (#754). The untrusted body is already length-capped
             // before decoding by SamlResponseLoader.MaxEncodedResponseLength (256 KB of base64), so this
-            // parser-layer cap normally never bites — a legitimate SAML response is single-digit KB, and
+            // parser-layer cap normally never bites - a legitimate SAML response is single-digit KB, and
             // the pre-decode cap keeps any accepted body well under this. It is the belt to the loader's
             // suspenders: if that pre-decode cap were ever raised or bypassed, the reader still refuses to
             // build a multi-megabyte document on the unauthenticated, pre-signature path (a cheap CPU/
@@ -175,8 +175,8 @@ internal sealed class SamlResponse : IDisposable
     public bool IsValid()
     {
         // Exactly one assertion must be present (fail closed). Every claim reader consumes the
-        // Response's direct-child Assertion[1], so a response carrying a second such assertion — the
-        // SAML assertion-injection / XML-signature-wrapping class — is rejected before any reader can
+        // Response's direct-child Assertion[1], so a response carrying a second such assertion - the
+        // SAML assertion-injection / XML-signature-wrapping class - is rejected before any reader can
         // be pointed at attacker-controlled content. The count is scoped to direct children (the
         // nodes the readers can actually select): a spec-legal supporting assertion nested in
         // saml:Advice is not miscounted, and wrapping is independently blocked by the position-bound
@@ -198,12 +198,12 @@ internal sealed class SamlResponse : IDisposable
 
         try
         {
-            // EVERY position-bound signature must independently validate — its reference must cover the
+            // EVERY position-bound signature must independently validate - its reference must cover the
             // Response root or the single Assertion, its algorithms must be allowed, and it must verify
             // against a pinned certificate (#238). The Web Browser SSO profile permits signing the
             // Response, the Assertion, or BOTH; validating all of them (rather than only the first in
             // document order) removes the "which signature is authoritative" ambiguity without rejecting
-            // a conformant IdP that signs both — a second, non-verifying signature rejects the whole
+            // a conformant IdP that signs both - a second, non-verifying signature rejects the whole
             // response, so an attacker cannot slip a decoy alongside a valid one.
             foreach (XmlElement signatureElement in signatureNodes)
             {
@@ -233,13 +233,13 @@ internal sealed class SamlResponse : IDisposable
 
     // Reject weak/legacy signature and digest algorithms (e.g. RSA-SHA1, SHA-1 digest) and any
     // canonicalization/transform outside the comment-free-C14N + enveloped-signature allowlist,
-    // before the cryptographic check, so a misconfigured or downgraded identity provider — or a
-    // wrapping attack leaning on a comment-preserving or filtering transform — is not trusted.
+    // before the cryptographic check, so a misconfigured or downgraded identity provider - or a
+    // wrapping attack leaning on a comment-preserving or filtering transform - is not trusted.
     // Runs after ValidateSignatureReference, which guarantees exactly one reference exists.
     private static bool IsSignatureAlgorithmAllowed(SignedXml signedXml)
     {
         // A null SignedInfo (SignedXml exposes it as nullable) means there is nothing to allow-list against,
-        // so reject rather than risk trusting an unvalidated algorithm — fail closed. In practice LoadXml has
+        // so reject rather than risk trusting an unvalidated algorithm - fail closed. In practice LoadXml has
         // already populated it (a malformed signature throws instead), so this guard never fires on a
         // well-formed signature; every unexpected null flows to a rejection.
         var signedInfo = signedXml.SignedInfo;
@@ -279,7 +279,7 @@ internal sealed class SamlResponse : IDisposable
     // validity window (#491). Only the cryptographic key trial spans the primary and the optional
     // secondary certificate; the position-bound signature selection, the single-reference /
     // reference-covers-{root|assertion} / enveloped-within binding, and the algorithm allowlist all run
-    // once per signature ABOVE this, cert-independently — so trying a second certificate cannot relax any
+    // once per signature ABOVE this, cert-independently - so trying a second certificate cannot relax any
     // of them or open a wrapping/downgrade path, it only decides which key's signature is accepted. An
     // expired (or not-yet-valid) candidate is skipped rather than trusted, so a signing key the identity
     // provider has rolled away from can no longer authenticate even while it is still configured for the
@@ -290,7 +290,7 @@ internal sealed class SamlResponse : IDisposable
         foreach (var certificate in _certificates)
         {
             // Skip a certificate whose signing key is below the minimum strength floor (#733) before the
-            // cryptographic check — an RSA key under 2048 bits (or a non-approved EC curve) is as forgeable as
+            // cryptographic check - an RSA key under 2048 bits (or a non-approved EC curve) is as forgeable as
             // a weak hash, so its signature is not accepted. If every candidate is under-strength (or expired),
             // verification fails closed exactly as for a wrong key.
             if (SamlCertificate.HasAcceptableSigningKey(certificate)
@@ -306,12 +306,12 @@ internal sealed class SamlResponse : IDisposable
 
     // Whether the certificate is within its own [NotBefore, NotAfter] validity window at verification
     // time. SignedXml.CheckSignature(cert, verifySignatureOnly: true) validates only the cryptography and
-    // does NOT itself check the certificate dates, so this is the single place the window is enforced — an
+    // does NOT itself check the certificate dates, so this is the single place the window is enforced - an
     // expired or not-yet-valid certificate is fail-closed rejected (#491). NotBefore/NotAfter are exposed
     // as local time, so both sides are compared in UTC. The same clock-skew tolerance every other time
     // bound on this path uses (SamlAssertionTime.ClockSkew) is applied to both edges, so a small IdP/SP
-    // clock difference at a cutover — the moment a freshly staged certificate's NotBefore is a few minutes
-    // ahead of this server — does not spuriously reject an otherwise-valid signature.
+    // clock difference at a cutover - the moment a freshly staged certificate's NotBefore is a few minutes
+    // ahead of this server - does not spuriously reject an otherwise-valid signature.
     private static bool IsWithinValidityPeriod(X509Certificate2 certificate, DateTime utcNow)
     {
         return utcNow >= certificate.NotBefore.ToUniversalTime() - SamlAssertionTime.ClockSkew
@@ -378,7 +378,7 @@ internal sealed class SamlResponse : IDisposable
     // Whether the assertion is addressed to us: SAML 2.0 requires the SP to appear in EVERY
     // <AudienceRestriction> (AND across restrictions, OR within one). Accepting on a match in ANY single
     // restriction (the old .Any over the flattened union) would honor an assertion whose first restriction
-    // names a different SP and whose second names us — one not strictly addressed to this service provider
+    // names a different SP and whose second names us - one not strictly addressed to this service provider
     // (#238). Fail closed on no restriction at all: an assertion carrying no AudienceRestriction is not
     // addressed to anyone in particular and must not pass the audience check.
     private bool IsAddressedTo(string expectedAudience)
@@ -446,12 +446,12 @@ internal sealed class SamlResponse : IDisposable
     // A single same-document reference is required, and it must cover the element whose content is
     // actually read: the Response root or the (single) Assertion. .NET's CheckSignature validates the
     // digest but not WHAT is signed, so without this a signature over an unrelated node would pass.
-    // The signature must additionally be enveloped inside the element its reference covers — a
+    // The signature must additionally be enveloped inside the element its reference covers - a
     // signature relocated outside it (a wrapping/relocation attack) is rejected even if its digest
     // still matches the copied element elsewhere in the tree.
     private bool ValidateSignatureReference(SignedXml signedXml, XmlElement signatureElement)
     {
-        // A null SignedInfo (nullable on SignedXml) carries no reference to bind, so reject — fail closed.
+        // A null SignedInfo (nullable on SignedXml) carries no reference to bind, so reject - fail closed.
         // LoadXml populates it on a well-formed signature (and throws otherwise), so this never fires in
         // practice; an unexpected null is a rejection, never a pass.
         var signedInfo = signedXml.SignedInfo;
@@ -462,7 +462,7 @@ internal sealed class SamlResponse : IDisposable
 
         var reference = (Reference)signedInfo.References[0]!;
 
-        // A same-document "#id" shorthand pointer whose fragment is an NCName, and nothing else — the shared
+        // A same-document "#id" shorthand pointer whose fragment is an NCName, and nothing else - the shared
         // rule both this and the logout path enforce (SamlSignatureReference). It rejects the whole-document
         // form, every external URI, and every XPointer spelling that .NET's reference resolver would otherwise
         // honour; constraining the fragment HERE rather than relying on the platform's own NCName guard is
@@ -519,8 +519,8 @@ internal sealed class SamlResponse : IDisposable
     }
 
     // The Web Browser SSO profile is a bearer profile: the (signed) assertion must carry a bearer
-    // SubjectConfirmation with its confirmation data. Asserting its presence — after the signature is
-    // verified — rejects an assertion that offers only a non-bearer confirmation (e.g. holder-of-key),
+    // SubjectConfirmation with its confirmation data. Asserting its presence - after the signature is
+    // verified - rejects an assertion that offers only a non-bearer confirmation (e.g. holder-of-key),
     // which would otherwise be consumed with no key-possession proof (#238).
     private bool HasBearerSubjectConfirmation()
     {
@@ -539,7 +539,7 @@ internal sealed class SamlResponse : IDisposable
     }
 
     /// <summary>
-    /// Gets the first AuthnStatement's SessionIndex — the identity provider's handle for the SSO session
+    /// Gets the first AuthnStatement's SessionIndex - the identity provider's handle for the SSO session
     /// this assertion established, captured at login so a later Single Logout request can name the session
     /// it ends (#727, SLO-3a). It lives inside the assertion, so it is signature-covered; read from
     /// Assertion[1] only, consistent with every other getter (the validated assertion), and from the FIRST
@@ -555,7 +555,7 @@ internal sealed class SamlResponse : IDisposable
     }
 
     /// <summary>
-    /// Gets the bearer SubjectConfirmationData's Recipient — the assertion-consumer URL the identity
+    /// Gets the bearer SubjectConfirmationData's Recipient - the assertion-consumer URL the identity
     /// provider minted this assertion for. It lives inside the assertion, so it is covered by the
     /// signature regardless of whether the whole Response or only the Assertion is signed. The caller
     /// binds it to this service provider's own ACS URL (#156).
@@ -569,7 +569,7 @@ internal sealed class SamlResponse : IDisposable
     }
 
     /// <summary>
-    /// Gets the bearer SubjectConfirmationData's InResponseTo — the ID of the AuthnRequest this
+    /// Gets the bearer SubjectConfirmationData's InResponseTo - the ID of the AuthnRequest this
     /// assertion answers. Signed (inside the assertion), so the caller can trust it to correlate the
     /// response against a request this service provider actually issued (#156). Absent on an
     /// IdP-initiated (unsolicited) response.
@@ -583,7 +583,7 @@ internal sealed class SamlResponse : IDisposable
     }
 
     /// <summary>
-    /// Gets the Response element's Destination — the endpoint the identity provider sent this response
+    /// Gets the Response element's Destination - the endpoint the identity provider sent this response
     /// to. Response-level, so it is only signature-covered when the whole Response (not merely the
     /// Assertion) is signed; the caller therefore treats it as a defense-in-depth check on top of the
     /// always-signed <see cref="GetRecipient"/> (#156).
@@ -606,7 +606,7 @@ internal sealed class SamlResponse : IDisposable
         // Select the Attribute nodes with a CONSTANT XPath and compare @Name in C# (exact ordinal), rather
         // than interpolating attr into a quoted XPath literal (#678). An attr carrying an apostrophe or a
         // "'] | //*['"-style payload would otherwise break out of the '...' predicate and select arbitrary
-        // nodes — classic XPath injection. Every production caller passes the constant "Role", so the result
+        // nodes - classic XPath injection. Every production caller passes the constant "Role", so the result
         // set for that case is byte-for-byte the previous behavior (same nodes, same document order); the
         // rewrite only removes the injection surface the public signature exposes for any other input.
         var output = new List<string>();

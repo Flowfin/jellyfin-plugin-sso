@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SigningKeyStrength"/> — the shared minimum signing-key policy (#733). RSA keys must
+/// Tests for <see cref="SigningKeyStrength"/> - the shared minimum signing-key policy (#733). RSA keys must
 /// be at least 2048 bits and EC keys must sit on an approved NIST P-curve; the same floor gates both the
 /// OpenID id_token JWKS path and the SAML certificate path so they cannot drift.
 /// </summary>
@@ -34,7 +34,7 @@ public class SigningKeyStrengthTests
     [InlineData("1.2.840.10045.3.1.7", true)] // P-256
     [InlineData("1.3.132.0.34", true)] // P-384
     [InlineData("1.3.132.0.35", true)] // P-521
-    [InlineData("1.3.132.0.10", false)] // secp256k1 — not an approved NIST P-curve
+    [InlineData("1.3.132.0.10", false)] // secp256k1 - not an approved NIST P-curve
     [InlineData("1.3.36.3.3.2.8.1.1.7", false)] // brainpoolP256r1
     [InlineData(null, false)] // an explicit/unknown curve exposes no OID
     [InlineData("", false)]

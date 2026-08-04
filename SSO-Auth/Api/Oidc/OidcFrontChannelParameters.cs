@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// Builds the optional step-up front-channel parameters added to the OpenID authorization request (#757,
 /// OIDC Core §3.1.2.1): <c>acr_values</c>, <c>prompt</c>, and <c>max_age</c>. Each is included ONLY when the
 /// provider set it, so an unconfigured provider produces no parameters and its authorization request is
-/// byte-identical to before this feature — upgrade-safe. Returns <see langword="null"/> when none are set so
+/// byte-identical to before this feature - upgrade-safe. Returns <see langword="null"/> when none are set so
 /// the caller can hand nothing to <c>PrepareLoginAsync</c>.
 /// </summary>
 internal static class OidcFrontChannelParameters

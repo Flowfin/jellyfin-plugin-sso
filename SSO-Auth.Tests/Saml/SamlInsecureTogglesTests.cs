@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlInsecureToggles"/> — the helper that names the enabled default-on-disable
+/// Tests for <see cref="SamlInsecureToggles"/> - the helper that names the enabled default-on-disable
 /// options on a SAML provider (#672, the SAML parity of #140), so a save/import with one set can be
 /// audit-logged.
 /// </summary>

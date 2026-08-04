@@ -13,8 +13,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// an enveloped XML <c>ds:Signature</c> (identity providers ignore one on a redirect-binding message) but a
 /// detached signature over the URL-encoded query string, computed in the mandated parameter order
 /// (SAMLRequest, then RelayState when present, then SigAlg) and appended as the Signature parameter. The
-/// SigAlg is chosen from the service-provider key's own type — an RSA key signs rsa-sha256, an ECDSA key
-/// signs ecdsa-sha256 (#493) — and every choice is verified against the shared allowlist so this path can
+/// SigAlg is chosen from the service-provider key's own type - an RSA key signs rsa-sha256, an ECDSA key
+/// signs ecdsa-sha256 (#493) - and every choice is verified against the shared allowlist so this path can
 /// never sign with a weaker algorithm than the inbound path demands (no SHA-1). A key that is neither RSA
 /// nor ECDSA is rejected, never silently left unsigned.
 /// </summary>
@@ -30,7 +30,7 @@ internal static class SamlRedirectSigner
     /// <param name="parameterName">"SAMLRequest" or "SAMLResponse".</param>
     /// <param name="encodedMessage">The DEFLATE-compressed, Base64-encoded message.</param>
     /// <param name="relayState">The relay state, omitted when null or empty.</param>
-    /// <param name="signingKey">The service-provider private key — RSA or ECDSA.</param>
+    /// <param name="signingKey">The service-provider private key - RSA or ECDSA.</param>
     /// <returns>The full redirect URL including SigAlg and Signature.</returns>
     /// <exception cref="ArgumentException">Thrown when the endpoint or message is null or empty.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the key is neither RSA nor ECDSA, or its algorithm is not on the allowlist.</exception>

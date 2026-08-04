@@ -1,11 +1,11 @@
 # Static analysis of the GitHub Actions workflows themselves (zizmor). The
-# workflow YAML is release-critical attack surface — publish-beta.yml runs on
-# every push to main with contents:write — so it is audited like any other code.
+# workflow YAML is release-critical attack surface - publish-beta.yml runs on
+# every push to main with contents:write - so it is audited like any other code.
 #
 # The gate runs zizmor's regular persona at --min-severity=low: it fails the
-# build on any actionable (low/medium/high/critical) security finding —
+# build on any actionable (low/medium/high/critical) security finding -
 # template-injection, cache-poisoning, dangerous-triggers, excessive-permissions,
-# unpinned-uses, etc. — and uploads that same set to the code-scanning tab. The
+# unpinned-uses, etc. - and uploads that same set to the code-scanning tab. The
 # regular persona is the one zizmor documents for CI ("high-signal, low-noise,
 # actionable"). The pedantic persona is deliberately NOT used to gate: it adds
 # low-severity hygiene findings (undocumented permissions, missing concurrency,
@@ -67,7 +67,7 @@ jobs:
       - name: Upload SARIF
         # Only upload where the GITHUB_TOKEN can write security events: pushes to main
         # and same-repo human PRs. Fork and Dependabot pull requests run with a
-        # read-only token, so the upload is skipped there — the gate step below still
+        # read-only token, so the upload is skipped there - the gate step below still
         # runs and blocks on findings. continue-on-error keeps the security gate
         # independent of the upload: a transient code-scanning upload failure must not
         # skip the "Fail on actionable findings" step below.

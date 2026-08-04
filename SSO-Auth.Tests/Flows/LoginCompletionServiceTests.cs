@@ -29,11 +29,11 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Direct tests of <see cref="LoginCompletionService"/> — the shared login-completion tail extracted from
+/// Direct tests of <see cref="LoginCompletionService"/> - the shared login-completion tail extracted from
 /// the controller (#160, #318 step 11). They pin that both protocols funnel their <see cref="VerifiedIdentity"/>
 /// into the identical mint (an OpenID and a SAML identity complete the same way, carrying the
 /// controller-supplied remote endpoint through), and that a refusal from the account-linking workflow still
-/// surfaces as a <c>Rejected</c> 403 with no session minted — the fail-closed behavior that must survive the
+/// surfaces as a <c>Rejected</c> 403 with no session minted - the fail-closed behavior that must survive the
 /// move verbatim. The controller suites keep proving the wire behavior end to end; these pin the tail in
 /// isolation.
 /// </summary>
@@ -108,7 +108,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_SuccessfulMint_EmitsExactlyOneLoginSucceededAuditLine()
     {
         // The emission point (#928 U1): a session actually minted must leave exactly one
-        // "[SSO Audit] Login succeeded" line naming the user and provider — and never the subject
+        // "[SSO Audit] Login succeeded" line naming the user and provider - and never the subject
         // key, which is an identity-provider identifier.
         var config = new OidConfig { Enabled = true };
         var auditLog = new CapturingLogger();
@@ -131,7 +131,7 @@ public class LoginCompletionServiceTests
     [Fact]
     public async Task CompleteAsync_RefusedLogin_EmitsNoLoginSucceededAuditLine()
     {
-        // The inverse pin: a refusal must not write a success line — the audit trail's integrity
+        // The inverse pin: a refusal must not write a success line - the audit trail's integrity
         // depends on the line meaning "a session was issued", nothing weaker.
         var config = new OidConfig { Enabled = true, ProvisionNewUsersDisabled = true };
         var auditLog = new CapturingLogger();
@@ -171,7 +171,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_SingleLogoutOn_NoSessionId_SkipsCaptureWithoutFailingTheLogin()
     {
         // Fail-safe: with the feature on but the mint returning no session id, the capture is skipped and the
-        // login still succeeds — a capture problem must never turn a good login into a failure.
+        // login still succeeds - a capture problem must never turn a good login into a failure.
         var config = new OidConfig { Enabled = true };
         var (service, cfg, users, sessions) = Build(c =>
         {
@@ -196,7 +196,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_SingleLogoutOn_CapturesTheSessionStateKeyedByTheMintedSession()
     {
         // The end-to-end capture: with the feature on and a real minted session, the login persists the
-        // logout state — the id_token, subject, session index, and user — keyed by the minted session id.
+        // logout state - the id_token, subject, session index, and user - keyed by the minted session id.
         var config = new OidConfig { Enabled = true };
         var (service, cfg, users, sessions) = Build(c =>
         {
@@ -230,7 +230,7 @@ public class LoginCompletionServiceTests
     {
         // #736 end-to-end through the whole keystone thread (VerifiedIdentity -> SessionParameters ->
         // SessionMinter): a resolved ceiling on the identity lands on the user's MaxParentalRatingScore. Guards
-        // the middle of the threading — every hop is optional/defaulted, so a dropped copy line would compile
+        // the middle of the threading - every hop is optional/defaulted, so a dropped copy line would compile
         // and pass the per-unit tests while silently failing to reach the mint; this fails if it does.
         var config = new OidConfig { Enabled = true, EnableAuthorization = true };
         var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config);
@@ -251,8 +251,8 @@ public class LoginCompletionServiceTests
     [Fact]
     public async Task CompleteAsync_SamlIdentity_CompletesIdenticallyToTheOidcPath()
     {
-        // The keystone's whole point (#473): a SAML VerifiedIdentity funnels into the same tail — resolve the
-        // account, mint the session, carry the supplied remote endpoint — indistinguishable from OpenID.
+        // The keystone's whole point (#473): a SAML VerifiedIdentity funnels into the same tail - resolve the
+        // account, mint the session, carry the supplied remote endpoint - indistinguishable from OpenID.
         var config = new SamlConfig { Enabled = true };
         var (service, _, users, sessions) = Build(c => c.SamlConfigs["okta"] = config);
         var created = TestUsers.Named("bob", Created);
@@ -279,7 +279,7 @@ public class LoginCompletionServiceTests
         // break-glass admin "root", but the IdP now supplies a DIFFERENT username ("root-renamed"). The
         // break-glass decision must be judged on the RESOLVED account, so root's password door is NOT stripped
         // (its provider stays the password provider even though the config's DefaultProvider is the SSO
-        // provider) and its own SSO login — carrying no admin claim — does NOT demote it. Either failure is a
+        // provider) and its own SSO login - carrying no admin claim - does NOT demote it. Either failure is a
         // whole-org lockout / recovery-defeat once the IdP is down.
         var config = new OidConfig
         {
@@ -348,7 +348,7 @@ public class LoginCompletionServiceTests
     {
         // Fail closed, moved verbatim: a login whose name matches a pre-existing unlinked account with
         // adoption off is refused (#95). ResolveOrCreateAsync throws AccountLinkForbiddenException, which the
-        // tail must catch and turn into a Rejected 403 — and crucially NO session may be minted. The catch is
+        // tail must catch and turn into a Rejected 403 - and crucially NO session may be minted. The catch is
         // moved as a whole unit, so a refusal cannot fall through to the mint.
         var config = new OidConfig { Enabled = true, AllowExistingAccountLink = false };
         var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config);
@@ -367,7 +367,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_ProvisionNewUsersDisabled_UnknownIdentity_RefusesAwaitingApprovalWithoutMinting()
     {
         // #737: with ProvisionNewUsersDisabled on, an unknown identity's first login creates the account
-        // disabled (no permissions) and the login is refused with an awaiting-approval 403 — NO session is
+        // disabled (no permissions) and the login is refused with an awaiting-approval 403 - NO session is
         // minted. This is the core fail-closed onboarding control.
         var config = new OidConfig { Enabled = true, ProvisionNewUsersDisabled = true };
         var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config);
@@ -390,7 +390,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_ProvisionNewUsersDisabled_ExistingLinkedAdmin_IsNeverDisabledAndMints()
     {
         // The invariant #737 must not regress: the policy disables only a BRAND-NEW account. An existing,
-        // enabled admin that resolves by its subject link logs in normally — it is never disabled, no new
+        // enabled admin that resolves by its subject link logs in normally - it is never disabled, no new
         // account is created, and a session is minted (mirrors the break-glass "never demote an existing
         // admin" posture).
         var config = new OidConfig
@@ -418,7 +418,7 @@ public class LoginCompletionServiceTests
     public async Task CompleteAsync_ProvisionNewUsersDisabled_SecondLoginOfPendingAccount_RefusesAgainWithoutMinting()
     {
         // A still-disabled linked account (provisioned pending on an earlier login) logs in again: the resolved
-        // account is disabled, so the uniform gate refuses with awaiting-approval again — never a session, and
+        // account is disabled, so the uniform gate refuses with awaiting-approval again - never a session, and
         // the account is never re-enabled by the login path.
         var config = new OidConfig
         {
