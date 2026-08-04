@@ -129,6 +129,14 @@
         "version": "5.0.0.12"
       },
       {
+        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.24).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Add the per-object-scope repeated-member walk by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1071\n* Move every codeql-action pin to v4.37.3 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1198\n* Bump scorecard-action to v2.4.4 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1200\n* Bump setup-uv to v9.0.0 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1201\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.16...4.3.0-beta.24",
+        "checksum": "60eccdc00f9db61d067275292fdfde3c",
+        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.24/community-sso-for-jellyfin_4.3.0.24.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-08-04T06:37:10Z",
+        "version": "4.3.0.24"
+      },
+      {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.16).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Move every codeql-action pin to v4.37.1 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1026\n* Bump the checkout and setup-dotnet pins off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1028\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.15...4.3.0-beta.16",
         "checksum": "4dcfaabbc196e4e263cd753c832f9964",
         "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.16/community-sso-for-jellyfin_4.3.0.16.zip",
@@ -239,14 +247,6 @@
         "targetAbi": "10.11.0.0",
         "timestamp": "2026-07-18T20:41:43Z",
         "version": "4.1.2.5"
-      },
-      {
-        "changelog": "Jellyfin 10.11 beta 4.1.2-beta (plugin version 4.1.2.4).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Beta tracks the next release target (4.1.2-beta), maintainer-set by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/602\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.1.1-beta.3...4.1.2-beta.4",
-        "checksum": "aaf38de395e1d79ad449d9cecf15514f",
-        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.1.2-beta.4/sso-authentication_4.1.2.4.zip",
-        "targetAbi": "10.11.0.0",
-        "timestamp": "2026-07-18T19:48:59Z",
-        "version": "4.1.2.4"
       }
     ]
   }
