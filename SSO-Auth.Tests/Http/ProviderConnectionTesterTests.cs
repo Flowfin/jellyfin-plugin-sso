@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -9,6 +10,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
+using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.Extensions.Logging;
@@ -137,6 +139,40 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
 
         AssertNoSecret(result, OidSecretSentinel);
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_SelectsTheTransportTier_PerProvider_OnOneInstance()
+    {
+        // The claim of #1179 is that the relaxation reaches exactly the provider that asked for it. The
+        // transport tests prove a flag selects a client name; this proves the SELECTION, with two providers
+        // configured on one instance differing only in the opt-in, at a real backchannel call site.
+        //
+        // It closes the one leak the conformance roster cannot see: that roster lists the files allowed to
+        // name the relaxation, and every backchannel file is on it, so a call site passing a literal true
+        // instead of the provider's own setting would relax every provider and stay green. Here it makes
+        // the two halves below disagree.
+        var requested = new List<string>();
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(call =>
+        {
+            requested.Add(call.Arg<string>() ?? string.Empty);
+            return new HttpClient(new StubHttpMessageHandler(Serve(FullDiscovery(Authority))));
+        });
+
+        var strict = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
+        var optedIn = new OidConfig { OidEndpoint = Authority, OidClientId = "jf", AllowPrivateNetworkAddresses = true };
+
+        await ProviderConnectionTester.TestOidcAsync(strict, "public-idp", factory, Logger());
+
+        Assert.NotEmpty(requested);
+        Assert.All(requested, name => Assert.Equal(SsoHttp.OutboundClientName, name));
+
+        requested.Clear();
+        await ProviderConnectionTester.TestOidcAsync(optedIn, "lan-idp", factory, Logger());
+
+        Assert.NotEmpty(requested);
+        Assert.All(requested, name => Assert.Equal(SsoHttp.PrivateOutboundClientName, name));
     }
 
     [Fact]
