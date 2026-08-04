@@ -55,12 +55,16 @@ internal static class OidcDiscoveryReader
     /// <param name="provider">The provider name, for the failure warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the outbound fetch is built over.</param>
     /// <param name="logger">The logger for the fail-closed read-failure warning.</param>
+    /// <param name="allowPrivateNetworkAddresses">
+    /// The provider's <c>AllowPrivateNetworkAddresses</c> opt-in, selecting the private-permitted outbound
+    /// transport for this one read (#1179). Defaults to <see langword="false"/> - the full guard.
+    /// </param>
     /// <returns>The facts and provider metadata from the one discovery response, or <see cref="OidcDiscoveryResult.Unavailable"/>.</returns>
-    internal static async Task<OidcDiscoveryResult> ReadAsync(OidcClientOptions options, string provider, IHttpClientFactory httpClientFactory, ILogger logger)
+    internal static async Task<OidcDiscoveryResult> ReadAsync(OidcClientOptions options, string provider, IHttpClientFactory httpClientFactory, ILogger logger, bool allowPrivateNetworkAddresses = false)
     {
         try
         {
-            using var client = SsoHttp.CreateClient(httpClientFactory);
+            using var client = SsoHttp.CreateClient(httpClientFactory, allowPrivateNetworkAddresses);
             client.Timeout = FetchTimeout;
 
             // Screen both documents this read fetches — the well-known document and the JWKS it points at —

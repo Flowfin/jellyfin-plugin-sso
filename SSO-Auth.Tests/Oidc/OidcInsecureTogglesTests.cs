@@ -51,17 +51,34 @@ public class OidcInsecureTogglesTests
     }
 
     [Fact]
-    public void Enabled_AllFour_ReportsAll_MostSevereFirst()
+    public void Enabled_AllowPrivateNetworkAddresses_ReportsIt()
+    {
+        Assert.Equal(new[] { "AllowPrivateNetworkAddresses" }, OidcInsecureToggles.Enabled(new OidConfig { AllowPrivateNetworkAddresses = true }));
+    }
+
+    [Fact]
+    public void Enabled_AllowPrivateNetworkAddressesClear_OmitsIt()
+    {
+        Assert.DoesNotContain("AllowPrivateNetworkAddresses", OidcInsecureToggles.Enabled(new OidConfig { DisableHttps = true }));
+    }
+
+    [Fact]
+    public void Enabled_AllFive_ReportsAll_MostSevereFirst()
     {
         var config = new OidConfig
         {
             DisableHttps = true,
             DoNotValidateIssuerName = true,
             DoNotValidateEndpoints = true,
+            AllowPrivateNetworkAddresses = true,
             DoNotValidateResponseIssuer = true,
         };
+
+        // AllowPrivateNetworkAddresses sits after DoNotValidateEndpoints and before
+        // DoNotValidateResponseIssuer: it widens where the backchannel may connect, but switches off no
+        // signature, issuer or transport check (#1178).
         Assert.Equal(
-            new[] { "DisableHttps", "DoNotValidateIssuerName", "DoNotValidateEndpoints", "DoNotValidateResponseIssuer" },
+            new[] { "DisableHttps", "DoNotValidateIssuerName", "DoNotValidateEndpoints", "AllowPrivateNetworkAddresses", "DoNotValidateResponseIssuer" },
             OidcInsecureToggles.Enabled(config));
     }
 

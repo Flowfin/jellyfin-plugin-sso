@@ -717,6 +717,19 @@ public class OidConfig : ProviderConfigBase
     public bool DoNotValidateEndpoints { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether this provider's backchannel (discovery, JWKS, token,
+    /// userinfo, back-channel logout) may connect to a private network address. Off by default, so the
+    /// outbound SSRF/DNS-rebind guard refuses every non-public address as before; a config saved before
+    /// this field existed deserializes to <see langword="false"/> and keeps the full guard. Set it for an
+    /// identity provider that deliberately lives on the administrator's own network - the standard
+    /// self-hosted shape of an IdP on an RFC 1918 address behind a reverse proxy (#1058). Enabling it
+    /// permits only RFC 1918, carrier-grade NAT and IPv6 unique-local, and only for this provider;
+    /// loopback, link-local and the cloud-metadata ranges stay blocked regardless, and every other
+    /// provider - plus the avatar fetch and the SAML metadata importer - keeps the full guard.
+    /// </summary>
+    public bool AllowPrivateNetworkAddresses { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the OpenID issuer name is validated.
     /// </summary>
     public bool DoNotValidateIssuerName { get; set; }
