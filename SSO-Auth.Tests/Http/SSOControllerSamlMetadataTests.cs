@@ -15,9 +15,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// In-process tests of the SAML SP metadata endpoint (<c>SamlMetadata</c>) via
 /// <see cref="SsoControllerHarness"/> (#162). They cover the guard branches (unknown/disabled provider),
-/// the anti-spoofing invariant — the published entity id and assertion-consumer URL come from the
+/// the anti-spoofing invariant - the published entity id and assertion-consumer URL come from the
 /// configured canonical Base URL and NEVER the request host, and the endpoint fails closed when that base
-/// URL is unset rather than emitting a spoofable ACS — and the signing-conditional key descriptor, which
+/// URL is unset rather than emitting a spoofable ACS - and the signing-conditional key descriptor, which
 /// advertises only the PUBLIC certificate.
 /// </summary>
 [Collection("SSOController")]
@@ -186,7 +186,7 @@ public class SSOControllerSamlMetadataTests
             .Element(Ds + "X509Data")!
             .Element(Ds + "X509Certificate")!.Value;
 
-        // Exactly the public certificate is advertised — not the PFX/private key.
+        // Exactly the public certificate is advertised - not the PFX/private key.
         Assert.Equal(expectedPublicBase64, advertised);
         using var loaded = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(advertised));
         Assert.False(loaded.HasPrivateKey);
@@ -266,7 +266,7 @@ public class SSOControllerSamlMetadataTests
     public void SamlMetadata_RolloverSetButUnloadable_FailsClosed()
     {
         // A set-but-unloadable rollover key surfaces loudly (409), the same fail-closed posture as the
-        // primary — it never emits a broken KeyDescriptor and never silently drops a configured key.
+        // primary - it never emits a broken KeyDescriptor and never silently drops a configured key.
         using var primary = SamlSigningKeyFactory.CreateCertificate();
         var primaryPfx = Convert.ToBase64String(primary.Export(X509ContentType.Pfx));
 

@@ -6,12 +6,12 @@
 # packages with --warnaserror; this catches the metadata/ABI drift that a build cannot.
 #
 # The csproj may MULTI-TARGET several server generations (net9.0 for Jellyfin 10.11, net10.0 for
-# Jellyfin 12.0, #135). build.yaml describes ONE generation (its framework/targetAbi/version) — the one
-# the shipping package here is for — so this gate validates that generation: its framework must be one
+# Jellyfin 12.0, #135). build.yaml describes ONE generation (its framework/targetAbi/version) - the one
+# the shipping package here is for - so this gate validates that generation: its framework must be one
 # of the csproj targets, and the checks compare against that framework's conditional JellyfinVersion.
 #
 # Runtime SSO behavior against a live Jellyfin + identity provider is verified separately by a
-# manual end-to-end check on a real server — it cannot be exercised headlessly.
+# manual end-to-end check on a real server - it cannot be exercised headlessly.
 set -euo pipefail
 
 csproj="SSO-Auth/SSO-Auth.csproj"

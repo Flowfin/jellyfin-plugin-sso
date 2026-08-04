@@ -14,8 +14,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Shared;
 
 /// <summary>
-/// Re-renders a plain-text rejection from a browser-navigated login endpoint — the OpenID/SAML
-/// challenge and callback routes, which the user reaches by direct navigation — as a minimal dark HTML
+/// Re-renders a plain-text rejection from a browser-navigated login endpoint - the OpenID/SAML
+/// challenge and callback routes, which the user reaches by direct navigation - as a minimal dark HTML
 /// page (matching the auth-completion page's shell) with a "Return to login" link, instead of dumping
 /// raw text onto what looks like a broken page (#668). Applied ONLY when the client accepts text/html:
 /// the XHR <c>/sso/*/Auth</c> leg (Accept: application/json) reads the response status, not the body, so

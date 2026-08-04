@@ -23,15 +23,15 @@ on:
 # plain build only reads; the provenance attestation step (opt-in via `attest`)
 # needs an OIDC token and attestation write.
 #
-# ⚠️ REUSABLE-WORKFLOW CALLER CONTRACT — read before changing the build job's
+# ⚠️ REUSABLE-WORKFLOW CALLER CONTRACT - read before changing the build job's
 # permissions or adding a caller. Because the build job DECLARES id-token +
 # attestations: write below, EVERY caller of this reusable workflow MUST grant
-# those same scopes on its calling job — INCLUDING a caller that leaves `attest`
+# those same scopes on its calling job - INCLUDING a caller that leaves `attest`
 # false. A caller that does not grant them fails the reusable-workflow call at
 # STARTUP ("workflow file issue", a 0–1s run), not at the attest step. (This bit
 # the .NET workflow once: dotnet.yml's package job called build.yml with only
 # contents:read and startup_failed the whole run.) The scopes are NOT "capped away"
-# for non-attesting callers — they are a hard prerequisite to start. Callers that
+# for non-attesting callers - they are a hard prerequisite to start. Callers that
 # must keep granting contents:read + id-token:write + attestations:write:
 #   - .github/workflows/publish.yml  (release path; attest: true)
 #   - .github/workflows/dotnet.yml   (CI Package job; leaves attest false)
@@ -86,7 +86,7 @@ jobs:
           if-no-files-found: error
           # The zip AND the metadata JPRM writes beside it. The manifest generator reads that
           # metadata (version, targetAbi and the plugin-level fields) as JSON rather than
-          # parsing build.yaml, because the runner image ships jq but NOT yq — verified against
+          # parsing build.yaml, because the runner image ships jq but NOT yq - verified against
           # the runner-images tool list rather than assumed.
           path: |
             ${{ steps.jprm.outputs.artifact }}
@@ -97,7 +97,7 @@ jobs:
   # tool at run time; keeping it out of the job that carries id-token/attestations
   # write means a compromised tool can never reach the Sigstore signing identity or
   # mint a provenance attestation (SLSA L3 build-isolation). The SBOM is shipped as
-  # a checksummed release asset (like the beta/JF12 legs), not attested — the
+  # a checksummed release asset (like the beta/JF12 legs), not attested - the
   # isolation is worth more than attesting the side-document.
   sbom:
     name: Generate SBOM

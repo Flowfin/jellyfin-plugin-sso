@@ -12,8 +12,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// access) from a validated SAML assertion's roles and the provider configuration. Pure: it reads
 /// only (roles, config) and returns the derived values, which the SAML callback applies to the
 /// session parameters. Login validity is decided separately by <see cref="SamlLoginPolicy"/> and the
-/// username is the assertion's NameID, so — unlike the OpenID builder
-/// (<see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcAuthorizeStateBuilder"/>) — neither is derived here. Mirrors, one-for-one, the
+/// username is the assertion's NameID, so - unlike the OpenID builder
+/// (<see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcAuthorizeStateBuilder"/>) - neither is derived here. Mirrors, one-for-one, the
 /// privilege derivation that used to live inline in the callback.
 /// </summary>
 internal static class SamlAuthorizeStateBuilder

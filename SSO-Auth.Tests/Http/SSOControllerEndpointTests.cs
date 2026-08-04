@@ -19,8 +19,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// In-process tests of the <see cref="SSOController"/> login endpoints via <see cref="SsoControllerHarness"/>.
-/// These pin the unknown-provider rejection on every entry point — the callback/utility endpoints return
-/// a 400, the challenge endpoints throw (surfaced as a 4xx by the pipeline) — so the provider lookup can
+/// These pin the unknown-provider rejection on every entry point - the callback/utility endpoints return
+/// a 400, the challenge endpoints throw (surfaced as a 4xx by the pipeline) - so the provider lookup can
 /// never fall through to the auth logic for a name that is not configured.
 /// </summary>
 [Collection("SSOController")]
@@ -126,7 +126,7 @@ public class SSOControllerEndpointTests
     public void SamlChallenge_DisabledProvider_RejectsAsUnknownProvider()
     {
         // A configured-but-disabled provider shares the unknown provider's uniform 400, so the two
-        // cannot be told apart (no enumeration oracle) — fail-closed either way.
+        // cannot be told apart (no enumeration oracle) - fail-closed either way.
         var harness = new SsoControllerHarness(c => c.SamlConfigs["adfs"] = new SamlConfig { Enabled = false });
 
         AssertUnknownProvider(harness.Controller.SamlChallenge("adfs"));
@@ -167,7 +167,7 @@ public class SSOControllerEndpointTests
     [Fact]
     public void OidProviderNames_SkipsNullValuedEntry()
     {
-        // A null-valued entry must not NRE the anonymous GetNames endpoint into a 500 (#538) — it is
+        // A null-valued entry must not NRE the anonymous GetNames endpoint into a 500 (#538) - it is
         // skipped, the same fail-closed treatment CanonicalLinkService already applies to these maps.
         var harness = new SsoControllerHarness(c =>
         {
@@ -235,11 +235,11 @@ public class SSOControllerEndpointTests
     public void GetNames_HasNoAuthorizeAttribute(string methodName)
     {
         // Change detector for the documented anonymous-by-design decision (#540): OID/GetNames and
-        // SAML/GetNames carry no [Authorize] on purpose — the provider-name list they return is already
+        // SAML/GetNames carry no [Authorize] on purpose - the provider-name list they return is already
         // rendered anonymously by SSOViewsController's linking page (see the in-code rationale on both
         // methods), so gating them would add no confidentiality while breaking that unauthenticated
-        // render. A future [Authorize] landing here — accidental or from a reviewer expecting these
-        // gated — should fail this test and surface the decision instead of silently changing behavior.
+        // render. A future [Authorize] landing here - accidental or from a reviewer expecting these
+        // gated - should fail this test and surface the decision instead of silently changing behavior.
         var method = typeof(SSOController).GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
 
         Assert.NotNull(method);

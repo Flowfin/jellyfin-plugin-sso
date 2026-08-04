@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Provider;
 /// <summary>
 /// The SSO protocol a canonical-link operation applies to. The route's <c>{mode}</c> token is parsed into
 /// this typed value once, at the controller boundary (<see cref="ProviderModeParser.TryParse"/>), and the
-/// enum is threaded inward from there (#369) — so no inner layer re-parses or re-compares the raw string,
+/// enum is threaded inward from there (#369) - so no inner layer re-parses or re-compares the raw string,
 /// and an unknown token is rejected exactly once, fail-closed, before any protocol is chosen.
 /// </summary>
 internal enum ProviderMode
@@ -24,14 +24,14 @@ internal enum ProviderMode
 /// The single home for the <see cref="ProviderMode"/> ↔ string-token mapping (#369): parsing the route
 /// token into the enum at the boundary, and rendering the enum back to its lowercase link-namespace token
 /// for operator log lines. Nothing else in the linking surface touches the raw <c>"oid"</c>/<c>"saml"</c>
-/// strings — they thread the typed enum instead.
+/// strings - they thread the typed enum instead.
 /// </summary>
 internal static class ProviderModeParser
 {
     /// <summary>
     /// Parses the route's <c>{mode}</c> token into a <see cref="ProviderMode"/>. Case-insensitive and
     /// culture-independent (ordinal), so the two protocols the plugin exposes are accepted in any casing
-    /// while an unknown token fails closed — the caller rejects it rather than defaulting to a protocol.
+    /// while an unknown token fails closed - the caller rejects it rather than defaulting to a protocol.
     /// This replaces the two former divergent dispatches (a culture-sensitive <c>ToLower()</c> switch and an
     /// invariant-lowercase one) with one parse whose result every layer shares.
     /// </summary>

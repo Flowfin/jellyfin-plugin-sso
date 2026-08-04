@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Pins the SSO-only login audit trail (#165, criterion 6 / T-R1): an <c>[SSO Audit]</c> entry is emitted
-/// on enable, on disable, and on a guard refusal, each recording the actor and outcome — and the refusal
+/// on enable, on disable, and on a guard refusal, each recording the actor and outcome - and the refusal
 /// records only a reason CODE, never a username/roster (T-I1). Admin-supplied values are line-ending
 /// sanitized so they cannot forge or split an entry.
 /// </summary>
@@ -57,7 +57,7 @@ public class SsoOnlyAuditTests
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Contains("REFUSED", entry.Message, StringComparison.Ordinal);
-        // The reason is a fixed verdict code — not a roster of who is or is not an admin (T-I1).
+        // The reason is a fixed verdict code - not a roster of who is or is not an admin (T-I1).
         Assert.Contains("BreakGlassNotFound", entry.Message, StringComparison.Ordinal);
     }
 

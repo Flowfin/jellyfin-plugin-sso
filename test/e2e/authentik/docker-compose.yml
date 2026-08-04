@@ -1,4 +1,4 @@
-# End-to-end SSO login harness — authentik provider (#920). Boots a real Jellyfin 10.11 server with the
+# End-to-end SSO login harness - authentik provider (#920). Boots a real Jellyfin 10.11 server with the
 # packaged plugin installed and a real authentik Identity Provider (postgres + redis + server + worker),
 # driven by the SHARED harness. authentik speaks BOTH OpenID Connect and SAML; this harness exercises OIDC
 # first (SAML follows). It reuses ../harness/harness.sh and the ../jellyfin/config plugin drop.

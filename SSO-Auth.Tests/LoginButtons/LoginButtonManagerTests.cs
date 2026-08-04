@@ -16,7 +16,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="LoginButtonManager"/> — the hosted service that keeps the login-page branding
+/// Tests for <see cref="LoginButtonManager"/> - the hosted service that keeps the login-page branding
 /// disclaimer in sync with the configured providers (#722), previously entirely untested (#928 U4).
 /// Pinned: the startup sync writes the managed block, the write-guard skips the branding save when the
 /// merge changes nothing, a configuration-change event re-syncs, StopAsync unsubscribes (a later event
@@ -109,7 +109,7 @@ public class LoginButtonManagerTests
     [Fact]
     public async Task BrandingStoreFailure_IsSwallowed_StartupAndConfigSaveSurvive()
     {
-        // Fail-safe contract: a branding-store fault must never propagate — it would otherwise block host
+        // Fail-safe contract: a branding-store fault must never propagate - it would otherwise block host
         // startup (StartAsync) or a plugin config save (the event hook runs inside the save path).
         var harness = new SsoControllerHarness(EnableButtons);
         var branding = Substitute.For<IServerConfigurationManager>();

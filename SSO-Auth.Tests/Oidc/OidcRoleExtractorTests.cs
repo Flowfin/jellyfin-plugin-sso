@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcRoleExtractor"/> — reading role values out of an OpenID claim along the
+/// Tests for <see cref="OidcRoleExtractor"/> - reading role values out of an OpenID claim along the
 /// configured role-claim path. Pins the parsing behavior extracted from the OID callback so it can
 /// be reasoned about and refactored independently of the controller.
 /// </summary>
@@ -120,7 +120,7 @@ public class OidcRoleExtractorTests
     [Fact]
     public void ObjectMap_EmptyObject_ReturnsNoRoles()
     {
-        // An empty map must mean NO roles, never "any role" — the allow-list check would otherwise be
+        // An empty map must mean NO roles, never "any role" - the allow-list check would otherwise be
         // satisfiable by a provider that granted the user nothing.
         Assert.Empty(OidcRoleExtractor.ExtractRoles(new[] { "urn:zitadel:iam:org:project:roles" }, "{}", true));
     }
@@ -143,7 +143,7 @@ public class OidcRoleExtractorTests
     [Fact]
     public void ObjectMap_JsonArrayClaimValue_ReturnsEmpty()
     {
-        // Deserializing a JSON array into the object shape throws inside the try — it must fail closed to
+        // Deserializing a JSON array into the object shape throws inside the try - it must fail closed to
         // no roles, never an unhandled 500 on the public callback (#216).
         Assert.Empty(OidcRoleExtractor.ExtractRoles(new[] { "urn:zitadel:iam:org:project:roles" }, "[\"users\"]", true));
     }
@@ -169,8 +169,8 @@ public class OidcRoleExtractorTests
     {
         // #216/#934: the claim value is attacker-influenced and reaches this parser on the ANONYMOUS public
         // callback, so no shape may escape as an unhandled exception (a 500). The method catches JsonException
-        // only, so this pins that nothing else — a duplicate-key dictionary populate, an empty key, a scalar
-        // or array root — throws something outside it.
+        // only, so this pins that nothing else - a duplicate-key dictionary populate, an empty key, a scalar
+        // or array root - throws something outside it.
         Assert.NotNull(OidcRoleExtractor.ExtractRoles(new[] { "roles" }, claimValue, true));
     }
 

@@ -12,10 +12,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// Reads the <c>acr</c> claim from the RAW, already-validated id_token for the step-up / MFA gate (#757),
 /// NOT from the redeemed <c>result.User</c> principal. With <c>LoadProfile</c> on (the default), OidcClient
 /// merges the UNSIGNED UserInfo response into <c>result.User</c>, so a UserInfo-supplied <c>acr</c> is not
-/// signature-covered — trusting it would let a provider that reports a user's registered assurance level
+/// signature-covered - trusting it would let a provider that reports a user's registered assurance level
 /// (rather than this session's actual one) satisfy a step-up requirement the session did not meet. The gate
 /// must trust only the signature-verified id_token, so the value is read here from <c>result.IdentityToken</c>
-/// — exactly the reason <see cref="OidcResponseIssuer"/> re-reads <c>iss</c> from the raw token rather than
+/// - exactly the reason <see cref="OidcResponseIssuer"/> re-reads <c>iss</c> from the raw token rather than
 /// the filtered principal.
 /// </summary>
 internal static class OidcIdTokenAcr

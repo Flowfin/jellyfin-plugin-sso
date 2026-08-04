@@ -25,17 +25,17 @@ internal static class ProviderNameValidator
     // RFC 3986 gen-delims and sub-delims, plus '%' (the percent-encoding escape, which routing decodes
     // or rejects before the config lookup ever sees the name), plus '\': browsers normalize a
     // backslash to '/' in special-scheme URLs (WHATWG URL), so an IdP redirect to ".../redirect/a\b"
-    // arrives as ".../redirect/a/b" — the same unmatchable callback path as a literal slash. Space and
+    // arrives as ".../redirect/a/b" - the same unmatchable callback path as a literal slash. Space and
     // non-ASCII are deliberately NOT rejected: they survive the round-trip today, so rejecting them
     // would strand every existing working name that uses them.
     private static readonly SearchValues<char> UriReservedOrEscape = SearchValues.Create("%:/?#[]@!$&'()*+,;=\\");
 
-    // A null or blank name yields an empty span, so the loop never runs and it stays valid — no route can
+    // A null or blank name yields an empty span, so the loop never runs and it stays valid - no route can
     // produce an empty provider segment, matching the blank-is-valid convention of the sibling predicates
     // (CanonicalBaseUrl, SamlCertificate).
 
     /// <summary>
-    /// Determines whether a provider name would corrupt the login callback URL it becomes part of — true if
+    /// Determines whether a provider name would corrupt the login callback URL it becomes part of - true if
     /// it contains any control character, a backslash, or a URI-reserved character. A null or blank name is
     /// valid (no route produces an empty provider segment), matching the sibling predicates.
     /// </summary>
@@ -45,7 +45,7 @@ internal static class ProviderNameValidator
     {
         foreach (char c in name.AsSpan())
         {
-            // char.IsControl covers C0 (U+0000–U+001F), DEL (U+007F), and C1 (U+0080–U+009F) by name —
+            // char.IsControl covers C0 (U+0000–U+001F), DEL (U+007F), and C1 (U+0080–U+009F) by name -
             // chosen over spelling the two disjoint ranges out with ContainsAnyInRange because the BCL
             // property states the intent where hex bounds would need verifying. Control characters do
             // not round-trip through the callback URL, and a newline is also the ProviderScopedKey

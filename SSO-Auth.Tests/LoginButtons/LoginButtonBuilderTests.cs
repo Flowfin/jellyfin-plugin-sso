@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="LoginButtonBuilder"/> — the pure selection rule that turns the configuration into the
+/// Tests for <see cref="LoginButtonBuilder"/> - the pure selection rule that turns the configuration into the
 /// ordered login buttons (#722): management must be on, only enabled + non-hidden providers get a button,
 /// OpenID before SAML, and the label falls back from <c>LoginButtonText</c> to the provider name.
 /// </summary>

@@ -30,7 +30,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         # No step pushes via git, so do not leave the GITHUB_TOKEN persisted in
-        # .git/config (zizmor "artipacked" hardening — shrinks the credential blast radius).
+        # .git/config (zizmor "artipacked" hardening - shrinks the credential blast radius).
         persist-credentials: false
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -126,7 +126,7 @@ jobs:
       #
       # Pinned to -f net9.0: build.yaml's targetAbi (10.11.0.0) is the .NET 9 / Jellyfin 10.11 line's
       # floor, so this check is a net9-line concept. Without -f, `dotnet build` on the multi-target
-      # csproj would also build the net10.0 leg against Jellyfin 10.11.0.0 — which proves nothing about
+      # csproj would also build the net10.0 leg against Jellyfin 10.11.0.0 - which proves nothing about
       # the net10/JF12 floor AND needs a net10 SDK this job does not install (#135 review). The net10 leg
       # is fully built + tested by the primary `build` job; its own JF12 ABI floor lands with the JF12
       # publish pipeline.
@@ -141,7 +141,7 @@ jobs:
     # build.yml is a reusable workflow whose build job declares id-token/attestations: write for its
     # release-only SLSA attest step (#147). A caller must grant every permission the callee declares, or
     # the reusable-workflow call fails to start ("workflow file issue"). This CI caller leaves `attest`
-    # at its default (false), so the attest step never runs and no token or attestation is minted — the
+    # at its default (false), so the attest step never runs and no token or attestation is minted - the
     # grant only satisfies the reusable-workflow permission check.
     permissions:
       contents: read

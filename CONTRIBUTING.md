@@ -28,7 +28,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Sign Your Work (DCO)](#sign-your-work-dco)
 - [Join The Project Team](#join-the-project-team)
 
-> Project governance — who holds access, how decisions are made, and the continuity model — is documented in [GOVERNANCE.md](GOVERNANCE.md).
+> Project governance - who holds access, how decisions are made, and the continuity model - is documented in [GOVERNANCE.md](GOVERNANCE.md).
 
 ## I Have a Question
 
@@ -88,7 +88,7 @@ A good bug report shouldn't leave others needing to chase you up for more inform
 
 #### How Do I Submit a Good Bug Report?
 
-> You must never report an exploitable vulnerability, or any bug report that includes sensitive information, to the issue tracker or elsewhere in public. See [SECURITY.md](SECURITY.md) — report those privately through GitHub's vulnerability-reporting form instead.
+> You must never report an exploitable vulnerability, or any bug report that includes sensitive information, to the issue tracker or elsewhere in public. See [SECURITY.md](SECURITY.md) - report those privately through GitHub's vulnerability-reporting form instead.
 
 We use GitHub issues to track bugs and errors. If you run into an issue with the project:
 
@@ -143,7 +143,7 @@ Any code editor or IDE with .NET support will work out of the box with this prog
 - [VSCode](https://code.visualstudio.com/docs/languages/dotnet)
 - [N/Vim](https://github.com/OmniSharp/Omnisharp-vim)
 
-**Getting oriented.** Before diving into the `SSOController` and the SAML/OpenID helpers, read the [Login Flow](https://github.com/iderex/jellyfin-plugin-sso/wiki/Login-Flow) and [Architecture](https://github.com/iderex/jellyfin-plugin-sso/wiki/Architecture) wiki pages — together they walk an OpenID and a SAML sign-in from challenge to session and map the module layout, so you can place a change onto the flow instead of reverse-engineering it.
+**Getting oriented.** Before diving into the `SSOController` and the SAML/OpenID helpers, read the [Login Flow](https://github.com/iderex/jellyfin-plugin-sso/wiki/Login-Flow) and [Architecture](https://github.com/iderex/jellyfin-plugin-sso/wiki/Architecture) wiki pages - together they walk an OpenID and a SAML sign-in from challenge to session and map the module layout, so you can place a change onto the flow instead of reverse-engineering it.
 
 **Building and testing.** CI runs these on every pull request and they must pass:
 
@@ -157,13 +157,13 @@ npx prettier --check "**/*.{js,html,md,css,scss}"   # for any .js/.html/.md/.css
 `dotnet test` requires the **.NET 10 SDK**: the repo's `global.json` selects the
 SDK's Microsoft.Testing.Platform mode of `dotnet test` (#718), which older SDKs
 do not support (the build itself multi-targets net9.0 + net10.0 either way, so
-you need both runtimes' SDKs installed — exactly what CI installs).
+you need both runtimes' SDKs installed - exactly what CI installs).
 
 CI restores in a separate step, so its build/test use `--no-restore`/`--no-build`; on a fresh local clone run `dotnet restore` once first (or drop `--no-restore` on the first build) or the build fails before any package is fetched.
 
-**Developing the admin UI.** The settings page and the account-linking page are **embedded resources**, not files served from disk: `configPage.html`, `config.js`, and the `linking.*` assets are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). So the edit loop is **rebuild → redeploy the DLL → restart Jellyfin**: `dotnet publish -c Release`, copy the output into your Jellyfin `config/plugins/sso/`, and restart the server; there is no live reload. Jellyfin's logs (the plugin logs through them) live under the server's `config/log/` directory. One gotcha while iterating: the `/SSOViews` assets are served with an ETag derived from the assembly `FileVersion`, so a browser will `304`-serve the **previous** build of `linking.js`/`linking.css` until the version changes — disable the browser cache (DevTools → Network → "Disable cache") during a UI edit session, or you will be testing stale assets.
+**Developing the admin UI.** The settings page and the account-linking page are **embedded resources**, not files served from disk: `configPage.html`, `config.js`, and the `linking.*` assets are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). So the edit loop is **rebuild → redeploy the DLL → restart Jellyfin**: `dotnet publish -c Release`, copy the output into your Jellyfin `config/plugins/sso/`, and restart the server; there is no live reload. Jellyfin's logs (the plugin logs through them) live under the server's `config/log/` directory. One gotcha while iterating: the `/SSOViews` assets are served with an ETag derived from the assembly `FileVersion`, so a browser will `304`-serve the **previous** build of `linking.js`/`linking.css` until the version changes - disable the browser cache (DevTools → Network → "Disable cache") during a UI edit session, or you will be testing stale assets.
 
-**Branching and pull requests.** `main` is the released line and is PR-only. Branch every change — even a one-liner — off `main` for fixes and security work, or off the feature branch for features, using a short kebab-case name with a `fix/`, `harden/`, `feature/`, `chore/`, or `refactor/` prefix. Reference the issue your change addresses (`Closes #N`) and fill in the [pull request template](.github/pull_request_template.md).
+**Branching and pull requests.** `main` is the released line and is PR-only. Branch every change - even a one-liner - off `main` for fixes and security work, or off the feature branch for features, using a short kebab-case name with a `fix/`, `harden/`, `feature/`, `chore/`, or `refactor/` prefix. Reference the issue your change addresses (`Closes #N`) and fill in the [pull request template](.github/pull_request_template.md).
 
 This is a security-sensitive login path: before opening a pull request, understand and own every line you propose, and be ready to explain what it does and why. The merge gate is internal-only (CI, the adversarial review, and my own sign-off); [Review Gate](https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate) maps how those controls cover each class of issue an automated PR reviewer would catch.
 
@@ -175,11 +175,11 @@ We are always open to better docs! The main place documentation could be improve
 
 ### Commit Messages
 
-Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** — `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` — so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
+Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
 ### Sign Your Work (DCO)
 
-This project uses the [Developer Certificate of Origin](DCO) (DCO 1.1) — a lightweight, standard way to certify that you wrote or otherwise have the right to submit the code you contribute, under the project's GPL-3.0 license. It is not a copyright-assignment CLA; you keep your copyright.
+This project uses the [Developer Certificate of Origin](DCO) (DCO 1.1) - a lightweight, standard way to certify that you wrote or otherwise have the right to submit the code you contribute, under the project's GPL-3.0 license. It is not a copyright-assignment CLA; you keep your copyright.
 
 **Every commit must be signed off.** Add the sign-off automatically with `-s`:
 
@@ -210,17 +210,17 @@ Every C# source file opens with the two-line SPDX header (a conformance test fai
 
 The project is licensed **GPL-3.0-only** (`GPL-3.0-only` is the [SPDX identifier](https://spdx.org/licenses/); see [LICENSE.txt](LICENSE.txt)).
 
-The architecture, comment/documentation, and object-oriented rules a change is held to live in one canonical place — the [Coding Standards](https://github.com/iderex/jellyfin-plugin-sso/wiki/Coding-Standards) wiki page. This guide does not restate them; read that page before a non-trivial change. They are enforced by the conformance fitness functions in `SSO-Auth.Tests/ArchitectureConformanceTests.cs` and the adversarial review gate.
+The architecture, comment/documentation, and object-oriented rules a change is held to live in one canonical place - the [Coding Standards](https://github.com/iderex/jellyfin-plugin-sso/wiki/Coding-Standards) wiki page. This guide does not restate them; read that page before a non-trivial change. They are enforced by the conformance fitness functions in `SSO-Auth.Tests/ArchitectureConformanceTests.cs` and the adversarial review gate.
 
 ### HTML/CSS/JS/Markdown
 
-We use [Prettier](https://prettier.io) to format these files. Run `npx prettier --write "**/*.{js,html,md,css,scss}"` before committing, and `npx prettier --check "**/*.{js,html,md,css,scss}"` to confirm — CI enforces the check (only `*.min.js` is exempt).
+We use [Prettier](https://prettier.io) to format these files. Run `npx prettier --write "**/*.{js,html,md,css,scss}"` before committing, and `npx prettier --check "**/*.{js,html,md,css,scss}"` to confirm - CI enforces the check (only `*.min.js` is exempt).
 
-Not every file under `SSO-Auth/Web` is project code. Check the provenance header before editing: `emby-restyle.css` and the minified `jellyfin-apiClient.esm.min.js` are **vendored** from jellyfin-web — update them by re-copying from upstream, not by editing in place — whereas `ApiClient.js` is **project-maintained** code (loosely based on the linked upstream) that carries our own security logic and is edited here directly.
+Not every file under `SSO-Auth/Web` is project code. Check the provenance header before editing: `emby-restyle.css` and the minified `jellyfin-apiClient.esm.min.js` are **vendored** from jellyfin-web - update them by re-copying from upstream, not by editing in place - whereas `ApiClient.js` is **project-maintained** code (loosely based on the linked upstream) that carries our own security logic and is edited here directly.
 
 ### Keeping the docs in step
 
-When a code change makes any **README section or wiki page** wrong or incomplete — a changed behaviour, a moved type the [Architecture](https://github.com/iderex/jellyfin-plugin-sso/wiki/Architecture) page names, a new or renamed config option, an altered login flow — the documentation follow-up must not be lost. Either **update the docs in the same pull request**, or **open a `documentation`-labelled issue on the current-release milestone** so it ships before the next release. The PR checklist has a box for this. (The wiki has no pull-request flow — wiki edits are pushed directly to its repository — but the _tracking_ still lives as an issue in the main repository.)
+When a code change makes any **README section or wiki page** wrong or incomplete - a changed behaviour, a moved type the [Architecture](https://github.com/iderex/jellyfin-plugin-sso/wiki/Architecture) page names, a new or renamed config option, an altered login flow - the documentation follow-up must not be lost. Either **update the docs in the same pull request**, or **open a `documentation`-labelled issue on the current-release milestone** so it ships before the next release. The PR checklist has a box for this. (The wiki has no pull-request flow - wiki edits are pushed directly to its repository - but the _tracking_ still lives as an issue in the main repository.)
 
 <!-- omit in toc -->
 

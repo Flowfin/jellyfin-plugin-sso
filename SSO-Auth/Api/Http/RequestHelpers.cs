@@ -20,7 +20,7 @@ using Microsoft.AspNetCore.Http;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 
 /// <summary>
-/// Request Extensions. Internal like the rest of the helper surface — its only member is internal, so
+/// Request Extensions. Internal like the rest of the helper surface - its only member is internal, so
 /// nothing public was ever exposed either way (#671).
 /// </summary>
 internal static class RequestHelpers

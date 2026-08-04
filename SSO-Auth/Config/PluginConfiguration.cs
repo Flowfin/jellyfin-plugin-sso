@@ -43,7 +43,7 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     /// per client address (best-effort, in-process). Opt-in (default off). The limiter keys on the
     /// connection's remote address only. CAUTION: behind a reverse proxy, first configure
     /// Jellyfin's own "Known proxies" networking setting so the server resolves the real client
-    /// from the forwarded headers — without it every client shares the proxy's address and one
+    /// from the forwarded headers - without it every client shares the proxy's address and one
     /// abuser throttles logins for everyone; in that case leave this off. Refs #128.
     /// </summary>
     public bool EnableRateLimit { get; set; }
@@ -75,9 +75,9 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     /// <summary>
     /// Gets or sets a value indicating whether Single Logout is on (#727). Off by default (fail safe): a
     /// deployment that does not opt in captures no per-session logout state and exposes no logout surface.
-    /// When on, each successful login persists the state a logout needs (<see cref="LogoutSessions"/>) — for
+    /// When on, each successful login persists the state a logout needs (<see cref="LogoutSessions"/>) - for
     /// OpenID the <c>id_token</c> used as an <c>id_token_hint</c>, for both protocols the subject/session
-    /// index a logout is matched on — so an RP-initiated OpenID logout or an inbound SAML <c>LogoutRequest</c>
+    /// index a logout is matched on - so an RP-initiated OpenID logout or an inbound SAML <c>LogoutRequest</c>
     /// can terminate the linked Jellyfin session. It gates only the capture and the (later) logout endpoints;
     /// local Jellyfin logout is unaffected either way.
     /// </summary>
@@ -98,12 +98,12 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     public bool DisablePasswordLogin { get; set; }
 
     /// <summary>
-    /// Gets or sets the username of the designated break-glass administrator — the one account SSO-only mode
+    /// Gets or sets the username of the designated break-glass administrator - the one account SSO-only mode
     /// never repoints, so it always retains native password login (SSO-ONLY-LOGIN-DESIGN.md §3 option A).
     /// Its continued existence is what satisfies the activation guard, and unlike an admin's SSO link it
     /// does not depend on the identity provider being reachable, which is the entire point. Server-managed
     /// like <see cref="DisablePasswordLogin"/>: set only through the elevated, audited SSO-Only endpoints,
-    /// and only ever pointed at an account that is ALREADY an administrator (it cannot grant admin — T-E1).
+    /// and only ever pointed at an account that is ALREADY an administrator (it cannot grant admin - T-E1).
     /// Blank means no break-glass admin is designated, so the mode cannot be enabled.
     /// </summary>
     public string? BreakGlassAdminUsername { get; set; }
@@ -112,7 +112,7 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     /// Gets or sets the ids of the accounts SSO-only mode has repointed off the built-in password provider
     /// (#165). This is server-managed bookkeeping, NOT an admin setting: the enable sweep records each
     /// account it moves, the disable/off-switch and the boot-time reconciliation restore <em>only</em> these
-    /// accounts, and the set is cleared once they are restored. Tracking is essential for correctness — the
+    /// accounts, and the set is cleared once they are restored. Tracking is essential for correctness - the
     /// plugin's own created accounts permanently carry the SSO provider id, so an untracked "restore every
     /// SSO-provider account" sweep would wrongly hand them a password door. It persists in the config XML so
     /// the documented recovery (set <see cref="DisablePasswordLogin"/> to <c>false</c> and restart) can
@@ -156,15 +156,15 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
 /// <see cref="OidConfig"/> inherit these members; the concrete types are what get XML-serialized
 /// (SerializableDictionary serializes each value as its concrete type), so inherited members emit the
 /// same as declared ones and no <c>[XmlInclude]</c>/polymorphism handling is needed (#204). XML
-/// deserialization is by element name, so moving these up — which places them before the
-/// provider-specific elements in newly written XML — does not stop existing configs from loading.
+/// deserialization is by element name, so moving these up - which places them before the
+/// provider-specific elements in newly written XML - does not stop existing configs from loading.
 /// </summary>
 // Model-binding contract for every value-type member here and on the derived SamlConfig/OidConfig
 // (the bool flags and the int? PortOverride): the OID/SAML `Add` endpoints (SSOController.OidAdd /
 // SamlAdd) and the config-page PUT bind the whole provider object [FromBody] under RequiresElevation
 // and REPLACE it wholesale (configuration.OidConfigs[provider] = config), re-injecting only the
 // server-managed fields via ServerManagedFields.Preserve. An omitted bool therefore deserializes to
-// its default and that default is persisted BY DESIGN — the admin is replacing the object, not
+// its default and that default is persisted BY DESIGN - the admin is replacing the object, not
 // patching it. This is why the value-type properties stay non-nullable and un-annotated (SonarCloud
 // S6964, #196): marking them [JsonRequired] would reject the intended partial post and break the
 // write-only-secret / blank-means-keep save flows that deliberately omit fields, while bool? would
@@ -207,7 +207,7 @@ public abstract class ProviderConfigBase
     /// <see cref="PluginConfiguration.EnableSingleLogout"/> on (the same master switch that captures the
     /// <c>sid</c> a logout_token is matched on). Note the deployment caveat: back-channel logout needs the
     /// IdP to reach this server directly (server-to-server), which is often unavailable for a self-hosted
-    /// server behind NAT — RP-initiated logout (#727) covers the user-clicks-logout case regardless.
+    /// server behind NAT - RP-initiated logout (#727) covers the user-clicks-logout case regardless.
     /// </summary>
     public bool EnableBackChannelLogout { get; set; }
 
@@ -218,7 +218,7 @@ public abstract class ProviderConfigBase
     /// change would otherwise apply. Off by default (opt-in). Fail-safe against mass lockout: an
     /// ADMINISTRATOR is NEVER disabled by this path (which also covers the SSO-only break-glass admin, itself
     /// an admin), so a misconfigured allow-list or an identity provider that drops group claims can strand at
-    /// most the non-admin accounts — an admin always remains to recover. Acts only on an existing linked
+    /// most the non-admin accounts - an admin always remains to recover. Acts only on an existing linked
     /// account; a first-time denied login has nothing to disable.
     /// </summary>
     public bool DisableAccountOnRoleDenied { get; set; }
@@ -257,7 +257,7 @@ public abstract class ProviderConfigBase
     /// behavior): a new account is created enabled and a session is minted. When on, the new account is
     /// created with <c>IsDisabled = true</c> and no permissions, no session is minted, and the login is
     /// refused with an "awaiting administrator approval" message until an administrator enables the account
-    /// in the Jellyfin dashboard. This never disables an existing or adopted account — only a brand-new one.
+    /// in the Jellyfin dashboard. This never disables an existing or adopted account - only a brand-new one.
     /// Settable in the admin OpenID provider form as well as the config XML.
     /// </summary>
     public bool ProvisionNewUsersDisabled { get; set; }
@@ -332,12 +332,12 @@ public abstract class ProviderConfigBase
     /// <summary>
     /// Gets or sets the generic role-to-permission mappings applied at login when
     /// <see cref="EnablePermissionRoles"/> is on (#164): each entry names a single Jellyfin
-    /// <c>PermissionKind</c> and the roles that grant it. The mapping is authoritative and default-deny —
+    /// <c>PermissionKind</c> and the roles that grant it. The mapping is authoritative and default-deny -
     /// a listed permission is granted only when the login carries a matching role and is otherwise
     /// explicitly revoked, so a missing or unmapped claim never silently grants a permission. Permissions
     /// with their own dedicated configuration (administrator, all-folders, Live TV access/management) are
     /// rejected here so each permission has exactly one authoritative source. A permission not listed at all
-    /// is never touched by SSO — Jellyfin's own default governs it. Validated fail-closed on save (an
+    /// is never touched by SSO - Jellyfin's own default governs it. Validated fail-closed on save (an
     /// unknown or dedicated permission name is rejected before it is persisted).
     /// </summary>
     [XmlArray("PermissionRoleMappings")]
@@ -358,7 +358,7 @@ public abstract class ProviderConfigBase
     /// <see cref="EnableParentalRatingRoles"/> is on (#736): each entry names a maximum parental-rating
     /// score and the roles it applies to (e.g. a <c>kids</c> group → a content-rating ceiling). When a login
     /// matches several entries the MOST RESTRICTIVE (minimum) ceiling wins, never the loosest. A login that
-    /// matches no entry leaves the account's existing ceiling untouched — an unmapped or malformed claim
+    /// matches no entry leaves the account's existing ceiling untouched - an unmapped or malformed claim
     /// never raises the ceiling. A login that DOES match is authoritative, exactly like the admin/folder/Live
     /// TV grants: the matched (minimum) ceiling is written even if it is looser than a value an administrator
     /// set by hand, so keep the mappings in sync with the intended policy. Validated fail-closed on save (a
@@ -390,8 +390,8 @@ public abstract class ProviderConfigBase
     /// Gets or sets a value indicating whether the last non-linking login used the newer redirect path
     /// spelling (the "/start/" form rather than the legacy short form). This is server-managed runtime
     /// state, not an admin-facing setting: every non-linking challenge overwrites it from the incoming
-    /// request path so that a later linking flow — which cannot know which redirect path the identity
-    /// provider has registered — reuses the same spelling. It is persisted in the config XML for that
+    /// request path so that a later linking flow - which cannot know which redirect path the identity
+    /// provider has registered - reuses the same spelling. It is persisted in the config XML for that
     /// reason, not because it is user-configurable.
     /// </summary>
     public bool NewPath { get; set; }
@@ -431,12 +431,12 @@ public class SamlConfig : ProviderConfigBase
     public string SamlEndpoint { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the identity provider's SAML Single-Logout (SLO) endpoint — a DISTINCT URL from
+    /// Gets or sets the identity provider's SAML Single-Logout (SLO) endpoint - a DISTINCT URL from
     /// <see cref="SamlEndpoint"/> (the SSO endpoint), where the browser is redirected with a signed
     /// SP-initiated <c>LogoutRequest</c> (#727, SLO-3c). Blank (the default) means no SP-initiated Single
     /// Logout: the logout route degrades to a fail-safe local-only logout. It must be an absolute https URL
     /// when set (validated at save by <see cref="ProviderConfigValidator.ValidateSamlSloEndpoint"/>), so the
-    /// signed LogoutRequest — which names the subject NameID — never traverses plaintext http. No effect while
+    /// signed LogoutRequest - which names the subject NameID - never traverses plaintext http. No effect while
     /// <see cref="PluginConfiguration.EnableSingleLogout"/> is off.
     /// </summary>
     public string SamlSloEndpoint { get; set; } = string.Empty;
@@ -457,16 +457,16 @@ public class SamlConfig : ProviderConfigBase
     /// is accepted when its signature verifies against EITHER this certificate or the primary, under the
     /// SAME algorithm allowlist (no SHA-1), signature-scope, and fail-closed checks; when blank, the trial
     /// narrows to the primary alone. Note the validity-window check added with this field applies to the
-    /// primary too, so an already-EXPIRED primary certificate — which the pre-#491 path still accepted, as
-    /// XML-DSig verification ignores certificate dates — is now rejected on upgrade unless a current
+    /// primary too, so an already-EXPIRED primary certificate - which the pre-#491 path still accepted, as
+    /// XML-DSig verification ignores certificate dates - is now rejected on upgrade unless a current
     /// certificate is configured (here or promoted into <see cref="SamlCertificate"/>). Unlike
     /// <see cref="SamlSigningKeyPfx"/> and
-    /// <see cref="SamlRolloverSigningKeyPfx"/> — the SP's own PRIVATE signing keys — this is the identity
+    /// <see cref="SamlRolloverSigningKeyPfx"/> - the SP's own PRIVATE signing keys - this is the identity
     /// provider's PUBLIC signing certificate, exactly like <see cref="SamlCertificate"/>: it is NOT a
     /// secret, so it carries no write-only/encrypted-at-rest handling and is stored and returned in the
     /// clear. An expired certificate is rejected, so an administrator adds the identity provider's new
     /// certificate here before the cutover and promotes it into <see cref="SamlCertificate"/> (clearing
-    /// this field) once the provider has fully rotated — with no login downtime across the overlap window.
+    /// this field) once the provider has fully rotated - with no login downtime across the overlap window.
     /// </summary>
     public string? SamlSecondaryCertificate { get; set; }
 
@@ -502,7 +502,7 @@ public class SamlConfig : ProviderConfigBase
     /// Gets or sets a value indicating whether the outgoing AuthnRequest is signed with this service
     /// provider's signing key, for identity providers that require signed requests (#167). Opt-in
     /// (default off): with it off the request is sent exactly as before (unsigned), so existing
-    /// deployments are unaffected. When on, a valid <see cref="SamlSigningKeyPfx"/> must be configured —
+    /// deployments are unaffected. When on, a valid <see cref="SamlSigningKeyPfx"/> must be configured -
     /// the challenge fails closed (rather than silently sending an unsigned request) if the key is
     /// missing or unloadable.
     /// </summary>
@@ -525,7 +525,7 @@ public class SamlConfig : ProviderConfigBase
     /// SP's own signing certificate (#491, capability 1), as a Base64-encoded, unencrypted PKCS#12 (PFX)
     /// blob in the same shape as <see cref="SamlSigningKeyPfx"/>. It is PUBLISH-ONLY: outgoing
     /// AuthnRequests are always signed with the PRIMARY <see cref="SamlSigningKeyPfx"/>, and this key is
-    /// never used to sign. Its purpose is the metadata overlap window — when it is set and
+    /// never used to sign. Its purpose is the metadata overlap window - when it is set and
     /// <see cref="SignAuthnRequests"/> is on, the SP metadata advertises BOTH public certificates as two
     /// <c>KeyDescriptor use="signing"</c> entries, so the identity provider accepts the primary's
     /// signature while the administrator stages the swap (publish both, then promote the rollover key
@@ -564,12 +564,12 @@ public class OidConfig : ProviderConfigBase
     /// collides with an old link onto the old user's account. A link that carries no stored issuer (one
     /// minted before this store existed) is stamped with the current issuer on its next successful login
     /// (trust-on-first-use), so existing links keep working while the provider is unchanged and gain the
-    /// binding transparently — no userbase lockout on upgrade. OpenID only; SAML is out of scope.
+    /// binding transparently - no userbase lockout on upgrade. OpenID only; SAML is out of scope.
     /// </summary>
     // Server-managed exactly like CanonicalLinks: persisted in the config XML but withheld from every JSON
     // response ([JsonIgnore]) so it cannot be read back or set via a config PUT, self-healing lazy init so
     // a direct index assignment persists, and preserved on save by ServerManagedFields.Preserve (which
-    // also CLEARS it, alongside the links, when OidEndpoint changes — the repoint belt, #186).
+    // also CLEARS it, alongside the links, when OidEndpoint changes - the repoint belt, #186).
     [XmlElement("CanonicalLinkIssuers")]
     [System.Text.Json.Serialization.JsonIgnore]
     public SerializableDictionary<string, string> CanonicalLinkIssuers
@@ -592,7 +592,7 @@ public class OidConfig : ProviderConfigBase
     // cannot be read back via a config GET. It is still persisted to the config XML. On save, a
     // blank incoming value re-injects the live secret (see ServerManagedFields.Preserve),
     // so leaving the field blank keeps the stored secret; a new value replaces it. A plain
-    // [JsonIgnore] is wrong here — it is bidirectional and would also drop the value on save.
+    // [JsonIgnore] is wrong here - it is bidirectional and would also drop the value on save.
     [System.Text.Json.Serialization.JsonConverter(typeof(WriteOnlySecretConverter))]
     public string? OidSecret { get; set; }
 
@@ -611,7 +611,7 @@ public class OidConfig : ProviderConfigBase
     /// <summary>
     /// Gets or sets a value indicating whether every OpenID login for this provider must carry
     /// <c>email_verified == true</c> (#166). Off by default (fail closed for availability, not the threat):
-    /// a deployment that does not set it — or an identity provider that omits the claim — is unaffected, so
+    /// a deployment that does not set it - or an identity provider that omits the claim - is unaffected, so
     /// the whole userbase sees no change on upgrade. When on, a login whose <c>email_verified</c> is not
     /// exactly <c>true</c> (absent, false, or unparseable) is refused, so an identity provider that permits
     /// unverified emails cannot be used to sign in. Distinct from <see cref="RequireVerifiedEmailForAdoption"/>,
@@ -623,7 +623,7 @@ public class OidConfig : ProviderConfigBase
 
     /// <summary>
     /// Gets or sets the space-separated <c>acr_values</c> sent on the authorization request (#757, OIDC
-    /// Core §3.1.2.1) — the requested authentication-context class references, most-preferred first (e.g. an
+    /// Core §3.1.2.1) - the requested authentication-context class references, most-preferred first (e.g. an
     /// MFA reference such as <c>urn:...:mfa</c>, or a provider's <c>silver</c>/<c>gold</c> level). Empty by
     /// default: the parameter is then omitted and the request is byte-identical to before. Doubles as the
     /// allow-list <see cref="RequireAcr"/> checks the returned <c>acr</c> claim against. Settable in the
@@ -633,14 +633,14 @@ public class OidConfig : ProviderConfigBase
 
     /// <summary>
     /// Gets or sets the OIDC <c>prompt</c> parameter sent on the authorization request (#757, OIDC Core
-    /// §3.1.2.1) — e.g. <c>login</c> to force re-authentication, or <c>consent</c>. Empty by default: the
+    /// §3.1.2.1) - e.g. <c>login</c> to force re-authentication, or <c>consent</c>. Empty by default: the
     /// parameter is then omitted. Settable in the admin provider form as well as the config XML.
     /// </summary>
     public string? Prompt { get; set; }
 
     /// <summary>
     /// Gets or sets the OIDC <c>max_age</c> parameter (seconds) sent on the authorization request (#757,
-    /// OIDC Core §3.1.2.1) — the maximum allowable time since the user's last active authentication;
+    /// OIDC Core §3.1.2.1) - the maximum allowable time since the user's last active authentication;
     /// <c>0</c> forces re-authentication. Null by default: the parameter is then omitted. A negative value
     /// is treated as unset. Settable in the admin provider form as well as the config XML.
     /// </summary>
@@ -648,10 +648,10 @@ public class OidConfig : ProviderConfigBase
 
     /// <summary>
     /// Gets or sets a value indicating whether every OpenID login for this provider must return an <c>acr</c>
-    /// claim within <see cref="AcrValues"/> (#757) — a fail-closed step-up / forced-MFA enforcement. Off by
+    /// claim within <see cref="AcrValues"/> (#757) - a fail-closed step-up / forced-MFA enforcement. Off by
     /// default (for availability): a deployment that does not set it is unaffected. When on, a login whose
     /// signature-verified id_token carries no <c>acr</c>, or an <c>acr</c> outside the configured list, is
-    /// refused. Requires <see cref="AcrValues"/> to be set — the save is rejected otherwise, so a mis-set
+    /// refused. Requires <see cref="AcrValues"/> to be set - the save is rejected otherwise, so a mis-set
     /// cannot silently lock out a userbase or silently no-op. The break-glass password admin is unaffected.
     /// Settable in the admin provider form as well as the config XML.
     /// </summary>
@@ -665,8 +665,8 @@ public class OidConfig : ProviderConfigBase
     /// <summary>
     /// Gets or sets a value indicating whether the node <see cref="RoleClaim"/> resolves to is a JSON
     /// <b>object whose property names are the role names</b>, rather than a JSON array of role strings
-    /// (#934). Zitadel emits exactly that shape — <c>{"jellyfin-access": {"&lt;orgId&gt;": "&lt;domain&gt;"}}</c>
-    /// under <c>urn:zitadel:iam:org:project:roles</c> — so without this its roles are unreadable and its
+    /// (#934). Zitadel emits exactly that shape - <c>{"jellyfin-access": {"&lt;orgId&gt;": "&lt;domain&gt;"}}</c>
+    /// under <c>urn:zitadel:iam:org:project:roles</c> - so without this its roles are unreadable and its
     /// role gate can never be turned on. Off by default, so no existing provider changes behaviour.
     /// Only the property NAMES are read, never the values and never nested objects; any other shape
     /// (array, scalar, malformed JSON) still fails closed to no roles. Settable in the admin provider
@@ -693,7 +693,7 @@ public class OidConfig : ProviderConfigBase
     /// Gets or sets a value indicating whether the zero-config fallback to the standard OIDC
     /// <c>picture</c> claim is disabled (#723). Off by default (the fallback is on), so a
     /// standards-compliant IdP yields an avatar with no <see cref="AvatarUrlFormat"/> template. Set it
-    /// to opt an admin out of the IdP-driven avatar fetch entirely — with no template and this set, no
+    /// to opt an admin out of the IdP-driven avatar fetch entirely - with no template and this set, no
     /// avatar candidate is produced and nothing is fetched. A configured template is unaffected either
     /// way. The negative name keeps the safe/parity default at <see langword="false"/>, matching the
     /// other <c>Disable…</c>/<c>DoNot…</c> toggles and surviving deserialization of configs saved before
@@ -736,7 +736,7 @@ public class OidConfig : ProviderConfigBase
     /// <summary>
     /// Gets or sets a value indicating whether the authorization server must advertise PKCE with S256
     /// (in the discovery document's <c>code_challenge_methods_supported</c>) before a login proceeds.
-    /// When true, a login is refused if the server does not advertise S256 — fail closed, RFC 9700
+    /// When true, a login is refused if the server does not advertise S256 - fail closed, RFC 9700
     /// §2.1.1. When false (the default), an unsupported server only logs an <c>[SSO Audit]</c> warning
     /// and the login proceeds (PKCE is still sent, but the server may ignore it).
     /// </summary>

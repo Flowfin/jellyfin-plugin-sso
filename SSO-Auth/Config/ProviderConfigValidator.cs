@@ -20,13 +20,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// is the underlying <see cref="CanonicalBaseUrl.IsInvalidOverride"/>,
 /// <see cref="OidcLogout.IsAllowedPostLogoutRedirect"/> (the SAME allow-list the logout runtime enforces),
 /// <see cref="SamlCertificate.IsInvalid"/>, <see cref="SamlSigningKey.IsInvalid"/>, and
-/// <see cref="ProviderNameValidator.IsInvalid"/> predicates — the SAME ones the Add endpoints' own
+/// <see cref="ProviderNameValidator.IsInvalid"/> predicates - the SAME ones the Add endpoints' own
 /// guards (<c>SSOController.RejectInvalid*</c>) delegate to. The two admin write paths keep separate
 /// throwing wrappers on purpose (#671): the config-page messages here embed the provider name and
 /// protocol for the admin UI, whereas the Add-endpoint messages stay generic and input-independent (they
 /// never echo the caller's provider name back), and <c>RejectInvalidNewProviderName</c> resolves
 /// existence under the config lock. So a new provider-config rule is one shared base predicate plus the
-/// two context-appropriate wrappers — the validation logic is not duplicated, only the messaging is
+/// two context-appropriate wrappers - the validation logic is not duplicated, only the messaging is
 /// deliberately parallel.
 /// </summary>
 internal static class ProviderConfigValidator
@@ -34,7 +34,7 @@ internal static class ProviderConfigValidator
     // Throws if any provider's canonical base-URL override (#139) is set but not a valid absolute
     // http/https base URL, any SAML provider's signing certificate (#206) is set but not a loadable
     // X.509 certificate, or any NEWLY registered provider name (#336/#360) contains control characters,
-    // URI-reserved characters, or a backslash — rejecting the save fail-closed before anything is
+    // URI-reserved characters, or a backslash - rejecting the save fail-closed before anything is
     // persisted. A blank override or
     // certificate is valid (the override feature is off; a half-configured provider), and a name
     // already present in the live configuration is exempt from the name rule (see
@@ -89,9 +89,9 @@ internal static class ProviderConfigValidator
     // A NEW provider name containing URI-reserved or control characters would be persisted and then break
     // the callback round-trip at login (#336, #360): the name is appended raw to the redirect_uri/ACS URL
     // (the OIDC/SAML URL builders) and matched back by route. Only a name absent from the live configuration is
-    // rejected — an existing name, whose URL bytes the identity provider already has registered, must
+    // rejected - an existing name, whose URL bytes the identity provider already has registered, must
     // keep saving unchanged or the deployment would be stranded behind a rename. The echoed name gets a
-    // full control strip (stronger than the line-ending strip below — see the inline comment).
+    // full control strip (stronger than the line-ending strip below - see the inline comment).
 
     /// <summary>
     /// Rejects a NEW provider whose name would corrupt the login callback URL it becomes part of: a name
@@ -108,7 +108,7 @@ internal static class ProviderConfigValidator
         if (isNew && ProviderNameValidator.IsInvalid(provider))
         {
             // Rejected names can now carry arbitrary control characters (#360), so line-ending stripping
-            // alone would let e.g. ESC survive into the exception text and any log that captures it —
+            // alone would let e.g. ESC survive into the exception text and any log that captures it -
             // strip ALL controls inline here, then the two non-control line separators (U+2028/U+2029)
             // that ReplaceLineEndings covers and char.IsControl does not.
             var echoName = string.Concat((provider ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
@@ -119,7 +119,7 @@ internal static class ProviderConfigValidator
     }
 
     // RequireAcr with no acr_values would be persisted and then refuse EVERY login for the provider (the
-    // allow-list is empty, so no returned acr can satisfy it) — a silent lockout (#757). Reject it at save so
+    // allow-list is empty, so no returned acr can satisfy it) - a silent lockout (#757). Reject it at save so
     // the mis-set is caught before it takes effect, rather than failing open (a no-op) or locking out. The
     // provider name is line-ending-stripped inline in case it reaches a log through the thrown exception.
 
@@ -168,8 +168,8 @@ internal static class ProviderConfigValidator
     // dropped at logout (OidcLogout omits it and the logout completes with no redirect back), so the admin
     // gets no feedback that their configured return URL never fires (#727, SLO-4). Reject it at save so the
     // mis-set is caught instead of failing as a silent runtime no-op. The base is only DETERMINATE at save
-    // time when it is pinned via the per-provider Base URL Override — without an override the runtime derives
-    // it from the request Host, which does not exist at save time — so the check applies exactly when the
+    // time when it is pinned via the per-provider Base URL Override - without an override the runtime derives
+    // it from the request Host, which does not exist at save time - so the check applies exactly when the
     // canonical base is knowable from the config alone, and it reuses the SAME allow-list predicate the
     // runtime enforces (OidcLogout.IsAllowedPostLogoutRedirect) rather than restating the URL rule. The
     // provider name is line-ending-stripped inline in case it reaches a log through the thrown exception, and
@@ -179,7 +179,7 @@ internal static class ProviderConfigValidator
 
     /// <summary>
     /// Rejects a non-blank <c>post_logout_redirect_uri</c> (#727, SLO-4) that the runtime would silently drop
-    /// — i.e. one that is not an absolute http(s) URL at or under this server's canonical base — so the admin
+    /// - i.e. one that is not an absolute http(s) URL at or under this server's canonical base - so the admin
     /// gets feedback instead of a return URL that never fires. OpenID-only (only the OpenID logout path uses
     /// it). The base is taken from the provider's Base URL Override; when no override pins it (the base is
     /// request-derived and unknown at save time) the check is skipped, leaving the runtime allow-list as the
@@ -193,7 +193,7 @@ internal static class ProviderConfigValidator
     /// <exception cref="ArgumentException">The value is non-blank, the base is determinate, and the value is not at/under it.</exception>
     internal static void ValidatePostLogoutRedirectUri(string protocol, string provider, string? baseUrlOverride, string? postLogoutRedirectUri)
     {
-        // Blank means no post-logout redirect — always valid. Without a determinate canonical base the
+        // Blank means no post-logout redirect - always valid. Without a determinate canonical base the
         // runtime's own allow-list stays the only check (the base is the request Host, unknown here).
         if (string.IsNullOrWhiteSpace(postLogoutRedirectUri)
             || !CanonicalBaseUrl.TryNormalize(baseUrlOverride, out var canonicalBase))
@@ -212,7 +212,7 @@ internal static class ProviderConfigValidator
     // A malformed SAML SLO endpoint (#727, SLO-3c) would be persisted and then silently disable SP-initiated
     // Single Logout (the logout route falls back to local-only), so the admin gets no feedback that the
     // endpoint they configured never fires. Reject it at save. It reuses the SAME absolute-URL predicate the
-    // Base URL override validates through (CanonicalBaseUrl.TryNormalize — absolute http(s), no
+    // Base URL override validates through (CanonicalBaseUrl.TryNormalize - absolute http(s), no
     // query/fragment/userinfo) and then narrows to https: the redirect carries a signed LogoutRequest naming
     // the subject NameID, so it must not traverse plaintext http. Blank is valid (no SP-initiated SLO). The
     // provider name is line-ending-stripped inline in case it reaches a log through the thrown exception.
@@ -220,8 +220,8 @@ internal static class ProviderConfigValidator
     /// <summary>
     /// Rejects a SAML Single-Logout (SLO) endpoint (#727, SLO-3c) that is set but is not a valid absolute
     /// https URL, which would otherwise persist and then silently disable SP-initiated Single Logout (the
-    /// logout route falls back to local-only). Reuses <see cref="CanonicalBaseUrl.TryNormalize"/> — the same
-    /// absolute-URL predicate the Base URL override validates through — and narrows to https so the signed
+    /// logout route falls back to local-only). Reuses <see cref="CanonicalBaseUrl.TryNormalize"/> - the same
+    /// absolute-URL predicate the Base URL override validates through - and narrows to https so the signed
     /// LogoutRequest never traverses plaintext http. A blank endpoint is valid (no SP-initiated SLO).
     /// </summary>
     /// <param name="provider">The provider name, echoed (line-ending-stripped) in the rejection message.</param>
@@ -244,7 +244,7 @@ internal static class ProviderConfigValidator
     }
 
     // A garbage certificate would be persisted and then throw a CryptographicException on every
-    // callback — an unhandled 500 (#206). Same inline line-ending strip as above.
+    // callback - an unhandled 500 (#206). Same inline line-ending strip as above.
 
     /// <summary>
     /// Rejects a SAML provider whose signing certificate is set but is not a loadable X.509 certificate,
@@ -265,14 +265,14 @@ internal static class ProviderConfigValidator
     }
 
     // The optional inbound secondary verification certificate (#491) is the identity provider's PUBLIC
-    // certificate — the exact same kind of value as the primary, and rejected the exact same way: a
+    // certificate - the exact same kind of value as the primary, and rejected the exact same way: a
     // set-but-unloadable value would be persisted and then throw a CryptographicException on every callback
     // (an unhandled 500, #206). Blank is valid (no overlap window configured). Same inline line-ending
     // strip as above.
 
     /// <summary>
     /// Rejects a SAML provider whose OPTIONAL secondary verification certificate (#491) is set but not
-    /// loadable — the identity provider's public certificate for a key-overlap window, validated exactly
+    /// loadable - the identity provider's public certificate for a key-overlap window, validated exactly
     /// like the primary. A blank value is valid (no overlap window configured).
     /// </summary>
     /// <param name="provider">The provider name, echoed (line-ending-stripped) in the rejection message.</param>
@@ -292,7 +292,7 @@ internal static class ProviderConfigValidator
     // nothing for the offending entry at login (fail-closed at runtime), leaving the admin's intended
     // permission un-applied with no feedback. Reject it at the door instead: every entry's Permission must
     // name a known Jellyfin PermissionKind that is not one of the dedicated permissions managed by their
-    // own fields (administrator, all-folders, Live TV access/management) — those have exactly one
+    // own fields (administrator, all-folders, Live TV access/management) - those have exactly one
     // authoritative source and may not be double-mapped here. A null entry maps nothing and is tolerated
     // (it grants nothing at runtime). Both the config-page save and the Add endpoints run this. The
     // provider name and the echoed permission are control-stripped in case they reach a log through the
@@ -343,13 +343,13 @@ internal static class ProviderConfigValidator
     }
 
     // A parental-rating mapping (#736) with a negative score or no roles would be persisted and then either
-    // never apply (no roles) or be a nonsensical ceiling — reject both fail-closed at save so a mis-set is
+    // never apply (no roles) or be a nonsensical ceiling - reject both fail-closed at save so a mis-set is
     // caught before it takes effect. A null entry maps nothing and is tolerated (it contributes nothing at
     // runtime). Both the config-page save and the Add endpoints run this. The provider name is control-
     // stripped in case it reaches a log through the thrown exception.
 
     /// <summary>
-    /// Rejects a parental-rating mapping (#736) with a negative score or with no roles — the former is a
+    /// Rejects a parental-rating mapping (#736) with a negative score or with no roles - the former is a
     /// nonsensical ceiling, the latter would never apply. Both are caught at save so a mis-set is found
     /// before it takes effect. A null mappings collection or a null entry maps nothing and is tolerated.
     /// </summary>
@@ -396,7 +396,7 @@ internal static class ProviderConfigValidator
     /// <summary>
     /// Rejects a service-provider request signing key (#167/#491) that is non-blank but not a loadable
     /// unencrypted PKCS#12 blob, which would otherwise persist and fail every signed challenge. A blank
-    /// key is valid — a config-page save withholds the key from JSON, so it arrives blank and the stored
+    /// key is valid - a config-page save withholds the key from JSON, so it arrives blank and the stored
     /// one is re-injected afterwards.
     /// </summary>
     /// <param name="provider">The provider name, echoed (line-ending-stripped) in the rejection message.</param>

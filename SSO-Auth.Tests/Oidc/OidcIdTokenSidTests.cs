@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcIdTokenSid"/> — the Single Logout capture reads the sid claim from the RAW,
+/// Tests for <see cref="OidcIdTokenSid"/> - the Single Logout capture reads the sid claim from the RAW,
 /// signature-verified id_token (#727), never the UserInfo-merged principal, so a UserInfo-supplied sid
 /// cannot poison the persisted logout key. A degenerate token yields null rather than throwing.
 /// </summary>

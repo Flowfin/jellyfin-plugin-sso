@@ -22,7 +22,7 @@ internal sealed class PerClientBudgetLimiter
 {
     // One source may hold at most this fraction of the store's global cap: 1/100, so it takes >=100
     // distinct attributable public sources to exhaust the budget and no single one can lock out logins,
-    // while >=99% stays free for everyone else. A constant, not config — a login-path safety limit whose
+    // while >=99% stays free for everyone else. A constant, not config - a login-path safety limit whose
     // mis-set value would itself be a lockout (too low) or a no-op (too high).
 
     /// <summary>The reciprocal of one client's share of the global cap (1/100): it takes at least this many distinct sources to exhaust the budget, and no single one can lock out logins.</summary>
@@ -58,9 +58,9 @@ internal sealed class PerClientBudgetLimiter
 
     /// <summary>
     /// Reserves one slot for <paramref name="clientKey"/>, or false when it already holds its full share
-    /// (fail closed for that one login). A null key is unattributable — loopback/RFC1918/CGNAT/link-local,
+    /// (fail closed for that one login). A null key is unattributable - loopback/RFC1918/CGNAT/link-local,
     /// or a reverse proxy whose forwarded headers Jellyfin was not told to resolve (the socket peer is the
-    /// proxy's private IP) — i.e. the whole userbase behind one bucket, so it is EXEMPT (always reserves,
+    /// proxy's private IP) - i.e. the whole userbase behind one bucket, so it is EXEMPT (always reserves,
     /// never counted); per-client-capping it would re-introduce the mass lockout #327 forbids. The exempt
     /// bucket is still bounded by the store's global cap.
     /// </summary>
@@ -83,7 +83,7 @@ internal sealed class PerClientBudgetLimiter
                 }
 
                 // Cap-check and increment as one atom: a concurrent increment changes n, the CAS fails,
-                // we re-read — so two threads at cap-1 can never both cross the cap (zero overshoot).
+                // we re-read - so two threads at cap-1 can never both cross the cap (zero overshoot).
                 if (_counts.TryUpdate(clientKey, n + 1, n))
                 {
                     return true;
@@ -94,7 +94,7 @@ internal sealed class PerClientBudgetLimiter
                 return true;
             }
 
-            // Lost a race for this key — re-read and retry. Lock-free, O(1) amortized, never scans a store.
+            // Lost a race for this key - re-read and retry. Lock-free, O(1) amortized, never scans a store.
         }
     }
 
@@ -102,7 +102,7 @@ internal sealed class PerClientBudgetLimiter
     /// Releases one slot previously reserved for <paramref name="clientKey"/>. Idempotent and never
     /// negative: an unknown key is a no-op, and the bucket is dropped at zero so the map stays bounded.
     /// A null key reserved nothing, so it releases nothing. MUST be called exactly once per successful
-    /// reservation, on the single winner of the store's atomic removal — a double release would
+    /// reservation, on the single winner of the store's atomic removal - a double release would
     /// under-count and let the bucket admit past its cap.
     /// </summary>
     /// <param name="clientKey">The client key whose slot is freed, or null (a no-op).</param>

@@ -31,7 +31,7 @@ internal static class SamlInsecureToggles
 
         // DoNotValidateAudience drops the AudienceRestriction binding: with it on, an assertion minted for
         // a DIFFERENT service provider that shares this IdP is accepted, so it is a genuine audience/SP
-        // confusion downgrade of a default-on check — exactly the class #140 audits for OpenID.
+        // confusion downgrade of a default-on check - exactly the class #140 audits for OpenID.
         if (config.DoNotValidateAudience)
         {
             enabled.Add(nameof(SamlConfig.DoNotValidateAudience));

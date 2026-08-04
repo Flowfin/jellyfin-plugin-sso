@@ -81,7 +81,7 @@ public class RequestHelpersTests
     public async Task UnauthenticatedContext_FailsClosed()
     {
         // No authenticated user resolved: the explicit null-guard returns a clean deny rather than
-        // dereferencing the (null) user and faulting with a NullReferenceException — the ambiguous case
+        // dereferencing the (null) user and faulting with a NullReferenceException - the ambiguous case
         // never yields true and never surfaces as a 500.
         var authContext = ContextFor(user: null);
 

@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <see cref="SsoControllerHarness"/>. They pin the fail-safe contract: the local Jellyfin logout always runs,
 /// a fully-configured captured SAML session redirects to the SLO endpoint with a signed LogoutRequest naming
 /// the caller's OWN NameID, and any missing precondition (feature off, no endpoint, unloadable key, no captured
-/// session) degrades to a local (host-independent) redirect — never a 500 or an external redirect. Every action
+/// session) degrades to a local (host-independent) redirect - never a 500 or an external redirect. Every action
 /// is caller-scoped: a caller can only end their own session and can never build a request naming another user.
 /// </summary>
 [Collection("SSOController")]
@@ -178,7 +178,7 @@ public class SSOControllerSamlSpLogoutTests
 
         Assert.IsType<LocalRedirectResult>(result);
         await harness.SessionManager.Received(1).Logout("caller-token");
-        // The other user's session is untouched — the caller can only end their own.
+        // The other user's session is untouched - the caller can only end their own.
         Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("other-session")));
     }
 
@@ -186,7 +186,7 @@ public class SSOControllerSamlSpLogoutTests
     public async Task SamlSpLogout_IgnoresOpenIdCaptureForTheSameProvider()
     {
         // A capture for the same provider but a DIFFERENT protocol (OpenID) must not be selected by the SAML
-        // logout path — the Protocol filter keeps the two flows apart.
+        // logout path - the Protocol filter keeps the two flows apart.
         var harness = ForCaller("caller-token", config =>
         {
             config.EnableSingleLogout = true;
@@ -205,7 +205,7 @@ public class SSOControllerSamlSpLogoutTests
 
         Assert.IsType<LocalRedirectResult>(result);
         await harness.SessionManager.Received(1).Logout("caller-token");
-        // The OpenID capture is left in place — the SAML SP-logout path did not consume it.
+        // The OpenID capture is left in place - the SAML SP-logout path did not consume it.
         Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("oid-session")));
     }
 

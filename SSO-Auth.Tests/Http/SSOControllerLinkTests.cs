@@ -101,7 +101,7 @@ public class SSOControllerLinkTests
     public async Task DeleteCanonicalLink_AuthorizedButInvalidMode_Throws()
     {
         // #369: the DELETE route parses {mode} at the same boundary as the add route, so an unknown mode is
-        // rejected there once — fail closed, exactly like AddCanonicalLink — rather than being forwarded raw
+        // rejected there once - fail closed, exactly like AddCanonicalLink - rather than being forwarded raw
         // to the service to throw deep inside TryGetLinks. Pins the previously-untested DELETE invalid-mode path.
         var harness = ForCaller(isAdmin: true, callerId: Target);
 
@@ -113,7 +113,7 @@ public class SSOControllerLinkTests
     public async Task AddCanonicalLink_MixedCaseMode_RoutesToTheRightFlow()
     {
         // #369: the single boundary parse is case-insensitive and culture-independent, so a mixed-case token
-        // routes to the same protocol the lowercase one does — the two former divergent dispatches (one
+        // routes to the same protocol the lowercase one does - the two former divergent dispatches (one
         // culture-sensitive) can no longer disagree. "SAML" routes to the SAML link path, proven by its
         // clean unknown-provider 400 (SamlLink checks the provider before touching the response).
         var harness = ForCaller(isAdmin: true, callerId: Target);
@@ -212,7 +212,7 @@ public class SSOControllerLinkTests
     public async Task DeleteCanonicalLink_RemovingTheUsersLastLink_RevokesTheirActiveTokens()
     {
         // #468: unlinking the user's ONLY canonical link severs their SSO identity entirely (they can no
-        // longer SSO in at all), so — matching Unregister's hard-lockdown posture (#440) — their already
+        // longer SSO in at all), so - matching Unregister's hard-lockdown posture (#440) - their already
         // issued tokens are revoked, scoped strictly to this one user id (null revokes all of theirs).
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c =>
             c.OidConfigs["keycloak"] = new OidConfig
@@ -230,7 +230,7 @@ public class SSOControllerLinkTests
     [Fact]
     public async Task DeleteCanonicalLink_LastLinkRevoke_ScopedToTarget_LeavesOtherUsersTokensAlone()
     {
-        // The revoke is scoped strictly to the resolved target — no other user's tokens may be swept even
+        // The revoke is scoped strictly to the resolved target - no other user's tokens may be swept even
         // when their link lives on the same provider.
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c =>
             c.OidConfigs["keycloak"] = new OidConfig
@@ -249,7 +249,7 @@ public class SSOControllerLinkTests
     public async Task DeleteCanonicalLink_UserKeepsAnotherLink_DoesNotRevokeTokens()
     {
         // #468 availability guard: a user who still holds a link on ANOTHER provider can still SSO in, so
-        // unlinking a secondary provider must NOT revoke — that would be a self-inflicted mass-logout of a
+        // unlinking a secondary provider must NOT revoke - that would be a self-inflicted mass-logout of a
         // healthy multi-link user for no security gain.
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c =>
         {
@@ -275,7 +275,7 @@ public class SSOControllerLinkTests
     public async Task DeleteCanonicalLink_NoOpOutcomes_DoNotRevokeTokens()
     {
         // Only a real removal (Removed) can trigger a last-link revoke; a NotFound canonical name changes no
-        // state, so no tokens are revoked — the revoke is gated on the durable state change, never a miss.
+        // state, so no tokens are revoked - the revoke is gated on the durable state change, never a miss.
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c =>
             c.OidConfigs["keycloak"] = new OidConfig { Enabled = true });
 
@@ -323,7 +323,7 @@ public class SSOControllerLinkTests
     public async Task AddCanonicalLink_OidDisabledProvider_RejectsWithoutConsumingTheState()
     {
         // #343: a state validated shortly before an administrator disables the provider must not stay
-        // usable to create a link, and the disabled provider must not burn the state either — the
+        // usable to create a link, and the disabled provider must not burn the state either - the
         // rejection mirrors OidAuth's short-circuit order and shares the unknown-provider response, so
         // the two cases cannot be probed apart.
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c => c.OidConfigs["keycloak"] = new OidConfig { Enabled = false });
@@ -347,8 +347,8 @@ public class SSOControllerLinkTests
     public async Task AddCanonicalLink_OidMismatchedBindingCookie_RejectsWithoutConsumingTheState()
     {
         // #326: the OID link redeem is browser-bound like the login path. A callback presenting a
-        // different browser's binding cookie is refused, and — the binding check preceding the atomic
-        // remove — the state is NOT consumed, so the browser that started the flow can still link.
+        // different browser's binding cookie is refused, and - the binding check preceding the atomic
+        // remove - the state is NOT consumed, so the browser that started the flow can still link.
         var harness = ForCaller(isAdmin: true, callerId: Target, configure: c => c.OidConfigs["keycloak"] = new OidConfig { Enabled = true });
         OidcLoginService.SeedOidStateForTests("state-1", new AuthorizeSession.Ready(
             new AuthorizeSession.Pending(new AuthorizeState { State = "state-1" }, "keycloak", isLinking: false, DateTime.UtcNow, Binding, clientKey: null, providerInformation: null!, responseIssuerRequired: false),
@@ -417,7 +417,7 @@ public class SSOControllerLinkTests
         // TryValidate -> `using var ownedResponse` -> replay consume -> GetNameID -> link write) so the #674
         // disposal placement is exercised on a real leg: the NameID and the replay getters (GetAssertionId /
         // GetNotOnOrAfter) are read WHILE the response owns the certificate handle, and the leg still
-        // completes — a use-after-dispose reachable only on this leg would fail here. The assertion's
+        // completes - a use-after-dispose reachable only on this leg would fail here. The assertion's
         // one-time-use consume is proven by the second, identical attempt being rejected rather than
         // re-linking (never a second NoContent).
         var fixture = SamlTestFactory.Create(nameId: "alice");
@@ -473,7 +473,7 @@ public class SSOControllerLinkTests
         });
 
         // The first authorized call passes the limiter and spends the single-attempt budget; the unknown
-        // provider then rejects with the uniform 400 — but the budget is already spent.
+        // provider then rejects with the uniform 400 - but the budget is already spent.
         Assert.IsType<BadRequestObjectResult>(
             await harness.Controller.AddCanonicalLink("oid", "does-not-exist", Target, new AuthResponse { Data = "state-token" }));
 
@@ -493,7 +493,7 @@ public class SSOControllerLinkTests
     [Fact]
     public async Task DeleteCanonicalLink_AuthorizedOverRateLimit_Returns429()
     {
-        // #382: the DELETE arm is throttled too — a name-miss DELETE still runs a full persist under the
+        // #382: the DELETE arm is throttled too - a name-miss DELETE still runs a full persist under the
         // config lock, so it shares the "link" budget with the add arm.
         var harness = ForCaller(isAdmin: true, callerId: Target, clientIp: IPAddress.Parse("8.8.4.11"), configure: c =>
         {
@@ -516,7 +516,7 @@ public class SSOControllerLinkTests
     public async Task AddCanonicalLink_UnauthorizedOverRateLimit_Returns403NotThrottled()
     {
         // The caller-authz guard runs before the limiter (#382 keeps the 403 first), so an unauthorized caller
-        // is refused with 403 and never consumes or is judged by the rate-limit budget — even hammering past
+        // is refused with 403 and never consumes or is judged by the rate-limit budget - even hammering past
         // the configured max of one. This pins the ordering: no 429 can precede the 403 (no rate-limit oracle).
         var harness = ForCaller(isAdmin: false, callerId: Other, clientIp: IPAddress.Parse("8.8.4.12"), configure: c =>
         {

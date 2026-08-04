@@ -19,13 +19,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 /// <remarks>
 /// The mapping is <b>default-deny and authoritative</b>: for every permission an administrator explicitly
 /// listed (and only those), the grant is <c>true</c> when the login carries a matching role and <c>false</c>
-/// otherwise — so a missing or unmapped claim never silently grants a permission, and SSO explicitly revokes
+/// otherwise - so a missing or unmapped claim never silently grants a permission, and SSO explicitly revokes
 /// a listed permission the login no longer qualifies for. A permission that is not listed at all is never
 /// emitted, so the mint leaves it untouched and Jellyfin's own default governs it.
 ///
-/// The four permissions with their own dedicated configuration fields/flows —
+/// The four permissions with their own dedicated configuration fields/flows -
 /// <see cref="PermissionKind.IsAdministrator"/>, <see cref="PermissionKind.EnableAllFolders"/>,
-/// <see cref="PermissionKind.EnableLiveTvAccess"/>, <see cref="PermissionKind.EnableLiveTvManagement"/> —
+/// <see cref="PermissionKind.EnableLiveTvAccess"/>, <see cref="PermissionKind.EnableLiveTvManagement"/> -
 /// are refused here (see <see cref="DedicatedPermissions"/>) so each permission has exactly one
 /// authoritative source and two sources can never disagree. <see cref="PermissionKind.IsDisabled"/> is
 /// refused for a stronger reason (#165, Finding H1): no SSO role mapping may ever disable an account, which
@@ -36,10 +36,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 internal static class PermissionRolePolicy
 {
     // The permissions the generic map may never set. The first four already have a dedicated configuration
-    // surface — mapping them here would create a second, conflicting authoritative source. IsDisabled is
+    // surface - mapping them here would create a second, conflicting authoritative source. IsDisabled is
     // excluded for a stronger reason (#165, Finding H1): no SSO role mapping may ever disable an account, or
     // an admin could map a role to IsDisabled and a single SSO login would lock the account (including the
-    // break-glass admin) out — a whole-org lockout / recovery-defeat vector. Excluding it here makes it
+    // break-glass admin) out - a whole-org lockout / recovery-defeat vector. Excluding it here makes it
     // rejected fail-closed at config-save and a no-op grant at runtime, so IsDisabled is never in the mint's
     // grant list.
     private static readonly HashSet<PermissionKind> DedicatedPermissions = new()
@@ -75,7 +75,7 @@ internal static class PermissionRolePolicy
     /// <param name="roles">The roles extracted from the verified login (OpenID claims or SAML attributes).</param>
     /// <param name="config">The provider configuration.</param>
     /// <returns>
-    /// One grant per configured, resolvable permission — deterministic (first-appearance order), each
+    /// One grant per configured, resolvable permission - deterministic (first-appearance order), each
     /// permission emitted at most once (an entry repeated for a permission is OR-ed), with
     /// <see cref="PermissionGrant.Granted"/> true iff a matching role is present. Empty when the master
     /// switch is off or nothing is configured, so nothing is applied.
@@ -83,7 +83,7 @@ internal static class PermissionRolePolicy
     internal static IReadOnlyList<PermissionGrant> Map(IEnumerable<string> roles, ProviderConfigBase config)
     {
         // Master switch off (the default) or no mappings configured: SSO manages no extra permissions, so
-        // the mint touches none of them — byte-for-byte the pre-#164 behavior.
+        // the mint touches none of them - byte-for-byte the pre-#164 behavior.
         if (!config.EnablePermissionRoles || config.PermissionRoleMappings is null)
         {
             return Array.Empty<PermissionGrant>();
@@ -177,7 +177,7 @@ internal static class PermissionRolePolicy
 
     // Whether the login carries any of the configured roles. The configured (trusted, admin-authored) role
     // is trimmed before comparison; the IdP-supplied role is compared raw and ordinal, so there is no
-    // whitespace-injection vector — mirroring the folder-role comparison hardening (#367). Null-safe both
+    // whitespace-injection vector - mirroring the folder-role comparison hardening (#367). Null-safe both
     // ways: a null role array or a null entry is simply not a match, never a NullReferenceException, so an
     // admin misconfiguration fails closed (grants nothing) instead of throwing.
     private static bool MatchesAnyRole(string[]? configuredRoles, IReadOnlyCollection<string> loginRoles)
@@ -198,7 +198,7 @@ internal static class PermissionRolePolicy
 
             // A configured entry that trims to empty grants nothing (#935): a blank IdP role (a terminal
             // array element "" or, since #934, an object-map property named "") must never satisfy a
-            // mapping — the same blank-skip RolePrivilegeMapper.IsOnList and ParentalRatingPolicy apply.
+            // mapping - the same blank-skip RolePrivilegeMapper.IsOnList and ParentalRatingPolicy apply.
             if (trimmed.Length == 0)
             {
                 continue;

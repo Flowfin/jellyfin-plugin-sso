@@ -45,7 +45,7 @@ public class ProviderScopedKeyTests
     {
         // The security boundary the empty-id passthrough relies on: a missing correlation id yields a
         // blank key, and both one-time-use caches fail closed on a blank key, so it can never be
-        // registered or consumed — no replay or InResponseTo-correlation bypass.
+        // registered or consumed - no replay or InResponseTo-correlation bypass.
         var now = DateTime.UtcNow;
         var replayKey = ProviderScopedKey.For("kc", string.Empty);
         var requestKey = ProviderScopedKey.For("kc", null);

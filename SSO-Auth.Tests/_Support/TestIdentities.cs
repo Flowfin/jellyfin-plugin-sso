@@ -13,8 +13,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Test fixtures that mint a <see cref="VerifiedIdentity"/> from a protocol authorize-state, mirroring the
 /// production destructuring in <c>AuthorizeSession.Ready</c> (OpenID) and <c>SamlAssertionValidator</c>
-/// (SAML). Kept in one place so the #790 dependency inversion — protocol state → <see cref="ValidatedLogin"/>
-/// → the keystone factory — is applied identically wherever a test needs a ready-made verified identity,
+/// (SAML). Kept in one place so the #790 dependency inversion - protocol state → <see cref="ValidatedLogin"/>
+/// → the keystone factory - is applied identically wherever a test needs a ready-made verified identity,
 /// without each test repeating the field mapping.
 /// </summary>
 internal static class TestIdentities

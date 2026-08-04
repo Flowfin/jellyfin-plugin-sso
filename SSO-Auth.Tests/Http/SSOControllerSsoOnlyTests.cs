@@ -65,7 +65,7 @@ public class SSOControllerSsoOnlyTests
     public async Task EnableSsoOnly_WithNoQualifyingAdmin_ReturnsBadRequest_AndChangesNothing()
     {
         var harness = new SsoControllerHarness();
-        // Only a non-admin exists — enabling would strand every administrator, so it is refused fail-closed.
+        // Only a non-admin exists - enabling would strand every administrator, so it is refused fail-closed.
         var alice = SeedPasswordUser(harness, "alice", AliceId);
         harness.UserManager.GetUsers().Returns(new[] { alice });
 

@@ -81,7 +81,7 @@ public class SSOControllerUnregisterTests
 
         await harness.Controller.Unregister("alice", "Jellyfin");
 
-        // The revoke is scoped strictly to the resolved target — no other user's tokens may be swept.
+        // The revoke is scoped strictly to the resolved target - no other user's tokens may be swept.
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(otherUser, Arg.Any<string?>());
     }
 
@@ -182,8 +182,8 @@ public class SSOControllerUnregisterTests
     {
         // The in-process harness calls the action directly, bypassing MVC's authorization filters, so the
         // "unauthorized never 429" property is pinned structurally instead: the [Authorize(RequiresElevation)]
-        // filter rejects a non-elevated caller (401/403) BEFORE the action body — and thus before the
-        // RateLimitCheck the body fronts itself with — runs. So no 429 can ever precede the auth rejection: a
+        // filter rejects a non-elevated caller (401/403) BEFORE the action body - and thus before the
+        // RateLimitCheck the body fronts itself with - runs. So no 429 can ever precede the auth rejection: a
         // hammering unauthorized caller is refused, never throttled, and never consumes the "unregister" budget.
         var authorize = typeof(SSOController).GetMethod(nameof(SSOController.Unregister))!
             .GetCustomAttribute<AuthorizeAttribute>();

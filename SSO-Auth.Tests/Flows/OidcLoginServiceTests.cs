@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// through the thin controller endpoints in <see cref="SSOControllerOidPostTests"/>,
 /// <see cref="SSOControllerOidAuthTests"/> and <see cref="SSOControllerLinkTests"/> (each endpoint is now a
 /// one-line delegation, so a passing controller test is a passing service test); these add coverage that
-/// targets the service in isolation — the fail-closed guard branches that reject before any collaborator is
+/// targets the service in isolation - the fail-closed guard branches that reject before any collaborator is
 /// touched, and the process-wide-state test hooks that moved with the flow. Uses the non-parallel
 /// <c>SSOController</c> collection because it sets the static <see cref="SSOPlugin.Instance"/>.
 /// </summary>
@@ -46,7 +46,7 @@ public class OidcLoginServiceTests
         context.Request.Path = "/sso/OID/start/kc";
 
         // A disabled provider fails closed before any discovery fetch or authorization request, with the
-        // same uniform body the unknown-provider case gets — so the two cannot be told apart (#318).
+        // same uniform body the unknown-provider case gets - so the two cannot be told apart (#318).
         var result = await service.ChallengeAsync("kc", isLinking: false, context.Request, context.Response);
 
         var content = Assert.IsType<ContentResult>(result);
@@ -82,7 +82,7 @@ public class OidcLoginServiceTests
     {
         var (service, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
 
-        // No state was seeded, so the redeem misses — a client-caused 400, the same body an expired or
+        // No state was seeded, so the redeem misses - a client-caused 400, the same body an expired or
         // replayed state gets, so a replay stays indistinguishable from an expiry.
         var result = await service.AuthenticateAsync("kc", new AuthResponse { Data = "no-such-state" }, bindingCookie: null, () => "127.0.0.1");
 
@@ -113,7 +113,7 @@ public class OidcLoginServiceTests
         // ChallengeNewPathResolver (unified across both flows in #670), driven with the OpenID map selector.
         // `config` mirrors the reference the real caller already captured under ReadConfiguration's lock
         // (FindOidConfig) before its own Enabled check passed; something then disables the provider in the
-        // LIVE store before this write attempt runs — a race the outer check cannot see. The current
+        // LIVE store before this write attempt runs - a race the outer check cannot see. The current
         // challenge must still get its own freshly-derived spelling for its redirect, but the disabled
         // provider's stored NewPath must be left untouched rather than written into.
         var (_, context) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true, NewPath = false });

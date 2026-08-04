@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 ///
 /// Scoped to what the current <see cref="Jellyfin.Plugin.SSO_Auth.SamlResponse"/> validates
 /// (signature, signature scope, SubjectConfirmationData/@NotOnOrAfter). It grows as the
-/// validation surface is hardened (audience, recipient, InResponseTo, ... — see docs/ROADMAP.md).
+/// validation surface is hardened (audience, recipient, InResponseTo, ... - see docs/ROADMAP.md).
 /// </summary>
 internal static class SamlTestFactory
 {
@@ -81,13 +81,13 @@ internal static class SamlTestFactory
         const string TimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
         var effectiveNotOnOrAfter = notOnOrAfter ?? DateTime.UtcNow.AddMinutes(5);
 
-        // The signing certificate's own validity window (default: valid — yesterday to ten years out).
+        // The signing certificate's own validity window (default: valid - yesterday to ten years out).
         // Overridable so the inbound verification-cert rotation tests (#491) can sign with an EXPIRED (or
         // not-yet-valid) certificate; signing uses the private key and is unaffected by these dates, so the
         // fixture stays a real, correctly-signed response whose acceptance turns solely on the validator's
         // certificate-expiry gate.
         // Default 2048; overridable so the minimum signing-key-strength floor (#733) can be exercised
-        // end-to-end with an under-strength (e.g. 1024-bit) signing key. Signing itself works at any size —
+        // end-to-end with an under-strength (e.g. 1024-bit) signing key. Signing itself works at any size -
         // acceptance turns solely on the validator's strength gate.
         using var rsa = RSA.Create(signingKeyBits);
         var request = new CertificateRequest("CN=Test SAML IdP", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -199,7 +199,7 @@ internal static class SamlTestFactory
 
     /// <summary>
     /// Produces a Response-scope-signed fixture whose XML carries REAL inter-element line breaks and
-    /// indentation — the pretty-printed shape a conformant IdP serializes and signs over — instead of
+    /// indentation - the pretty-printed shape a conformant IdP serializes and signs over - instead of
     /// the compact single line <see cref="Create"/> emits. The template uses LF line endings, so the
     /// signed digest is computed over the EOL-normalized form the service provider reconstructs; the
     /// interop test (#120) rewrites those line breaks to raw CRLF on the wire to exercise the reader's

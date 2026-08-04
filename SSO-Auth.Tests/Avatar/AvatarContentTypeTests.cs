@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AvatarContentType"/> — the raster-only allow-list that decides which avatar
+/// Tests for <see cref="AvatarContentType"/> - the raster-only allow-list that decides which avatar
 /// content types are stored and rejects vector types such as <c>image/svg+xml</c> (#217).
 /// </summary>
 public class AvatarContentTypeTests

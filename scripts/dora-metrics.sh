@@ -4,8 +4,8 @@
 #
 # Derives the four DORA keys (deployment frequency, lead time for changes, change-failure
 # rate, mean time to restore) plus two cheap AI-risk indicators (revert rate, rework signal)
-# from THIS repo's actual delivery data: `*-stable` release tags, git commit history, and —
-# when the `gh` CLI is authenticated — the `bug`-labelled issue timeline. No new tooling.
+# from THIS repo's actual delivery data: `*-stable` release tags, git commit history, and -
+# when the `gh` CLI is authenticated - the `bug`-labelled issue timeline. No new tooling.
 #
 # The operational definitions, and where a metric is only an approximation given the small
 # dataset, are documented in the project's internal delivery-metrics notes.
@@ -15,7 +15,7 @@
 # repo state produces the same report.
 #
 # Usage:  scripts/dora-metrics.sh
-# Requires: git (mandatory), gh (optional — enriches the change-failure signal).
+# Requires: git (mandatory), gh (optional - enriches the change-failure signal).
 #
 set -euo pipefail
 
@@ -24,7 +24,7 @@ set -euo pipefail
 # Beta / JF12-beta / nightly tags are pre-production and are deliberately excluded.
 STABLE_GLOB='*-stable'
 # A patch-level (Z) bump on the same X.Y line is treated as a hotfix / remediation of the
-# preceding release on that line — the standard DORA change-failure proxy. HOTFIX_WINDOW_DAYS
+# preceding release on that line - the standard DORA change-failure proxy. HOTFIX_WINDOW_DAYS
 # only annotates the report (fast hotfix vs. long-planned patch); it does NOT gate the CFR count.
 HOTFIX_WINDOW_DAYS=7
 
@@ -80,14 +80,14 @@ mapfile -t STABLE_ROWS < <(
 )
 
 echo "=================================================================="
-echo " DORA delivery metrics — jellyfin-plugin-sso"
+echo " DORA delivery metrics - jellyfin-plugin-sso"
 echo " generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')  (read-only, deterministic)"
 echo " gh enrichment: $([ "$GH_AVAILABLE" = 1 ] && echo 'available' || echo 'unavailable (git-only)')"
 echo "=================================================================="
 
 if (( ${#STABLE_ROWS[@]} == 0 )); then
   echo
-  echo "No ${STABLE_GLOB} tags found — no production deployments to measure yet."
+  echo "No ${STABLE_GLOB} tags found - no production deployments to measure yet."
   exit 0
 fi
 
@@ -119,7 +119,7 @@ if (( span_days > 0 )); then
   }'
 else
   echo "  (all releases within a single day)"
-  echo "   Rate: n/a — release history spans <1 day; frequency not yet meaningful."
+  echo "   Rate: n/a - release history spans <1 day; frequency not yet meaningful."
 fi
 echo "   Releases:"
 for ((i=0;i<N;i++)); do printf '     %s  %s\n' "${TAG_DATE[i]}" "${TAG_NAME[i]}"; done
@@ -146,7 +146,7 @@ for ((i=1;i<N;i++)); do
   printf '   %s -> %s: %d change-commits\n' "$prev" "$cur" "$cnt"
 done
 if (( intervals == 0 )); then
-  echo "   Only one stable release exists — no predecessor interval; lead time not computable yet."
+  echo "   Only one stable release exists - no predecessor interval; lead time not computable yet."
 elif [ ! -s "$lead_tmp" ]; then
   echo "   No non-merge commits between stable tags."
 else
@@ -158,7 +158,7 @@ rm -f "$lead_tmp"
 
 # --- 3. Change-failure rate -------------------------------------------------------------------
 # A stable release R is counted as a failure if the next stable release on the same X.Y line is a
-# patch (Z) bump — i.e. a remediation was needed. The newest release cannot yet be judged (nothing
+# patch (Z) bump - i.e. a remediation was needed. The newest release cannot yet be judged (nothing
 # follows it) and is excluded from the denominator. Reverts and bug-labelled issues are reported as
 # corroborating signal but do not change the primary count.
 echo
@@ -184,7 +184,7 @@ judgeable=$((N-1))   # every release except the newest can, in principle, be jud
 if (( judgeable > 0 )); then
   awk -v f="$failures" -v d="$judgeable" 'BEGIN { printf "   CFR: %d/%d = %.0f%%\n", f, d, f/d*100 }'
 else
-  echo "   CFR: n/a — only one stable release; no release can yet be judged."
+  echo "   CFR: n/a - only one stable release; no release can yet be judged."
 fi
 
 # Corroborating signal: explicit git reverts across the stable window.
@@ -236,12 +236,12 @@ if (( total_commits > 0 )); then
     printf "   Revert rate: %d/%d non-merge commits = %.1f%% (across the stable window)\n", r, t, r/t*100
   }'
 else
-  echo "   Revert rate: n/a — no commits in the stable window."
+  echo "   Revert rate: n/a - no commits in the stable window."
 fi
 # Rework signal: fixup/amend-style subjects landing on top of recent work.
 rework=$(git log --no-merges -i -E --grep='^(fixup|amend|re-?fix|follow-?up)' --format='%h' "$range" 2>/dev/null | wc -l | tr -d ' ')
 echo "   Rework signal: $rework fixup/follow-up commit subject(s) in the stable window (heuristic)."
-echo "   Review-finding density: manually tracked per /security-review — see the Delivery-Metrics wiki page."
+echo "   Review-finding density: manually tracked per /security-review - see the Delivery-Metrics wiki page."
 
 echo
 echo "=================================================================="

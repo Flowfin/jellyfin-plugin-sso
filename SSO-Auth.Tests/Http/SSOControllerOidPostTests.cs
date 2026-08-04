@@ -37,8 +37,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Two of the tests characterize the callback end-to-end against the OAuth 2.0 Security BCP update
 /// (draft-ietf-oauth-security-topics-update, rev -03 dated 2026-07-06) threat classes that apply to
 /// this RP (#176):
-/// Cross-toolkit OAuth Account Takeover (COAT) — a state minted in one named provider's context cannot
-/// complete against another configured provider's callback — and cross-user session fixation — a state
+/// Cross-toolkit OAuth Account Takeover (COAT) - a state minted in one named provider's context cannot
+/// complete against another configured provider's callback - and cross-user session fixation - a state
 /// token observed by a party in a different browser cannot complete the flow. The store-level mechanisms
 /// these rely on are pinned in <see cref="OidcStateStoreTests"/> (provider-scoped peek/redeem, the
 /// browser-binding gate, and the one-time atomic claim); the mint-path one-time-consume is pinned in
@@ -73,7 +73,7 @@ public class SSOControllerOidPostTests
     {
         // End-to-end empirical proof (#186): a full callback + authenticate over a REAL signed id_token must
         // capture that token's `iss` and stamp it onto the freshly created canonical link. This is what
-        // proves the issuer binding is sourced from the validated token (not reasoned about) — the whole
+        // proves the issuer binding is sourced from the validated token (not reasoned about) - the whole
         // chain OidcIdTokenValidator -> claims -> OidcAuthorizeStateBuilder -> VerifiedIdentity ->
         // LoginCompletionService -> CanonicalLinkService runs against the fixture's actual token here.
         using var fixture = new OidcTokenFixture(Authority, "jf");
@@ -97,7 +97,7 @@ public class SSOControllerOidPostTests
         Assert.IsType<OkObjectResult>(authed);
 
         // The link is bound to the token's actual issuer (the fixture's Authority), read from the real
-        // validated id_token — not a value hand-fed by the test.
+        // validated id_token - not a value hand-fed by the test.
         var issuers = SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["kc"].CanonicalLinkIssuers);
         Assert.Equal(Authority, issuers["sub-1"]);
     }
@@ -107,7 +107,7 @@ public class SSOControllerOidPostTests
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // #326: the state was started in another browser (no matching binding cookie is presented), so the
-        // callback is refused before any token exchange — the forced-login / session-fixation defense. The
+        // callback is refused before any token exchange - the forced-login / session-fixation defense. The
         // body is the uniform invalid-state message, so a wrong-browser hit is indistinguishable from an
         // expiry.
         var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1", bindingCookie: null);
@@ -124,7 +124,7 @@ public class SSOControllerOidPostTests
         // COAT (OAuth 2.0 Security BCP update, draft-ietf-oauth-security-topics-update, #176): this
         // plugin is a multi-provider OAuth client (OidConfigs is a dict of named providers), so a response minted in
         // one provider's context must not complete against another's callback. The state is keyed by its
-        // token, so the lookup FINDS it under "kc2" — but PeekCurrent rejects it because the route
+        // token, so the lookup FINDS it under "kc2" - but PeekCurrent rejects it because the route
         // provider does not match the provider recorded on the state, before any token exchange. Both
         // providers are enabled, so this isolates the provider-context binding from the unknown/disabled
         // guard.
@@ -134,7 +134,7 @@ public class SSOControllerOidPostTests
         Assert.Equal("Invalid or expired state", Assert.IsType<BadRequestObjectResult>(crossContext).Value);
 
         // Positive control: PeekCurrent does not consume, so the same state still completes on the
-        // provider it WAS minted for — proving the rejection above is the provider-context binding, not an
+        // provider it WAS minted for - proving the rejection above is the provider-context binding, not an
         // unrelated failure of the shared fixture.
         var sameContext = await harness.Controller.OidCallback("kc", "state-1");
         Assert.Equal("text/html", Assert.IsType<ContentResult>(sameContext).ContentType);
@@ -178,7 +178,7 @@ public class SSOControllerOidPostTests
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // Availability regression guard (#210 review): with DoNotValidateIssuerName the id_token issuer
         // legitimately differs from the discovery issuer (templated / multi-tenant). The RFC 9207 response
-        // `iss` equals the concrete id_token issuer, NOT the templated discovery issuer — comparing to the
+        // `iss` equals the concrete id_token issuer, NOT the templated discovery issuer - comparing to the
         // discovery issuer alone would lock this supported config out, so the id_token issuer is an
         // accepted anchor and the login must proceed.
         const string concreteIssuer = Authority + "/tenant-42";
@@ -198,7 +198,7 @@ public class SSOControllerOidPostTests
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // RFC 9207 §2.4 (#210): the challenge saw the AS advertise the response-iss parameter, so a
-        // callback that omits `iss` is a downgrade and must be rejected — even though the id_token is valid.
+        // callback that omits `iss` is a downgrade and must be rejected - even though the id_token is valid.
         var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1", responseIssuerRequired: true);
 
         var result = await harness.Controller.OidCallback("kc", "state-1");
@@ -225,7 +225,7 @@ public class SSOControllerOidPostTests
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // No lockout of older IdPs (#210): a provider whose discovery did not advertise the parameter
-        // (ResponseIssuerRequired defaults false) and that omits `iss` must still log in — the tolerant
+        // (ResponseIssuerRequired defaults false) and that omits `iss` must still log in - the tolerant
         // path RFC 9207 §2.4 preserves.
         var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1");
 
@@ -287,7 +287,7 @@ public class SSOControllerOidPostTests
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // #831 end-to-end: with an allow-list the id_token cannot satisfy (no matching role claim), the login
-        // is denied — and with the opt-in on, the account already linked under this subject is disabled so a
+        // is denied - and with the opt-in on, the account already linked under this subject is disabled so a
         // user whose roles were revoked at the identity provider cannot keep logging in. The subject key is
         // resolved on the denied path (it is derived independent of validity), so the linked account is found.
         var linked = Guid.Parse("77777777-7777-7777-7777-777777777777");
@@ -311,7 +311,7 @@ public class SSOControllerOidPostTests
     public async Task OidPost_RoleDeniedWithDeprovisionOff_LeavesTheLinkedAccountEnabled()
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");
-        // The default (opt-in off): the same denied login must NOT disable the linked account — deprovisioning
+        // The default (opt-in off): the same denied login must NOT disable the linked account - deprovisioning
         // is strictly opt-in, so an existing deployment sees no behavior change and a transient IdP role glitch
         // cannot silently lock users out.
         var linked = Guid.Parse("77777777-7777-7777-7777-777777777777");
@@ -336,7 +336,7 @@ public class SSOControllerOidPostTests
         using var fixture = new OidcTokenFixture(Authority, "jf");
         // End-to-end (#210): a real challenge whose discovery advertises the RFC 9207 response-iss
         // parameter must capture the requirement onto the authorize state, so the callback that omits
-        // `iss` is rejected — pinning the challenge-side capture the seeded callback tests above assume.
+        // `iss` is rejected - pinning the challenge-side capture the seeded callback tests above assume.
         var (harness, state) = await DriveAdvertisedChallenge(fixture);
         harness.Controller.HttpContext.Request.QueryString = new QueryString($"?code=test-code&state={state}");
 

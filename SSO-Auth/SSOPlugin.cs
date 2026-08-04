@@ -26,7 +26,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // The STABLE config-page registration prefix, deliberately DECOUPLED from the display Name below
     // (the rebrand to "Community SSO for Jellyfin"): these strings are page identifiers baked into the
     // served config-page URLs and the .js/.css the pages load by name, so they are part of the plugin's
-    // page identity — like the root namespace, they must NOT track a display-name change (a rename here
+    // page identity - like the root namespace, they must NOT track a display-name change (a rename here
     // would break every existing config page's load path). The display Name is free to change; this is not.
     private const string PageId = "SSO-Auth";
 
@@ -37,8 +37,8 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     static SSOPlugin()
     {
-        // Stop the OidcClient trace serializer from JSON-serializing the full options object — the
-        // client secret included — into a transient string on every Prepare/Process call, which it does
+        // Stop the OidcClient trace serializer from JSON-serializing the full options object - the
+        // client secret included - into a transient string on every Prepare/Process call, which it does
         // even with Trace logging off (#247). We never consume that trace output, so disabling it in the
         // type initializer (runs once, before any login) keeps the secret out of transient heap strings
         // (defense in depth). The flag is a process-global, so setting it here covers every login.
@@ -62,7 +62,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Lazy with the default thread-safe mode: the SecretStore (and thus the data-encryption key) is
         // built exactly once, even under concurrent first-use, so two callers can never generate two
         // divergent keys. The key lives in the plugin data folder, separate from the config XML, and is
-        // created lazily on the first encrypt (a save) — never at load — so startup does no key I/O.
+        // created lazily on the first encrypt (a save) - never at load - so startup does no key I/O.
         _secrets = new Lazy<SecretStore>(() => new SecretStore(Path.Combine(DataFolderPath, "sso-secret.key")));
         Instance = this;
     }
@@ -88,7 +88,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal ProviderConfigStore ConfigStore { get; }
 
     /// <summary>
-    /// Gets the store that encrypts the plugin's at-rest secrets — the OpenID client secret and the SAML
+    /// Gets the store that encrypts the plugin's at-rest secrets - the OpenID client secret and the SAML
     /// signing key (#158). Its data-encryption key lives in a dedicated file in the plugin data folder,
     /// separate from the config XML, so a leaked config alone cannot decrypt anything. The login flows
     /// reveal a stored secret through this at the point of use.
@@ -134,8 +134,8 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     // The store's only road to disk: persistence stays with the plugin base class, and this named
     // bridge hands base.UpdateConfiguration to the store so a store save cannot re-enter the
-    // overridden pipeline above. Every road to disk — the config-page Save and every Mutate (provider
-    // Add, login-path canonical-link writes) — funnels through here, so this is the single chokepoint
+    // overridden pipeline above. Every road to disk - the config-page Save and every Mutate (provider
+    // Add, login-path canonical-link writes) - funnels through here, so this is the single chokepoint
     // where at-rest secret encryption belongs (#158): the config model is owned by the store, but the
     // on-disk representation is owned by the persistence boundary, and that is where a secret becomes an
     // ssoenc: envelope. ProtectAll is idempotent (an already-encrypted or empty value is left unchanged),
@@ -160,8 +160,8 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // caller of that URL (config.js, linking.html, config page markup); renaming/moving the source file
     // without updating the resource suffix here breaks the embedded-resource lookup at runtime (a 404,
     // since GetManifestResourceStream is also case-sensitive). Web.style.css is deliberately published
-    // under two different registered names below — "SSO-Auth.css" (GetPages, the admin config page's own
-    // stylesheet load) and "style.css" (GetViews, the public linking page) — the same resource, two
+    // under two different registered names below - "SSO-Auth.css" (GetPages, the admin config page's own
+    // stylesheet load) and "style.css" (GetViews, the public linking page) - the same resource, two
     // unrelated consumers with independently-chosen URL conventions, not a casing inconsistency.
 
     /// <summary>

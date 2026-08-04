@@ -79,7 +79,7 @@ internal sealed class ProviderConfigStore
 
             // Persists directly instead of routing through Save: the object being written IS the live
             // one, so Save's fresh-config pipeline (validate/preserve/audit) would be skipped by its
-            // identity guard anyway — same observable behavior, without the reentrant detour.
+            // identity guard anyway - same observable behavior, without the reentrant detour.
             _persist(configuration);
         }
     }
@@ -124,7 +124,7 @@ internal sealed class ProviderConfigStore
                 // Reject the save fail-closed before anything is persisted if a base-URL override is
                 // malformed (#139), a SAML signing certificate is not loadable (#206), or a NEWLY
                 // registered provider name contains control, URI-reserved, or backslash characters
-                // (#336/#360 — the live config is passed so names it already holds stay saveable). This validates the config-page save
+                // (#336/#360 - the live config is passed so names it already holds stay saveable). This validates the config-page save
                 // (a fresh incoming config); the OID/SAML Add endpoints write through Mutate (the live
                 // object, so this branch is skipped) and validate their own incoming provider at the
                 // controller via the Reject* guards. Login-path writes (canonical links) also reuse the
@@ -135,7 +135,7 @@ internal sealed class ProviderConfigStore
                 ServerManagedFields.Preserve(incoming, _live());
 
                 // Snapshot which providers were saved with an insecure option (#140) while under the
-                // lock, but emit the warnings AFTER releasing it (below) — logging must not run inside
+                // lock, but emit the warnings AFTER releasing it (below) - logging must not run inside
                 // the global config lock, where a slow provider would block concurrent config access.
                 insecureToAudit = CollectInsecureOptions(incoming);
             }

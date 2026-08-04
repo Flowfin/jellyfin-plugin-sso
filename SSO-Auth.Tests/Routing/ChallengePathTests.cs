@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ChallengePath.IsNewPath"/> — the new-vs-legacy challenge-route decision that
+/// Tests for <see cref="ChallengePath.IsNewPath"/> - the new-vs-legacy challenge-route decision that
 /// drives the authorization request's redirect_uri spelling. The old inline <c>Contains("/start/")</c>
 /// substring test flipped for a provider literally named <c>start</c> reached via the legacy route
 /// (<c>/sso/OID/p/start/</c>), minting the wrong redirect_uri that the IdP then rejects (#337).
@@ -37,7 +37,7 @@ public class ChallengePathTests
     }
 
     [Theory]
-    // The #337 fix: a provider NAMED "start" on the legacy route must not flip the spelling —
+    // The #337 fix: a provider NAMED "start" on the legacy route must not flip the spelling -
     // including with a trailing slash, which the old substring "/start/" test wrongly matched.
     [InlineData("/sso/OID/p/start")]
     [InlineData("/sso/OID/p/start/")]

@@ -14,7 +14,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SsoHttp"/> — the single home for the plugin's outbound HTTP policy (#318, #378).
+/// Tests for <see cref="SsoHttp"/> - the single home for the plugin's outbound HTTP policy (#318, #378).
 /// <see cref="SsoHttp.CreateClient"/> must resolve the SSRF-hardened <see cref="SsoHttp.OutboundClientName"/>
 /// named client from the factory (whose primary handler is the hardened transport in production, #755) with
 /// the plugin User-Agent applied, so every server-to-provider call is identifiable and transport-guarded from
@@ -37,7 +37,7 @@ public class SsoHttpTests
 
         Assert.Same(factoryClient, client); // the named client is used, not the default and not a fresh one
         factory.Received(1).CreateClient(SsoHttp.OutboundClientName);
-        // The whole User-Agent must round-trip against the single-sourced constant — a wrong version or URL
+        // The whole User-Agent must round-trip against the single-sourced constant - a wrong version or URL
         // would slip past a substring check.
         Assert.Equal(SsoHttp.UserAgent, client.DefaultRequestHeaders.UserAgent.ToString());
     }
@@ -46,7 +46,7 @@ public class SsoHttpTests
     public void CreateHardenedHandler_IsConfiguredWithTheSsrfConnectGuardAndNoProxy()
     {
         // The transport guard cannot be exercised at unit level (it fires only on a real socket connect, and
-        // the higher-level tests stub the message handler, #385) — so pin its CONFIGURATION here, so a
+        // the higher-level tests stub the message handler, #385) - so pin its CONFIGURATION here, so a
         // regression that drops the ConnectCallback, re-enables the system proxy (which would make the guard
         // validate the proxy instead of the host), or unbounds redirects fails this test rather than silently
         // reopening the SSRF / DNS-rebinding vector (#755, #370).
@@ -66,10 +66,10 @@ public class SsoHttpTests
     [InlineData("http://localhost")] // a NAME that resolves to loopback
     public async Task HardenedHandler_RefusesAConnectionToABlockedAddress_AtTheSocketLayer(string baseUrl)
     {
-        // #928 U7 — the real socket-level integration test the configuration pin above explicitly could not
+        // #928 U7 - the real socket-level integration test the configuration pin above explicitly could not
         // provide. This drives the ACTUAL hardened handler (its ConnectCallback resolves the host and refuses
         // any blocked address before connecting), so a regression that lets the guard connect to a
-        // loopback / RFC1918 / link-local address is a red build — not merely a changed handler property.
+        // loopback / RFC1918 / link-local address is a red build - not merely a changed handler property.
         // A live listener on the loopback port proves the point: the guard must refuse BEFORE any socket
         // reaches it.
         using var listener = new BlockedListener();
@@ -80,14 +80,14 @@ public class SsoHttpTests
         var ex = await Assert.ThrowsAsync<HttpRequestException>(
             () => client.GetAsync(target, TestContext.Current.CancellationToken));
 
-        // The guard's own diagnostics — proves the refusal came from ConnectToAllowedAddressAsync, not an
+        // The guard's own diagnostics - proves the refusal came from ConnectToAllowedAddressAsync, not an
         // unrelated transport error.
         Assert.Contains("blocked address", ex.Message, StringComparison.OrdinalIgnoreCase);
         // And nothing reached the socket: the listener never accepted a connection.
         Assert.False(listener.Accepted, "the SSRF guard let a socket reach the blocked loopback listener");
     }
 
-    // A loopback TCP listener that would accept any connection reaching it — so a passing test proves the
+    // A loopback TCP listener that would accept any connection reaching it - so a passing test proves the
     // guard refused BEFORE the socket layer, not that the port simply happened to be closed.
     private sealed class BlockedListener : IDisposable
     {
@@ -119,7 +119,7 @@ public class SsoHttpTests
             }
             catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
             {
-                // Listener torn down — expected on dispose.
+                // Listener torn down - expected on dispose.
             }
         }
 

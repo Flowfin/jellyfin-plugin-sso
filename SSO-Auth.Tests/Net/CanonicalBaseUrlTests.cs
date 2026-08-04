@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="CanonicalBaseUrl"/> — the helper that decides whether a per-provider base-URL
+/// Tests for <see cref="CanonicalBaseUrl"/> - the helper that decides whether a per-provider base-URL
 /// override (#139) is a usable absolute http/https origin and normalizes it. This is the point that
 /// keeps a spoofable request Host out of the redirect_uri when an override is set, and the point that
 /// rejects a malformed override at save time so it can never reach the login path.
@@ -148,7 +148,7 @@ public class CanonicalBaseUrlTests
     public void Resolve_ElidesDefaultPortForTheEffectiveScheme(string requestScheme, string schemeOverride, int port, string expected)
     {
         // The default-port elision must decide against the scheme that actually appears in the URL
-        // (schemeOverride), not the request scheme — otherwise the canonical URL keeps an explicit
+        // (schemeOverride), not the request scheme - otherwise the canonical URL keeps an explicit
         // :443 / :80 (#272).
         var result = CanonicalBaseUrl.Resolve(null, requestScheme, "host.example.com", port, string.Empty, schemeOverride, null);
 

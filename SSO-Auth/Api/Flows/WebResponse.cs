@@ -72,8 +72,8 @@ function isWeb0s() {
 }
 
 // Browser detection derived from jellyfin-web's browser.js. Trimmed (#364) to only what the served
-// page reads — getDeviceName() below consumes tizen/web0s/operaTv/xboxOne/ps4/chrome/edgeChromium/
-// edge/firefox/opera/safari/ipad/iphone/android — so the mobile/keyboard/iOS-version/webOS-version/
+// page reads - getDeviceName() below consumes tizen/web0s/operaTv/xboxOne/ps4/chrome/edgeChromium/
+// edge/firefox/opera/safari/ipad/iphone/android - so the mobile/keyboard/iOS-version/webOS-version/
 // CSS-animation detections and their flags are dropped. Re-sync this blob (isTv / isWeb0s / uaMatch /
 // the browser-flag assembly below) from upstream rather than editing it in place.
 const uaMatch = function (ua) {
@@ -277,7 +277,7 @@ function showReturnLink() {
         var punycodeBaseUrl = protocol + punycodeDomain;
 
         // The page's own text (#913) is substituted per-culture: HTML-context strings are HTML-encoded,
-        // and strings injected into the inline script are emitted through JsonSerializer.Serialize — the
+        // and strings injected into the inline script are emitted through JsonSerializer.Serialize - the
         // same safe JS-string-literal encoding used for the server-derived constants below (System.Text.Json
         // escapes '<', '>' and '&' to \u00XX, so a value can never terminate the <script> element). The
         // catalog values are first-party, so this encoding is defense-in-depth over an already-trusted source.
@@ -351,14 +351,14 @@ async function main() {
     var request = {deviceId, appName, appVersion, deviceName, data};
 
     if (" + (isLinking ? "true" : "false") + @") {
-        // Linking is NOT a login round-trip, so a DEFINITIVE link outcome is terminal here — the page does
+        // Linking is NOT a login round-trip, so a DEFINITIVE link outcome is terminal here - the page does
         // NOT go on to post to .../Auth (#614). The Link leg one-time-consumes the assertion / state token,
         // so the old unconditional follow-on Auth post could never redeem it: it fail-closed at the mint leg
         // and rendered a misleading 'Login failed. Please try again.' even though the link itself had already
         // succeeded on its own leg.
         //   - A 2xx is a completed link: show success and stop (do not attempt a login).
         //   - A non-2xx is a rejected link (#344): the provider is disabled (#343), the caller is not
-        //     allowed, or the request is throttled — surface it and stop, never fall through to a login.
+        //     allowed, or the request is throttled - surface it and stop, never fall through to a login.
         //   - A missing status (undefined: no stored credentials, or a network error) keeps the prior
         //     behavior of proceeding to the auth leg, since that outcome cannot be told apart from success.
         var linkStatus = await link(request);
