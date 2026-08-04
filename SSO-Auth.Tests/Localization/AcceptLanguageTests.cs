@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AcceptLanguage"/> — picking the best loaded culture from a request's
+/// Tests for <see cref="AcceptLanguage"/> - picking the best loaded culture from a request's
 /// Accept-Language header (#913): q-ordering, base-language fallback, q=0 rejection, wildcard, and the
 /// safe null result that sends the caller to the English fallback.
 /// </summary>

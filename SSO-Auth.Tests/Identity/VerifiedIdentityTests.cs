@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Unit tests for the <see cref="VerifiedIdentity"/> keystone (#473): both protocols must funnel their
 /// validated result into the identical shape the shared mint path consumes, and the type must be
-/// unforgeable — obtainable only through the two validation factories. The behavioral proof that a raw or
+/// unforgeable - obtainable only through the two validation factories. The behavioral proof that a raw or
 /// unvalidated response cannot reach the mint lives in the controller suites (an invalid SAML signature or
 /// an unredeemed OpenID state is rejected before any provisioning: e.g.
 /// <c>SamlAuth_SignedByAnotherCertificate_Returns400</c>, <c>OidAuth</c>'s invalid-state rejections); the

@@ -20,12 +20,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// Runs an admin-triggered Test-connection probe against a STORED provider configuration (#163) so an
 /// administrator can confirm connectivity and basic config before a user hits the failure at first login.
 /// The endpoints that call this are elevation-gated (see <see cref="SSOController"/>), and the probe fetches
-/// only the already-stored provider URL — the exact URL the (rate-limited) anonymous login challenge already
-/// fetches — so it adds no outbound-fetch surface beyond the login path.
+/// only the already-stored provider URL - the exact URL the (rate-limited) anonymous login challenge already
+/// fetches - so it adds no outbound-fetch surface beyond the login path.
 ///
 /// OpenID: reads the discovery document through the SAME hardened reader the login uses
 /// (<see cref="OidcDiscoveryReader"/> under the provider's <see cref="OidcDiscoveryOptions"/> discovery
-/// policy — RequireHttps / ValidateIssuerName / ValidateEndpoints), and reports the issuer, endpoints and
+/// policy - RequireHttps / ValidateIssuerName / ValidateEndpoints), and reports the issuer, endpoints and
 /// JWKS reachability from that one response. It never reveals the client secret (discovery needs no
 /// credential). SAML: parses the configured PUBLIC signing certificate and reports its non-secret facts;
 /// there is no SAML metadata-URL field, so the SAML probe makes no network call. Neither path ever puts a
@@ -36,7 +36,7 @@ internal static class ProviderConnectionTester
     /// <summary>
     /// Probes a stored OpenID provider: reads its discovery document under the login's hardened discovery
     /// policy and reports the issuer, endpoints, JWKS reachability and the two discovery facts. Fail-closed
-    /// and actionable — an unreadable document or an invalid endpoint returns a non-Ok result with a
+    /// and actionable - an unreadable document or an invalid endpoint returns a non-Ok result with a
     /// generic, secret-free message rather than throwing.
     /// </summary>
     /// <param name="config">The stored OpenID provider configuration.</param>
@@ -68,7 +68,7 @@ internal static class ProviderConnectionTester
             // The reader already logged the fail-closed warning (with the library error, never a secret).
             // The admin-facing message stays generic: it names what to check, not any sensitive value.
             return ProviderTestResult.Failure(
-                "Could not read the OpenID discovery document. Check that the endpoint is reachable, serves /.well-known/openid-configuration, and — unless HTTPS discovery is disabled — is served over HTTPS.");
+                "Could not read the OpenID discovery document. Check that the endpoint is reachable, serves /.well-known/openid-configuration, and - unless HTTPS discovery is disabled - is served over HTTPS.");
         }
 
         var info = discovery.ProviderInformation;
@@ -93,8 +93,8 @@ internal static class ProviderConnectionTester
 
     /// <summary>
     /// Probes a stored SAML provider: parses the configured PUBLIC signing certificate and reports its
-    /// non-secret facts (subject, issuer, validity window, SHA-256 thumbprint). No network call — there is
-    /// no metadata-URL field — and never the service-provider signing key. A non-parsing certificate returns
+    /// non-secret facts (subject, issuer, validity window, SHA-256 thumbprint). No network call - there is
+    /// no metadata-URL field - and never the service-provider signing key. A non-parsing certificate returns
     /// a non-Ok result with an actionable, secret-free message.
     /// </summary>
     /// <param name="config">The stored SAML provider configuration.</param>
@@ -115,7 +115,7 @@ internal static class ProviderConnectionTester
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
         {
-            return ProviderTestResult.Failure("The configured SAML signing certificate could not be parsed. It must be the identity provider's Base64-encoded (DER) X.509 PUBLIC signing certificate — not a PEM wrapper and not a private key.");
+            return ProviderTestResult.Failure("The configured SAML signing certificate could not be parsed. It must be the identity provider's Base64-encoded (DER) X.509 PUBLIC signing certificate - not a PEM wrapper and not a private key.");
         }
 
         using (certificate)
@@ -135,7 +135,7 @@ internal static class ProviderConnectionTester
 
             if (now < notBefore || now > notAfter)
             {
-                details.Add("Note: the certificate is outside its validity period — logins may fail until it is renewed.");
+                details.Add("Note: the certificate is outside its validity period - logins may fail until it is renewed.");
             }
 
             return ProviderTestResult.Success("The SAML signing certificate parsed successfully.", details);

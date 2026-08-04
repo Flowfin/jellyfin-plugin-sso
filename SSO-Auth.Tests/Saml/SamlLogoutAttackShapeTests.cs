@@ -16,13 +16,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// The logout/SLO twin of <see cref="SamlAttackShapeTests"/> (#1003). <c>SamlLogoutRequest</c> runs its OWN
 /// <see cref="System.Security.Cryptography.Xml.SignedXml"/> verification against a different document shape
 /// (the signed element is the <c>samlp:LogoutRequest</c> root; there is no assertion, no bearer confirmation,
-/// no audience), so the login path's hardening is not automatically the logout path's hardening — the two can
+/// no audience), so the login path's hardening is not automatically the logout path's hardening - the two can
 /// drift silently. This battery re-runs the 2025/26 vectors against it so a divergence fails here rather than
 /// on an unauthenticated, session-destructive endpoint: void canonicalization, whole-document / detached
 /// digest, signed-element-is-not-the-processed-element, Id/ID resolution pollution and namespace confusion.
 ///
-/// Every shape must be REJECTED — either at parse (<c>TryParse</c> false) or at validation
-/// (<c>IsValid</c> false) — and the honest baseline ACCEPTED, all against the real signature-validation path,
+/// Every shape must be REJECTED - either at parse (<c>TryParse</c> false) or at validation
+/// (<c>IsValid</c> false) - and the honest baseline ACCEPTED, all against the real signature-validation path,
 /// never a mock of the crypto.
 /// </summary>
 public class SamlLogoutAttackShapeTests
@@ -34,7 +34,7 @@ public class SamlLogoutAttackShapeTests
     [Fact]
     public void IsValid_HonestBaseline_ReturnsTrue()
     {
-        // The honest, correctly-signed LogoutRequest is accepted — the control every negative case below is
+        // The honest, correctly-signed LogoutRequest is accepted - the control every negative case below is
         // measured against, so a rejection there is attributable to the injected shape, not the setup.
         var fixture = SamlLogoutTestFactory.Create();
 
@@ -76,7 +76,7 @@ public class SamlLogoutAttackShapeTests
     {
         // The reference spellings that are NOT the SAML shorthand pointer but which .NET resolves and signs
         // correctly: the empty whole-document URI, "#xpointer(/)", and "#xpointer(id('...'))". Every one is
-        // accepted by CheckSignature — the control below proves it — and on this path the XPointer id() form
+        // accepted by CheckSignature - the control below proves it - and on this path the XPointer id() form
         // names the request ROOT, the very element whose NameID and SessionIndexes decide which sessions are
         // destroyed. Nothing cryptographic rejects them; only the "#id"-shorthand-only rule does, and that
         // rule currently rests on GetIdElement not understanding XPointer. Pinned so it stays a decision.
@@ -112,7 +112,7 @@ public class SamlLogoutAttackShapeTests
         // The logout twin of the response-path control: it verifies with the identity provider's own public
         // key that the hand-assembled SignatureValue really is an RSA-SHA256 signature over the exclusive-C14N
         // canonical form of its SignedInfo. Without it the two crafted logout rejections would rest on
-        // inference from the response path — and "no test passes for the wrong reason" is exactly this
+        // inference from the response path - and "no test passes for the wrong reason" is exactly this
         // control's job, so it does not get to be inherited.
         var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestWithCraftedReference(referenceUri);
         var signature = (XmlElement)fixture.Document.GetElementsByTagName("Signature", DsNs)[0]!;
@@ -150,7 +150,7 @@ public class SamlLogoutAttackShapeTests
     public void IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse()
     {
         // Processing is bound to the SIGNED element by reference: here the identity provider's key genuinely
-        // signs the saml:Issuer element — a real, verifying signature at the position-bound root location —
+        // signs the saml:Issuer element - a real, verifying signature at the position-bound root location -
         // while the NameID and SessionIndexes that decide WHOSE sessions are destroyed sit in the unsigned
         // remainder of the request. Rejected because the reference covers something other than the root.
         var fixture = SamlCraftedSignatureFactory.CreateLogoutRequestSigningTheIssuerOnly();
@@ -163,7 +163,7 @@ public class SamlLogoutAttackShapeTests
     public void IsValid_IdAttributeCaseVariantDecoy_ReturnsFalse()
     {
         // Attribute pollution that steers reference resolution: the signed root carries ID="x" and an
-        // added decoy carries Id="x" — a different attribute name, so the document stays well-formed and the
+        // added decoy carries Id="x" - a different attribute name, so the document stays well-formed and the
         // root's signature stays intact, but .NET resolves "Id" BEFORE "ID" and "#x" now names the decoy.
         // Rejected because the resolved element is not the LogoutRequest root.
         var fixture = SamlLogoutTestFactory.Create();
@@ -180,11 +180,11 @@ public class SamlLogoutAttackShapeTests
     {
         // The same pollution in a foreign namespace: the decoy carries the signed root's ID value through
         // evil:ID. On the LOGIN path the equivalent decoy is inert (it can sit outside the signed assertion,
-        // and the namespace-aware resolver simply never sees it — see
+        // and the namespace-aware resolver simply never sees it - see
         // SamlAttackShapeTests.IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates).
         // Here the signature covers the LogoutRequest ROOT, so there is no unsigned region for a decoy to hide
         // in at all: anything injected is inside the signed content and the digest rejects it. Pinned as its
-        // own case because that asymmetry is a property of the logout document shape, not an accident — a
+        // own case because that asymmetry is a property of the logout document shape, not an accident - a
         // future change that narrowed the logout signature to some inner element would open exactly the
         // unsigned region this path currently does not have, and this test would flip.
         var fixture = SamlLogoutTestFactory.Create();
@@ -225,7 +225,7 @@ public class SamlLogoutAttackShapeTests
         // replaced by one whose element is named "Signature" in a FOREIGN namespace, the shape a
         // namespace-agnostic GetElementsByTagName("Signature") would happily pick up and hand to the
         // verifier. The namespace-bound XPath selects nothing, so the request reads as UNSIGNED and is
-        // rejected — a request whose only "signature" is a look-alike must never be treated as signed.
+        // rejected - a request whose only "signature" is a look-alike must never be treated as signed.
         var fixture = SamlLogoutTestFactory.Create();
         var document = fixture.Document;
         var signature = document.GetElementsByTagName("Signature", DsNs)[0]!;

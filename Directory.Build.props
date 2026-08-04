@@ -25,12 +25,12 @@
          it does NOT change runtime behaviour. -->
     <Deterministic>true</Deterministic>
 
-    <!-- The final determinism switch — normalizes embedded source paths so the build machine's
+    <!-- The final determinism switch - normalizes embedded source paths so the build machine's
          checkout directory does not leak into (or vary) the output. Scoped to CI (the shipped artifact
          is built there) AND to the shipped project only: it must NOT apply to SSO-Auth.Tests, because
          ContinuousIntegrationBuild rewrites [CallerFilePath] to a normalized "/_/…" path, and the
          architecture fitness-function tests resolve the repo root from their own [CallerFilePath] to
-         read source files at test time — path normalization there makes every source-scanning
+         read source files at test time - path normalization there makes every source-scanning
          conformance test fail to locate the tree. Reproducibility is a property of the shipped
          SSO-Auth.dll, not the test assembly, so scoping it to SSO-Auth loses nothing. Left off locally
          so a debugger keeps real source paths. -->

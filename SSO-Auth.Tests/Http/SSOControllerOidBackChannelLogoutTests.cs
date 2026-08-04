@@ -151,7 +151,7 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     [Fact]
     public async Task DiscoveryUnavailable_RejectsFailClosed_MintsNoRevoke()
     {
-        // Feature + per-provider opt-in ON, so the endpoint reaches the validator — but discovery is
+        // Feature + per-provider opt-in ON, so the endpoint reaches the validator - but discovery is
         // unreachable (no HTTP responder). ValidateBackChannelLogoutAsync must fail closed
         // (discovery_unavailable -> uniform 400), never a 500 and never a session revoke.
         var harness = Harness(c =>
@@ -217,7 +217,7 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
     public async Task MalformedEndpoint_RejectsFailClosed_MintsNoRevoke()
     {
         // The configured endpoint is not a usable URL, so OidcDiscoveryOptions.Build throws while the
-        // validator prepares discovery — caught as a fail-closed reject (discovery_unavailable), never a 500
+        // validator prepares discovery - caught as a fail-closed reject (discovery_unavailable), never a 500
         // and never a session revoke.
         var harness = Harness(c =>
         {

@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Characterization tests pinning the exact bytes <see cref="OidcRedirectUriBuilder"/> produces. The
 /// redirect_uri is validated byte-for-byte on the other side (the IdP's registration; RFC 6749 section
-/// 4.1.3 equality), so the pins here are the primary evidence that refactors change nothing — the
+/// 4.1.3 equality), so the pins here are the primary evidence that refactors change nothing - the
 /// end-to-end suites assert only URL prefixes and parameter presence, not full bytes.
 /// </summary>
 public class OidcRedirectUriBuilderTests
@@ -68,7 +68,7 @@ public class OidcRedirectUriBuilderTests
     [InlineData("käse", "https://jf.example.com/sso/OID/r/käse")]
     public void ChallengeRedirectUri_ProviderIsAppendedRaw_NeverReEncoded(string provider, string expected)
     {
-        // Characterizes the contract, not an endorsement: the server never encodes the provider —
+        // Characterizes the contract, not an endorsement: the server never encodes the provider -
         // re-encoding would change the bytes IdPs already have registered and break every working
         // deployment. Rejecting problematic names at registration is #336.
         Assert.Equal(expected, OidcRedirectUriBuilder.ChallengeRedirectUri(Base, newPath: false, provider));
@@ -81,7 +81,7 @@ public class OidcRedirectUriBuilderTests
     {
         // RFC 6749 section 4.1.3: the token request must repeat the authorization request's
         // redirect_uri byte-for-byte. The challenge leg derives the spelling from newPath, the
-        // callback leg re-derives it from its own path — this pins that the two constructions agree.
+        // callback leg re-derives it from its own path - this pins that the two constructions agree.
         Assert.Equal(
             OidcRedirectUriBuilder.ChallengeRedirectUri(Base, newPath, "kc"),
             OidcRedirectUriBuilder.CallbackRedirectUri(Base, $"/sso/OID/{segment}/kc", "kc"));

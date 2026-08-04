@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Conformance guard for the localization catalogs (#913). English is the invariant baseline that the
 /// fallback chain terminates on, so every embedded catalog must be a flat string→string map with no blank
-/// values, and every non-English catalog must carry EXACTLY the English key set — a missing key would blank
+/// values, and every non-English catalog must carry EXACTLY the English key set - a missing key would blank
 /// (it falls back, but a translator's catalog claiming completeness must be complete), an orphan key is dead
 /// data. This is the standing drift guard for when the full language set lands (a later sub-unit).
 /// </summary>
@@ -36,7 +36,7 @@ public class LocalizationCatalogTests
     // `data-i18n="key"` and the allowlisted attribute form `data-i18n-title="key"`.
     private static readonly Regex MarkupKeyPattern = new(@"data-i18n(?:-[a-z-]+)?=""(?<key>[^""]+)""", RegexOptions.Compiled);
 
-    // t("key", …) / tr("key", …) — the lookbehind keeps it off identifiers that merely end in t (parseInt(…)).
+    // t("key", …) / tr("key", …) - the lookbehind keeps it off identifiers that merely end in t (parseInt(…)).
     private static readonly Regex ScriptKeyPattern = new(@"(?<![A-Za-z0-9_.])tr?\(\s*""(?<key>[^""]+)""", RegexOptions.Compiled);
 
     // The inline English default each script call carries: tr("key", "English", …) puts it second, while
@@ -63,14 +63,14 @@ public class LocalizationCatalogTests
 
     // The assets that CONSUME the catalog. Excluded are the vendored Jellyfin client bundles (third-party
     // code that never carries our markers, and a minified bundle only invites false positives) and i18n.js
-    // itself — it DEFINES the mechanism, so its documentation spells out the marker forms literally.
+    // itself - it DEFINES the mechanism, so its documentation spells out the marker forms literally.
     private static readonly string[] NonConsumingAssets = ["Web.ApiClient.js", "Web.jellyfin-apiClient.esm.min.js", "Web.i18n.js"];
 
-    // Every scan below asserts the ABSENCE of offenders — except UiCatalogKeys_AreAllReferencedBySomeWebAsset,
+    // Every scan below asserts the ABSENCE of offenders - except UiCatalogKeys_AreAllReferencedBySomeWebAsset,
     // which inverts: with no assets nothing is referenced, so every UI key becomes an orphan and it fails
     // loudly. All the others would be trivially green on an empty list while inspecting nothing, so a dropped
     // EmbeddedResource entry or a renamed file would silently retire them. The floor therefore belongs here,
-    // once, for every consumer — the one scan that does not need it is also the one it cannot hurt.
+    // once, for every consumer - the one scan that does not need it is also the one it cannot hurt.
     private static List<string> FirstPartyWebAssets()
     {
         var assets = PluginAssembly.GetManifestResourceNames()
@@ -78,7 +78,7 @@ public class LocalizationCatalogTests
             .Where(name => !NonConsumingAssets.Any(excluded => name.EndsWith(excluded, System.StringComparison.Ordinal)))
             .ToList();
 
-        Assert.True(assets.Count > 0, "no first-party web asset is embedded — every scan but the orphan check would pass without inspecting anything");
+        Assert.True(assets.Count > 0, "no first-party web asset is embedded - every scan but the orphan check would pass without inspecting anything");
         return assets;
     }
 
@@ -96,7 +96,7 @@ public class LocalizationCatalogTests
         var assets = FirstPartyWebAssets()
             .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal))
             .ToList();
-        Assert.True(assets.Count > 0, $"no embedded HTML asset was found — the {scan} scan would pass without inspecting anything");
+        Assert.True(assets.Count > 0, $"no embedded HTML asset was found - the {scan} scan would pass without inspecting anything");
 
         return ScanForMatches(assets, pattern, scan);
     }
@@ -108,7 +108,7 @@ public class LocalizationCatalogTests
             .SelectMany(asset => pattern.Matches(asset.Content).Select(match => (asset.Resource, asset.Content, Match: match)))
             .ToList();
 
-        Assert.True(inspected.Count > 0, $"the {scan} scan matched nothing — the pattern or the embedded assets have drifted");
+        Assert.True(inspected.Count > 0, $"the {scan} scan matched nothing - the pattern or the embedded assets have drifted");
         return inspected;
     }
 
@@ -133,10 +133,10 @@ public class LocalizationCatalogTests
     [Fact]
     public void EveryKeyReferencedByTheWebAssets_ExistsInTheEnglishCatalog()
     {
-        // #913: the client-rendered pages carry only KEYS — `data-i18n="key"` / `data-i18n-<attr>="key"` in
+        // #913: the client-rendered pages carry only KEYS - `data-i18n="key"` / `data-i18n-<attr>="key"` in
         // the markup, and t("key", …) / tr("key", …) in the scripts. A key with no catalog entry silently
         // degrades (the element keeps its built-in English, or t() falls back), so the drift is invisible in
-        // review and in the browser. This scans the EMBEDDED assets — exactly what ships — so a renamed
+        // review and in the browser. This scans the EMBEDDED assets - exactly what ships - so a renamed
         // catalog key or a typo'd marker is a red build rather than a page that quietly stops localizing.
         var englishKeys = ReadCatalog(EnglishResource).Keys.ToHashSet(System.StringComparer.Ordinal);
         var missing = new List<string>();
@@ -161,7 +161,7 @@ public class LocalizationCatalogTests
     public void AttributeLocalization_StaysRestrictedToInertAttributes()
     {
         // The applier can set ATTRIBUTES from the catalog (data-i18n-<attr>), which is only safe because the
-        // target is an allowlist of inert, user-visible attributes: a generic setter — or a widened list —
+        // target is an allowlist of inert, user-visible attributes: a generic setter - or a widened list -
         // would let markup drive href, src, style, or an event handler through the same path. That is a
         // security property, so it is pinned here rather than left to review: both the allowlist itself and
         // every marker the shipped markup actually uses.
@@ -189,7 +189,7 @@ public class LocalizationCatalogTests
     public void MarkupBuiltInEnglish_MatchesTheCatalog()
     {
         // A marked element keeps its built-in English until the catalog resolves, and permanently if the
-        // fetch fails — so that text is a SECOND copy of the wording. If the two drift, an admin whose
+        // fetch fails - so that text is a SECOND copy of the wording. If the two drift, an admin whose
         // catalog loaded sees different text from one whose fetch failed, with nothing to signal which is
         // current. Pin them equal; the built-in text stays the authoritative offline rendering.
         var english = ReadCatalog(EnglishResource);
@@ -212,7 +212,7 @@ public class LocalizationCatalogTests
     public void TextMarkers_OnlySitOnElementsWithoutChildMarkup()
     {
         // `data-i18n` REPLACES the element's textContent, so every child element inside a marked element is
-        // destroyed the moment the catalog resolves — and on the configuration page those children are
+        // destroyed the moment the catalog resolves - and on the configuration page those children are
         // load-bearing: the required asterisk and the "(optional)" hint live INSIDE their field label, and a
         // link or a <code> sample carries meaning of its own inside a description. Such a marker renders
         // correctly while the catalog is unreachable and silently strips the markup once it loads, which is
@@ -230,17 +230,17 @@ public class LocalizationCatalogTests
             // No `</tag` after the marker at all: usually a void element, which has no text node for the
             // applier to write, but equally unbalanced markup, where the string would land on an element that
             // swallowed the rest of the document. Both are wrong and neither is child markup, so the case
-            // carries its own diagnosis — the child-markup branch cannot express it, and cannot even detect
+            // carries its own diagnosis - the child-markup branch cannot express it, and cannot even detect
             // it reliably: the remainder of a file usually contains a '<', but not after the last element.
             // Both diagnoses go into ONE list and ONE assertion so that a run reports every offender at once;
             // two sequential assertions would hide the second class behind the first.
             if (closing < 0)
             {
-                problems.Add($"{resource}: '{key}' — no closing tag, so the marker delimits no text to localize");
+                problems.Add($"{resource}: '{key}' - no closing tag, so the marker delimits no text to localize");
             }
             else if (content[contentStart..closing].Contains('<'))
             {
-                problems.Add($"{resource}: '{key}' — child markup would be replaced with plain text");
+                problems.Add($"{resource}: '{key}' - child markup would be replaced with plain text");
             }
         }
 
@@ -253,7 +253,7 @@ public class LocalizationCatalogTests
         // The reverse of the forward parity check: a UI key nothing references is dead data that a
         // translator still has to carry, and it hides a dropped marker (the string silently stops being
         // localized while the catalog still claims to cover it). Scoped to the namespaces the web assets
-        // own — the error.*/page.* keys are server-side, reached from C# either by key or, for the login
+        // own - the error.*/page.* keys are server-side, reached from C# either by key or, for the login
         // rejection bodies, by reverse VALUE lookup, so a key-reference scan cannot see them.
         var referenced = FirstPartyWebAssets()
             .SelectMany(resource =>
@@ -279,7 +279,7 @@ public class LocalizationCatalogTests
         // A string the scripts build themselves carries its English inline as the fallback, so it still reads
         // properly when the catalog cannot be fetched. That default is a SECOND copy of the wording, and a
         // reword of one copy alone is invisible: the page would show one wording offline and another online.
-        // Pin them equal — this is the drift class an earlier sub-unit's review found on the linking page.
+        // Pin them equal - this is the drift class an earlier sub-unit's review found on the linking page.
         var english = ReadCatalog(EnglishResource);
         var mismatches = new List<string>();
 

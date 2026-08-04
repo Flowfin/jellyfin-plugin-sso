@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
 /// Builds an OUTBOUND SP-initiated SAML 2.0 <c>LogoutRequest</c> for the HTTP-Redirect binding (#727, SLO-3c)
-/// — the mirror image of <see cref="SamlAuthnRequest"/> for the logout flow. It emits the same DEFLATE +
+/// - the mirror image of <see cref="SamlAuthnRequest"/> for the logout flow. It emits the same DEFLATE +
 /// Base64 encoding as the AuthnRequest builder (<see cref="GetRequest"/>) and hands the encoded message to the
 /// SHARED <see cref="SamlRedirectSigner"/> for the mandated detached SigAlg+Signature, so the outbound-signing
 /// infrastructure is reused verbatim rather than re-implemented.
@@ -105,13 +105,13 @@ internal sealed class SamlLogoutRequestBuilder
 
     /// <summary>
     /// Gets the redirect URL to the identity provider's Single-Logout endpoint with the LogoutRequest SIGNED
-    /// for the HTTP-Redirect binding — delegating to the SHARED <see cref="SamlRedirectSigner"/> exactly as
+    /// for the HTTP-Redirect binding - delegating to the SHARED <see cref="SamlRedirectSigner"/> exactly as
     /// <see cref="SamlAuthnRequest.GetSignedRedirectUrl"/> does, so the SigAlg/Signature policy (key-type
     /// derived, allowlist-checked, no SHA-1) is reused rather than re-implemented.
     /// </summary>
     /// <param name="sloEndpoint">The identity provider's Single-Logout (SLO) endpoint URL.</param>
     /// <param name="relayState">The relay state, omitted when null or empty.</param>
-    /// <param name="signingKey">The service-provider private key — RSA or ECDSA.</param>
+    /// <param name="signingKey">The service-provider private key - RSA or ECDSA.</param>
     /// <returns>The signed redirect URL.</returns>
     public string GetSignedRedirectUrl(string sloEndpoint, string? relayState, AsymmetricAlgorithm signingKey)
     {

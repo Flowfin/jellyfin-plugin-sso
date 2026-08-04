@@ -8,9 +8,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// The reference-URI rule both signature validators share (#1003): a same-document <c>#id</c> shorthand
-/// pointer whose fragment is an XML <c>NCName</c>, and nothing else. Owning this rule here — rather than
+/// pointer whose fragment is an XML <c>NCName</c>, and nothing else. Owning this rule here - rather than
 /// leaning on .NET's own NCName guard inside <c>DefaultGetIdElement</c>, which is documented as
-/// compatibility-switchable and sits above an XPath predicate that interpolates the fragment unescaped — is
+/// compatibility-switchable and sits above an XPath predicate that interpolates the fragment unescaped - is
 /// what makes the rejection a property of this plugin instead of a property of the host's configuration.
 /// </summary>
 public class SamlSignatureReferenceTests
@@ -32,8 +32,8 @@ public class SamlSignatureReferenceTests
     [InlineData("#")] // a pointer to nothing
     [InlineData("https://idp.example.com/doc#a")] // an external reference
     [InlineData("cid:attachment")] // a non-fragment scheme
-    [InlineData("#xpointer(/)")] // resolved by .NET as the whole document — not the shorthand SAML mandates
-    [InlineData("#xpointer(id('_a'))")] // unwrapped by .NET to the plain id — same
+    [InlineData("#xpointer(/)")] // resolved by .NET as the whole document - not the shorthand SAML mandates
+    [InlineData("#xpointer(id('_a'))")] // unwrapped by .NET to the plain id - same
     [InlineData("#0leading")] // an NCName may not start with a digit
     [InlineData("#ns:name")] // a colon makes it a QName, not an NCName
     [InlineData("#has space")]
@@ -51,7 +51,7 @@ public class SamlSignatureReferenceTests
     {
         // The reason the NCName rule is enforced here rather than borrowed. Below .NET's own guard,
         // GetSingleReferenceTarget builds its lookup as "//*[@Id=\"" + idValue + "\"]" with the value
-        // interpolated UNESCAPED — so a fragment carrying a quote is XPath injection inside reference
+        // interpolated UNESCAPED - so a fragment carrying a quote is XPath injection inside reference
         // resolution on any host where that guard is relaxed by a compatibility switch. No quote, bracket or
         // pipe is an NCName character, so every such fragment is refused before it can reach the lookup.
         Assert.False(SamlSignatureReference.TryGetSameDocumentId(referenceUri, out var id));

@@ -10,8 +10,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
 /// Loads this service provider's SAML signing key (#167). The key is supplied by the operator as a
-/// Base64-encoded, unencrypted PKCS#12 (PFX) blob carrying the certificate and its private key — an RSA or
-/// ECDSA key (#493) — the same keypair whose public certificate the identity provider is configured to
+/// Base64-encoded, unencrypted PKCS#12 (PFX) blob carrying the certificate and its private key - an RSA or
+/// ECDSA key (#493) - the same keypair whose public certificate the identity provider is configured to
 /// trust for "signed AuthnRequest" setups. Loading is fail-closed: a blank value is "no signing key
 /// configured" (valid, signing simply stays off), and a set-but-unloadable value is rejected rather than
 /// silently ignored, so an operator who turned signing on can never get a silent unsigned downgrade.
@@ -80,8 +80,8 @@ internal static class SamlSigningKey
     }
 
     /// <summary>
-    /// Returns the service-provider signing key from the certificate — its RSA or ECDSA private key,
-    /// whichever it carries (#493) — or null when it has neither and so cannot sign. The caller owns the
+    /// Returns the service-provider signing key from the certificate - its RSA or ECDSA private key,
+    /// whichever it carries (#493) - or null when it has neither and so cannot sign. The caller owns the
     /// returned key and must dispose it.
     /// </summary>
     /// <param name="certificate">The loaded signing certificate.</param>

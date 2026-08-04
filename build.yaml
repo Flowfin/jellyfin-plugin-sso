@@ -4,14 +4,14 @@ imageUrl: "https://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/main/img
 version: "4.3.0"
 # The oldest Jellyfin server this plugin claims to load on. The shipping build compiles against a
 # newer 10.11.x SDK, so the CI `abi-floor` job also builds against this floor to prove every Jellyfin
-# API the plugin calls exists here — otherwise a newer member would throw MissingMethodException at
+# API the plugin calls exists here - otherwise a newer member would throw MissingMethodException at
 # login on an older 10.11 server (#142). Raise this only to a floor that job still builds clean on.
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 owner: "iderex"
 overview: "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers."
 description: |
-  Single sign-on for Jellyfin via OpenID Connect and SAML 2.0 — works with self-hosted and
+  Single sign-on for Jellyfin via OpenID Connect and SAML 2.0 - works with self-hosted and
   managed identity providers such as Authelia, Authentik, Keycloak, Pocket ID and Kanidm,
   with multiple providers side by side.
   Role-based access from provider claims (login, administrator, library folders, Live TV),
@@ -36,10 +36,10 @@ artifacts:
   - "Microsoft.IdentityModel.Abstractions.dll"
   - "Microsoft.Bcl.Cryptography.dll"
   # SAML XML-signature validation (#181): the runtime closure of the direct
-  # System.Security.Cryptography.Xml reference — Pkcs, then Asn1 (its other dependency,
+  # System.Security.Cryptography.Xml reference - Pkcs, then Asn1 (its other dependency,
   # Microsoft.Bcl.Cryptography, is already listed above for OIDC). None of these are in
   # the ASP.NET Core shared framework Jellyfin 10.11 (.NET 9) runs on, so without them
-  # the packaged plugin throws FileNotFoundException the moment SignedXml runs — every
+  # the packaged plugin throws FileNotFoundException the moment SignedXml runs - every
   # packaged SAML login fails, even though local build/dotnet test are green (they run
   # against the full publish output). Keep in sync with `dotnet publish -c Release` on
   # every dependency change.

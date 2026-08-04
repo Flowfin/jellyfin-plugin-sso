@@ -11,7 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Behavioral tests for <see cref="AuthorizeStateBinding"/> (#192) — the <c>__Host-sso_*_state_binding</c>
+/// Behavioral tests for <see cref="AuthorizeStateBinding"/> (#192) - the <c>__Host-sso_*_state_binding</c>
 /// browser-binding cookie that is the CSRF / forced-login (session-fixation) defense on both the OpenID
 /// (#326) and SAML (#415) callbacks. The helper is pure and previously entirely unasserted, so a refactor
 /// could silently weaken the anti-forgery guarantee. These pins fail closed on every hardening property so
@@ -100,7 +100,7 @@ public class AuthorizeStateBindingTests
     public void CookieOptions_MaxAge_MirrorsTheGivenLifetime(int minutes)
     {
         // The cookie's lifetime is exactly the caller-supplied state lifetime (OIDC and SAML pass their
-        // own), never a hard-coded value — so the cookie cannot outlive the state it binds.
+        // own), never a hard-coded value - so the cookie cannot outlive the state it binds.
         var lifetime = TimeSpan.FromMinutes(minutes);
 
         Assert.Equal(lifetime, AuthorizeStateBinding.CookieOptions(lifetime).MaxAge);

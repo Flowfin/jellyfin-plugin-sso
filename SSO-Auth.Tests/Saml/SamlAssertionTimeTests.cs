@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlAssertionTime"/> — the fail-closed time-window check. The upper
+/// Tests for <see cref="SamlAssertionTime"/> - the fail-closed time-window check. The upper
 /// bound (NotOnOrAfter) is required and absent/unparseable bounds are rejections, closing the
 /// F-2 fail-open (a missing time bound previously meant "valid forever").
 /// </summary>
@@ -111,7 +111,7 @@ public class SamlAssertionTimeTests
     public void TryParseUtc_MoreThanSevenFractionalDigits_IsAccepted()
     {
         // xsd:dateTime permits unbounded fractional-second digits; some IdPs emit high precision. The old
-        // DateTime.TryParse path caps at 7 digits and rejected these, wrongly failing a valid assertion —
+        // DateTime.TryParse path caps at 7 digits and rejected these, wrongly failing a valid assertion -
         // XmlConvert tolerates them (truncating to tick precision). This is the #677 regression, now fixed.
         Assert.True(SamlAssertionTime.TryParseUtc("2026-07-11T12:00:00.123456789012345Z", out var parsed));
         Assert.Equal(DateTimeKind.Utc, parsed.Kind);

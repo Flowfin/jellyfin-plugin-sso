@@ -15,8 +15,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Pins the <see cref="PluginPageInfo"/> set <see cref="SSOPlugin.GetPages"/> and
-/// <see cref="SSOPlugin.GetViews"/> emit — the (name, embedded resource) contract Jellyfin resolves
-/// static assets by — so the #458 factory-collapse refactor stays behavior-preserving, and asserts every
+/// <see cref="SSOPlugin.GetViews"/> emit - the (name, embedded resource) contract Jellyfin resolves
+/// static assets by - so the #458 factory-collapse refactor stays behavior-preserving, and asserts every
 /// emitted resource path actually resolves to an embedded resource so a moved or renamed asset (#869) is
 /// caught here as a build-time failure instead of a runtime 404.
 /// </summary>

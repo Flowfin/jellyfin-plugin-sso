@@ -17,13 +17,13 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcDiscoveryReader"/> — the single, policy-validated discovery read the OpenID
+/// Tests for <see cref="OidcDiscoveryReader"/> - the single, policy-validated discovery read the OpenID
 /// challenge performs, sourcing BOTH the two security facts (PKCE-S256 #141, RFC 9207 response-<c>iss</c>
 /// #210) AND the <see cref="ProviderInformation"/> the login is fed from ONE response (#450). They pin:
 /// a served document yields the facts plus the metadata OidcClient would build; a document that omits a
 /// fact reports a definite <c>false</c> (not a silent downgrade); an unreadable document returns
 /// <see cref="OidcDiscoveryResult.Unavailable"/> so the caller fails the login closed; and the read honours
-/// the <c>DiscoveryPolicy</c> — a non-HTTPS authority under <c>RequireHttps</c> is refused before any fetch,
+/// the <c>DiscoveryPolicy</c> - a non-HTTPS authority under <c>RequireHttps</c> is refused before any fetch,
 /// closing the pre-#450 probe's weak-channel gap.
 /// </summary>
 public class OidcDiscoveryReaderTests
@@ -75,7 +75,7 @@ public class OidcDiscoveryReaderTests
         Assert.Equal(Authority + "/authorize", result.ProviderInformation.AuthorizeEndpoint);
         Assert.Equal(Authority + "/token", result.ProviderInformation.TokenEndpoint);
         Assert.NotNull(result.ProviderInformation.KeySet);
-        // Exactly one discovery document was fetched (plus its JWKS) — no second probe (#450).
+        // Exactly one discovery document was fetched (plus its JWKS) - no second probe (#450).
         Assert.Equal(1, http.DiscoveryRequests);
     }
 
@@ -83,7 +83,7 @@ public class OidcDiscoveryReaderTests
     public async Task ReadAsync_DiscoveryWithoutS256_ReportsDefiniteFalse_StillAvailable()
     {
         // A readable document that does not advertise S256: PkceS256 is a definite false, not a null/absent
-        // that the caller could misread — the caller then rejects only under RequirePkce.
+        // that the caller could misread - the caller then rejects only under RequirePkce.
         var discovery = "{"
             + $"\"issuer\":\"{Authority}\","
             + $"\"authorization_endpoint\":\"{Authority}/authorize\","
@@ -103,7 +103,7 @@ public class OidcDiscoveryReaderTests
     public async Task ReadAsync_DiscoveryWithoutResponseIssuerParam_ReportsTolerantFalse()
     {
         // The RFC 9207 parameter is absent: ResponseIssuerAdvertised is false (tolerant), so the callback
-        // does not require `iss` — an IdP that never emits it keeps working (#210). This false comes from a
+        // does not require `iss` - an IdP that never emits it keeps working (#210). This false comes from a
         // document that WAS read, so it is authoritative, not a failed-probe downgrade.
         var discovery = "{"
             + $"\"issuer\":\"{Authority}\","

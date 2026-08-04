@@ -22,7 +22,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AvatarService"/> — the SSRF-safe avatar fetch/store extracted from the controller
+/// Tests for <see cref="AvatarService"/> - the SSRF-safe avatar fetch/store extracted from the controller
 /// (#318). The security-relevant early returns (a null URL, and a URL the allow-list rejects) fail closed
 /// without any outbound fetch or profile-image write; these are unit-testable without live HTTP. The fetch
 /// path itself (transport SSRF guard, content-type allow-list, size cap) needs a live endpoint and is
@@ -59,7 +59,7 @@ public class AvatarServiceTests
 
     // Builds a service whose store step serializes on the supplied lock, so a test can drive the #400
     // per-user serialization deterministically (hold the key, prove StoreAsync parks). The stub handler
-    // is never invoked — these tests call StoreAsync directly, not the fetch path.
+    // is never invoked - these tests call StoreAsync directly, not the fetch path.
     private static (AvatarService Service, IProviderManager Providers, IUserManager Users, CapturingLogger Log) Build(KeyedLockStore userStoreLocks)
     {
         var users = Substitute.For<IUserManager>();
@@ -95,7 +95,7 @@ public class AvatarServiceTests
     }
 
     // An allowed public URL: the stub handler answers before any connection, so the URL only needs to
-    // clear the allow-list — the SSRF transport guard (ConnectCallback) is never reached here.
+    // clear the allow-list - the SSRF transport guard (ConnectCallback) is never reached here.
     private const string AllowedUrl = "https://cdn.example.com/avatar.png";
 
     private static HttpResponseMessage ImageResponse(string mediaType, byte[] body, long? contentLength = null)
@@ -118,7 +118,7 @@ public class AvatarServiceTests
 
         public StubHandler(HttpResponseMessage response) => _response = response;
 
-        // How many requests this one handler served — proves the client/handler is reused across fetches
+        // How many requests this one handler served - proves the client/handler is reused across fetches
         // (#248) rather than rebuilt per fetch.
         public int Invocations { get; private set; }
 
@@ -171,7 +171,7 @@ public class AvatarServiceTests
     public async Task StoreAsync_SaveFails_LeavesThePreviousAvatarUntouched()
     {
         // The #377 regression: a transient save failure must not downgrade the user from a working
-        // avatar to a cleared record plus a dangling path — the write comes first, the user last.
+        // avatar to a cleared record plus a dangling path - the write comes first, the user last.
         var (service, providers, users, _) = Build();
         var user = TestUsers.Named("alice");
         var previous = new ImageInfo(ProfilePath("alice", ".jpg"));
@@ -190,7 +190,7 @@ public class AvatarServiceTests
     public async Task StoreAsync_SamePathReLogin_OverwritesInPlaceWithoutClearing()
     {
         // The common re-login with the same content type overwrites the same file in place; the
-        // record is already correct, so ClearProfileImageAsync (a DB-row removal) must not run —
+        // record is already correct, so ClearProfileImageAsync (a DB-row removal) must not run -
         // it would drop and re-insert the record for nothing. The timestamp refresh is what makes
         // clients re-fetch the changed image.
         var (service, providers, users, _) = Build();
@@ -230,9 +230,9 @@ public class AvatarServiceTests
     {
         // #400, a deterministic overlapping-call test via the injected per-user lock seam: we take the
         // user's lock to stand in for a store already mid-flight for the SAME user, then start a real
-        // StoreAsync. While the lock is held it cannot reach SaveImage — it is serialized behind the
+        // StoreAsync. While the lock is held it cannot reach SaveImage - it is serialized behind the
         // in-flight store, proven by the held handle rather than by timing. Releasing the lock lets it run
-        // to a single consistent record. (Unrelated users never block each other — KeyedLockStoreTests.)
+        // to a single consistent record. (Unrelated users never block each other - KeyedLockStoreTests.)
         var locks = new KeyedLockStore(StringComparer.Ordinal);
         var (service, providers, users, _) = Build(locks);
         var user = TestUsers.Named("racer");
@@ -261,8 +261,8 @@ public class AvatarServiceTests
         // #448: CancellationToken.None made the same-user acquire wait unbounded, so a store step stalled
         // while holding the gate could park every other concurrent login for that user forever. With a
         // bounded wait, a stalled holder (stood in for here by a lock we hold and never release) times the
-        // waiter out; the store must abort — SaveImage is NEVER called (no unguarded write bypassing the
-        // lock) and the user's profile-image record is left untouched — rather than propagate an unhandled
+        // waiter out; the store must abort - SaveImage is NEVER called (no unguarded write bypassing the
+        // lock) and the user's profile-image record is left untouched - rather than propagate an unhandled
         // exception into the best-effort login path.
         var locks = new KeyedLockStore(StringComparer.Ordinal);
         var (service, providers, users, log) = Build(locks, TimeSpan.FromMilliseconds(50));
@@ -278,7 +278,7 @@ public class AvatarServiceTests
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
         await users.DidNotReceive().ClearProfileImageAsync(Arg.Any<User>());
-        Assert.Same(previous, user.ProfileImage); // record untouched — no unguarded store ran
+        Assert.Same(previous, user.ProfileImage); // record untouched - no unguarded store ran
         Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("Timed out"));
         Assert.Equal(0, locks.TrackedKeys); // the timed-out waiter left no reference behind
     }
@@ -287,7 +287,7 @@ public class AvatarServiceTests
     public async Task StoreAsync_LockAcquiredBeforeTimeout_StoresNormally()
     {
         // The counterpart to the timeout test: when the lock is free (the normal case), a bounded wait
-        // still lets the store through exactly as before — the timeout only aborts a genuinely stalled
+        // still lets the store through exactly as before - the timeout only aborts a genuinely stalled
         // wait, it does not shrink the normal-load window.
         var locks = new KeyedLockStore(StringComparer.Ordinal);
         var (service, providers, _, log) = Build(locks, TimeSpan.FromSeconds(3));
@@ -322,7 +322,7 @@ public class AvatarServiceTests
         providers.SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci =>
             {
-                // The first store's write parks here — inside the critical section, holding the lock —
+                // The first store's write parks here - inside the critical section, holding the lock -
                 // until the test releases it; the second store's write completes at once.
                 if (string.Equals(ci.ArgAt<string>(2), pngPath, StringComparison.Ordinal))
                 {
@@ -380,7 +380,7 @@ public class AvatarServiceTests
     public async Task StoreAsync_UnsafeUsername_SkipsWriteWithoutThrowingOrEscaping(string username)
     {
         // #447: user.Username is IdP-controlled (OIDC preferred_username / SAML NameID) and only the host's
-        // own CreateUserAsync validates it — a regex that ADMITS '.' and '..'. A username of ".." would make
+        // own CreateUserAsync validates it - a regex that ADMITS '.' and '..'. A username of ".." would make
         // Path.Combine write the fetched image into the PARENT of the user-config directory. The store must
         // fail closed: no out-of-directory write (SaveImage is never called with any path), no throw (login
         // is best-effort and must still complete), and no profile-image record.
@@ -417,7 +417,7 @@ public class AvatarServiceTests
     {
         // #447 layer-2 (the round-trip containment check, the branch the character check can't reach):
         // the host username regex admits a trailing dot, and Windows strips it, so "victim." would fold
-        // onto another user's "victim" directory — an in-root cross-user avatar overwrite. The guard must
+        // onto another user's "victim" directory - an in-root cross-user avatar overwrite. The guard must
         // reject any username whose resolved path is not exactly root/username. On POSIX nothing is
         // stripped, so "victim." is a distinct literal directory and the avatar stores there normally.
         // Either way there is no cross-user write and no escape.
@@ -443,7 +443,7 @@ public class AvatarServiceTests
     [Fact]
     public async Task StoreAsync_LegitimateUsernameWithDotAndAt_StillStoresUnchanged()
     {
-        // Behavior preserved for legitimate usernames the host allows (dots and '@' are valid — e.g. an
+        // Behavior preserved for legitimate usernames the host allows (dots and '@' are valid - e.g. an
         // email-style preferred_username): the store path is unchanged and the write happens as before.
         var (service, providers, _, _) = Build();
         var user = TestUsers.Named("first.last@example.com");
@@ -457,8 +457,8 @@ public class AvatarServiceTests
     [Fact]
     public async Task ReadCappedAsync_BodyOverTheCap_Throws()
     {
-        // #220, the single most security-relevant untested branch: a body larger than the cap — the
-        // shape a hostile or Content-Length-lying endpoint produces — is aborted rather than buffered.
+        // #220, the single most security-relevant untested branch: a body larger than the cap - the
+        // shape a hostile or Content-Length-lying endpoint produces - is aborted rather than buffered.
         using var response = ImageResponse("image/png", new byte[11]);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -509,7 +509,7 @@ public class AvatarServiceTests
     public async Task TrySetAsync_AllowedImage_FetchesAndStoresWithDottedExtension()
     {
         // The happy path end to end over the seam: an allowed raster type within the cap is fetched and
-        // saved to the resolved profile path — with a real dotted extension since #384.
+        // saved to the resolved profile path - with a real dotted extension since #384.
         using var response = ImageResponse("image/png", new byte[] { 1, 2, 3 });
         var (service, providers, _, _) = Build(response);
 
@@ -539,7 +539,7 @@ public class AvatarServiceTests
     public async Task TrySetAsync_NotModified_KeepsExistingAvatarAndDoesNotReStore()
     {
         // The decided cadence (#248): when the user already has an avatar, the fetch is conditional on
-        // If-Modified-Since, and a 304 means the image is unchanged — keep the existing profile image and
+        // If-Modified-Since, and a 304 means the image is unchanged - keep the existing profile image and
         // download/store nothing. 304 must be handled BEFORE EnsureSuccessStatusCode (which throws on it).
         using var response = NotModifiedResponse();
         var (service, providers, users, handler, log) = BuildWithHandler(response);
@@ -565,7 +565,7 @@ public class AvatarServiceTests
     public async Task TrySetAsync_ExistingImageChanged_SendsConditionalHeaderAndRefreshes()
     {
         // The 200 side of the decided cadence: the origin reports the image changed (a 200, not a 304), so
-        // the new bytes are fetched and re-stored over the same path — the conditional header was still sent.
+        // the new bytes are fetched and re-stored over the same path - the conditional header was still sent.
         using var response = ImageResponse("image/png", new byte[] { 9 });
         var (service, providers, _, handler, _) = BuildWithHandler(response);
         var user = TestUsers.Named("alice");
@@ -580,7 +580,7 @@ public class AvatarServiceTests
     [Fact]
     public async Task TrySetAsync_NoPreviousImage_FetchesUnconditionally()
     {
-        // First login for this user: no stored image, so no If-Modified-Since — the fetch is unconditional
+        // First login for this user: no stored image, so no If-Modified-Since - the fetch is unconditional
         // and the avatar is stored, exactly as before the conditional-fetch change.
         using var response = ImageResponse("image/png", new byte[] { 1, 2, 3 });
         var (service, providers, _, handler, _) = BuildWithHandler(response);
@@ -596,7 +596,7 @@ public class AvatarServiceTests
     {
         // #480: the ImageInfo record is live but the on-disk profile.* file was deleted out-of-band. Under the
         // conditional-fetch cadence (#248) this login would send If-Modified-Since, get a 304, and skip the
-        // re-download — so the avatar could never self-heal from the surviving record. With the local file
+        // re-download - so the avatar could never self-heal from the surviving record. With the local file
         // absent we now fetch UNCONDITIONALLY (no If-Modified-Since) and re-store, restoring the file. This is
         // the self-heal that the always-download behaviour had before #248, back for the missing-file case only.
         using var response = ImageResponse("image/png", new byte[] { 1, 2, 3 });
@@ -614,7 +614,7 @@ public class AvatarServiceTests
     public async Task TrySetAsync_ProfileFileMissingOnDisk_SuppressesConditionalEvenUnderAStubbornNotModified()
     {
         // #480 fail-closed edge: with the local file gone we must NOT advertise our stale last-store timestamp,
-        // so If-Modified-Since is withheld even though the record still carries a valid one — the file-existence
+        // so If-Modified-Since is withheld even though the record still carries a valid one - the file-existence
         // gate overrides the timestamp-based conditional. A well-behaved origin then re-sends the image (asserted
         // above); a non-compliant origin that answers 304 to an UNCONDITIONAL request refuses us the bytes, so
         // the best-effort path simply keeps the existing record and, critically, never throws into the login.
@@ -658,8 +658,8 @@ public class AvatarServiceTests
     {
         // #248 trim 1, cross-instance: the controller builds a fresh AvatarService per request (see
         // SSOController), so reuse only helps if the client is process-wide. Two services built through the
-        // production constructor must reference the very same HttpClient instance — i.e. the static shared
-        // one — not a fresh per-instance client (which would reopen a connection pool each login).
+        // production constructor must reference the very same HttpClient instance - i.e. the static shared
+        // one - not a fresh per-instance client (which would reopen a connection pool each login).
         var users = Substitute.For<IUserManager>();
         var providers = Substitute.For<IProviderManager>();
         var serverConfig = Substitute.For<IServerConfigurationManager>();
@@ -676,7 +676,7 @@ public class AvatarServiceTests
     [Fact]
     public async Task TrySetAsync_TwoFetches_ReuseTheSameHttpStack()
     {
-        // #248 trim 1: TrySetAsync no longer builds its own HttpClient/handler per fetch — it uses the
+        // #248 trim 1: TrySetAsync no longer builds its own HttpClient/handler per fetch - it uses the
         // injected (in production: process-wide shared) client. Two fetches through one service are served
         // by the one handler instance, proving the stack is reused rather than rebuilt per login. (The
         // static-field structural guarantee that this reuse spans the controller's per-request AvatarService

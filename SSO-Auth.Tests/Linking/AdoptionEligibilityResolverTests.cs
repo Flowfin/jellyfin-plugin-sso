@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AdoptionEligibilityResolver"/> — the fail-closed gate that hardens same-named
+/// Tests for <see cref="AdoptionEligibilityResolver"/> - the fail-closed gate that hardens same-named
 /// account adoption (#218). Two protocol-agnostic rules: an administrator target is never adopted by name,
 /// and when the provider requires it the login must carry <c>email_verified == true</c>. The full decision
 /// matrix (admin × require × claim) is pinned here so a regression cannot silently re-open the takeover.
@@ -55,7 +55,7 @@ public class AdoptionEligibilityResolverTests
 
     [Theory]
     [InlineData(false)] // email_verified == false
-    [InlineData(null)]  // claim absent — treated like false (fail closed)
+    [InlineData(null)]  // claim absent - treated like false (fail closed)
     public void NonAdmin_GateOn_ClaimFalseOrAbsent_IsRefused(bool? emailVerified)
     {
         var verdict = AdoptionEligibilityResolver.Resolve(

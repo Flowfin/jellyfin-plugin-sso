@@ -101,7 +101,7 @@ public class LoginStatusMapperTests
     public void ForeignOutcomeSubtype_ThrowsInsteadOfDefaultAccepting()
     {
         // The record copy constructor lets an in-assembly (or InternalsVisibleTo) type slip past the
-        // private primary constructor — exactly the loophole the sum's doc names. The mapper's unknown-
+        // private primary constructor - exactly the loophole the sum's doc names. The mapper's unknown-
         // subtype arm turns that misuse into a throw (genuine 500), never a default-accept.
         Assert.Throws<InvalidOperationException>(() =>
             LoginStatusMapper.ToActionResult(new ForeignOutcome(new LoginOutcome.Denied())));

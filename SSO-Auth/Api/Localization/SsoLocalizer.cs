@@ -12,9 +12,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Localization;
 
 /// <summary>
 /// Minimal string localizer for the plugin's user-facing served surfaces, in Jellyfin's own idiom
-/// (#913). It loads flat per-culture key→value JSON catalogs — embedded resources named by BCP-47
+/// (#913). It loads flat per-culture key→value JSON catalogs - embedded resources named by BCP-47
 /// culture, the shape of Jellyfin core's
-/// <c>Emby.Server.Implementations/Localization/Core/&lt;culture&gt;.json</c> — and resolves a key
+/// <c>Emby.Server.Implementations/Localization/Core/&lt;culture&gt;.json</c> - and resolves a key
 /// through a fallback chain that never blanks: the requested culture, then its base language, then
 /// English (the invariant fallback), then the key itself. The plugin cannot register its catalogs into
 /// core's <c>ILocalizationManager</c> (core owns that surface), so it keeps its own; the format and the
@@ -90,7 +90,7 @@ internal static class SsoLocalizer
     /// Localizes a canonical English message into <paramref name="culture"/> by finding its catalog key.
     /// Returns the message unchanged when it is not a catalog value (for example an identity-provider-
     /// interpolated error), so a non-catalog string is never dropped. This localizes a message that has
-    /// already been produced in English — the wire form stays English; only a re-render (the browser error
+    /// already been produced in English - the wire form stays English; only a re-render (the browser error
     /// page) swaps in the translation.
     /// </summary>
     /// <param name="englishMessage">The English message to localize.</param>
@@ -138,7 +138,7 @@ internal static class SsoLocalizer
         return null;
     }
 
-    // The requested culture, then its base language ("de-CH" -> "de"), then English — lower-invariant,
+    // The requested culture, then its base language ("de-CH" -> "de"), then English - lower-invariant,
     // de-duplicated in order.
     private static IEnumerable<string> CultureFallbackChain(string? culture)
     {

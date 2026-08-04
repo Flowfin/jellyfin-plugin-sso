@@ -48,8 +48,8 @@ internal sealed class SessionMinter
     /// Applies the resolved login's permissions/avatar/default-provider to the user and mints a session.
     /// </summary>
     /// <param name="parameters">The resolved user, granted privileges, and client identity.</param>
-    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log (the controller reads it from <c>HttpContext</c>, #177). Invoked at the original point below — after avatar/persistence, and not at all on the fail-closed path — to preserve evaluation order.</param>
-    /// <param name="identityStillLinked">The in-flight revocation gate (#232): re-checks, under the config lock, that the resolved identity is still linked. Evaluated twice — before any user side effect (so a revoked login persists no grants) and again as the last act before the session mint (so a revocation landing mid-method still yields no session); false fails closed. Required (no default) so a mint path cannot silently omit it and fail open.</param>
+    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log (the controller reads it from <c>HttpContext</c>, #177). Invoked at the original point below - after avatar/persistence, and not at all on the fail-closed path - to preserve evaluation order.</param>
+    /// <param name="identityStillLinked">The in-flight revocation gate (#232): re-checks, under the config lock, that the resolved identity is still linked. Evaluated twice - before any user side effect (so a revoked login persists no grants) and again as the last act before the session mint (so a revocation landing mid-method still yields no session); false fails closed. Required (no default) so a mint path cannot silently omit it and fail open.</param>
     /// <returns>The authenticated session result.</returns>
     internal async Task<AuthenticationResult> MintAsync(SessionParameters parameters, Func<string> remoteEndPointResolver, Func<bool> identityStillLinked)
     {
@@ -99,7 +99,7 @@ internal sealed class SessionMinter
             user.SetPermission(PermissionKind.EnableLiveTvManagement, parameters.EnableLiveTvManagement);
 
             // Generic role→permission grants for the full boolean PermissionKind surface (#164): apply each
-            // permission the admin explicitly mapped, authoritatively and default-deny — granted when a
+            // permission the admin explicitly mapped, authoritatively and default-deny - granted when a
             // login role matched, revoked otherwise. Empty unless the feature is on, so this touches nothing
             // for existing deployments. The permissions with dedicated fields above (admin, all-folders,
             // Live TV) are excluded from this set at config validation, so there is exactly one authoritative
@@ -147,7 +147,7 @@ internal sealed class SessionMinter
         // Record the client IP so the SSO login shows a source address in Jellyfin's activity log,
         // exactly as password logins do (#177): the controller resolves it with Jellyfin's own
         // GetNormalizedRemoteIP, the very helper its built-in login path uses. It reads the
-        // already-resolved connection address (so the plugin adds no proxy-trust logic of its own — the
+        // already-resolved connection address (so the plugin adds no proxy-trust logic of its own - the
         // server's "Known proxies" setting governs it) and normalizes it the same way (IPv4-mapped IPv6
         // collapsed to IPv4), so the SSO entry's source address matches a password entry's for the same
         // client byte-for-byte.

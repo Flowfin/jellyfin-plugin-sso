@@ -14,8 +14,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Tests for <see cref="SamlLogoutRequestBuilder"/> (#727, SLO-3c): the OUTBOUND SP-initiated
-/// <c>LogoutRequest</c> builder. It mirrors <see cref="SamlAuthnRequest"/> — the same DEFLATE/Base64 encoding
-/// and the same shared <see cref="SamlRedirectSigner"/> — so these assertions pin (a) the document is a
+/// <c>LogoutRequest</c> builder. It mirrors <see cref="SamlAuthnRequest"/> - the same DEFLATE/Base64 encoding
+/// and the same shared <see cref="SamlRedirectSigner"/> - so these assertions pin (a) the document is a
 /// well-formed LogoutRequest carrying the Issuer, NameID, and optional SessionIndex, and (b) the emitted
 /// redirect carries a detached signature that verifies against the signer's public key over the exact octets.
 /// </summary>
@@ -146,7 +146,7 @@ public class SamlLogoutRequestBuilderTests
     private static bool EcdsaSignatureVerifies(string url, ECDsa publicKey)
         => publicKey.VerifyData(Encoding.UTF8.GetBytes(SignedQuery(url)), Signature(url), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
 
-    // Reconstructs the signed octet string (SAMLRequest, then SigAlg — no RelayState here) from the URL.
+    // Reconstructs the signed octet string (SAMLRequest, then SigAlg - no RelayState here) from the URL.
     private static string SignedQuery(string url)
     {
         var samlRequest = QueryValue(url, "SAMLRequest");

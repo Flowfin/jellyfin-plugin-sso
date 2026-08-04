@@ -13,23 +13,23 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
 /// Reads a provider's OpenID discovery document ONCE at the challenge and returns both the two
-/// security-relevant facts — PKCE-S256 support (#141, RFC 9700 §2.1.1) and whether the authorization
-/// server advertises the RFC 9207 response-<c>iss</c> parameter (#210) — AND the
+/// security-relevant facts - PKCE-S256 support (#141, RFC 9700 §2.1.1) and whether the authorization
+/// server advertises the RFC 9207 response-<c>iss</c> parameter (#210) - AND the
 /// <see cref="Duende.IdentityModel.OidcClient.ProviderInformation"/> the OidcClient login is fed. Before
 /// #450 the facts came from a SEPARATE best-effort probe, distinct from the discovery
 /// <see cref="OidcClient.PrepareLoginAsync"/> performs internally: the two could disagree, and a failed or
 /// omitted probe silently downgraded the RFC 9207 requirement. Sourcing both from one response removes that
-/// split — the facts and the login can no longer diverge, and there is no second fetch to fail.
+/// split - the facts and the login can no longer diverge, and there is no second fetch to fail.
 ///
 /// The fetch is IdentityModel's own <see cref="HttpClientDiscoveryExtensions.GetDiscoveryDocumentAsync(System.Net.Http.HttpMessageInvoker, DiscoveryDocumentRequest, System.Threading.CancellationToken)"/>
 /// under the caller's <see cref="DiscoveryPolicy"/> (<c>RequireHttps</c> / <c>ValidateIssuerName</c> /
-/// <c>ValidateEndpoints</c> / the additional base addresses) — the exact call and policy OidcClient uses,
+/// <c>ValidateEndpoints</c> / the additional base addresses) - the exact call and policy OidcClient uses,
 /// so the plugin-owned read honours the same channel and endpoint validation rather than a bespoke,
 /// unvalidated GET (closing the earlier probe's <c>RequireHttps</c> gap). The resulting metadata is fed to
 /// PrepareLoginAsync via <see cref="OidcClientOptions.ProviderInformation"/>, which suppresses the library's
 /// own second discovery.
 ///
-/// Stateless — a fresh read per challenge, exactly the per-challenge discovery the library performed before
+/// Stateless - a fresh read per challenge, exactly the per-challenge discovery the library performed before
 /// this change. Nothing is cached: least of all the JWKS the callback validates the id_token against, whose
 /// reuse stays bounded by a single authorize state's lifetime (#247), never widened by a process-wide cache.
 /// </summary>
@@ -38,7 +38,7 @@ internal static class OidcDiscoveryReader
     // The discovery/JWKS fetch is bounded so a slow or hanging authorization server cannot stall the
     // anonymous challenge endpoint. This is now the login-critical discovery (its result is fed to
     // PrepareLoginAsync), so the bound is tighter than the platform-default ~100s the library's own
-    // in-PrepareLoginAsync discovery ran under before #450 — a deliberate anonymous-endpoint DoS-hardening
+    // in-PrepareLoginAsync discovery ran under before #450 - a deliberate anonymous-endpoint DoS-hardening
     // trade-off: a pathologically slow IdP (a 10s+ cold start) is refused fail-closed and self-heals on the
     // next challenge, rather than tying up the endpoint. It keeps the 10s the pre-#450 probe already applied.
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
@@ -46,12 +46,12 @@ internal static class OidcDiscoveryReader
     /// <summary>
     /// Reads the discovery document named by <paramref name="options"/> (its <c>Authority</c> and
     /// <c>Policy.Discovery</c>) and returns the facts plus the provider metadata built from it, or
-    /// <see cref="OidcDiscoveryResult.Unavailable"/> when the document could not be read. Never throws — a
+    /// <see cref="OidcDiscoveryResult.Unavailable"/> when the document could not be read. Never throws - a
     /// transient failure, a policy rejection (e.g. non-HTTPS under <c>RequireHttps</c>), a malformed document,
     /// or a document refused by <see cref="RepeatedMemberScreen"/> for naming a member twice all return
     /// <c>Unavailable</c> so the caller fails the login closed rather than proceeding on unverified facts.
     /// </summary>
-    /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses — the same the login is built with.</param>
+    /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses - the same the login is built with.</param>
     /// <param name="provider">The provider name, for the failure warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the outbound fetch is built over.</param>
     /// <param name="logger">The logger for the fail-closed read-failure warning.</param>

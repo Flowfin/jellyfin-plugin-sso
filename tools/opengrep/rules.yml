@@ -1,5 +1,5 @@
 # Opengrep (open-source Semgrep fork) rules that enforce this repo's greppable
-# security invariants as lint rules — one rule per invariant, added as each is
+# security invariants as lint rules - one rule per invariant, added as each is
 # discovered (rule-per-regression). Deliberately narrow and low-false-positive:
 # these are `generic`-mode token patterns, NOT semantic C# analysis, so they do
 # not depend on the C# language parser (whose modern-C#/.NET 9 support is still
@@ -12,7 +12,7 @@
 #     opengrep scan --config tools/opengrep/rules.yml --error /src
 rules:
   # Invariant (release pipeline): publishing is triggered by a tag push only.
-  # Releases are immutable on GitHub — a manual `gh release` mutation permanently
+  # Releases are immutable on GitHub - a manual `gh release` mutation permanently
   # burns a tag and bypasses the /release-prep gate. The publish workflows must
   # never create/edit/delete a release or its assets. Read-only verbs
   # (view/list/download) are intentionally allowed.
@@ -39,7 +39,7 @@ rules:
         - "tools/**"
       exclude:
         # This rule file necessarily contains the banned strings as its own
-        # patterns — do not scan it (or its siblings) against itself.
+        # patterns - do not scan it (or its siblings) against itself.
         - "tools/opengrep/**"
 
   # Invariant (crypto / fail-closed): every security value (OAuth state, nonces,
@@ -66,7 +66,7 @@ rules:
   # conditions (bad state, replay, disabled provider), which both leaks that a rejection
   # is a "server error" to monitoring and, on the disabled-provider path, distinguished a
   # disabled provider from an unknown one. Anything genuinely unexpected throws and becomes
-  # a real 500 — never a manually-authored one.
+  # a real 500 - never a manually-authored one.
   - id: no-controller-problem-result
     languages: [generic]
     severity: ERROR
@@ -109,7 +109,7 @@ rules:
   # goes through ProviderConfigStore behind SSOPlugin's facade (ReadConfiguration
   # / MutateConfiguration / UpdateConfiguration). Reaching into
   # `SSOPlugin.Instance.Configuration` bypasses the config lock and the validated
-  # save pipeline — the exact door the store extraction closed. The plugin itself
+  # save pipeline - the exact door the store extraction closed. The plugin itself
   # reads the property unqualified, so the clean tree has zero findings.
   - id: no-config-store-bypass
     languages: [generic]

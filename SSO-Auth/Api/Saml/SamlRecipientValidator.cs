@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
 /// <summary>
 /// Pure endpoint-binding check for a SAML response (#156): the bearer SubjectConfirmationData
-/// Recipient — and the Response Destination when present — must match one of this service provider's
+/// Recipient - and the Response Destination when present - must match one of this service provider's
 /// assertion-consumer URLs. Kept out of the controller so it is unit-testable in isolation; the
 /// controller supplies the candidate URLs (host-derived) and does the logging.
 /// </summary>
@@ -23,7 +23,7 @@ internal static class SamlRecipientValidator
     /// <param name="expectedAcsUrls">This service provider's acceptable assertion-consumer URLs.</param>
     /// <returns>
     /// True when the Recipient is present and matches an expected URL, and the Destination (if any)
-    /// also matches. False otherwise — a missing Recipient fails closed.
+    /// also matches. False otherwise - a missing Recipient fails closed.
     /// </returns>
     internal static bool IsBound(string? recipient, string? destination, IReadOnlyCollection<string> expectedAcsUrls)
     {

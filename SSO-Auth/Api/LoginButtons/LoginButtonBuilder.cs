@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 /// <summary>
 /// Turns the plugin configuration into the ordered list of login-page buttons (#722): one button per ENABLED
 /// provider that does not set <see cref="ProviderConfigBase.HideLoginButton"/>, OpenID providers first then
-/// SAML, each in the provider dictionaries' order. Pure — no I/O — so the selection rule is unit-testable.
+/// SAML, each in the provider dictionaries' order. Pure - no I/O - so the selection rule is unit-testable.
 /// Disabled providers are omitted (a disabled provider's start route rejects the login anyway), matching the
 /// enabled-only rule the anonymous <c>GetNames</c> endpoints already use (#344).
 /// </summary>

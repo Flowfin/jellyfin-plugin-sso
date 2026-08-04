@@ -1,4 +1,4 @@
-# CodeQL advanced setup — semantic security analysis of the whole codebase.
+# CodeQL advanced setup - semantic security analysis of the whole codebase.
 #
 # This replaces the GitHub CodeQL DEFAULT setup, which only analyzes the
 # repository's default branch (main) and pull requests targeting it. Feature
@@ -16,7 +16,7 @@
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
 # permissions are deny-all at the top level and the job grants only the CodeQL
 # minimum (security-events:write, contents:read, actions:read). CodeQL is a
-# NON-required check — no ruleset depends on this workflow's check-run name.
+# NON-required check - no ruleset depends on this workflow's check-run name.
 name: CodeQL
 
 on:
@@ -86,14 +86,14 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          # Match the default setup's suite exactly — no coverage regression.
+          # Match the default setup's suite exactly - no coverage regression.
           queries: security-extended
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           category: "/language:${{ matrix.language }}"

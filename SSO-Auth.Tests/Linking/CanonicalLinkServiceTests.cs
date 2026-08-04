@@ -19,11 +19,11 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Direct tests of <see cref="CanonicalLinkService"/> — the account-linking workflow extracted from the
+/// Direct tests of <see cref="CanonicalLinkService"/> - the account-linking workflow extracted from the
 /// controller (#318). The service is constructible without a plugin instance (its config lives behind a
 /// <see cref="ProviderConfigStore"/> built over an in-memory <see cref="PluginConfiguration"/>), so these
 /// pin the resolve/adopt/create/reject decision, the legacy-key migration (#155), and the revoke loop as
-/// unit tests — including the account-takeover reject path (#95), which no controller test exercised today.
+/// unit tests - including the account-takeover reject path (#95), which no controller test exercised today.
 /// </summary>
 public class CanonicalLinkServiceTests
 {
@@ -125,7 +125,7 @@ public class CanonicalLinkServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisionDisabled: true));
 
-        await users.Received(1).DeleteUserAsync(Other); // rolled back — no enabled orphan survives
+        await users.Received(1).DeleteUserAsync(Other); // rolled back - no enabled orphan survives
         Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1")); // and never linked
     }
 
@@ -154,7 +154,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task ResolveOrCreateAsync_NewAccount_PolicyOff_IsCreatedEnabledAndNotPersistedHere()
     {
-        // Default (policy off): the new account is NOT disabled and is NOT persisted by the linking layer —
+        // Default (policy off): the new account is NOT disabled and is NOT persisted by the linking layer -
         // the session minter persists it, exactly as before #737. No behavior change for existing deployments.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
         var created = TestUsers.Named("alice", Other);
@@ -230,7 +230,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task DisableDeniedAccountAsync_LinkedAdmin_IsNeverDisabled()
     {
-        // THE break-glass guard: an administrator's denied login must NOT disable the account — otherwise a
+        // THE break-glass guard: an administrator's denied login must NOT disable the account - otherwise a
         // misconfigured allow-list or an identity provider that transiently drops group claims could lock the
         // last admin out and strand the server. The admin stays enabled and nothing is persisted.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
@@ -271,7 +271,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task DisableDeniedAccountAsync_NoLinkForKey_IsANoOp()
     {
-        // A first-time denied login resolves no existing canonical link, so there is nothing to disable —
+        // A first-time denied login resolves no existing canonical link, so there is nothing to disable -
         // deprovisioning acts only on an account that already SSO-linked and later lost its roles.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
 
@@ -285,7 +285,7 @@ public class CanonicalLinkServiceTests
     public async Task DisableDeniedAccountAsync_DisabledProvider_FailsTheReadClosed_WithoutDisabling()
     {
         // The subject-keyed link is read requireEnabled:true, so a provider disabled between the login start
-        // and this call resolves no account and disables nothing — a fail-closed read, never a stray write.
+        // and this call resolves no account and disables nothing - a fail-closed read, never a stray write.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = false,
@@ -304,7 +304,7 @@ public class CanonicalLinkServiceTests
     {
         // The #186 issuer binding gates the disable exactly as it gates the mint: the link was stamped for
         // IdP-A, but the denied login's token was issued by IdP-B (a repointed provider with a colliding
-        // sub). The resolved account belongs to the FIRST issuer's user — a denied login from the new
+        // sub). The resolved account belongs to the FIRST issuer's user - a denied login from the new
         // issuer must not disable it (a targeted wrong-account disable the mint path already refuses).
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -324,7 +324,7 @@ public class CanonicalLinkServiceTests
     public async Task DisableDeniedAccountAsync_IssuerMatch_DisablesTheLinkedNonAdmin()
     {
         // The positive binding case: the denied login's issuer equals the stamped one, so the link resolves
-        // and the (non-admin) account is disabled — the binding refuses only a FOREIGN issuer, it does not
+        // and the (non-admin) account is disabled - the binding refuses only a FOREIGN issuer, it does not
         // break deprovisioning for the provider that minted the link.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -345,7 +345,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task DisableDeniedAccountAsync_UnstampedLink_DisablesUnderTrustOnFirstUseParity()
     {
-        // A legacy link with no stored issuer is Absent, not Mismatch — the same trust-on-first-use
+        // A legacy link with no stored issuer is Absent, not Mismatch - the same trust-on-first-use
         // treatment the mint path applies (#186), so deprovisioning still works for links created before
         // issuer stamping existed.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
@@ -397,7 +397,7 @@ public class CanonicalLinkServiceTests
         Assert.Equal(Existing, cfg.OidConfigs["kc"].CanonicalLinks["sub-1"]);
 
         // The adoption of a pre-existing account is a security-relevant event and must leave exactly
-        // one audit line naming the adopted account (#928 U1) — and never the subject key, which is
+        // one audit line naming the adopted account (#928 U1) - and never the subject key, which is
         // an identity-provider identifier.
         var audit = Assert.Single(log.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal) && e.Message.Contains("existing account", StringComparison.Ordinal));
         Assert.Contains("alice", audit.Message, StringComparison.Ordinal);
@@ -408,7 +408,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_ExistingAccountButAdoptionDisabled_RefusesWithoutCreatingOrLinking()
     {
         // The account-takeover guard (#95): a login whose name matches a pre-existing unlinked account,
-        // with adoption off, must be refused — not silently take the account over. No controller test
+        // with adoption off, must be refused - not silently take the account over. No controller test
         // reached this path before the extraction; this pins it directly.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
         users.GetUserByName("alice").Returns(TestUsers.Named("alice", Existing));
@@ -531,7 +531,7 @@ public class CanonicalLinkServiceTests
         // #362 (CWE-400, log-volume): the terminal pending-legacy-link warning must be bounded to one line
         // per interval so a hot login loop for a not-yet-migrated user cannot flood the log. The reject
         // branch is idempotent (it throws and writes nothing), so repeating the same login re-enters the
-        // warning site every time — exactly the loop the gate must throttle. A fresh gate + a fake clock the
+        // warning site every time - exactly the loop the gate must throttle. A fresh gate + a fake clock the
         // test advances pins the once-per-interval bound deterministically, and the refusal must still throw
         // on every attempt regardless of whether the line is emitted.
         var cfg = new PluginConfiguration();
@@ -583,7 +583,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_FlagOnRenamedLegacyOwner_DoesNotHandOverTheRenamedAccount()
     {
         // The #361 fix (residual surfaced on #358): with the flag on, a legacy name-keyed link whose
-        // target was renamed away from the presented name must NOT be followed — otherwise a login with a
+        // target was renamed away from the presented name must NOT be followed - otherwise a login with a
         // foreign sub and the pre-rename name is handed the renamed account and re-keys it (a stale-name
         // superset of same-name adoption, CWE-287). No live account bears "oldname", so the login instead
         // provisions a FRESH account under its own sub; the renamed victim's account and the legacy entry
@@ -644,7 +644,7 @@ public class CanonicalLinkServiceTests
     {
         // The opaque-sub / sub-fallback provider shape (e.g. Google without preferred_username):
         // the username IS the sub, so canonicalKey == username, the inequality guard keeps the
-        // legacy arm structurally dormant, and the link resolves subject-keyed with no migration —
+        // legacy arm structurally dormant, and the link resolves subject-keyed with no migration -
         // independent of AllowExistingAccountLink, proving no name trust is involved.
         var (service, cfg, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -664,7 +664,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_ProviderDeletedMidLogin_FailsClosedWithoutCreating()
     {
         // TOCTOU (#373 review): the controller resolves the provider, then this runs. If an admin
-        // deletes the provider in that window, the links map is absent — the login must fail CLOSED
+        // deletes the provider in that window, the links map is absent - the login must fail CLOSED
         // (refuse), never fall through to the adoption gate whose create/adopt arms would mint a
         // session for a provider that no longer exists.
         var (service, _, users, _) = Build(); // no provider configured
@@ -721,7 +721,7 @@ public class CanonicalLinkServiceTests
     {
         // #363 guard: an ordinary login that resolves an existing subject-keyed link must stay a pure
         // read. Folding the legacy migration into the resolution must NOT turn every login into a config
-        // persist — the common (no-migration) path writes nothing, so the fold cannot regress the hot
+        // persist - the common (no-migration) path writes nothing, so the fold cannot regress the hot
         // path into an always-mutate.
         var cfg = new PluginConfiguration();
         cfg.OidConfigs["kc"] = new OidConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing } };
@@ -741,7 +741,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_LegacyMigration_PersistsExactlyOnce()
     {
         // #363: the legacy re-key is folded into a SINGLE config transaction, so a migrating login
-        // persists exactly once — not the two write-capable lock acquisitions the pre-fold read-then-
+        // persists exactly once - not the two write-capable lock acquisitions the pre-fold read-then-
         // migrate pattern implied. The link ends up subject-keyed and the login binds to the migrated user.
         var cfg = new PluginConfiguration();
         cfg.OidConfigs["kc"] = new OidConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid> { ["alice"] = Existing } };
@@ -767,7 +767,7 @@ public class CanonicalLinkServiceTests
         // #363, the window the fold closes: the candidate-resolving read sees only the legacy key, but a
         // concurrent login for the SAME identity commits its migration (subject key now live, legacy key
         // gone) before this login's re-key transaction runs. The re-key transaction re-resolves the
-        // candidates authoritatively and binds to the winner's live subject link WITHOUT overwriting it —
+        // candidates authoritatively and binds to the winner's live subject link WITHOUT overwriting it -
         // one winner, no double-write, and no stale pre-migration snapshot driving the outcome.
         var cfg = new PluginConfiguration();
         cfg.OidConfigs["kc"] = new OidConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid> { ["alice"] = Existing } };
@@ -777,7 +777,7 @@ public class CanonicalLinkServiceTests
 
         // Access 1 is the candidate-resolving Read; access 2 is the migrate Mutate. Interposing the
         // concurrent winner's committed migration right before the second access reproduces the race
-        // deterministically — exactly the interpose the two former separate lock acquisitions allowed.
+        // deterministically - exactly the interpose the two former separate lock acquisitions allowed.
         var access = 0;
         var store = new ProviderConfigStore(
             () =>
@@ -857,7 +857,7 @@ public class CanonicalLinkServiceTests
     {
         // Deliberate admin capability (pinned so the last-writer-wins semantics are not changed by
         // accident): re-linking an already-linked provider identity to a different Jellyfin user
-        // silently overwrites the prior binding — an admin correcting a mis-link, not a defect.
+        // silently overwrites the prior binding - an admin correcting a mis-link, not a defect.
         var (service, cfg, _, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,
@@ -889,7 +889,7 @@ public class CanonicalLinkServiceTests
     public void TryRemoveLink_NullConfigProvider_FailsClosedAsUnknownProvider()
     {
         // A provider stored with a null config object (reachable via #350's null-body add) must be read
-        // as absent, not dereferenced into a 500 — same fail-closed treatment as a missing provider.
+        // as absent, not dereferenced into a 500 - same fail-closed treatment as a missing provider.
         var (service, _, _, _) = Build(c => c.OidConfigs["broken"] = null!);
 
         var result = service.TryRemoveLink(ProviderMode.Oid, "broken", "sub-1", Existing);
@@ -918,7 +918,7 @@ public class CanonicalLinkServiceTests
     public void DisabledProvider_LinksStayListedAndRemovable()
     {
         // The linking page no longer offers a disabled provider for new links (#344), but a link the
-        // user already holds to one must stay visible and removable — disable-then-clean-up is the
+        // user already holds to one must stay visible and removable - disable-then-clean-up is the
         // intended workflow. This pins the server contract the page now relies on: LinksByUser returns
         // the disabled provider's links, and TryRemoveLink removes them (requireEnabled:false), so the
         // enabled-only GetNames filter never strands a stale link.
@@ -972,7 +972,7 @@ public class CanonicalLinkServiceTests
     public void TryRemoveLink_RemovingTheUsersLastLink_ReportsNoRemainingLink()
     {
         // #468: removing the user's only canonical link leaves them unable to SSO at all, so the removal
-        // reports UserRetainsAnyLink=false — the signal the controller uses to revoke live tokens.
+        // reports UserRetainsAnyLink=false - the signal the controller uses to revoke live tokens.
         var (service, _, _, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,
@@ -989,7 +989,7 @@ public class CanonicalLinkServiceTests
     public void TryRemoveLink_UserKeepsALinkOnAnotherProvider_ReportsRemainingLink()
     {
         // #468: the user still holds a link on a DIFFERENT provider (even a different protocol), so they can
-        // still SSO in — the removal reports UserRetainsAnyLink=true, and the controller must NOT revoke
+        // still SSO in - the removal reports UserRetainsAnyLink=true, and the controller must NOT revoke
         // (avoiding a self-inflicted mass-logout of a healthy multi-link user).
         var (service, _, _, _) = Build(c =>
         {
@@ -1031,7 +1031,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public void TryRemoveLink_AnotherUsersRemainingLink_DoesNotCountAsThisUsersRemainder()
     {
-        // #468: the remainder is scoped to the UNLINKED user's id — a different user's surviving link on the
+        // #468: the remainder is scoped to the UNLINKED user's id - a different user's surviving link on the
         // same provider must not be read as this user retaining SSO access, or the controller would skip a
         // required revoke (an under-revoke leaving the severed identity's tokens alive).
         var (service, _, _, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
@@ -1108,7 +1108,7 @@ public class CanonicalLinkServiceTests
     public void LinksByUser_Saml_ReturnsTheUsersKeys_AndExcludesOidProviders()
     {
         // The SAML projection (mode "saml") reads the SAML config dictionary, and must not fold in OID
-        // providers — the mirror of the OID test above, pinning the saml branch directly.
+        // providers - the mirror of the OID test above, pinning the saml branch directly.
         var (service, _, _, _) = Build(c =>
         {
             c.SamlConfigs["adfs"] = new SamlConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid> { ["alice"] = Existing, ["bob"] = Other } };
@@ -1238,7 +1238,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public void IsIdentityStillLinked_DanglingLinkTargetDeleted_ReturnsFalse()
     {
-        // A link whose target user was deleted is dead, not an identity — GetUserById returns null.
+        // A link whose target user was deleted is dead, not an identity - GetUserById returns null.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,
@@ -1264,7 +1264,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_ProviderDisabled_RefusesLikeADeletedOne()
     {
         // #380: a provider disabled between the controller's Enabled gate and the service's read must be
-        // rejected exactly like a deleted one — even a live subject link must not resolve, because the
+        // rejected exactly like a deleted one - even a live subject link must not resolve, because the
         // mint would run with the provider's pre-disable settings.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -1308,8 +1308,8 @@ public class CanonicalLinkServiceTests
         // UseExistingLink and mint with pre-disable settings; with it the migration rejects and the
         // legacy key stays un-migrated. The flip runs inside the GetUserById stub, which the read
         // consults after its own guard has already passed. The name is still held by the legacy target
-        // (GetUserByName -> Existing), so the #361 follow-gate lets the migrate be attempted — the point
-        // this test exercises — rather than short-circuiting to a fresh account.
+        // (GetUserByName -> Existing), so the #361 follow-gate lets the migrate be attempted - the point
+        // this test exercises - rather than short-circuiting to a fresh account.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,
@@ -1364,7 +1364,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_AdoptionAllowed_AdminTarget_RefusedWithoutLinking()
     {
         // #218: an administrator account is the highest-value takeover target, so a name-based adoption
-        // of one is always refused regardless of the verified-email gate — even with adoption enabled and
+        // of one is always refused regardless of the verified-email gate - even with adoption enabled and
         // a fully verified login. The operator links an admin account explicitly via the admin endpoints.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
         users.GetUserByName("admin").Returns(AdminUserNamed("admin", Existing));
@@ -1411,7 +1411,7 @@ public class CanonicalLinkServiceTests
     [InlineData(null)]  // claim absent
     public async Task ResolveOrCreateAsync_RequireVerifiedEmail_ClaimFalseOrAbsent_RefusesWithoutLinking(bool? emailVerified)
     {
-        // #218: with the gate on, an absent or false email_verified claim fails closed — no link, no
+        // #218: with the gate on, an absent or false email_verified claim fails closed - no link, no
         // account, and the takeover-blocking 403 (AccountLinkForbiddenException) is thrown.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
         users.GetUserByName("alice").Returns(TestUsers.Named("alice", Existing));
@@ -1426,7 +1426,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task ResolveOrCreateAsync_LegacyLinkToAdminAccount_RefusesInsteadOfMigrating()
     {
-        // #218: the admin-adoption refusal also covers the #155 legacy re-key path — an attacker
+        // #218: the admin-adoption refusal also covers the #155 legacy re-key path - an attacker
         // presenting a NEW subject with an admin's preferred_username must not migrate the admin's legacy
         // username-keyed link onto their subject. Fail closed: no re-key, 403, legacy key untouched.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
@@ -1456,7 +1456,7 @@ public class CanonicalLinkServiceTests
     {
         // The non-inert proof (#186, acceptance criterion 1): a subject-keyed link minted under one issuer
         // must NOT resolve when the login presents a different one (the provider was repointed at another
-        // IdP behind the same discovery URL). The check FIRES at runtime and refuses — the prior review
+        // IdP behind the same discovery URL). The check FIRES at runtime and refuses - the prior review
         // rejected an inert take, so this is the load-bearing test. No takeover: the old account is not
         // handed to the new-IdP identity, and the stale link/issuer are left untouched for the admin.
         var (service, cfg, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig
@@ -1483,7 +1483,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_SubjectLinkStampedWithTheSameIssuer_ReusesItWithoutWriting()
     {
         // The hot path stays pure (#186): a login whose issuer matches the stored one reuses the link and
-        // writes nothing — the issuer binding adds no per-login persist once a link is stamped.
+        // writes nothing - the issuer binding adds no per-login persist once a link is stamped.
         var cfg = new PluginConfiguration();
         cfg.OidConfigs["kc"] = new OidConfig
         {
@@ -1508,7 +1508,7 @@ public class CanonicalLinkServiceTests
     {
         // Transparent migration (#186, acceptance criterion 3): an existing link with NO stored issuer
         // (minted before this store) keeps working while the provider is unchanged AND gets stamped with the
-        // current issuer on its first login — no lockout on upgrade, and the binding is in force from then on.
+        // current issuer on its first login - no lockout on upgrade, and the binding is in force from then on.
         var cfg = new PluginConfiguration();
         cfg.OidConfigs["kc"] = new OidConfig
         {
@@ -1553,7 +1553,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_StampedSubjectLink_LoginWithNoIssuer_IsRefused()
     {
         // Bypass closed (#186): a token that omits `iss` (issuer resolves to null) must NOT slip past a
-        // stamped binding — a null current issuer against a stored one is a mismatch, so the login is refused
+        // stamped binding - a null current issuer against a stored one is a mismatch, so the login is refused
         // rather than mapping onto the stamped account.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -1601,7 +1601,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_LegacyMigration_StampsIssuerOnTheSubjectKey()
     {
         // The re-keyed link (#155 legacy migration) is a fresh subject-keyed link written under this login,
-        // so it is stamped with the login's issuer (#186) — the migrated link is issuer-bound like any other.
+        // so it is stamped with the login's issuer (#186) - the migrated link is issuer-bound like any other.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
             Enabled = true,
@@ -1621,7 +1621,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task ResolveOrCreateAsync_NullIssuerOnUnstampedLink_LeavesItUnstamped_AndProceeds()
     {
-        // A login that carries no issuer (SAML, or a non-conformant token) never stamps a blank value — the
+        // A login that carries no issuer (SAML, or a non-conformant token) never stamps a blank value - the
         // link stays un-stamped rather than binding to nothing, and the login proceeds unchanged (#186).
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig
         {
@@ -1640,7 +1640,7 @@ public class CanonicalLinkServiceTests
     public async Task ResolveOrCreateAsync_Saml_IgnoresIssuerBinding()
     {
         // SAML is out of scope (#186): a SAML login resolves normally regardless of any issuer argument, and
-        // SamlConfig carries no issuer map at all — the binding is OpenID only.
+        // SamlConfig carries no issuer map at all - the binding is OpenID only.
         var (service, cfg, users, _) = Build(c => c.SamlConfigs["adfs"] = new SamlConfig
         {
             Enabled = true,
@@ -1706,7 +1706,7 @@ public class CanonicalLinkServiceTests
     [Fact]
     public async Task ResolveOrCreateAsync_RequireVerifiedEmailOff_NonAdmin_AdoptsRegardlessOfClaim()
     {
-        // #218: the default posture (gate off) is unchanged — a non-admin adoption proceeds with no
+        // #218: the default posture (gate off) is unchanged - a non-admin adoption proceeds with no
         // email_verified claim, so a conformant deployment already using AllowExistingAccountLink is not
         // silently locked out on upgrade.
         var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });

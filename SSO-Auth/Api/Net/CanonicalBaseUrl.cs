@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Net;
 /// <summary>
 /// Normalizes the per-provider canonical external base-URL override (#139). When an admin pins the
 /// external base URL, <c>GetRequestBase</c> returns it verbatim instead of deriving the redirect_uri
-/// and SAML base from the request <c>Host</c> header — which a reverse proxy forwarding an unfiltered
+/// and SAML base from the request <c>Host</c> header - which a reverse proxy forwarding an unfiltered
 /// <c>X-Forwarded-Host</c> lets an attacker influence, poisoning the authorization response's target
 /// (RFC 9700 sect. 4.1). Only a well-formed absolute http/https authority is accepted; anything else
 /// is rejected so a malformed override is caught at every admin write path (the config-page save and
@@ -68,7 +68,7 @@ internal static class CanonicalBaseUrl
 
     /// <summary>
     /// Resolves the external base URL that every derived <c>redirect_uri</c> and SAML base is built on.
-    /// A configured <paramref name="baseUrlOverride"/> is authoritative (#139) — it removes the
+    /// A configured <paramref name="baseUrlOverride"/> is authoritative (#139) - it removes the
     /// dependency on the spoofable request <c>Host</c>. A malformed override is rejected at every admin
     /// write path, so it should never reach here; if one does (a hand-edited or restored config), this
     /// fails closed rather than silently reverting to the untrusted request host. Only a blank override

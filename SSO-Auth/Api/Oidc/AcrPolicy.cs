@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// The step-up / forced-MFA acr allow-list check (#757). When a provider sets <c>RequireAcr</c>, the
 /// signature-verified id_token's returned <c>acr</c> claim must be one of the space-separated values the
 /// admin configured in <c>AcrValues</c> (the same list requested on the authorization request). Fail-closed:
-/// an absent/blank returned <c>acr</c>, or an empty allow-list, satisfies nothing — so a login lacking the
+/// an absent/blank returned <c>acr</c>, or an empty allow-list, satisfies nothing - so a login lacking the
 /// required authentication context is refused. Matching is ordinal (acr values are case-sensitive URIs /
 /// tokens per OIDC Core §2).
 /// </summary>

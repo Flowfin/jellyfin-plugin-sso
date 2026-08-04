@@ -11,10 +11,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// <summary>
 /// Reads the role values out of an OpenID claim according to the configured role-claim path.
 /// The path is the pre-split <c>RoleClaim</c> (see the controller): its first segment names the
-/// claim, and any further segments walk into the claim's JSON object to the node that holds the roles —
+/// claim, and any further segments walk into the claim's JSON object to the node that holds the roles -
 /// an array of role strings, or, for a provider that opts into <c>RoleClaimIsObjectMap</c> (#934), an
 /// object whose property names are the roles. A one-segment path takes the claim value as the role
-/// verbatim, except in object-map mode, where that value IS the object. This is pure parsing — it makes
+/// verbatim, except in object-map mode, where that value IS the object. This is pure parsing - it makes
 /// no authorization decision; the caller maps the returned role strings to privileges.
 /// </summary>
 internal static class OidcRoleExtractor
@@ -38,12 +38,12 @@ internal static class OidcRoleExtractor
     /// names; and, only when the path is one segment and the terminal is not an object map, the raw claim
     /// value as a single role. Returns an empty list when the path does not resolve to the expected shape
     /// (missing segment, non-object node, wrong terminal type) and when the claim value is malformed
-    /// JSON — a parse failure fails closed to no roles rather than throwing (#216).
+    /// JSON - a parse failure fails closed to no roles rather than throwing (#216).
     /// </returns>
     internal static List<string> ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
     {
         // A single-segment path is not JSON: the claim value itself is the role. An object-map claim is the
-        // exception — there the claim value IS the terminal object, so it falls through to the parse below.
+        // exception - there the claim value IS the terminal object, so it falls through to the parse below.
         if (roleClaimSegments.Length == 1 && !terminalIsObjectMap)
         {
             return new List<string> { claimValue };
@@ -52,7 +52,7 @@ internal static class OidcRoleExtractor
         // Everything else parses the claim value as a JSON object and walks it. The claim value is
         // attacker-influenced, so it must never throw an unhandled 500 on the public callback (#216): any
         // malformed or non-resolving shape (non-object root, non-object node, wrong terminal type) fails
-        // closed to an empty role set, and an array terminal is filtered to its string elements — a mixed
+        // closed to an empty role set, and an array terminal is filtered to its string elements - a mixed
         // array keeps its strings, an array with no strings yields none.
         try
         {
@@ -90,7 +90,7 @@ internal static class OidcRoleExtractor
                 return new List<string>();
             }
 
-            // The terminal must resolve to the configured shape — anything else is no roles, not a guess.
+            // The terminal must resolve to the configured shape - anything else is no roles, not a guess.
             if (terminalIsObjectMap)
             {
                 // Property NAMES only: the values are provider bookkeeping (Zitadel puts the granting org

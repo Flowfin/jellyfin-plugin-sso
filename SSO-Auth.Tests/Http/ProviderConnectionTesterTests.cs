@@ -18,7 +18,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="ProviderConnectionTester"/> — the admin Test-connection probe (#163). They pin:
+/// Tests for <see cref="ProviderConnectionTester"/> - the admin Test-connection probe (#163). They pin:
 /// the OpenID probe reads discovery through the hardened reader and reports the issuer, endpoints and JWKS
 /// reachability; an unreadable document / invalid endpoint / missing endpoint returns a fail-closed,
 /// actionable, secret-free result rather than throwing; the SAML probe reports a parsing certificate's
@@ -57,7 +57,7 @@ public class ProviderConnectionTesterTests
         Assert.Contains(result.Details, d => d.Contains(Authority, StringComparison.Ordinal) && d.StartsWith("Issuer:", StringComparison.Ordinal));
         Assert.Contains(result.Details, d => d.Contains(Authority + "/authorize", StringComparison.Ordinal));
         Assert.Contains(result.Details, d => d.Contains(Authority + "/token", StringComparison.Ordinal));
-        // The JWKS was reachable (the reader fetches it as part of discovery) — one key served below.
+        // The JWKS was reachable (the reader fetches it as part of discovery) - one key served below.
         Assert.Contains(result.Details, d => d.StartsWith("JWKS: reachable", StringComparison.Ordinal));
         Assert.Contains(result.Details, d => d.StartsWith("PKCE (S256) advertised: yes", StringComparison.Ordinal));
     }
@@ -112,7 +112,7 @@ public class ProviderConnectionTesterTests
     public async Task TestOidcAsync_NonHttpsUnderRequireHttps_FailsClosed()
     {
         // DisableHttps is off (default), so the discovery policy is RequireHttps; a plaintext endpoint is
-        // refused by the reader before any fetch — the probe inherits the login's SSRF/TLS posture (#163).
+        // refused by the reader before any fetch - the probe inherits the login's SSRF/TLS posture (#163).
         const string httpAuthority = "http://idp-plaintext.example.com";
         var config = new OidConfig { OidEndpoint = httpAuthority, OidClientId = "jf" };
         var fetched = false;

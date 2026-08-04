@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 public class LogoutSession
 {
     /// <summary>
-    /// Gets or sets the protocol that minted the session — <c>"OpenID"</c> or <c>"SAML"</c> (the
+    /// Gets or sets the protocol that minted the session - <c>"OpenID"</c> or <c>"SAML"</c> (the
     /// audit-protocol spelling written by the login path, <c>VerifiedIdentity.AuditProtocol</c>), selecting
     /// which logout mechanism applies.
     /// </summary>
@@ -53,7 +53,7 @@ public class LogoutSession
     /// <summary>
     /// Gets or sets the OpenID <c>end_session_endpoint</c> captured from discovery at login (#727, SLO-2),
     /// so an RP-initiated logout needs no runtime rediscovery. Blank when the OP advertises none (or for
-    /// SAML), in which case logout falls back to local-only. Not a secret — a public provider URL.
+    /// SAML), in which case logout falls back to local-only. Not a secret - a public provider URL.
     /// </summary>
     public string? EndSessionEndpoint { get; set; }
 
@@ -63,7 +63,7 @@ public class LogoutSession
     /// </summary>
     // Defense in depth: the enclosing LogoutSessions map is already [JsonIgnore], so this never reaches a
     // JSON response today; the field-level ignore additionally guarantees that a LogoutSession serialized
-    // DIRECTLY (a future debug/admin endpoint) still cannot leak the id_token — a freshly captured token is
+    // DIRECTLY (a future debug/admin endpoint) still cannot leak the id_token - a freshly captured token is
     // plaintext in memory until the next persist, so the belt-and-suspenders matters. XML persistence is
     // unaffected (XmlSerializer ignores this attribute), so the encrypted token still round-trips to disk.
     [System.Text.Json.Serialization.JsonIgnore]

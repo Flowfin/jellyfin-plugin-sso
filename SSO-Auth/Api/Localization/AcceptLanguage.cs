@@ -11,11 +11,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Localization;
 /// <summary>
 /// Resolves the best available culture from a request's Accept-Language header (#913). It parses the
 /// weighted language list, orders by q-value (a missing q defaults to 1.0 per RFC 9110; equal q keeps the
-/// header's own order), and returns the highest-preference tag that has a loaded catalog — an exact BCP-47
+/// header's own order), and returns the highest-preference tag that has a loaded catalog - an exact BCP-47
 /// tag or its base language, so a "de-CH" preference is served by a "de" catalog. It returns null when the
 /// header is absent, malformed, or names no available language, so the caller falls back to English through
 /// the <see cref="SsoLocalizer"/> chain. A "q=0" entry explicitly rejects a language and a "*" wildcard
-/// expresses no specific preference — both are skipped rather than matched.
+/// expresses no specific preference - both are skipped rather than matched.
 /// </summary>
 internal static class AcceptLanguage
 {

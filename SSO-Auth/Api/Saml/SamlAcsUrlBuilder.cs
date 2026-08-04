@@ -6,9 +6,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 /// <summary>
 /// Composes the SAML AssertionConsumerServiceURL this service provider hands to identity providers, plus
 /// the expected-ACS set the Recipient/Destination binding (#156) compares against. The SAML Recipient echo
-/// is compared Ordinal — byte-for-byte — so every method concatenates exactly what the previously scattered
+/// is compared Ordinal - byte-for-byte - so every method concatenates exactly what the previously scattered
 /// call sites produced: lowercase "/sso/", the "SAML" segment, the route-spelling variant, and the
-/// route-decoded provider name appended raw — never re-encoded, since encoding would change the bytes
+/// route-decoded provider name appended raw - never re-encoded, since encoding would change the bytes
 /// identity providers already have registered.
 /// (Split out of the kernel SsoUrlBuilder in #790 so the SAML half lives in the Saml module.)
 /// </summary>
