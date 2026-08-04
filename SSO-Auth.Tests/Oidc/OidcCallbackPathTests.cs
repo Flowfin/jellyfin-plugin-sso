@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="OidcCallbackPath.RedirectSegment"/> — the r/redirect choice for rebuilding
+/// Tests for <see cref="OidcCallbackPath.RedirectSegment"/> - the r/redirect choice for rebuilding
 /// the callback's redirect_uri. The token request's redirect_uri must match the authorization
 /// request's, and the IdP calls back on exactly the advertised route, so the segment must mirror
 /// the callback path. The old inline expression tested for "/start/" (never present on callback
@@ -27,7 +27,7 @@ public class OidcCallbackPathTests
     }
 
     [Theory]
-    // A provider NAMED "redirect" must never flip the classic route — including with a trailing
+    // A provider NAMED "redirect" must never flip the classic route - including with a trailing
     // slash, which a substring "/redirect/" test would wrongly match (the N1 corner both reviews
     // flagged). Segment-exact matching keys only on the element right after "OID".
     [InlineData("/sso/OID/r/redirect")]
@@ -62,7 +62,7 @@ public class OidcCallbackPathTests
     public void RedirectSegment_LegitReverseProxyBasePath_KeepsNewPathRoute()
     {
         // A benign reverse-proxy base path in front of a real new-path callback keeps the intact
-        // OID/redirect/{provider} suffix, so it is still correctly "redirect" — the suffix anchoring
+        // OID/redirect/{provider} suffix, so it is still correctly "redirect" - the suffix anchoring
         // must not misclassify legitimate mounts.
         Assert.Equal("redirect", OidcCallbackPath.RedirectSegment("/jellyfin/apps/sso/OID/redirect/keycloak"));
     }

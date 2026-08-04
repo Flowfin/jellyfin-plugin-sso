@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Characterization tests pinning the exact bytes <see cref="SamlAcsUrlBuilder"/> produces. The SAML
-/// Recipient echo is compared Ordinal by SamlRecipientValidator — byte-for-byte — so the pins here are
+/// Recipient echo is compared Ordinal by SamlRecipientValidator - byte-for-byte - so the pins here are
 /// the primary evidence that refactors change nothing. Since the #790 split the SAML half no longer
 /// shares its concatenation with the OIDC builder, so it carries its own raw-provider and path-base pins.
 /// </summary>
@@ -39,7 +39,7 @@ public class SamlAcsUrlBuilderTests
     [InlineData("käse", "https://jf.example.com/sso/SAML/p/käse")]
     public void AcsUrl_ProviderIsAppendedRaw_NeverReEncoded(string provider, string expected)
     {
-        // Characterizes the contract, not an endorsement: the server never encodes the provider —
+        // Characterizes the contract, not an endorsement: the server never encodes the provider -
         // re-encoding would change the bytes IdPs already have registered and break every working
         // deployment. Rejecting problematic names at registration is #336.
         Assert.Equal(expected, SamlAcsUrlBuilder.AcsUrl(Base, newPath: false, provider));

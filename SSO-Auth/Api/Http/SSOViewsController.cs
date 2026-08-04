@@ -78,7 +78,7 @@ public class SSOViewsController : ControllerBase
     /// Gets the plugin's user-interface strings (#913) resolved into the culture requested by the caller's
     /// Accept-Language header. The client-rendered pages (the linking page, the admin config page) fetch
     /// this once and apply the strings to their DOM, so the server owns the culture fallback and the pages
-    /// carry only keys. Anonymous and non-sensitive: it returns first-party UI labels only — no user data,
+    /// carry only keys. Anonymous and non-sensitive: it returns first-party UI labels only - no user data,
     /// no configuration, no secrets.
     ///
     /// It serves the WHOLE catalog, including the admin configuration page's own labels, even though that

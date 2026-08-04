@@ -31,25 +31,25 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Architecture-conformance fitness functions for the target architecture planned in #318. These run as
-/// part of the ordinary test suite, so every PR is checked — a change that drifts from the agreed
+/// part of the ordinary test suite, so every PR is checked - a change that drifts from the agreed
 /// structure fails CI. The rules encode structural invariants that hold today and are part of the target;
 /// as each migration step lands a new structural property, add the rule that locks it in here so it
 /// cannot regress. Most rules are type-level (reflection over the production assembly); call-level
 /// invariants otherwise stay guarded by CodeQL and the pinning tests. Two call-level
-/// properties are locked in as source scans — the CONTROLLER touches no provider link map directly
+/// properties are locked in as source scans - the CONTROLLER touches no provider link map directly
 /// (<see cref="Controller_NeverTouchesProviderLinkMaps"/>) and no raw socket/DNS surface
-/// (<see cref="Controller_NeverTouchesRawSocketsOrDns"/>) — because the #372 extraction confines
+/// (<see cref="Controller_NeverTouchesRawSocketsOrDns"/>) - because the #372 extraction confines
 /// link-map access to CanonicalLinkService (the login/admin workflow) and ServerManagedFields.Preserve
 /// (the #157 server-managed re-injection the config tier owns), a boundary worth failing CI on, not just
 /// review; #383 retired the controller's last two inline re-injection sites into that shared Preserve, so
 /// the scan is now a plain zero-occurrence invariant on the controller. Both source scans discover EVERY
 /// controller source file from reflection (<see cref="ControllerSourceFiles"/>) rather than one hardcoded
-/// path, so the planned #318 controller split — into partial-class files or several controllers — cannot
+/// path, so the planned #318 controller split - into partial-class files or several controllers - cannot
 /// hide an endpoint from them, and each is sentinel-guarded against a vacuous pass: the file set must be
 /// non-empty, and the link-map scan pins its target property by reflection so a rename fails loudly (#388).
 /// The socket/DNS scan's markers are BCL identifiers rather than a token this codebase owns, so its
-/// sentinel instead pins the marker SET against the surface's legitimate home — AvatarService,
-/// AvatarUrlValidator, SsoRateLimiter — asserting at least one marker still matches real usage there,
+/// sentinel instead pins the marker SET against the surface's legitimate home - AvatarService,
+/// AvatarUrlValidator, SsoRateLimiter - asserting at least one marker still matches real usage there,
 /// so a marker set that stops matching anything real fails loudly too (#444).
 /// </summary>
 public class ArchitectureConformanceTests
@@ -64,7 +64,7 @@ public class ArchitectureConformanceTests
         "Validator", "Cache", "Builder", "Mapper", "Policy", "Probe", "Store", "Revoker", "Extractor", "Gate", "State", "Resolver",
     };
 
-    // The login-path caches that converged on the shared bounding pattern — a hard global cap plus TWO
+    // The login-path caches that converged on the shared bounding pattern - a hard global cap plus TWO
     // distinct IntervalGates: "_pruneGate" (throttled expired-entry sweep, #452) and "_capWarnGate"
     // (throttled cap-refusal capacity warning, #246/#327/#470). ONE canonical list, consumed by both the
     // prune-gate rule and the cap-warn rule below, so a cache can never fall out of one rule's list but not
@@ -75,7 +75,7 @@ public class ArchitectureConformanceTests
         typeof(ReplayCache), typeof(SamlRequestCache), typeof(OidcStateStore), typeof(SamlOutcomeStore),
     };
 
-    // Every production type, compiler-generated ones excluded — the base sequence for structural rules
+    // Every production type, compiler-generated ones excluded - the base sequence for structural rules
     // that must cover interfaces/enums/structs/delegates too (e.g. the namespace boundary).
     private static IEnumerable<Type> AllPluginTypes =>
         typeof(SSOPlugin).Assembly.GetTypes().Where(t => !IsCompilerGenerated(t));
@@ -103,8 +103,8 @@ public class ArchitectureConformanceTests
     [Fact]
     public void SingleResponsibilityHelpers_AreSealedOrStatic_NotAnInheritanceBase()
     {
-        // A pure helper is a leaf: `static` (abstract+sealed in IL) or `sealed`. Anything not sealed — an
-        // ordinary class OR an abstract base — is an open inheritance point the unified architecture rules
+        // A pure helper is a leaf: `static` (abstract+sealed in IL) or `sealed`. Anything not sealed - an
+        // ordinary class OR an abstract base - is an open inheritance point the unified architecture rules
         // out. (A static class is sealed, so it passes.)
         var open = PluginClasses
             .Where(IsHelper)
@@ -119,7 +119,7 @@ public class ArchitectureConformanceTests
     public void FlowServices_AreInternalAndSealed()
     {
         // The flow tier (#318): a *Service is a stateful collaborator (holds IUserManager, the config
-        // store, …) that orchestrates pure helpers — distinct from the leaf *Helper suffixes above, so
+        // store, …) that orchestrates pure helpers - distinct from the leaf *Helper suffixes above, so
         // it gets its own rule rather than joining HelperSuffixes. It is still internal-by-default and a
         // sealed leaf, never an inheritance base or part of the public surface.
         var stray = PluginClasses
@@ -149,7 +149,7 @@ public class ArchitectureConformanceTests
         // The whole plugin stays under one root namespace; the migration reorganises the sub-namespaces
         // (Http/Flows/Oidc/Saml/Config/Shared/…) but never leaks a type outside the root. Covers ALL types
         // (interfaces/enums/structs/delegates too), rejects the global namespace, and matches the root
-        // exactly or as a "Root."-prefixed descendant — so a sibling like "…SSO_AuthEvil" does not pass.
+        // exactly or as a "Root."-prefixed descendant - so a sibling like "…SSO_AuthEvil" does not pass.
         var outside = AllPluginTypes
             .Where(t => !t.IsNested) // a nested type inherits its declaring type's namespace; check the outers
             .Where(t => t.Namespace is not { } ns || !(ns == Root || ns.StartsWith(Root + ".", StringComparison.Ordinal)))
@@ -167,28 +167,28 @@ public class ArchitectureConformanceTests
     // file never imports its own module namespace. As each module lands (#777) it registers a case here with its
     // allowed dependencies; together the cases lock in the DAG and forbid a cycle.
     [Theory]
-    [InlineData("Net")] // leaf — networking / URL / SSRF primitives: IpAddressClassifier, CanonicalBaseUrl, SsoHttp
-    [InlineData("Secrets")] // leaf — secrets at rest: SecretStore, SecretEnvelope, ConfigSecretProtection
-    [InlineData("Audit")] // leaf — append-only audit logging: SsoAudit
-    [InlineData("Avatar", "Net", "RateLimit")] // avatar fetch — validates targets through the Net SSRF classifier, per-user store locks via KeyedLockStore (RateLimit)
-    [InlineData("RateLimit", "Net")] // login throttling — keys buckets by the Net client-IP classifier
-    [InlineData("Authz")] // leaf — role→permission mapping: PermissionGrant, PermissionRolePolicy, RolePrivilegeMapper
-    [InlineData("Routing")] // leaf — the plugin's route-shape contract: RouteSuffix ({protocol}/{path-kind}/{provider} reader), ChallengePath (new/legacy classifier)
-    [InlineData("Crypto")] // leaf — the shared asymmetric signing-key strength policy (min RSA bits / approved EC curves), referenced by both protocol paths so they cannot drift (#733)
-    [InlineData("LoginButtons")] // leaf — login-page button rendering (#722): pure injector/builder over the config + a branding-sync hosted service; imports no other Api module
-    [InlineData("Logout")] // leaf — Single Logout session-state store (#727): pure bounded operations over the config's LogoutSessions map; imports no other Api module
-    [InlineData("Localization")] // leaf — served-surface string localizer (#913): loads embedded per-culture JSON catalogs and resolves keys through a fallback chain; imports no other Api module
+    [InlineData("Net")] // leaf - networking / URL / SSRF primitives: IpAddressClassifier, CanonicalBaseUrl, SsoHttp
+    [InlineData("Secrets")] // leaf - secrets at rest: SecretStore, SecretEnvelope, ConfigSecretProtection
+    [InlineData("Audit")] // leaf - append-only audit logging: SsoAudit
+    [InlineData("Avatar", "Net", "RateLimit")] // avatar fetch - validates targets through the Net SSRF classifier, per-user store locks via KeyedLockStore (RateLimit)
+    [InlineData("RateLimit", "Net")] // login throttling - keys buckets by the Net client-IP classifier
+    [InlineData("Authz")] // leaf - role→permission mapping: PermissionGrant, PermissionRolePolicy, RolePrivilegeMapper
+    [InlineData("Routing")] // leaf - the plugin's route-shape contract: RouteSuffix ({protocol}/{path-kind}/{provider} reader), ChallengePath (new/legacy classifier)
+    [InlineData("Crypto")] // leaf - the shared asymmetric signing-key strength policy (min RSA bits / approved EC curves), referenced by both protocol paths so they cannot drift (#733)
+    [InlineData("LoginButtons")] // leaf - login-page button rendering (#722): pure injector/builder over the config + a branding-sync hosted service; imports no other Api module
+    [InlineData("Logout")] // leaf - Single Logout session-state store (#727): pure bounded operations over the config's LogoutSessions map; imports no other Api module
+    [InlineData("Localization")] // leaf - served-surface string localizer (#913): loads embedded per-culture JSON catalogs and resolves keys through a fallback chain; imports no other Api module
 
 
-    [InlineData("Provider", "Net", "RateLimit")] // provider config/test/naming — validates URLs (Net) and keys throttles (RateLimit)
-    [InlineData("Linking", "Audit", "Provider", "RateLimit")] // account linking — audits writes, validates providers, throttles
-    [InlineData("Saml", "Authz", "Crypto", "Identity", "RateLimit", "Session")] // SAML core/validators — mints the keystone (Identity), returns login outcomes (Session), maps roles (Authz), throttles (RateLimit), enforces the signing-key floor (Crypto)
-    [InlineData("Oidc", "Authz", "Avatar", "Crypto", "Identity", "Logout", "Net", "Provider", "RateLimit", "Routing")] // OIDC flow — mints the keystone (Identity), orchestrates roles, avatar, net, provider, throttle; reads its callback path through the Routing suffix reader; enforces the signing-key floor (Crypto); carries the captured logout context (Logout, #727)
-    [InlineData("Identity", "Authz", "Provider")] // the identity keystone — grants (Authz) + link mode (Provider); decoupled from the protocols by #790
-    [InlineData("Session", "Authz", "Avatar", "Linking")] // session mint + login outcomes — applies grants (Authz), sets avatars (Avatar), reconciles links (Linking)
-    [InlineData("Shared", "Avatar", "Linking", "Localization", "RateLimit", "Routing", "Session")] // shared served-page / flow-response + rate-limit-gate helpers — depend downward on the session/linking/avatar/throttle/route/localization tiers, never on a protocol or the boundary
-    [InlineData("Flows", "Audit", "Identity", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "RateLimit", "Saml", "Session", "Shared")] // per-protocol login orchestration — drives both protocol modules (Oidc/Saml) and the downstream mint/link/session tiers; localizes the served auth-completion page (Localization, #913); persists the captured logout state at the mint (Logout, #727); nothing above the boundary imports it
-    [InlineData("Http", "Audit", "Avatar", "Flows", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "Saml", "Session", "Shared")] // the web boundary (SSOController + request helpers + the admin test-connection probe + the UI-string endpoint, #913): the composition top of the DAG — it fronts every flow, so its import list is deliberately wide (incl. the RP-initiated logout store, #727); nothing imports it back (#790/#807)
+    [InlineData("Provider", "Net", "RateLimit")] // provider config/test/naming - validates URLs (Net) and keys throttles (RateLimit)
+    [InlineData("Linking", "Audit", "Provider", "RateLimit")] // account linking - audits writes, validates providers, throttles
+    [InlineData("Saml", "Authz", "Crypto", "Identity", "RateLimit", "Session")] // SAML core/validators - mints the keystone (Identity), returns login outcomes (Session), maps roles (Authz), throttles (RateLimit), enforces the signing-key floor (Crypto)
+    [InlineData("Oidc", "Authz", "Avatar", "Crypto", "Identity", "Logout", "Net", "Provider", "RateLimit", "Routing")] // OIDC flow - mints the keystone (Identity), orchestrates roles, avatar, net, provider, throttle; reads its callback path through the Routing suffix reader; enforces the signing-key floor (Crypto); carries the captured logout context (Logout, #727)
+    [InlineData("Identity", "Authz", "Provider")] // the identity keystone - grants (Authz) + link mode (Provider); decoupled from the protocols by #790
+    [InlineData("Session", "Authz", "Avatar", "Linking")] // session mint + login outcomes - applies grants (Authz), sets avatars (Avatar), reconciles links (Linking)
+    [InlineData("Shared", "Avatar", "Linking", "Localization", "RateLimit", "Routing", "Session")] // shared served-page / flow-response + rate-limit-gate helpers - depend downward on the session/linking/avatar/throttle/route/localization tiers, never on a protocol or the boundary
+    [InlineData("Flows", "Audit", "Identity", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "RateLimit", "Saml", "Session", "Shared")] // per-protocol login orchestration - drives both protocol modules (Oidc/Saml) and the downstream mint/link/session tiers; localizes the served auth-completion page (Localization, #913); persists the captured logout state at the mint (Logout, #727); nothing above the boundary imports it
+    [InlineData("Http", "Audit", "Avatar", "Flows", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "Saml", "Session", "Shared")] // the web boundary (SSOController + request helpers + the admin test-connection probe + the UI-string endpoint, #913): the composition top of the DAG - it fronts every flow, so its import list is deliberately wide (incl. the RP-initiated logout store, #727); nothing imports it back (#790/#807)
     public void ApiModule_ImportsOnlyItsAllowedApiModules(string module, params string[] allowed)
     {
         var moduleDir = Path.Combine(RepoRoot(), "SSO-Auth", "Api", module);
@@ -209,7 +209,7 @@ public class ArchitectureConformanceTests
     public void FlatApi_HoldsNoSourceFiles_EveryApiTypeLivesInAModule()
     {
         // The kernel dissolution is complete and locked (#790/#807): there is NO code directly in
-        // SSO-Auth/Api/ — every type lives in a named module subfolder (Net, Secrets, …, Http). The former
+        // SSO-Auth/Api/ - every type lives in a named module subfolder (Net, Secrets, …, Http). The former
         // flat "kernel" that once held the controller, the URL builders, the keystone and the served-page
         // types was a deliberate, transitional bucket; it is now empty and must stay empty, so a new type is
         // forced into a module (or a new one) at creation and can never re-accumulate a flat pile.
@@ -221,7 +221,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             flatFiles.Count == 0,
-            "SSO-Auth/Api/ must hold no source files directly — every Api type belongs in a module subfolder (#790/#807). Found in the flat Api root: " + string.Join(", ", flatFiles));
+            "SSO-Auth/Api/ must hold no source files directly - every Api type belongs in a module subfolder (#790/#807). Found in the flat Api root: " + string.Join(", ", flatFiles));
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public class ArchitectureConformanceTests
             var separator = relative.IndexOf(Path.DirectorySeparatorChar);
             if (separator < 0)
             {
-                continue; // a flat Api/ kernel file — not module-scoped
+                continue; // a flat Api/ kernel file - not module-scoped
             }
 
             var module = relative[..separator];
@@ -257,7 +257,7 @@ public class ArchitectureConformanceTests
             var test = testFiles.FirstOrDefault(p => string.Equals(Path.GetFileName(p), testName, StringComparison.Ordinal));
             if (test is not null && !test.StartsWith(expectedDir, StringComparison.Ordinal))
             {
-                offenders.Add($"{testName} (covers Api/{module}) is at {Path.GetRelativePath(testsRoot, test)} — expected under {module}/");
+                offenders.Add($"{testName} (covers Api/{module}) is at {Path.GetRelativePath(testsRoot, test)} - expected under {module}/");
             }
         }
 
@@ -272,7 +272,7 @@ public class ArchitectureConformanceTests
         // #873: every type in Api/<Module>/ declares namespace <Root>.Api.<Module>, so the namespace and the
         // folder can never drift apart. RequestHelpers once sat physically in Api/Http/ under the stale
         // namespace ...Helpers and no fitness function caught it until #867 moved it; this locks the invariant
-        // in as an executable guard. Files directly in the flat Api/ root are out of scope — FlatApi_HoldsNoSourceFiles
+        // in as an executable guard. Files directly in the flat Api/ root are out of scope - FlatApi_HoldsNoSourceFiles
         // keeps that empty.
         var apiRoot = Path.Combine(RepoRoot(), "SSO-Auth", "Api");
         var offenders = new List<string>();
@@ -288,7 +288,7 @@ public class ArchitectureConformanceTests
             var separator = relative.IndexOf(Path.DirectorySeparatorChar);
             if (separator < 0)
             {
-                continue; // a flat Api/ file — not module-scoped
+                continue; // a flat Api/ file - not module-scoped
             }
 
             var module = relative[..separator];
@@ -300,7 +300,7 @@ public class ArchitectureConformanceTests
                 .TrimEnd(';', ' ', '{');
             if (!string.Equals(declared, expected, StringComparison.Ordinal))
             {
-                offenders.Add($"Api/{relative} declares '{declared ?? "(no namespace)"}' — expected '{expected}'");
+                offenders.Add($"Api/{relative} declares '{declared ?? "(no namespace)"}' - expected '{expected}'");
             }
         }
 
@@ -312,11 +312,11 @@ public class ArchitectureConformanceTests
     [Fact]
     public void InternalDocumentationGate_StaysEnforced()
     {
-        // #864/#873 — guard for the guard. The internal-surface XML-doc completeness gate rests on two
+        // #864/#873 - guard for the guard. The internal-surface XML-doc completeness gate rests on two
         // switches that a single quiet edit could disable: SA1600 must stay at warning-or-error in
         // .editorconfig (CI's warnaserror turns it into a build failure), and stylecop.json must keep
         // documentInternalElements=true (without it SA1600 checks only the public surface). Neither is
-        // exercised by any other test, so pin both here — a revert to none, suggestion, silent, or
+        // exercised by any other test, so pin both here - a revert to none, suggestion, silent, or
         // documentInternalElements=false fails this test rather than silently reopening the internal API to
         // undocumented members.
         var editorConfig = File.ReadAllText(Path.Combine(RepoRoot(), ".editorconfig"));
@@ -326,7 +326,7 @@ public class ArchitectureConformanceTests
             .FirstOrDefault(line => line.StartsWith("dotnet_diagnostic.SA1600.severity", StringComparison.Ordinal));
         Assert.True(
             severity is not null && (severity.EndsWith("= warning", StringComparison.Ordinal) || severity.EndsWith("= error", StringComparison.Ordinal)),
-            $"SA1600 must stay enforced (warning or error) so the #864 internal-doc gate cannot be silently switched off — found: '{severity ?? "(missing)"}'.");
+            $"SA1600 must stay enforced (warning or error) so the #864 internal-doc gate cannot be silently switched off - found: '{severity ?? "(missing)"}'.");
 
         var styleCop = File.ReadAllText(Path.Combine(RepoRoot(), "stylecop.json"));
         Assert.Contains("\"documentInternalElements\": true", styleCop, StringComparison.Ordinal);
@@ -341,12 +341,12 @@ public class ArchitectureConformanceTests
         // *Cache type in #449 and was then removed entirely in #450 (discovery is now read once per challenge
         // and fed to the login, with nothing cached), so no discovery-facts dictionary remains to exempt.
         // Two documented exemptions remain, both persisted account-link config state:
-        // - ProviderConfigBase._canonicalLinks: the persisted account-link map — serialized plugin
+        // - ProviderConfigBase._canonicalLinks: the persisted account-link map - serialized plugin
         //   configuration mutated only under the config lock, so a runtime store type would be the
         //   wrong home; it is config state, not in-flight state.
         // - OidConfig._canonicalLinkIssuers: the per-link issuer binding (#186), the exact parallel of
-        //   _canonicalLinks — serialized config mutated only under the config lock, same rationale.
-        // - PluginConfiguration._logoutSessions: the persisted Single Logout session map (#727) — serialized
+        //   _canonicalLinks - serialized config mutated only under the config lock, same rationale.
+        // - PluginConfiguration._logoutSessions: the persisted Single Logout session map (#727) - serialized
         //   config mutated only under the config lock via SessionLogoutStore, so it is config state, not
         //   in-flight state; the store type (SessionLogoutStore) holds the bounding logic, not the field.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
@@ -367,8 +367,8 @@ public class ArchitectureConformanceTests
     [Fact]
     public void LoginPathCaches_ThrottleTheirExpiredEntrySweepThroughIntervalGate()
     {
-        // Locked in by #452: the login-path caches converged on one bounding pattern — an
-        // IntervalGate-throttled expired-entry sweep plus a hard global cap — so none can regress to the
+        // Locked in by #452: the login-path caches converged on one bounding pattern - an
+        // IntervalGate-throttled expired-entry sweep plus a hard global cap - so none can regress to the
         // unthrottled full-dictionary sweep (or the unbounded set) ReplayCache carried before #452.
         // Each named cache must declare the PRUNE gate specifically (an IntervalGate field named
         // "_pruneGate"), not merely some IntervalGate: the siblings also carry a "_capWarnGate", so keying
@@ -422,7 +422,7 @@ public class ArchitectureConformanceTests
     {
         // Locked in by #362 (CWE-400, log-volume): the terminal pending-legacy-link warnings live in a
         // service the controller constructs PER REQUEST, so the once-per-interval throttle must be a
-        // PROCESS-WIDE (static) IntervalGate — an instance field would reset every login and throttle
+        // PROCESS-WIDE (static) IntervalGate - an instance field would reset every login and throttle
         // nothing, letting a hot login loop for a not-yet-migrated user flood the log. Pin the static gate
         // so a later refactor cannot silently demote it to an instance field (which compiles and passes the
         // unit tests, because those inject a fresh gate) and reopen the flood.
@@ -438,7 +438,7 @@ public class ArchitectureConformanceTests
     [Fact]
     public void AuthorizeStates_AreImmutableVariants()
     {
-        // Locked in by #341: the in-flight OpenID authorize state is a CLOSED, IMMUTABLE sum — an
+        // Locked in by #341: the in-flight OpenID authorize state is a CLOSED, IMMUTABLE sum - an
         // AuthorizeSession base with exactly the Pending and Ready variants, swapped atomically in the
         // store rather than promoted in place. Immutable variants are what make the swap torn-read-free: a
         // redeemer racing the promotion observes either the whole Pending (not redeemable) or the whole
@@ -448,7 +448,7 @@ public class ArchitectureConformanceTests
         var variants = new[] { typeof(AuthorizeSession.Pending), typeof(AuthorizeSession.Ready) };
 
         // Closed sum: the base is abstract, every AuthorizeSession subtype in the assembly is one of the
-        // two known variants, and each variant is a sealed leaf — no third variant, no open inheritance
+        // two known variants, and each variant is a sealed leaf - no third variant, no open inheritance
         // point.
         Assert.True(baseType.IsAbstract, "AuthorizeSession must be an abstract base (the root of the closed sum).");
         var subtypes = AllPluginTypes.Where(t => t != baseType && baseType.IsAssignableFrom(t)).ToList();
@@ -511,23 +511,23 @@ public class ArchitectureConformanceTests
     public void VerifiedIdentity_IsConstructedOnlyByProtocolValidators()
     {
         // Locked in by #473: VerifiedIdentity is the keystone the session-minting path is keyed on, and it
-        // is unforgeable — its constructor is PRIVATE, so the only way to obtain one is a named factory that
+        // is unforgeable - its constructor is PRIVATE, so the only way to obtain one is a named factory that
         // stands for "this protocol's validation has completed". Two properties are pinned:
         //
-        // 1. Reflection: NO declared instance constructor is reachable from outside the type — none is
+        // 1. Reflection: NO declared instance constructor is reachable from outside the type - none is
         //    public, internal, or protected-internal. A sealed record's own compiler-generated copy
         //    constructor is emitted PRIVATE (protected only for unsealed records), so it too is excluded by
         //    this filter; the accessibility test is written to also exclude a plain `protected` ctor, which
         //    is unreachable on a sealed type anyway (no derived type could invoke it). The C# compiler
         //    guarantees such a constructor cannot be invoked outside the declaring type, so this alone
         //    proves `new VerifiedIdentity(...)` can appear only inside VerifiedIdentity.cs (the two
-        //    factories) — no third construction path can compile. (An empty `with { }` on an existing
+        //    factories) - no third construction path can compile. (An empty `with { }` on an existing
         //    instance clones a valid identity verbatim; every property is get-only, so it can neither
         //    mutate nor forge one.) A future `public`/`internal` ctor added to the type would reopen that
         //    hole and fail HERE.
         // 2. Source scan: each factory is INVOKED only from its protocol's validator. FromValidatedOidc
-        //    belongs to the OpenID redeem path — built inside AuthorizeSession.Ready, which the store hands
-        //    out only through the one-time atomic redeem — and FromValidatedSaml only at the SAML
+        //    belongs to the OpenID redeem path - built inside AuthorizeSession.Ready, which the store hands
+        //    out only through the one-time atomic redeem - and FromValidatedSaml only at the SAML
         //    session-minting endpoint after full response validation. A call from anywhere else (a link
         //    endpoint, a new controller action) would mean an identity minted from something other than a
         //    completed validation, so it fails the scan.
@@ -546,7 +546,7 @@ public class ArchitectureConformanceTests
         // must consciously update this rule), then confine each factory's invocation to the file(s) that own
         // its protocol's validation. AuthorizeSession is where the OpenID identity is built (from the
         // role-gate result); the SAML factory is invoked from the dedicated SamlAssertionValidator, the
-        // single home the SAML inbound validation moved into (#496) — downstream of every gate, so the
+        // single home the SAML inbound validation moved into (#496) - downstream of every gate, so the
         // "constructed only after complete validation" invariant is local to the validator.
         const string oidcFactory = "FromValidatedOidc";
         const string samlFactory = "FromValidatedSaml";
@@ -569,7 +569,7 @@ public class ArchitectureConformanceTests
     // homes. Shared by the two #473 call-site pins; the allowed set is matched by absolute path so a file
     // rename that the reflection-driven home discovery already tracks flows through unchanged. This is a
     // qualified-call substring scan (belt-and-braces): the AIRTIGHT construction lock is the private-ctor
-    // reflection assertion above — nothing outside VerifiedIdentity.cs can construct one at all, so a call
+    // reflection assertion above - nothing outside VerifiedIdentity.cs can construct one at all, so a call
     // that this scan's substring might miss (a `using static` unqualified spelling, a line-split call) still
     // cannot forge an identity; this scan adds the sharper "constructed only by the RIGHT validator" signal
     // on top, keying on the qualified spelling the codebase actually uses.
@@ -595,14 +595,14 @@ public class ArchitectureConformanceTests
         // Locked in by the link/unlink admin-surface extraction (#372) and completed by #383: the two
         // legitimate homes for provider-CanonicalLinks access are CanonicalLinkService (the login/admin
         // link workflow, under the config lock) and ServerManagedFields.Preserve (the #157 re-injection
-        // the config tier owns) — and the controller's two former inline re-injection statements now route
+        // the config tier owns) - and the controller's two former inline re-injection statements now route
         // through that shared Preserve, so a CONTROLLER has ZERO direct CanonicalLinks access. This is a
         // call-level property, so it is a source scan rather than a reflection rule (the one exception to
         // the "call-level invariants stay with CodeQL" note in the class summary).
         //
         // Sentinel against a vacuous pass (#388): a zero-occurrence scan only means something while its
         // target token still names a link map. A property rename (CanonicalLinks -> anything) would make
-        // the scan match nothing and pass for the wrong reason, so pin each property by reflection — a
+        // the scan match nothing and pass for the wrong reason, so pin each property by reflection - a
         // rename fails HERE and forces a conscious update of the roster (and the scanned token with it).
         // BOTH server-managed link maps are guarded: the account-link map (ProviderConfigBase.CanonicalLinks,
         // #157) and its per-link issuer binding (OidConfig.CanonicalLinkIssuers, #186). Both are owned by
@@ -620,7 +620,7 @@ public class ArchitectureConformanceTests
         }
 
         // The two tokens are disjoint substrings (".CanonicalLinkIssuers" does not contain ".CanonicalLinks"
-        // — the char after "Link" is "I", not "s"), so scanning for both cannot cross-match.
+        // - the char after "Link" is "I", not "s"), so scanning for both cannot cross-match.
         var tokens = linkMapProperties.Select(p => "." + p.Name).ToList();
         var linkMapLines = ControllerSourceFiles()
             .SelectMany(path => File.ReadAllLines(path)
@@ -638,7 +638,7 @@ public class ArchitectureConformanceTests
     public void Controller_NeverTouchesRawSocketsOrDns()
     {
         // Locked in by the AvatarService extraction (#375): the raw-socket/DNS surface lives only in the
-        // avatar tier (AvatarService, AvatarUrlValidator) and SsoRateLimiter — the controller orchestrates
+        // avatar tier (AvatarService, AvatarUrlValidator) and SsoRateLimiter - the controller orchestrates
         // flows over injected collaborators and never opens a network primitive itself. Same source scan as
         // the link-map rule above, over every controller source file (#388). Marker choice: any
         // Socket/NetworkStream use needs the System.Net.Sockets namespace in the file (using directive,
@@ -646,7 +646,7 @@ public class ArchitectureConformanceTests
         // the belt-and-braces type-name catch on top; "SocketsHttpHandler" lives in System.Net.Http, which
         // the controller legitimately imports, so the namespace marker cannot cover it and it gets its own;
         // "Dns." catches System.Net.Dns call sites (which need no Sockets using) and "System.Net.Dns" the
-        // static-import form. Bare "Socket"/"Dns" are deliberately NOT markers — they would false-positive
+        // static-import form. Bare "Socket"/"Dns" are deliberately NOT markers - they would false-positive
         // on prose in comments.
         var markers = new[] { "System.Net.Sockets", "SocketsHttpHandler", "NetworkStream", "Dns.", "System.Net.Dns" };
         var socketLines = ControllerSourceFiles()
@@ -667,10 +667,10 @@ public class ArchitectureConformanceTests
         // marker must still match a real line there today. If a refactor ever changed how that tier
         // references sockets/DNS (a wrapping abstraction, a different BCL spelling) so that NONE of the
         // markers matched it any more, the zero-occurrence scan above would keep "passing" for the wrong
-        // reason — this is the assertion that would actually catch it. Deliberately "at least one", not
+        // reason - this is the assertion that would actually catch it. Deliberately "at least one", not
         // "every" marker: "System.Net.Dns" is a defensive marker for the fully-qualified/static-import
         // spelling, which this codebase does not use anywhere today (Dns.GetHostAddressesAsync resolves
-        // through the "using System.Net;" form instead, caught by the "Dns." marker) — that marker having
+        // through the "using System.Net;" form instead, caught by the "Dns." marker) - that marker having
         // no live match is expected, not a liveness failure.
         var homeTypes = new[] { typeof(AvatarService), typeof(AvatarUrlValidator), typeof(SsoRateLimiter) };
         var homeFiles = SourceFilesDeclaring(homeTypes);
@@ -681,15 +681,15 @@ public class ArchitectureConformanceTests
         var homeLines = homeFiles.SelectMany(File.ReadAllLines).ToList();
         Assert.True(
             markers.Any(m => homeLines.Any(l => l.Contains(m, StringComparison.Ordinal))),
-            "None of the socket/DNS markers match any line in their legitimate home (AvatarService/AvatarUrlValidator/SsoRateLimiter); the zero-occurrence controller scan above would pass vacuously — update the markers to track how the socket/DNS surface is actually referenced (#444).");
+            "None of the socket/DNS markers match any line in their legitimate home (AvatarService/AvatarUrlValidator/SsoRateLimiter); the zero-occurrence controller scan above would pass vacuously - update the markers to track how the socket/DNS surface is actually referenced (#444).");
     }
 
     [Fact]
     public void AvatarService_HoldsAStaticSharedHttpClient()
     {
         // Locked in by the per-login churn trim (#248): the controller builds a fresh AvatarService per
-        // request, so the outbound HTTP stack must be a STATIC shared client — one connection pool for the
-        // whole process — not a per-instance client that would open a new pool (a full TCP+TLS handshake)
+        // request, so the outbound HTTP stack must be a STATIC shared client - one connection pool for the
+        // whole process - not a per-instance client that would open a new pool (a full TCP+TLS handshake)
         // on every login. The reference field the constructor reads (_httpClient) points at this shared
         // client in production; the reference-equality across two production instances is proven behaviorally
         // in AvatarServiceTests, and this rule locks in that the shared field it points at exists at all.
@@ -712,7 +712,7 @@ public class ArchitectureConformanceTests
         // is distinct from the parameter declaration/param-doc (no parentheses), so it matches only a gate.
         // The FINAL gate is what closes the race, so this pins the LAST invocation before the mint (an
         // earlier pre-mutation gate must not satisfy the rule) AND that no user-mutating side effect sits
-        // between that final gate and AuthenticateDirect — otherwise a revocation during that work would go
+        // between that final gate and AuthenticateDirect - otherwise a revocation during that work would go
         // unre-checked.
         var minterSource = File.ReadAllLines(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Session", "SessionMinter.cs"));
         var mintLine = Array.FindIndex(minterSource, l => l.Contains("AuthenticateDirect(", StringComparison.Ordinal));
@@ -728,7 +728,7 @@ public class ArchitectureConformanceTests
             .Any(l => mutationMarkers.Any(m => l.Contains(m, StringComparison.Ordinal)));
         Assert.False(
             interveningMutation,
-            "No user-mutating side effect may sit between the final #232 revocation re-check and AuthenticateDirect — the re-check must be the last gate before the mint.");
+            "No user-mutating side effect may sit between the final #232 revocation re-check and AuthenticateDirect - the re-check must be the last gate before the mint.");
     }
 
     [Fact]
@@ -736,8 +736,8 @@ public class ArchitectureConformanceTests
     {
         // Locked in by #737. IsDisabled is a lockout vector: the plugin deliberately never disabled an
         // account until the pending-approval provisioning feature, and it is barred from SSO role mapping
-        // (PermissionRolePolicy) so no login can disable an EXISTING account. The one sanctioned write —
-        // provisioning a BRAND-NEW account inert for admin approval — must stay confined to
+        // (PermissionRolePolicy) so no login can disable an EXISTING account. The one sanctioned write -
+        // provisioning a BRAND-NEW account inert for admin approval - must stay confined to
         // CanonicalLinkService (the single create seam). A source scan pins that: any future
         // SetPermission(PermissionKind.IsDisabled, ...) elsewhere (a mint path, a role mapper, a controller)
         // would reopen the "an SSO login disabled my account" surface and fails here instead of shipping.
@@ -758,7 +758,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "IsDisabled may be written only on CanonicalLinkService's new-account provisioning arm (#737). Writing it elsewhere can disable an existing account via SSO — a lockout vector. Offending sites: " + string.Join(", ", offenders));
+            "IsDisabled may be written only on CanonicalLinkService's new-account provisioning arm (#737). Writing it elsewhere can disable an existing account via SSO - a lockout vector. Offending sites: " + string.Join(", ", offenders));
     }
 
     [Fact]
@@ -771,7 +771,7 @@ public class ArchitectureConformanceTests
         //    (it is not an OidConfig property; ProviderFormFieldIds_MatchOidConfigProperties stays green);
         //  - its value is set via .value, never innerHTML (#221);
         //  - it derives from the Base URL Override (the same canonical base the server's OidcRedirectUriBuilder
-        //    uses) plus the fixed /sso/OID/redirect/ path — deriving from anything else would display a URI the
+        //    uses) plus the fixed /sso/OID/redirect/ path - deriving from anything else would display a URI the
         //    login does not actually send;
         //  - the copy confirmation is announced through an aria-live region (not colour-only).
         var html = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"));
@@ -789,7 +789,7 @@ public class ArchitectureConformanceTests
         Assert.Contains("/sso/OID/redirect/", js, StringComparison.Ordinal);
         Assert.Matches(new Regex("computeRedirectUri[\\s\\S]{0,500}BaseUrlOverride", RegexOptions.Singleline), js);
         // It normalizes the base through the URL parser so the shown value matches the server's System.Uri
-        // canonicalization (lowercased scheme/host, default port elided) — deriving from the raw override
+        // canonicalization (lowercased scheme/host, default port elided) - deriving from the raw override
         // string would display a URI the login does not send (a redirect_uri mismatch). Pinned on the exact
         // origin+pathname derivation, which is unique to computeRedirectUri.
         Assert.Contains("new URL(raw)", js, StringComparison.Ordinal);
@@ -803,7 +803,7 @@ public class ArchitectureConformanceTests
     {
         // Locked in by #757. With LoadProfile on (the default), OidcClient merges the UNSIGNED UserInfo
         // response into result.User, so the step-up / MFA gate MUST read the acr from the raw, signature-
-        // verified id_token (result.IdentityToken via OidcIdTokenAcr), never from result.User — otherwise a
+        // verified id_token (result.IdentityToken via OidcIdTokenAcr), never from result.User - otherwise a
         // UserInfo-supplied acr could satisfy a step-up requirement the session never actually met. This is a
         // call-site property invisible to a unit test (the gate would still pass its behavioural tests reading
         // from either source when they happen to agree), so it is pinned as a source scan: a refactor that
@@ -821,15 +821,15 @@ public class ArchitectureConformanceTests
         // instant the challenge stamps (the Pending's Created) and the callback/redeem legs compare against
         // (PruneExpired / PeekCurrent / TryRedeem). That instant MUST be UTC (DateTime.UtcNow), never
         // machine-LOCAL wall-clock (DateTime.Now): on a DST transition or a clock step local time jumps, so
-        // a machine-local basis can expire a valid authorize state early — or shift its window — and
+        // a machine-local basis can expire a valid authorize state early - or shift its window - and
         // spuriously fail an otherwise-valid login. The SAML flow already keeps a UTC basis; this pins the
         // OpenID side to the same one. Call-level property, so it is a source scan like the controller /
-        // SessionMinter rules above — the store TAKES `now` as a parameter, so the clock choice lives
+        // SessionMinter rules above - the store TAKES `now` as a parameter, so the clock choice lives
         // entirely at these call sites and is invisible to a store-level unit test (which injects its own
         // clock and so passes with EITHER basis). The production code passes the clock inline at each site.
         //
         // Deliberately NOT in scope: the _newPathPersistGate.TryEnter(DateTime.Now) throttle in the same
-        // file (and its SAML twin) — a best-effort config-persist throttle, not the authorize-state
+        // file (and its SAML twin) - a best-effort config-persist throttle, not the authorize-state
         // lifetime; its clock jitter is harmless and it stays symmetric with the SAML side. The markers
         // below are scoped to the store's clock-bearing calls, so that line is out of scope by construction.
         var oidcSource = SourceFilesDeclaring(new[] { typeof(OidcLoginService) });
@@ -851,7 +851,7 @@ public class ArchitectureConformanceTests
                 .ToList();
 
             // Liveness against a vacuous pass: the store's clock-bearing call site must still exist, or the
-            // scan guards nothing — a rename/restructure of the flow fails HERE and forces a conscious
+            // scan guards nothing - a rename/restructure of the flow fails HERE and forces a conscious
             // update of this rule (as the other source scans' sentinels do). "DateTime.Now" is not a
             // substring of "DateTime.UtcNow", so a correct UtcNow site never trips the machine-local check.
             Assert.True(
@@ -874,8 +874,8 @@ public class ArchitectureConformanceTests
         // SECURITY / PERSISTENCE pin (#837). This exact string is written to User.AuthenticationProviderId
         // and persisted in Jellyfin's user database: every SSO-managed account provisioned by any version
         // carries it, the stamp (CanonicalLinkService) writes it, and the SSO-only detector
-        // (SsoAuthenticationProviders.IsSsoProvider) compares against it. It MUST NEVER change — a different
-        // value silently stops recognizing every existing SSO account — and it MUST stay decoupled from
+        // (SsoAuthenticationProviders.IsSsoProvider) compares against it. It MUST NEVER change - a different
+        // value silently stops recognizing every existing SSO account - and it MUST stay decoupled from
         // typeof(SSOController).FullName so a future move of that type (e.g. into an Api.Http module, #807)
         // cannot orphan those accounts. The value equals the controller's historical full type name; that is
         // a coincidence of history, not a live coupling.
@@ -897,9 +897,9 @@ public class ArchitectureConformanceTests
     [Fact]
     public void Controller_DelegatesLoginCompletionToTheFlowService()
     {
-        // Locked in by the login-completion extraction (#160, #318 step 11): the one shared completion tail —
+        // Locked in by the login-completion extraction (#160, #318 step 11): the one shared completion tail -
         // resolve/adopt the link, build the SessionParameters, mint the session under the revocation gate,
-        // audit, map to a LoginOutcome — moved wholesale into LoginCompletionService. The controller's two
+        // audit, map to a LoginOutcome - moved wholesale into LoginCompletionService. The controller's two
         // callbacks now hand a VerifiedIdentity to that service and return its result, so a CONTROLLER neither
         // builds SessionParameters nor mints a session itself. Call-level property, so it is a source scan
         // like the other controller rules above.
@@ -907,7 +907,7 @@ public class ArchitectureConformanceTests
         // The scanned tokens are derived from the moved types via nameof, so a rename of SessionParameters or
         // SessionMinter.MintAsync fails to COMPILE this rule (the strongest pin) rather than passing
         // vacuously. Constructing the minter to inject it (new SessionMinter(...)) is wiring, not the tail, so
-        // it is deliberately not a scanned token — only building the parameters and minting are.
+        // it is deliberately not a scanned token - only building the parameters and minting are.
         var paramsToken = "new " + nameof(SessionParameters);
         var mintToken = nameof(SessionMinter.MintAsync) + "(";
 
@@ -922,8 +922,8 @@ public class ArchitectureConformanceTests
             controllerHits.Count == 0,
             "A controller must not build SessionParameters or mint a session directly; the shared login-completion tail lives in LoginCompletionService (#160). Found: " + string.Join(" | ", controllerHits));
 
-        // Liveness against a vacuous pass: the tail must actually live in the flow service — a move, not a
-        // silent removal — so LoginCompletionService's own source must contain both moved tokens.
+        // Liveness against a vacuous pass: the tail must actually live in the flow service - a move, not a
+        // silent removal - so LoginCompletionService's own source must contain both moved tokens.
         var completionSource = string.Join(
             "\n",
             SourceFilesDeclaring(new[] { typeof(LoginCompletionService) }).Select(File.ReadAllText));
@@ -945,7 +945,7 @@ public class ArchitectureConformanceTests
         // The store and reader tokens are nameof-derived, so a rename of either type fails to COMPILE this
         // rule rather than passing vacuously; the two protocol tokens are the OidcClient methods the
         // challenge (PrepareLoginAsync) and callback (ProcessResponseAsync) drive. The shared per-client rate limiter
-        // is deliberately NOT a marker — it fronts BOTH protocols, so rather than living on either flow
+        // is deliberately NOT a marker - it fronts BOTH protocols, so rather than living on either flow
         // service it lives in the shared SsoRateLimitGate (#160), pinned off the controller by
         // Controller_HoldsNoMutableStaticState.
         var storeToken = nameof(OidcStateStore);
@@ -963,8 +963,8 @@ public class ArchitectureConformanceTests
             controllerHits.Count == 0,
             "A controller must not hold the OpenID authorize/discovery caches or drive the OidcClient challenge/callback protocol; the OpenID flow lives in OidcLoginService (#160). Found: " + string.Join(" | ", controllerHits));
 
-        // Liveness against a vacuous pass: the OpenID flow must actually live in OidcLoginService — a move,
-        // not a silent removal — so the flow service's own source must contain every moved token.
+        // Liveness against a vacuous pass: the OpenID flow must actually live in OidcLoginService - a move,
+        // not a silent removal - so the flow service's own source must contain every moved token.
         var oidcSource = string.Join(
             "\n",
             SourceFilesDeclaring(new[] { typeof(OidcLoginService) }).Select(File.ReadAllText));
@@ -987,7 +987,7 @@ public class ArchitectureConformanceTests
         // The request-cache token is nameof-derived, so a rename of that type fails to COMPILE this rule
         // rather than passing vacuously; the two protocol tokens are the outgoing-request builder
         // (SamlAuthnRequest, which the challenge constructs and signs) and the response validator
-        // (ValidateSaml). The shared per-client rate limiter is deliberately NOT a marker — it fronts BOTH
+        // (ValidateSaml). The shared per-client rate limiter is deliberately NOT a marker - it fronts BOTH
         // protocols, so it lives in the shared SsoRateLimitGate (#160), pinned off the controller by
         // Controller_HoldsNoMutableStaticState, exactly as in the OpenID rule. The replay cache was a SAML
         // marker until #962 moved it to the shared RateLimit module (protocol-neutral ReplayCache, used by
@@ -1007,11 +1007,11 @@ public class ArchitectureConformanceTests
             controllerHits.Count == 0,
             "A controller must not hold the SAML replay/request caches or drive the SAML challenge/validation protocol; the SAML flow lives in SamlLoginService and SamlAssertionValidator (#160, #496). Found: " + string.Join(" | ", controllerHits));
 
-        // Liveness against a vacuous pass: the SAML flow must actually live in the SAML flow tier — a move,
-        // not a silent removal — so its own source must contain every moved token. The tier is now two types:
+        // Liveness against a vacuous pass: the SAML flow must actually live in the SAML flow tier - a move,
+        // not a silent removal - so its own source must contain every moved token. The tier is now two types:
         // SamlLoginService owns the challenge/callback orchestration and the outstanding-request cache
         // (SamlRequestCache, SamlAuthnRequest), and the dedicated SamlAssertionValidator owns the inbound
-        // validation and the replay cache (SamlReplayCache, ValidateSaml) it moved into (#496) — so scan both.
+        // validation and the replay cache (SamlReplayCache, ValidateSaml) it moved into (#496) - so scan both.
         var samlSource = string.Join(
             "\n",
             SourceFilesDeclaring(new[] { typeof(SamlLoginService), typeof(SamlAssertionValidator) }).Select(File.ReadAllText));
@@ -1023,8 +1023,8 @@ public class ArchitectureConformanceTests
     [Fact]
     public void FlowServices_DoNotDuplicateChallengeNewPathResolution()
     {
-        // Locked in by #670: the near-identical ResolveChallengeNewPath resolver — and its
-        // _newPathPersistGate persist-throttle — that OidcLoginService and SamlLoginService each carried
+        // Locked in by #670: the near-identical ResolveChallengeNewPath resolver - and its
+        // _newPathPersistGate persist-throttle - that OidcLoginService and SamlLoginService each carried
         // (~40 lines apiece, differing only in which provider map the Mutate delegate re-resolved against)
         // are now ONE generic helper in ChallengeNewPathResolver (Api/Shared), with a single shared gate. Pin
         // by reflection that NEITHER flow service re-declares its own copy of either member, so the
@@ -1045,8 +1045,8 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "Neither flow service may declare its own ResolveChallengeNewPath method or _newPathPersistGate field; the single generic resolver and its one shared throttle live in ChallengeNewPathResolver (Api/Shared) (#670). Found: " + string.Join(", ", offenders));
 
-        // Liveness against a vacuous pass: the shared resolver must actually own both — a move, not a silent
-        // removal — so ChallengeNewPathResolver must declare the resolver method and the single gate field.
+        // Liveness against a vacuous pass: the shared resolver must actually own both - a move, not a silent
+        // removal - so ChallengeNewPathResolver must declare the resolver method and the single gate field.
         var resolver = typeof(ChallengeNewPathResolver);
         Assert.True(
             resolver.GetMethods(all).Any(m => m.Name == "ResolveChallengeNewPath"),
@@ -1060,8 +1060,8 @@ public class ArchitectureConformanceTests
     public void SharedFlowResponses_OwnTheAuthPageErrorAndLinkWriteResults()
     {
         // Locked in by the shared-helper consolidation (#160, #500): the three HTTP result shapes both flow
-        // services need — the security-headered intermediate auth page (the CSP build), the plain-text flow
-        // error, and the manual-link write mapping — were duplicated (the controller's HtmlAuthPage +
+        // services need - the security-headered intermediate auth page (the CSP build), the plain-text flow
+        // error, and the manual-link write mapping - were duplicated (the controller's HtmlAuthPage +
         // ReturnError, and the OpenID service's PlainTextError twin). They now live once in FlowResponses,
         // which both flow services call, so a CONTROLLER neither builds the CSP auth page nor sets its
         // defensive headers itself. Call-level property, so it is a source scan like the other controller
@@ -1079,8 +1079,8 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "A controller must not build the CSP auth page or set its defensive headers directly; the shared flow-result shapes live in FlowResponses (#160). Found: " + string.Join(" | ", offenders));
 
-        // Liveness against a vacuous pass: the auth page must actually live in FlowResponses — a move, not a
-        // silent removal — so its own source must build the CSP and set the frame-options header.
+        // Liveness against a vacuous pass: the auth page must actually live in FlowResponses - a move, not a
+        // silent removal - so its own source must build the CSP and set the frame-options header.
         var sharedSource = string.Join(
             "\n",
             Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Shared"), "*.cs", SearchOption.AllDirectories)
@@ -1095,10 +1095,10 @@ public class ArchitectureConformanceTests
     {
         // Locked in by #474: the rate-limit rejection was the last login-path error that bypassed the single
         // mapper. It now flows as LoginOutcome.Throttled through LoginStatusMapper, which is the ONE place the
-        // 429 status and its Retry-After header are emitted — so a CONTROLLER neither returns a bare rate-limit
+        // 429 status and its Retry-After header are emitted - so a CONTROLLER neither returns a bare rate-limit
         // ContentResult nor sets Retry-After itself. Call-level property, so it is a source scan like the other
         // controller rules above. Markers are the emission tokens, not prose: the 429 status constant, the
-        // typed IHeaderDictionary accessor (".RetryAfter" — the leading dot excludes the "retryAfterSeconds"
+        // typed IHeaderDictionary accessor (".RetryAfter" - the leading dot excludes the "retryAfterSeconds"
         // local the controller still passes into the outcome), and the raw header-name literal.
         var markers = new[] { "Status429TooManyRequests", ".RetryAfter", "Retry-After" };
         var offenders = ControllerSourceFiles()
@@ -1112,8 +1112,8 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "A controller must not emit a rate-limit 429 or set Retry-After directly; route the rejection through LoginOutcome.Throttled and LoginStatusMapper (#474). Found: " + string.Join(" | ", offenders));
 
-        // Liveness against a vacuous pass: the 429 + Retry-After must actually live in the mapper — a move,
-        // not a silent removal — so LoginStatusMapper's own source must emit both.
+        // Liveness against a vacuous pass: the 429 + Retry-After must actually live in the mapper - a move,
+        // not a silent removal - so LoginStatusMapper's own source must emit both.
         var mapperSource = string.Join(
             "\n",
             SourceFilesDeclaring(new[] { typeof(LoginStatusMapper) }).Select(File.ReadAllText));
@@ -1128,12 +1128,12 @@ public class ArchitectureConformanceTests
         // Locked in by #694: the per-client rate-limit bucket key is built as `class + ":" + clientKey` in
         // SsoRateLimitGate.Check, so the endpoint-class string IS the limiter grouping. Passed as a bare
         // literal at each call site, a single typo ("challange") compiles cleanly and silently mints a
-        // separate, empty bucket — weakening the rate limit undetectably, with nothing to fail. Every call
+        // separate, empty bucket - weakening the rate limit undetectably, with nothing to fail. Every call
         // site now references a SsoRateLimitClass member instead, so a typo is a compile error; this rule
         // forbids a raw literal from creeping back in. Call-level property, so it is a source scan like the
         // other controller rules above. The scan covers BOTH the controller's RateLimitCheck wrapper and any
         // direct SsoRateLimitGate.Check invocation (belt-and-braces: a future controller could call the gate
-        // straight, bypassing the wrapper), and flags a string-literal FIRST argument to either — never the
+        // straight, bypassing the wrapper), and flags a string-literal FIRST argument to either - never the
         // typed SsoRateLimitClass member reference.
         var literalCall = new Regex("(?:RateLimitCheck|SsoRateLimitGate\\.Check)\\(\\s*\"");
         var offenders = ControllerSourceFiles()
@@ -1145,7 +1145,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "A rate-limited endpoint must pass its endpoint class as a SsoRateLimitClass member, never a raw string literal — a literal typo silently mints a separate empty limiter bucket (#694). Found: " + string.Join(" | ", offenders));
+            "A rate-limited endpoint must pass its endpoint class as a SsoRateLimitClass member, never a raw string literal - a literal typo silently mints a separate empty limiter bucket (#694). Found: " + string.Join(" | ", offenders));
 
         // Sentinel against a vacuous pass: the scan only means something while the typed call sites exist. A
         // rename of the wrapper or a restructure that dropped every RateLimitCheck call would make the
@@ -1161,25 +1161,25 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             typedCallSites == expectedTypedCallSites,
-            $"Expected {expectedTypedCallSites} typed RateLimitCheck(SsoRateLimitClass.X) call sites (#694); found {typedCallSites}. A rate-limited endpoint was added or removed — update this sentinel in the same PR so the literal scan cannot pass vacuously.");
+            $"Expected {expectedTypedCallSites} typed RateLimitCheck(SsoRateLimitClass.X) call sites (#694); found {typedCallSites}. A rate-limited endpoint was added or removed - update this sentinel in the same PR so the literal scan cannot pass vacuously.");
     }
 
     [Fact]
     public void Controller_HoldsNoMutableStaticState()
     {
         // Locked in by the rate-limit-gate extraction (#160, #318): after the OpenID (#500), SAML (#501) and
-        // rate-limit (#160) moves, the controller is a stateless request dispatcher — every process-wide
+        // rate-limit (#160) moves, the controller is a stateless request dispatcher - every process-wide
         // store, cache and limiter lives in a flow service or the Shared tier. So a controller holds NO
         // mutable process-wide state as a static field. The former SsoRateLimiter static (the last such on
         // SSOController) moved into SsoRateLimitGate; a new cache/limiter/counter/dictionary dropped back
-        // onto ANY controller — the exact regression this rule guards — fails HERE.
+        // onto ANY controller - the exact regression this rule guards - fails HERE.
         //
         // "Mutable state" is what is forbidden, not every static: a compile-time constant (a const, which is
         // IsLiteral) and an immutable static readonly VALUE (e.g. SSOViewsController's version-derived asset
-        // ETag, an EntityTagHeaderValue computed once at load) are fine — they never accumulate runtime
+        // ETag, an EntityTagHeaderValue computed once at load) are fine - they never accumulate runtime
         // state. So a static field is an offender only when it is genuinely mutable: a WRITABLE static (not
         // readonly, so it can be reassigned at runtime), OR a static readonly reference to a state CONTAINER
-        // — a *Store/*Cache/*Limiter type, or a raw dictionary — which is readonly-by-reference but mutates
+        // - a *Store/*Cache/*Limiter type, or a raw dictionary - which is readonly-by-reference but mutates
         // internally (exactly the shape SsoRateLimiter had on the controller). Compiler-generated backing
         // fields ('<'-named) are excluded, the same exclusion the other reflection rules use.
         var stateSuffixes = new[] { "Store", "Cache", "Limiter" };
@@ -1195,7 +1195,7 @@ public class ArchitectureConformanceTests
         // source-scan rules).
         Assert.True(
             controllers.Count > 0,
-            "No controller type was found to check for mutable static state; a controller was renamed or lost its ControllerBase base — update Controller_HoldsNoMutableStaticState.");
+            "No controller type was found to check for mutable static state; a controller was renamed or lost its ControllerBase base - update Controller_HoldsNoMutableStaticState.");
 
         var offenders = controllers
             .SelectMany(t => t.GetFields(statics)
@@ -1209,8 +1209,8 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "A controller must hold no mutable static state (a writable static, or a static readonly *Store/*Cache/*Limiter or dictionary); every process-wide store/cache/limiter belongs in a flow service or a Shared gate (#160, #318). Found: " + string.Join(", ", offenders));
 
-        // Liveness against a vacuous pass: the rate limiter must actually live in its new home — a move, not
-        // a silent removal — so SsoRateLimitGate must own the process-wide SsoRateLimiter instance the
+        // Liveness against a vacuous pass: the rate limiter must actually live in its new home - a move, not
+        // a silent removal - so SsoRateLimitGate must own the process-wide SsoRateLimiter instance the
         // controller no longer holds, and it is a state container the offender scan above would catch on a
         // controller (so the rule is proven non-vacuous on the very type that motivated it).
         var gateOwnsLimiter = typeof(SsoRateLimitGate)
@@ -1229,7 +1229,7 @@ public class ArchitectureConformanceTests
         // The fix folds the re-key and the re-resolution into one config transaction that RETURNS the
         // authoritative user id, and the caller binds the login to that returned id rather than the
         // pre-migration snapshot. Structurally that means the migration helper must be a value-returning
-        // mutation (Guid?), never a fire-and-forget void re-key whose result the caller ignores — a
+        // mutation (Guid?), never a fire-and-forget void re-key whose result the caller ignores - a
         // revert to void would silently reopen the window. Reflection over the service's own private
         // methods pins it: any migration helper (name contains "Migrate") must return Guid?.
         var migrationHelpers = typeof(CanonicalLinkService)
@@ -1257,15 +1257,15 @@ public class ArchitectureConformanceTests
     public void ProviderMode_IsThreadedTyped_NotAsARawStringToken()
     {
         // Locked in by #369: the route's {mode} token is parsed ONCE at the controller boundary into the
-        // ProviderMode enum, and the typed value is threaded inward — so no linking-tier method re-accepts
+        // ProviderMode enum, and the typed value is threaded inward - so no linking-tier method re-accepts
         // the raw string to re-parse or re-compare it (the two former divergent dispatches, a
         // culture-sensitive ToLower() switch and an invariant-lowercase one, that had to agree). Pin it
         // structurally on the two types the token flows through:
         //
-        // 1. CanonicalLinkService — the linking workflow: NO method (public or private) may take a parameter
+        // 1. CanonicalLinkService - the linking workflow: NO method (public or private) may take a parameter
         //    named "mode" typed as string; it must be the ProviderMode enum. A revert to a string mode
         //    parameter (reopening the re-parse-inward hole) fails HERE.
-        // 2. VerifiedIdentity.LinkMode — the identity the login path carries: must expose the protocol as the
+        // 2. VerifiedIdentity.LinkMode - the identity the login path carries: must expose the protocol as the
         //    typed ProviderMode, not a "oid"/"saml" string the mint path would have to re-compare.
         const BindingFlags anyMethod = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
         var methods = typeof(CanonicalLinkService).GetMethods(anyMethod);
@@ -1305,7 +1305,7 @@ public class ArchitectureConformanceTests
         // named facade members that delegate to the store. PersistBase is allow-listed by name: it is
         // the private bridge handing base.UpdateConfiguration to the store, not config logic of its own.
         // Compiler-generated members (the ctor's `() => Configuration` lambda, backing fields) are
-        // artifacts of the allowed wiring, not declared members — same exclusion as the keyed-state rule.
+        // artifacts of the allowed wiring, not declared members - same exclusion as the keyed-state rule.
         var facade = new[] { "ReadConfiguration", "MutateConfiguration", "UpdateConfiguration", "PersistBase" };
         const BindingFlags declared = BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
@@ -1329,7 +1329,7 @@ public class ArchitectureConformanceTests
     public void RawServedLinkingPage_ContainsNoDashboardLocalizationPlaceholders()
     {
         // The self-service linking page is served raw by SSOViewsController.GetView (route
-        // /SSOViews/linking) — no Jellyfin dashboard, so no localization pass runs. A ${...} token the
+        // /SSOViews/linking) - no Jellyfin dashboard, so no localization pass runs. A ${...} token the
         // dashboard would substitute therefore leaks to the end user verbatim (the ${Help} button label
         // was the live case, #666). Scan the raw-served page for such placeholders, ignoring inline
         // <script> blocks where ${...} is a legitimate JS template-literal interpolation, not a
@@ -1351,12 +1351,12 @@ public class ArchitectureConformanceTests
     {
         // The provider settings form's save contract (#365), locked in as a fitness function. config.js
         // saveProvider persists each marked input as current_config[element.id] = value, so every input
-        // bearing a persisting behavior-marker class MUST have an id equal to a real OidConfig property —
+        // bearing a persisting behavior-marker class MUST have an id equal to a real OidConfig property -
         // otherwise it renders but silently never saves, because the server drops JSON members that are not
         // OidConfig properties. The five marker classes mirror config.js listArgumentsByType
         // (sso-text/sso-line-list/sso-toggle) plus the two populate-helper widgets (sso-folder-list =
         // EnabledFolders, sso-role-map = FolderRoleMapping). The provider-name input is deliberately
-        // unmarked — its value is the OidConfigs dictionary key, not a property — so it is not scanned.
+        // unmarked - its value is the OidConfigs dictionary key, not a property - so it is not scanned.
         // Matching is token-exact (so sso-role-map does not swallow sso-role-mapping-container), and the
         // scan is scoped to #sso-new-oidc-provider so a future SAML form (whose fields map to SamlConfig)
         // would not be checked against OidConfig. The forward check (every marked id is a real property) is
@@ -1409,7 +1409,7 @@ public class ArchitectureConformanceTests
             "The provider-form scan did not reach expected fields (broken parse or renamed marker class?); missing sentinels: " + string.Join(", ", missingSentinels));
 
         // Reverse direction: the forward check catches a mistyped id, but dropping a marker class entirely
-        // — the exact operation this contract change performs on the provider-name field — would silently
+        // - the exact operation this contract change performs on the provider-name field - would silently
         // stop a field persisting while leaving the forward check green. For a security setting that is
         // fail-open (the server keeps the stored value; the admin can no longer harden it), so pin the
         // security-critical settings: each MUST remain a marked, correctly-typed persisting field. Extend
@@ -1441,14 +1441,14 @@ public class ArchitectureConformanceTests
         // regrouped the form into native accordion sections. ProviderFormFieldIds_MatchOidConfigProperties
         // guards the FORWARD direction (no stray marked id) and a reverse pin for the security-critical
         // SUBSET; this test is the exhaustive reverse pin: every persisting field must still render as a
-        // marked input with its exact id, so a field silently dropped or unmarked during a future re-layout —
-        // which would stop it persisting — fails here rather than shipping as silent data loss. The
+        // marked input with its exact id, so a field silently dropped or unmarked during a future re-layout -
+        // which would stop it persisting - fails here rather than shipping as silent data loss. The
         // provider-name KEY input (OidProviderName) is deliberately unmarked (it supplies the OidConfigs
         // dictionary key, not an OidConfig property) and is asserted present separately.
         //
         // The roster is compared as a SET IN BOTH DIRECTIONS (#934). A subset assertion silently tolerated a
-        // newly added field that nobody listed here — which is exactly how DisableAvatarFromPictureClaim
-        // (#723) and RoleClaimIsObjectMap escaped it — so a new form field now fails this test until it is
+        // newly added field that nobody listed here - which is exactly how DisableAvatarFromPictureClaim
+        // (#723) and RoleClaimIsObjectMap escaped it - so a new form field now fails this test until it is
         // rostered, instead of shipping outside the guard.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = OidcProviderFormMarkup(
@@ -1500,7 +1500,7 @@ public class ArchitectureConformanceTests
         var unrostered = markedIds.Where(id => !expected.Contains(id, StringComparer.Ordinal)).OrderBy(id => id, StringComparer.Ordinal).ToList();
         Assert.True(
             unrostered.Count == 0,
-            "These provider-form fields render a marked input but are not in this test's roster, so they are outside the persistence guard — add them to `expected` and bump its count: " + string.Join(", ", unrostered));
+            "These provider-form fields render a marked input but are not in this test's roster, so they are outside the persistence guard - add them to `expected` and bump its count: " + string.Join(", ", unrostered));
 
         // The provider-name KEY input must still be present (unmarked by design).
         Assert.Contains("id=\"OidProviderName\"", form, StringComparison.Ordinal);
@@ -1514,7 +1514,7 @@ public class ArchitectureConformanceTests
         // input as current_config[samlPropOf(element.id)] = value, where samlPropOf strips the mandatory
         // "saml-" id prefix (the prefix keeps every SAML field id unique in a document the OpenID form already
         // populated). So every input bearing a persisting marker class MUST (a) have a "saml-"-prefixed id and
-        // (b) once stripped, equal a real SamlConfig property — otherwise it renders but silently never saves,
+        // (b) once stripped, equal a real SamlConfig property - otherwise it renders but silently never saves,
         // because the server drops JSON members that are not SamlConfig properties. The scan is scoped to
         // #sso-new-saml-provider so it is checked against SamlConfig, never OidConfig. Paired below with a
         // reverse security-critical pin so neither a mistyped id nor a dropped marker class can silently break
@@ -1573,7 +1573,7 @@ public class ArchitectureConformanceTests
             missingSentinels.Count == 0,
             "The SAML provider-form scan did not reach expected fields (broken parse or renamed marker class?); missing sentinels: " + string.Join(", ", missingSentinels));
 
-        // Reverse direction: pin the SAML security-critical settings — each MUST remain a marked, correctly
+        // Reverse direction: pin the SAML security-critical settings - each MUST remain a marked, correctly
         // "saml-"-prefixed persisting field, so dropping its marker class (fail-open: the server keeps the
         // stored value and the admin can no longer change it in the form) fails here. DoNotValidateAudience is
         // the SAML insecure toggle; ValidateRecipient/ValidateInResponseTo/SignAuthnRequests are the opt-in
@@ -1602,7 +1602,7 @@ public class ArchitectureConformanceTests
         // The exhaustive reverse pin for the SAML save contract (#725), the twin of
         // ProviderForm_RendersEveryPersistingFieldId: every one of the 32 persisting SAML fields must render
         // as a marked input with its exact "saml-"-prefixed id, so a field silently dropped or unmarked during
-        // a future re-layout — which would stop it persisting — fails here rather than shipping as silent data
+        // a future re-layout - which would stop it persisting - fails here rather than shipping as silent data
         // loss. The provider-name KEY input (saml-provider-name) is deliberately unmarked (it supplies the
         // SamlConfigs dictionary key, not a SamlConfig property) and is asserted present separately.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
@@ -1685,13 +1685,13 @@ public class ArchitectureConformanceTests
     {
         // #726 provider templates: applying a preset writes into the editor field whose id equals the
         // preset's `fields` key (and pre-checks the toggle whose id equals the toggle name). If a key does
-        // not match a marked field in the OpenID form, the apply silently no-ops (a broken preset) — and the
+        // not match a marked field in the OpenID form, the apply silently no-ops (a broken preset) - and the
         // separate save-contract test already guarantees every marked field id is a real OidConfig property,
         // so this pins the composition: every OIDC preset field/toggle targets a real persisting field, so
         // applying a preset always respects the save contract.
         var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
         var (fieldKeys, toggles) = ParsePresetCatalog(js, "OIDC_PRESETS");
-        Assert.True(fieldKeys.Count > 0, "OIDC_PRESETS parsed to zero field keys — broken parse or empty catalog.");
+        Assert.True(fieldKeys.Count > 0, "OIDC_PRESETS parsed to zero field keys - broken parse or empty catalog.");
 
         var markedIds = MarkedFieldIds(OidcProviderFormMarkup(
             File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"))));
@@ -1709,7 +1709,7 @@ public class ArchitectureConformanceTests
         // exist as a marked field in #sso-new-saml-provider.
         var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
         var (fieldKeys, toggles) = ParsePresetCatalog(js, "SAML_PRESETS");
-        Assert.True(fieldKeys.Count > 0, "SAML_PRESETS parsed to zero field keys — broken parse or empty catalog.");
+        Assert.True(fieldKeys.Count > 0, "SAML_PRESETS parsed to zero field keys - broken parse or empty catalog.");
 
         var markedIds = MarkedFieldIds(SamlProviderFormMarkup(
             File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"))));
@@ -1790,7 +1790,7 @@ public class ArchitectureConformanceTests
     {
         // #726 idempotency invariant: applyOidcPreset overwrites only the fields the newly chosen preset
         // sets (after clearing the managed toggles), so if two presets set DIFFERENT field-key sets,
-        // switching from a richer to a poorer one would leave a stale value behind — e.g. a preset that
+        // switching from a richer to a poorer one would leave a stale value behind - e.g. a preset that
         // dropped RoleClaim would keep the previous provider's claim path. Every OIDC preset must therefore
         // set EXACTLY the same four fields; this locks that in so a future preset cannot silently reintroduce
         // the state-bleed (a review follow-up on #726).
@@ -1807,7 +1807,7 @@ public class ArchitectureConformanceTests
             .ToList();
         Assert.True(
             blocks.Count >= 9,
-            $"Expected at least 9 OIDC preset field blocks, found {blocks.Count} — broken parse or shrunken catalog.");
+            $"Expected at least 9 OIDC preset field blocks, found {blocks.Count} - broken parse or shrunken catalog.");
 
         foreach (var block in blocks)
         {
@@ -1833,7 +1833,7 @@ public class ArchitectureConformanceTests
         // PREVIOUS provider's value and a later save silently persists it (e.g. repointing the #186-sensitive
         // OidEndpoint with no admin edit). No JS runtime harness exists (the config.js checks are static text
         // parsers), so this pins the ordering invariant statically: within openProvider, resetEditor(page)
-        // must run BEFORE loadProvider(page, provider_name) — the same clean-slate-first order addProvider
+        // must run BEFORE loadProvider(page, provider_name) - the same clean-slate-first order addProvider
         // already uses. loadProvider then fills the target's real values on top of the reset baseline.
         var js = File.ReadAllText(
             Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
@@ -1865,8 +1865,8 @@ public class ArchitectureConformanceTests
         // AllowExistingAccountLink invisible. syncDependentFields must expand the ENCLOSING accordion section
         // (by its stable id) when any insecure OR sensitive toggle is active. No JS runtime harness exists,
         // so this pins statically both the target (the section id in the markup and the call) AND the
-        // condition shape: the expand is driven by the OR of the two sets, so a `||`->`&&` mutant — which
-        // would stop a sensitive-only (AllowExistingAccountLink) provider from expanding — fails here.
+        // condition shape: the expand is driven by the OR of the two sets, so a `||`->`&&` mutant - which
+        // would stop a sensitive-only (AllowExistingAccountLink) provider from expanding - fails here.
         var html = File.ReadAllText(
             Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"));
         var js = File.ReadAllText(
@@ -1889,14 +1889,14 @@ public class ArchitectureConformanceTests
             new Regex(@"anyInsecure\s*=\s*ssoConfigurationPage\.insecureFieldIds\.some\(", RegexOptions.Singleline),
             body);
 
-        // The combined condition is the OR (never AND) of anyInsecure and the sensitive set — the disjunction
+        // The combined condition is the OR (never AND) of anyInsecure and the sensitive set - the disjunction
         // a `||`->`&&` mutant would break. Both sets must feed it, not just appear somewhere in the body.
         Assert.Matches(
             new Regex(@"anySensitive\s*=\s*anyInsecure\s*\|\|\s*ssoConfigurationPage\.sensitiveFieldIds\.some\(", RegexOptions.Singleline),
             body);
 
         // The inner insecure-options list is gated on anyInsecure; the ENCLOSING section on the combined
-        // anySensitive — so the section expands for a sensitive-only provider too.
+        // anySensitive - so the section expands for a sensitive-only provider too.
         Assert.Matches(
             new Regex(@"if\s*\(\s*anyInsecure\s*\)\s*\{\s*ssoConfigurationPage\.setInsecureOptionsExpanded\(\s*page,\s*true", RegexOptions.Singleline),
             body);
@@ -1907,7 +1907,7 @@ public class ArchitectureConformanceTests
         // The flag / auto-expand trigger set must contain only settings whose ENABLED state is a downgrade or
         // an attack-surface widening: the five insecure toggles and AllowExistingAccountLink. It must NOT
         // contain the fail-closed hardening toggles (RequireVerifiedEmailForAdoption/ForLogin, RequirePkce),
-        // which are OFF by default and whose ON state is MORE secure — flagging those is backwards (#689
+        // which are OFF by default and whose ON state is MORE secure - flagging those is backwards (#689
         // re-review). Scoped to the two array literals so a stray mention elsewhere cannot mask a regression.
         var insecureSet = ArrayLiteralAfter(js, "insecureFieldIds:");
         var sensitiveSet = ArrayLiteralAfter(js, "sensitiveFieldIds:");
@@ -1937,7 +1937,7 @@ public class ArchitectureConformanceTests
         // role-map categories ONLY under `if (provider[id])`, so the clean slate that prevents a previous
         // provider's value bleeding through has to come from resetEditor unconditionally clearing every one
         // of those categories (plus the checkboxes). No JS runtime harness exists to assert the live DOM is
-        // zeroed, so this statically pins that the resetEditor body contains the clear for each category — a
+        // zeroed, so this statically pins that the resetEditor body contains the clear for each category - a
         // mutant deleting any one category's reset (which would let that category bleed) fails here. Scoped
         // to the resetEditor body so a clear living in some other method cannot satisfy the check.
         var js = File.ReadAllText(
@@ -1975,7 +1975,7 @@ public class ArchitectureConformanceTests
     public void SourceFilesDeclaring_MatchesRecordStructAndStructAlongsideClass()
     {
         // #542: the helper's regex used to be "\bclass\s+{Name}\b" only, so it silently returned an empty
-        // file list for a record struct/struct type instead of finding its declaring file — a latent
+        // file list for a record struct/struct type instead of finding its declaring file - a latent
         // false-negative for any future rule that scans one by name. RouteSuffix and DiscoveryFacts
         // ("internal readonly record struct ...") are real record structs already living in SSO-Auth/Api,
         // so this pins the fix against actual source rather than a synthetic fixture.
@@ -1984,7 +1984,7 @@ public class ArchitectureConformanceTests
             recordStructFiles.Count == 2,
             "SourceFilesDeclaring must find the declaring file of a record struct type (RouteSuffix, DiscoveryFacts), not just a class.");
 
-        // The class path must keep working too — the widened regex must not have narrowed the original
+        // The class path must keep working too - the widened regex must not have narrowed the original
         // "class Name" match.
         var classFiles = SourceFilesDeclaring(new[] { typeof(AuthorizeSession) });
         Assert.True(
@@ -1997,15 +1997,15 @@ public class ArchitectureConformanceTests
     {
         // Locked in by #590 (the 4.1.0.0 field regression) and generalized per target (#135). Each
         // Jellyfin generation the plugin targets provides the whole Microsoft.Extensions.* family from its
-        // ASP.NET Core shared framework — host-provided, deliberately NOT in build.yaml's artifacts. .NET
+        // ASP.NET Core shared framework - host-provided, deliberately NOT in build.yaml's artifacts. .NET
         // rolls a host assembly reference FORWARD to a newer host but never DOWN a major version, so a
         // dependency dragging one of these ABOVE the target host's .NET major compiles and keeps
         // `dotnet test` green (both run against the full publish output, which carries the newer DLL) yet
         // throws FileNotFoundException the moment the host DI constructs the plugin against its own,
-        // lower-versioned assembly — disabling it. That is exactly how OidcClient 7.x (which references
+        // lower-versioned assembly - disabling it. That is exactly how OidcClient 7.x (which references
         // Logging.Abstractions 10.0.0.0) broke 4.1.0.0 on the .NET 9 host. The floor is the target's host
         // .NET major: 9 for net9.0 (Jellyfin 10.11), 10 for net10.0 (Jellyfin 12.0). When a net11 target
-        // is added, turn this into an #elif chain (NET11_0_OR_GREATER → 11) — NET10_0_OR_GREATER is also
+        // is added, turn this into an #elif chain (NET11_0_OR_GREATER → 11) - NET10_0_OR_GREATER is also
         // true on net11, so leaving it would pin the floor to 10 and spuriously fail the net11 build.
 #if NET10_0_OR_GREATER
         const int hostAbiMajor = 10;
@@ -2025,19 +2025,19 @@ public class ArchitectureConformanceTests
             $"SSO-Auth references a host-provided Microsoft.Extensions.* assembly above the .NET {hostAbiMajor} host ABI; this target's Jellyfin host provides only {hostAbiMajor}.x and .NET does not roll a host assembly down, so the packaged plugin would throw FileNotFoundException at construction and be disabled (#590): " + string.Join(", ", overshoot));
 
         // Sentinel against a vacuous pass: the keystone that broke 4.1.0.0 is
-        // Microsoft.Extensions.Logging.Abstractions — SSOPlugin's ILogger<> constructor dependency, the
+        // Microsoft.Extensions.Logging.Abstractions - SSOPlugin's ILogger<> constructor dependency, the
         // very reference the host could not satisfy. It must remain referenced, or the scan above would
         // pass for the wrong reason (an empty match set).
         Assert.True(
             references.Any(a => a.Name == "Microsoft.Extensions.Logging.Abstractions"),
-            "SSO-Auth no longer references Microsoft.Extensions.Logging.Abstractions; the #590 ABI-floor scan would pass vacuously — re-anchor it on the host-provided framework assembly the plugin actually uses.");
+            "SSO-Auth no longer references Microsoft.Extensions.Logging.Abstractions; the #590 ABI-floor scan would pass vacuously - re-anchor it on the host-provided framework assembly the plugin actually uses.");
     }
 
     [Fact]
     public void BuildYamlArtifacts_EqualTheTfmPublishClosure()
     {
         // Locked in by #608, the drop-list-completeness partner of HostProvidedFrameworkAssemblies_StayOnTheHostAbi
-        // above (which guards the OVER-reference direction — a host assembly pulled above the host ABI). JPRM
+        // above (which guards the OVER-reference direction - a host assembly pulled above the host ABI). JPRM
         // packages the shipped plugin zip from exactly the files named in the build yaml's `artifacts:` list, so
         // that hand-maintained list MUST equal the plugin's NON-HOST `dotnet publish` closure for the target
         // framework. Two failure modes it closes, previously guarded only by a comment (the #605 review finding):
@@ -2045,15 +2045,15 @@ public class ArchitectureConformanceTests
         // FileNotFoundException the moment the host loads the plugin (the #590 class of field regression); a
         // listed-but-unpublished file makes the JPRM package step fail on a missing artifact and is dead weight.
         //
-        // The publish closure is read from SSO-Auth's own SSO-Auth.deps.json — the runtime-assembly manifest the
+        // The publish closure is read from SSO-Auth's own SSO-Auth.deps.json - the runtime-assembly manifest the
         // ORDINARY build emits, so the test needs no separate `dotnet publish` invocation. Its per-target
         // `runtime` set is exactly the set `dotnet publish -f <tfm>` copies: the whole package/reference closure
         // MINUS the .NET + ASP.NET Core shared framework the host supplies through the FrameworkReference (proven
         // byte-for-byte equal to the publish output when #608 was written). Subtracting the remaining
-        // HOST-PROVIDED families Jellyfin itself ships — Jellyfin/Emby/MediaBrowser and the EF Core, Polly and
-        // Unicode/text stacks they drag in, plus Microsoft.Extensions.* and Newtonsoft.Json — leaves precisely the
+        // HOST-PROVIDED families Jellyfin itself ships - Jellyfin/Emby/MediaBrowser and the EF Core, Polly and
+        // Unicode/text stacks they drag in, plus Microsoft.Extensions.* and Newtonsoft.Json - leaves precisely the
         // set that must travel in the plugin zip. Per target, mirroring the ABI-floor test's #if: net9.0 ->
-        // build.yaml (Jellyfin 10.11, 11 DLLs), net10.0 -> build-jf12.yaml (Jellyfin 12.0, 8 DLLs — where the SAML
+        // build.yaml (Jellyfin 10.11, 11 DLLs), net10.0 -> build-jf12.yaml (Jellyfin 12.0, 8 DLLs - where the SAML
         // crypto assemblies are framework-provided on .NET 10 and correctly absent from both closure and list).
 #if NET10_0_OR_GREATER
         const string targetFramework = "net10.0";
@@ -2075,7 +2075,7 @@ public class ArchitectureConformanceTests
         var depsPath = Path.Combine(RepoRoot(), "SSO-Auth", "bin", configuration, targetFramework, "SSO-Auth.deps.json");
         Assert.True(
             File.Exists(depsPath),
-            $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed — build SSO-Auth for this target before the test runs (#608).");
+            $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed - build SSO-Auth for this target before the test runs (#608).");
 
         var publishClosure = PublishClosureAssemblies(depsPath);
 
@@ -2088,7 +2088,7 @@ public class ArchitectureConformanceTests
         // Liveness against a vacuous FILTER: a keystone host-provided assembly Jellyfin ships (MediaBrowser.Common)
         // must be present in the raw closure AND be removed by the host filter. If the closure ever stopped
         // carrying it, or the filter stopped matching it, the host subtraction would be doing nothing and the
-        // equality could pass for the wrong reason — re-anchor the filter on what publish actually drags in.
+        // equality could pass for the wrong reason - re-anchor the filter on what publish actually drags in.
         Assert.True(
             publishClosure.Contains("MediaBrowser.Common.dll") && IsHostProvidedAssembly("MediaBrowser.Common.dll"),
             "The publish closure no longer carries the host-provided keystone MediaBrowser.Common.dll, or the host-provided filter stopped matching it; re-anchor HostProvidedAssemblyPrefixes on the plugin's real publish output (#608).");
@@ -2117,7 +2117,7 @@ public class ArchitectureConformanceTests
     // on the assembly SIMPLE name so one entry covers a whole family: "Polly" -> Polly + Polly.Core, "ICU4N" ->
     // ICU4N + ICU4N.Transliterator, "Microsoft.EntityFrameworkCore" -> its .Abstractions/.Relational, etc. This is
     // the counterpart denylist to the build yaml's allow-list of shipped deps: a genuinely new host-provided family
-    // must be added here (with justification) and a new shipped dependency must be added to the build yaml —
+    // must be added here (with justification) and a new shipped dependency must be added to the build yaml -
     // either way BuildYamlArtifacts_EqualTheTfmPublishClosure fails until the two agree (fail-closed). "Microsoft."
     // is deliberately NOT a blanket prefix: Microsoft.IdentityModel.* and Microsoft.Bcl.Cryptography DO ship, so
     // only the specific host-provided Microsoft families (Extensions, EntityFrameworkCore) are listed.
@@ -2137,7 +2137,7 @@ public class ArchitectureConformanceTests
             || simpleName.StartsWith(p + ".", StringComparison.Ordinal));
     }
 
-    // The runtime-assembly filenames from SSO-Auth.deps.json's single build target — the exact set
+    // The runtime-assembly filenames from SSO-Auth.deps.json's single build target - the exact set
     // `dotnet publish` copies for that framework (#608). A framework-dependent build has one target (the runtime
     // target); read every library's `runtime` map and take each entry's leaf filename, because deps.json keys
     // runtime items by their in-package path (e.g. "lib/net8.0/Duende.IdentityModel.dll"), not the bare name.
@@ -2242,7 +2242,7 @@ public class ArchitectureConformanceTests
         return html[start..end];
     }
 
-    // The set of persisting (marker-classed) field ids in a provider form's markup — the ids the save
+    // The set of persisting (marker-classed) field ids in a provider form's markup - the ids the save
     // contract reads. Shared by the #726 preset tests to prove every preset field/toggle targets one.
     private static HashSet<string> MarkedFieldIds(string formMarkup)
     {
@@ -2335,7 +2335,7 @@ public class ArchitectureConformanceTests
         || (t.IsGenericType && t.GetGenericArguments().Any(MentionsConfiguration));
 
     // Catches concrete dictionaries (they implement non-generic IDictionary) AND fields declared as the
-    // generic IDictionary<,> interface, which does not inherit the non-generic one — otherwise an
+    // generic IDictionary<,> interface, which does not inherit the non-generic one - otherwise an
     // interface-typed field would slip past the mutable-keyed-state rule.
     private static bool IsDictionaryLike(Type t) =>
         typeof(System.Collections.IDictionary).IsAssignableFrom(t)
@@ -2357,7 +2357,7 @@ public class ArchitectureConformanceTests
 
     // Every source file that declares a controller type, discovered from reflection so the controller
     // source scans follow the planned #318 controller split automatically (#388): reflection names the
-    // controller TYPES (deriving from ControllerBase); the files are those declaring them — a partial-class
+    // controller TYPES (deriving from ControllerBase); the files are those declaring them - a partial-class
     // split declares one type across several files, a multi-controller split adds more types, and both are
     // found. Matching the declaration in the file body, not the file name, also survives a controller file
     // rename. The set must be non-empty: a scan reading no file would pass every controller rule vacuously,
@@ -2370,7 +2370,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             files.Count > 0,
-            "No controller source file was found to scan; a controller was renamed, moved out of SSO-Auth, or lost its ControllerBase base, so the controller source scans would pass vacuously — update ControllerSourceFiles (#388).");
+            "No controller source file was found to scan; a controller was renamed, moved out of SSO-Auth, or lost its ControllerBase base, so the controller source scans would pass vacuously - update ControllerSourceFiles (#388).");
         return files;
     }
 
@@ -2382,7 +2382,7 @@ public class ArchitectureConformanceTests
 
     // Every source file that declares any of the given types, matched by class/struct/record declaration
     // in the file body (not the file name), so a file rename still resolves via the type's own name.
-    // Shared by ControllerSourceFiles above and the raw socket/DNS liveness check (#444) — both need
+    // Shared by ControllerSourceFiles above and the raw socket/DNS liveness check (#444) - both need
     // "which files declare these types", just for a different type set (#542).
     private static IReadOnlyList<string> SourceFilesDeclaring(IEnumerable<Type> types)
     {
@@ -2401,9 +2401,9 @@ public class ArchitectureConformanceTests
     // Routes whose action MUST call RateLimitCheck (#928 U2): the anonymous login-path endpoints
     // (challenge / callback / auth for both protocols, SP metadata, inbound SAML logout) and the
     // admin endpoints that drive an OUTBOUND fetch (the OpenID connection tester and SAML metadata
-    // import — an authenticated admin must not be able to spin the outbound probe unthrottled), plus
+    // import - an authenticated admin must not be able to spin the outbound probe unthrottled), plus
     // the account-link and unregister mutations. Adding a route here without wiring the gate fails the
-    // test; the reverse — an unclassified NEW route — fails EverySensitiveRoute_IsClassified below.
+    // test; the reverse - an unclassified NEW route - fails EverySensitiveRoute_IsClassified below.
     private static readonly string[] MustThrottleRoutes =
     {
         "OID/r/{provider}", "OID/redirect/{provider}", "OID/p/{provider}", "OID/start/{provider}",
@@ -2416,14 +2416,14 @@ public class ArchitectureConformanceTests
 
     // Routes deliberately NOT rate-limited, each with the reason it is safe: an elevation-gated admin
     // operation with no outbound fetch, an authenticated user action, or a purely local (no-I/O) probe.
-    // Kept as an explicit allowlist so a NEW endpoint cannot be silently exempted — it must be added to
+    // Kept as an explicit allowlist so a NEW endpoint cannot be silently exempted - it must be added to
     // one of the two lists, which is the classification decision this conformance test forces.
     private static readonly string[] RateLimitExemptRoutes =
     {
         "OID/logout/{provider}", "SAML/logout/{provider}", // [Authorize] user logout, no fetch
         "OID/Add/{provider}", "SAML/Add/{provider}", "OID/Del/{provider}", "SAML/Del/{provider}", // elevated config CRUD
         "OID/Get", "SAML/Get", "OID/GetNames", "SAML/GetNames", "OID/States", // read-only listings
-        "SAML/Test/{provider}", // LOCAL certificate parse — no outbound fetch (unlike OID/Test)
+        "SAML/Test/{provider}", // LOCAL certificate parse - no outbound fetch (unlike OID/Test)
         "Config/Export", "Config/Import", // elevated config transfer
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "saml/links/{jellyfinUserId}", "oid/links/{jellyfinUserId}", // authenticated link listings
@@ -2434,7 +2434,7 @@ public class ArchitectureConformanceTests
     [Fact]
     public void EveryMustThrottleEndpoint_CallsTheRateLimitGate()
     {
-        // #928 U2 — the structural half of "does every rate-limited endpoint actually rate-limit". The
+        // #928 U2 - the structural half of "does every rate-limited endpoint actually rate-limit". The
         // per-endpoint 429 response-shape tests prove the wiring behaves; this proves the wiring EXISTS on
         // every endpoint that must have it, so the class of "a new login-path/outbound endpoint forgot the
         // RateLimitCheck call" is a red build, not a review miss.
@@ -2443,7 +2443,7 @@ public class ArchitectureConformanceTests
         foreach (var route in MustThrottleRoutes)
         {
             var block = actions.FirstOrDefault(a => a.Routes.Contains(route, StringComparer.Ordinal));
-            Assert.True(block.Routes is not null, $"MustThrottleRoutes lists '{route}', but no controller action declares that route — a route was renamed; update the list (#928).");
+            Assert.True(block.Routes is not null, $"MustThrottleRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#928).");
             if (!block.Body.Contains("RateLimitCheck(SsoRateLimitClass.", StringComparison.Ordinal))
             {
                 missing.Add(route);
@@ -2459,7 +2459,7 @@ public class ArchitectureConformanceTests
     public void EverySensitiveRoute_IsClassified_AsThrottledOrExplicitlyExempt()
     {
         // The completeness guard: every controller route is in exactly one of the two lists. A NEW endpoint
-        // therefore cannot land without a deliberate decision on whether it needs rate limiting — the whole
+        // therefore cannot land without a deliberate decision on whether it needs rate limiting - the whole
         // point of #928 U2's "no forgotten gate". Also fails on a stale list entry (a route no longer in
         // the controller), so the lists cannot drift out of sync with the surface.
         var declared = ControllerActionBlocks().SelectMany(a => a.Routes).ToList();
@@ -2470,13 +2470,13 @@ public class ArchitectureConformanceTests
         var unclassified = declared.Where(r => !classified.Contains(r)).ToList();
         Assert.True(
             unclassified.Count == 0,
-            "These controller routes are in neither MustThrottleRoutes nor RateLimitExemptRoutes — classify each (does it need rate limiting?): " + string.Join(", ", unclassified));
+            "These controller routes are in neither MustThrottleRoutes nor RateLimitExemptRoutes - classify each (does it need rate limiting?): " + string.Join(", ", unclassified));
 
         var declaredSet = declared.ToHashSet(StringComparer.Ordinal);
         var stale = classified.Where(r => !declaredSet.Contains(r)).ToList();
         Assert.True(
             stale.Count == 0,
-            "These routes are listed in a rate-limit classification list but no longer exist on the controller — remove them: " + string.Join(", ", stale));
+            "These routes are listed in a rate-limit classification list but no longer exist on the controller - remove them: " + string.Join(", ", stale));
     }
 
     // Every controller action as (its route templates, its method-body text): the body runs from an action's
@@ -2529,7 +2529,7 @@ public class ArchitectureConformanceTests
     public void EveryHarnessUsingTestClass_IsInTheNonParallelControllerCollection()
     {
         // The SsoControllerHarness constructor swaps the process-wide SSOPlugin.Instance and resets the
-        // OIDC/SAML static caches — two harness-based classes running in parallel therefore race each
+        // OIDC/SAML static caches - two harness-based classes running in parallel therefore race each
         // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
         // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
         // self-enforcing: a NEW test class that constructs the harness without joining the collection is
@@ -2561,7 +2561,7 @@ public class ArchitectureConformanceTests
         Assert.True(
             Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
                 .Count(f => !IsBuildOutput(f) && File.ReadAllText(f).Contains("new SsoControllerHarness", StringComparison.Ordinal)) >= 10,
-            "The harness-usage scan matched fewer than 10 files — SsoControllerHarness was renamed; update this rule.");
+            "The harness-usage scan matched fewer than 10 files - SsoControllerHarness was renamed; update this rule.");
     }
 
     [Fact]
@@ -2569,7 +2569,7 @@ public class ArchitectureConformanceTests
     {
         // #747: every C# source file opens with the SPDX copyright + licence header, so the licence of any
         // one file is machine-readable at its top (REUSE / SPDX) and a new file cannot land without it.
-        // GPL-3.0-only is the project's SPDX identifier — it matches the declared "GPL v3.0" exactly, with no
+        // GPL-3.0-only is the project's SPDX identifier - it matches the declared "GPL v3.0" exactly, with no
         // implicit "or later" broadening; the copyright line credits the authors collectively. This test is
         // the drift guard that keeps the headers complete: a file added without the two opening lines fails
         // CI here (the header must be the first two lines so it precedes the usings and the file-scoped
@@ -2606,28 +2606,28 @@ public class ArchitectureConformanceTests
     {
         // #1003. XML signature wrapping against a SAML assertion is a full authentication bypass, and the way
         // it becomes reachable is ALWAYS the same: the document that gets VERIFIED and the document that gets
-        // CONSUMED stop being the same object graph. Every library in the 2025/26 wave that fell — ruby-saml
+        // CONSUMED stop being the same object graph. Every library in the 2025/26 wave that fell - ruby-saml
         // (CVE-2025-25291/25292, then CVE-2025-66567/66568 as incomplete fixes), samlify (CVE-2025-47949),
-        // authentik (CVE-2026-47201) — had two views of the same bytes; the ones that held had one.
+        // authentik (CVE-2026-47201) - had two views of the same bytes; the ones that held had one.
         //
         // The surviving stack here is System.Xml: an XmlDocument loaded through a hardened XmlReader
         // (DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument, PreserveWhitespace), navigated
         // with namespace-bound XPath through an XmlNamespaceManager, and verified by SignedXml over THAT SAME
-        // XmlDocument instance — SignedXml resolves Reference/@URI against the very instance it was
+        // XmlDocument instance - SignedXml resolves Reference/@URI against the very instance it was
         // constructed with, which is what makes "verified" and "consumed" the same graph by construction.
         // Nothing else can hold the whole path: XDocument, XPathDocument and XmlSerializer cannot verify a
         // signature at all, so reaching for one necessarily introduces a second parse of the same bytes.
         //
         // All three parsers already use only that stack; this rule is the ratchet that keeps it true. It is a
         // source-text scan (like the controller rules above) because the property is about which types a call
-        // site reaches for, not about a type's shape. It is NOT a proof of current correctness — the negative
+        // site reaches for, not about a type's shape. It is NOT a proof of current correctness - the negative
         // tests in SamlAttackShapeTests / SamlLogoutAttackShapeTests carry that load.
         //
         // Scoping the scan to the module IS scoping it to the signature path, but not because the bytes are
         // seen once: SamlResponse.Xml exposes the document's OuterXml, and the LINKING leg re-serializes it
         // into the served page, which the browser posts back. That round-trip re-enters through the SAME
-        // SamlAssertionValidator.TryValidate — full signature, time, audience and recipient re-validation plus
-        // its own one-time replay consume — so the second parse is the same hardened seam under the same rules,
+        // SamlAssertionValidator.TryValidate - full signature, time, audience and recipient re-validation plus
+        // its own one-time replay consume - so the second parse is the same hardened seam under the same rules,
         // not a second view of a once-verified document; the login leg no longer ships the XML at all (#251).
         // The module scope holds because EVERY parse of a SAML document, first or repeat, happens inside it:
         // the only two entry points are SamlAssertionValidator and SamlLogoutValidator, and no file outside the
@@ -2637,7 +2637,7 @@ public class ArchitectureConformanceTests
         var samlSources = SamlModuleSourceFiles();
 
         // A comment can mention any of these without introducing anything, so comment/XML-doc lines are out of
-        // scope — including this test's own prose were it ever moved into the module. "Regex" is banned here
+        // scope - including this test's own prose were it ever moved into the module. "Regex" is banned here
         // but not by the out-of-module rule, which shares the type list: string-scraping a SAML document is a
         // second-view problem, whereas a regex elsewhere in the plugin is ordinary code.
         var stackOffenders = samlSources
@@ -2647,16 +2647,16 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             stackOffenders.Count == 0,
-            "The SAML module must read and navigate a SAML document through ONE XML stack (XmlDocument/XmlReader/XmlNamespaceManager + SignedXml). A second stack gives the verifier and the consumer different views of the same bytes — the 2025/26 SAML bypass wave's root cause (#1003). Offending lines: " + string.Join(" | ", stackOffenders));
+            "The SAML module must read and navigate a SAML document through ONE XML stack (XmlDocument/XmlReader/XmlNamespaceManager + SignedXml). A second stack gives the verifier and the consumer different views of the same bytes - the 2025/26 SAML bypass wave's root cause (#1003). Offending lines: " + string.Join(" | ", stackOffenders));
 
-        // The other way to grow a second view is string surgery on the markup — scraping an ID, a Reference
+        // The other way to grow a second view is string surgery on the markup - scraping an ID, a Reference
         // URI, or an element name out of the raw text instead of resolving it through the DOM. Scoped to the
         // files that actually parse an inbound document (SamlResponse, SamlLogoutRequest, SamlMetadataParser
         // today), discovered by their XmlDocument construction rather than hardcoded, so a NEW parser is
         // covered the moment it is written; the outbound BUILDERS in the same module legitimately assemble XML
         // from strings and are therefore out of scope by construction. The discovery keys on `new XmlDocument`
         // rather than on the hardened-reader call, because a parser written as `doc.LoadXml(raw)` would use the
-        // same allowlisted stack and so trip no ban — it would simply be INVISIBLE to a reader-keyed discovery,
+        // same allowlisted stack and so trip no ban - it would simply be INVISIBLE to a reader-keyed discovery,
         // while the non-empty sentinel stayed green on the three existing files. Keying on the document itself
         // makes that seam impossible to write without entering this scan, and
         // SamlSignaturePath_ParsesOnlyThroughTheHardenedReader then forces it through the hardened reader.
@@ -2673,11 +2673,11 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             scrapeOffenders.Count == 0,
-            "An inbound SAML parser must not extract an ID, a Reference URI, or an element name by string surgery on the markup — resolve it through the DOM, or the verified and the consumed document drift apart (#1003). Offending lines: " + string.Join(" | ", scrapeOffenders));
+            "An inbound SAML parser must not extract an ID, a Reference URI, or an element name by string surgery on the markup - resolve it through the DOM, or the verified and the consumed document drift apart (#1003). Offending lines: " + string.Join(" | ", scrapeOffenders));
 
         // Sentinel against a vacuous pass: the bans above only mean something while the allowlisted stack is
         // still what the module uses. If the SAML core were rewritten onto something else entirely, every ban
-        // would keep "passing" against a module that no longer parses XML this way — this is the assertion
+        // would keep "passing" against a module that no longer parses XML this way - this is the assertion
         // that would catch it and force a conscious update of the rule.
         var moduleText = string.Concat(samlSources.Select(File.ReadAllText));
         var missing = AllowedXmlStackTypes
@@ -2685,7 +2685,7 @@ public class ArchitectureConformanceTests
             .ToList();
         Assert.True(
             missing.Count == 0,
-            "The allowlisted XML stack is no longer present in Api/Saml, so the second-stack bans would pass vacuously — update SamlSignaturePath_UsesOneXmlStackEndToEnd to the stack the module actually uses (#1003). Missing: " + string.Join(", ", missing));
+            "The allowlisted XML stack is no longer present in Api/Saml, so the second-stack bans would pass vacuously - update SamlSignaturePath_UsesOneXmlStackEndToEnd to the stack the module actually uses (#1003). Missing: " + string.Join(", ", missing));
     }
 
     [Fact]
@@ -2695,13 +2695,13 @@ public class ArchitectureConformanceTests
         // is loaded with the hardening switched off. Every one of those settings is load-bearing and named as
         // such by the production code's own comments, yet until now nothing in the suite required any of them:
         //
-        //  - DtdProcessing.Prohibit — XmlResolver alone blocks only EXTERNAL entities, while an internal DTD
+        //  - DtdProcessing.Prohibit - XmlResolver alone blocks only EXTERNAL entities, while an internal DTD
         //    still expands (billion laughs). It is also the actual control behind the standing CodeQL
         //    cs/xml/missing-validation dismissal on this parser, so a silent removal would invalidate that
         //    dismissal as well as the defence.
-        //  - XmlResolver = null on BOTH the document and the reader settings — no external-entity fetch (XXE,
+        //  - XmlResolver = null on BOTH the document and the reader settings - no external-entity fetch (XXE,
         //    SSRF from an unauthenticated callback).
-        //  - MaxCharactersInDocument — bounds the DOM on the pre-signature path, which the DTD prohibition
+        //  - MaxCharactersInDocument - bounds the DOM on the pre-signature path, which the DTD prohibition
         //    does not (it bounds entities, not bulk).
         //  - PreserveWhitespace = true, required wherever the document is signature-verified: exclusive
         //    canonicalization is whitespace-sensitive, so loading without it changes the octets the digest is
@@ -2710,7 +2710,7 @@ public class ArchitectureConformanceTests
         // And the seam itself is pinned: an XmlDocument in this module may be populated ONLY through
         // XmlReader.Create + Load(reader). A bare LoadXml(raw) or Load(stream) would bypass every setting above
         // while still using the allowlisted stack, so it is banned outright. SignedXml.LoadXml is explicitly
-        // allowed — it takes an XmlElement already inside the verified DOM and parses no text.
+        // allowed - it takes an XmlElement already inside the verified DOM and parses no text.
         var samlSources = SamlModuleSourceFiles();
         var parsers = XmlDocumentConstructingFiles(samlSources);
         var offenders = new List<string>();
@@ -2754,12 +2754,12 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             bypasses.Count == 0,
-            "An XmlDocument in the SAML module may be populated only through XmlReader.Create + Load(reader) — LoadXml or Load on anything else skips the DTD/resolver/size hardening while still looking like the allowlisted stack (#1003): " + string.Join(" | ", bypasses));
+            "An XmlDocument in the SAML module may be populated only through XmlReader.Create + Load(reader) - LoadXml or Load on anything else skips the DTD/resolver/size hardening while still looking like the allowlisted stack (#1003): " + string.Join(" | ", bypasses));
     }
 
     [Theory]
     // The two spellings a line-level regex let through, and which a file-level "the settings appear somewhere"
-    // check cannot catch either — a SECOND parse method added inside an existing hardened file would satisfy
+    // check cannot catch either - a SECOND parse method added inside an existing hardened file would satisfy
     // every other arm of the rule while parsing with the reader's own defaults.
     [InlineData("xmlDoc.Load(new StringReader(xml));")] // "StringReader" contains "reader", so a substring carve-out admits it
     [InlineData("xmlDoc.Load(new StreamReader(stream));")] // same trick, other reader
@@ -2776,7 +2776,7 @@ public class ArchitectureConformanceTests
 
     [Theory]
     [InlineData("xmlDoc.Load(reader);")] // the hardened seam
-    [InlineData("signedXml.LoadXml(signatureElement);")] // SignedXml's element overload — parses no text
+    [InlineData("signedXml.LoadXml(signatureElement);")] // SignedXml's element overload - parses no text
     [InlineData("_signedXml.LoadXml(signatureElement);")] // the same, spelled as this repo's field convention
     public void HardenedDocumentLoad_IsAcceptedByTheHardenedReaderBan(string statement)
     {
@@ -2790,19 +2790,19 @@ public class ArchitectureConformanceTests
     {
         // #1003. The hardened-reader rule and the one-stack rule are both scoped to Api/Saml, and that scope
         // is only sound while nothing OUTSIDE the module can parse a SAML document. That was previously
-        // asserted in prose — true when written, mechanically checkable, so now checked: no file under
+        // asserted in prose - true when written, mechanically checkable, so now checked: no file under
         // SSO-Auth/ outside Api/Saml may name ANY XML document, reader or navigator type.
         //
         // The banned set is the SHARED SecondXmlStackTypes list plus the stack the module itself is allowed to
         // use, rather than a hand-rolled subset. A hand-rolled list is how this rule fails silently: the first
         // draft omitted XElement, so `using System.Xml.Linq; XElement.Parse(samlResponse.Xml);` in a flow
-        // service — a complete parse seam — named none of its tokens and passed the rule written to stop
+        // service - a complete parse seam - named none of its tokens and passed the rule written to stop
         // exactly that. Sharing the list also stops the two rules drifting apart as either is extended.
         //
         // Two config files are allowlisted, and neither can reach the signature path: the plugin configuration
         // and the serializable dictionary are the Jellyfin-side persistence model, driven by the host's
         // IXmlSerializer over the plugin's OWN configuration file, never over an inbound assertion. They are
-        // matched by exact repo-relative path, not by suffix — a suffix match would exempt any file with one
+        // matched by exact repo-relative path, not by suffix - a suffix match would exempt any file with one
         // of those names in any Config/ directory anywhere under SSO-Auth/, and an allowlist is the last place
         // to be approximate about identity.
         var offenders = Directory
@@ -2817,7 +2817,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             offenders.Count == 0,
-            "Only the SAML module may parse XML — a parse seam elsewhere would feed the signature path while sitting outside the scope of the one-stack and hardened-reader rules (#1003). Found: " + string.Join(" | ", offenders));
+            "Only the SAML module may parse XML - a parse seam elsewhere would feed the signature path while sitting outside the scope of the one-stack and hardened-reader rules (#1003). Found: " + string.Join(" | ", offenders));
     }
 
     [Theory]
@@ -2831,7 +2831,7 @@ public class ArchitectureConformanceTests
     public void SecondXmlStackSpelling_IsRejectedByTheStackScan(string statement)
     {
         // Negative fixtures for the shared type list itself. The out-of-module rule is only as good as this
-        // list, and a rule that silently covers nothing is worse than no rule — it reads as protection.
+        // list, and a rule that silently covers nothing is worse than no rule - it reads as protection.
         Assert.NotEmpty(XmlStackUsages(statement, SecondXmlStackTypes.Concat(AllowedXmlStackTypes)));
     }
 
@@ -2842,7 +2842,7 @@ public class ArchitectureConformanceTests
     public void OrdinaryCode_IsAcceptedByTheStackScan(string statement)
     {
         // The positive controls: whole-word matching must not fire on prose or on IXmlSerializer, which is the
-        // Jellyfin host abstraction the plugin is handed — not a parser it constructs.
+        // Jellyfin host abstraction the plugin is handed - not a parser it constructs.
         Assert.Empty(XmlStackUsages(statement, SecondXmlStackTypes.Concat(AllowedXmlStackTypes)));
     }
 
@@ -2865,7 +2865,7 @@ public class ArchitectureConformanceTests
         // #1003. The shared reference rule is only worth having while both validators actually CALL it. A
         // future edit that reinstated a local `uri[0] != '#'` check and dropped the call would leave the unit
         // tests green (the helper still behaves) and the end-to-end tests green (the platform's own guard
-        // still rejects underneath) — the drift would be invisible to every other test in this PR. Same shape
+        // still rejects underneath) - the drift would be invisible to every other test in this PR. Same shape
         // as VerifiedIdentity_IsConstructedOnlyByProtocolValidators: pin the call sites, not just the callee.
         const string Invocation = "SamlSignatureReference.TryGetSameDocumentId(";
 
@@ -2885,7 +2885,7 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             missing.Count == 0,
-            "Both signature validators must resolve their Reference URI through the shared SamlSignatureReference rule — a local re-implementation is how the two paths drift on the question of WHAT a signature covers (#1003). Not calling it: " + string.Join(", ", missing));
+            "Both signature validators must resolve their Reference URI through the shared SamlSignatureReference rule - a local re-implementation is how the two paths drift on the question of WHAT a signature covers (#1003). Not calling it: " + string.Join(", ", missing));
 
         // And they must not carry a local re-implementation alongside it: the shared call has to be the whole
         // rule, not a first opinion the file then second-guesses.
@@ -2909,13 +2909,13 @@ public class ArchitectureConformanceTests
         // a second candidate for an element the namespace-bound signature check never covered; the same holds
         // for SelectNodes/SelectSingleNode called without an XmlNamespaceManager, where an unprefixed XPath
         // name matches only no-namespace elements and so silently selects NOTHING in a namespaced SAML
-        // document — a lookup that fails open into "absent" instead of "present but unverified".
+        // document - a lookup that fails open into "absent" instead of "present but unverified".
         //
         // Every such call in the module must therefore carry its namespace argument. Checked by extracting the
         // call's balanced argument list and requiring a top-level comma, not by matching the line text, so a
         // wrapped or nested call cannot slip through. XmlElement.GetAttribute(string) is deliberately NOT in
         // scope: its single-argument overload matches the attribute's QUALIFIED name, so a foreign-namespaced
-        // evil:ID can never alias an unprefixed ID — that property is pinned behaviourally by
+        // evil:ID can never alias an unprefixed ID - that property is pinned behaviourally by
         // SamlAttackShapeTests.IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates.
         var samlSources = SamlModuleSourceFiles();
         var inspected = 0;
@@ -2944,7 +2944,7 @@ public class ArchitectureConformanceTests
         // while a wholesale move away from these APIs does.
         Assert.True(
             inspected >= 10,
-            $"Only {inspected} element lookups were inspected in Api/Saml — the SAML core no longer resolves elements through GetElementsByTagName/SelectNodes/SelectSingleNode, so this rule is close to a no-op; point it at the lookup API the module actually uses (#1003).");
+            $"Only {inspected} element lookups were inspected in Api/Saml - the SAML core no longer resolves elements through GetElementsByTagName/SelectNodes/SelectSingleNode, so this rule is close to a no-op; point it at the lookup API the module actually uses (#1003).");
     }
 
     // The SAML module's location, as a repo-relative path, so the module-scope rules and the out-of-module
@@ -2953,7 +2953,7 @@ public class ArchitectureConformanceTests
 
     // Every XML stack that is NOT the one the SAML signature path is allowed to use (#1003). ONE list, shared
     // by the in-module ban and the out-of-module ban: a hand-rolled subset in either place is how a rule
-    // silently stops covering the spelling it was written for — the out-of-module rule's first draft omitted
+    // silently stops covering the spelling it was written for - the out-of-module rule's first draft omitted
     // XElement, which is a complete parse seam on its own.
     private static readonly string[] SecondXmlStackTypes =
     {
@@ -2972,7 +2972,7 @@ public class ArchitectureConformanceTests
 
     // The occurrences of any of the given XML-stack types in a source text, as "line: text". Whole-word
     // matching, so IXmlSerializer (the host abstraction the plugin is handed) does not match XmlSerializer,
-    // and comment lines are excluded — prose can name a stack without introducing one.
+    // and comment lines are excluded - prose can name a stack without introducing one.
     private static IEnumerable<string> XmlStackUsages(string source, IEnumerable<string> types)
     {
         var patterns = types.Select(t => new Regex(@"\b" + Regex.Escape(t) + @"\b")).ToList();
@@ -3008,13 +3008,13 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             files.Count > 0,
-            "No source file was found under SSO-Auth/Api/Saml — the SAML module was renamed or moved, so the #1003 one-XML-stack rules would pass vacuously; point them at its new location.");
+            "No source file was found under SSO-Auth/Api/Saml - the SAML module was renamed or moved, so the #1003 one-XML-stack rules would pass vacuously; point them at its new location.");
         return files;
     }
 
     // The SAML module's parse seams: the files that build an XmlDocument from untrusted input. Keyed on the
     // document construction, not on the reader call, so a parser written the unhardened way is still
-    // discovered — and then failed by SamlSignaturePath_ParsesOnlyThroughTheHardenedReader. Carries the
+    // discovered - and then failed by SamlSignaturePath_ParsesOnlyThroughTheHardenedReader. Carries the
     // non-empty sentinel both consumers need.
     private static IReadOnlyList<string> XmlDocumentConstructingFiles(IEnumerable<string> sources)
     {
@@ -3024,11 +3024,11 @@ public class ArchitectureConformanceTests
 
         Assert.True(
             files.Count > 0,
-            "No SAML parse seam was found (nothing in Api/Saml constructs an XmlDocument any more), so the markup-scraping and hardened-reader scans would pass vacuously — point them at the new parse seam (#1003).");
+            "No SAML parse seam was found (nothing in Api/Saml constructs an XmlDocument any more), so the markup-scraping and hardened-reader scans would pass vacuously - point them at the new parse seam (#1003).");
         return files;
     }
 
-    // A source text's numbered CODE lines — the same exclusion as CodeLines, for the rules whose fixtures feed
+    // A source text's numbered CODE lines - the same exclusion as CodeLines, for the rules whose fixtures feed
     // synthetic source rather than a file on disk.
     private static IEnumerable<(int Number, string Text)> CodeLinesOf(string source) =>
         source.Split('\n')
@@ -3055,7 +3055,7 @@ public class ArchitectureConformanceTests
     // Every unhardened way of populating an XmlDocument in a source text. Deliberately built on CallsTo +
     // BalancedArguments rather than on a line regex: a regex over the line cannot tell
     // `Load(new StringReader(xml))` from `Load(reader)` without excluding nested parentheses, and a substring
-    // carve-out for "reader" ADMITS the former — "StringReader" contains "reader" — which is precisely the
+    // carve-out for "reader" ADMITS the former - "StringReader" contains "reader" - which is precisely the
     // most natural unhardened spelling, going through XmlDocument.Load(TextReader) with that reader's own
     // defaults instead of the hardened XmlReaderSettings. Likewise the LoadXml exemption is ordinal-EQUAL on
     // the receiver, not a substring: a variable merely NAMED signedXmlDocument is not a SignedXml.
@@ -3066,7 +3066,7 @@ public class ArchitectureConformanceTests
             if (call.Method == "LoadXml")
             {
                 // The SignedXml overload takes an XmlElement already inside the verified DOM and parses no
-                // text. On anything else, LoadXml means "build a document from a string" — the bypass. Both
+                // text. On anything else, LoadXml means "build a document from a string" - the bypass. Both
                 // the local and the field spelling of the receiver are accepted, because "_signedXml" is this
                 // repo's own field convention and rejecting it would be a confusing false positive.
                 if (!string.Equals(call.Receiver, "signedXml", StringComparison.Ordinal)
@@ -3078,7 +3078,7 @@ public class ArchitectureConformanceTests
                 continue;
             }
 
-            // Load is the hardened seam only when its argument IS the hardened reader — an identifier, not a
+            // Load is the hardened seam only when its argument IS the hardened reader - an identifier, not a
             // freshly constructed one, and not a factory call that returns some other reader or stream.
             var argument = call.Arguments.Trim();
             if (argument.Contains("new ", StringComparison.Ordinal)
@@ -3168,7 +3168,7 @@ public class ArchitectureConformanceTests
         return null;
     }
 
-    // Whether an argument list holds more than one argument — a comma outside any nested call, collection or
+    // Whether an argument list holds more than one argument - a comma outside any nested call, collection or
     // literal. This is what "the lookup carries its namespace argument" reduces to.
     private static bool HasTopLevelComma(string arguments)
     {
@@ -3218,7 +3218,7 @@ public class ArchitectureConformanceTests
         return text.Length - 1;
     }
 
-    // Whether the call at index sits on a line whose code has already been commented out — the argument-level
+    // Whether the call at index sits on a line whose code has already been commented out - the argument-level
     // scan reads the whole file, so it needs the same comment exclusion CodeLines applies.
     private static bool IsOnACommentLine(string source, int index)
     {

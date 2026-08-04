@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 /// convention: the internal type cannot be named outside it, and while an in-assembly subtype can
 /// still derive through the compiler-synthesized record copy constructor, the mapper throws on any
 /// unknown subtype, so a foreign case fails closed. <see cref="LoginStatusMapper"/> is the single place outcomes become HTTP
-/// responses. A throttled case joins this sum with the rate-limit filter step — the Retry-After
+/// responses. A throttled case joins this sum with the rate-limit filter step - the Retry-After
 /// header needs response access a pure mapper does not have, and the 429 is byte-identical today.
 /// </summary>
 internal abstract record LoginOutcome

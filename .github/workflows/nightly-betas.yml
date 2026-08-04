@@ -2,7 +2,7 @@ name: Nightly betas
 
 # Publish betas on a daily cadence instead of on every push (#632). GitHub `schedule` events only run
 # a workflow from the DEFAULT branch, so this single scheduler lives on main and dispatches both beta
-# legs: publish-beta.yml (JF10.11) and publish-jf12-beta.yml (JF12) — both from main since #954
+# legs: publish-beta.yml (JF10.11) and publish-jf12-beta.yml (JF12) - both from main since #954
 # consolidated the JF12/5.0 line onto the one multi-target codebase (the 4.2 branch is retired).
 # Each dispatched workflow has its own gate job that skips the build unless main has advanced since
 # that lineage's last beta, so an unchanged day mints nothing.

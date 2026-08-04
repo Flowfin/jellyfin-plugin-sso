@@ -10,10 +10,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
 /// Dedicated negative-path suite for the per-provider guards of <see cref="ProviderConfigValidator"/>
-/// (#318) — the reject arms every admin write path shares. The whole-config <c>Validate</c> orchestration
+/// (#318) - the reject arms every admin write path shares. The whole-config <c>Validate</c> orchestration
 /// is exercised in <see cref="ConfigPreservationTests"/>; this suite instead calls each per-provider method
 /// directly so it can pin, for every fail-closed branch, the ACTUAL exception type, its <c>ParamName</c>,
-/// and the distinguishing message text — and the ACCEPT/blank arm that must not throw. Each reject case
+/// and the distinguishing message text - and the ACCEPT/blank arm that must not throw. Each reject case
 /// would flip to a failing <c>Assert.Throws</c> if the guard were loosened to accept.
 /// </summary>
 public class ProviderConfigValidatorTests
@@ -94,7 +94,7 @@ public class ProviderConfigValidatorTests
         Assert.Equal("provider", ex.ParamName);
         Assert.Contains(protocol, ex.Message, StringComparison.Ordinal);
         Assert.Contains(provider, ex.Message, StringComparison.Ordinal);
-        // The rule text that names WHY the save was rejected — the callback-URL reserved/control set.
+        // The rule text that names WHY the save was rejected - the callback-URL reserved/control set.
         Assert.Contains("control characters, URI-reserved characters, or a backslash", ex.Message, StringComparison.Ordinal);
     }
 
@@ -174,7 +174,7 @@ public class ProviderConfigValidatorTests
 
     [Theory]
     [InlineData("not-a-url")] // not absolute
-    [InlineData("http://idp.example.com/slo")] // absolute but plaintext http — the signed LogoutRequest must not traverse http
+    [InlineData("http://idp.example.com/slo")] // absolute but plaintext http - the signed LogoutRequest must not traverse http
     [InlineData("ftp://idp.example.com/slo")] // absolute but not http(s)
     [InlineData("https://user:pass@idp.example.com/slo")] // userinfo can mask the real host
     [InlineData("https://idp.example.com/slo?x=1")] // a query is rejected by the shared absolute-URL predicate
@@ -207,7 +207,7 @@ public class ProviderConfigValidatorTests
 
     // PostLogoutRedirectUri is an OpenID-only concept (only OidcLogout consumes it; the SAML LogoutRequest
     // path just revokes and returns), so ProviderConfigValidator.Validate runs this only over the OpenID
-    // providers — hence every case here uses the "OpenID" protocol label.
+    // providers - hence every case here uses the "OpenID" protocol label.
     [Theory]
     [InlineData("https://evil.example.net/steal")] // off-base: a different authority
     [InlineData("https://jellyfin.example.com.evil.net/")] // sibling-prefix host: still off-base
@@ -243,7 +243,7 @@ public class ProviderConfigValidatorTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("   ")] // blank means no post-logout redirect — always valid
+    [InlineData("   ")] // blank means no post-logout redirect - always valid
     public void ValidatePostLogoutRedirectUri_Blank_DoesNotThrow(string? postLogoutRedirectUri)
     {
         var ex = Record.Exception(() =>
@@ -362,7 +362,7 @@ public class ProviderConfigValidatorTests
     public void ValidateSamlSigningKey_EncryptedPfx_Throws()
     {
         // A password-protected PKCS#12 cannot load with the null password the loader uses, so it is
-        // set-but-unloadable and must be rejected — an operator who turned signing on can never get a silent
+        // set-but-unloadable and must be rejected - an operator who turned signing on can never get a silent
         // unsigned downgrade from a key the plugin cannot open.
         using var certificate = SamlSigningKeyFactory.CreateCertificate();
         var encryptedPfx = Convert.ToBase64String(certificate.Export(X509ContentType.Pfx, "s3cret"));
@@ -393,7 +393,7 @@ public class ProviderConfigValidatorTests
     [InlineData("   ")]
     public void ValidateSamlSigningKey_Blank_DoesNotThrow(string? signingKeyPfx)
     {
-        // Blank is "signing not configured" — valid; signing simply stays off.
+        // Blank is "signing not configured" - valid; signing simply stays off.
         var ex = Record.Exception(() => ProviderConfigValidator.ValidateSamlSigningKey("idp", signingKeyPfx!));
 
         Assert.Null(ex);
@@ -491,7 +491,7 @@ public class ProviderConfigValidatorTests
     public void ValidatePermissionRoleMappings_NullMappingsOrNullEntry_DoesNotThrow()
     {
         // A null list means "no mappings"; a null entry maps nothing and is tolerated (it grants nothing at
-        // runtime) — the same fail-closed-but-not-fatal posture as the runtime mapper.
+        // runtime) - the same fail-closed-but-not-fatal posture as the runtime mapper.
         Assert.Null(Record.Exception(() => ProviderConfigValidator.ValidatePermissionRoleMappings("OpenID", "kc", null)));
 
         var withNullEntry = new System.Collections.Generic.List<PermissionRoleMap> { null! };

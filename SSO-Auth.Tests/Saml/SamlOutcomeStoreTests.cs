@@ -13,7 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SamlOutcomeStore"/> — the one-time SAML login-outcome store (#251): an outcome
+/// Tests for <see cref="SamlOutcomeStore"/> - the one-time SAML login-outcome store (#251): an outcome
 /// registered at the ACS callback is redeemable exactly once at the mint leg, is scoped to its own
 /// provider so a token cannot be replayed against another's endpoint, expires with its lifetime, and
 /// bounds per-client occupancy so one source cannot fill it. This is the SAML analogue of the OpenID
@@ -52,7 +52,7 @@ public class SamlOutcomeStoreTests
     public void Redeem_YieldsTheStoredSessionIndex()
     {
         // The SessionIndex tunnel (#727, SLO-3a): the ACS callback stores the assertion's SessionIndex on
-        // the outcome, and the mint leg gets it back verbatim on the redeem — with null (an assertion
+        // the outcome, and the mint leg gets it back verbatim on the redeem - with null (an assertion
         // without one) tunnelling through just as faithfully, so absence stays "simply no capture".
         var store = new SamlOutcomeStore();
         Assert.True(store.TryAdd(Outcome("tok-1", sessionIndex: "_slo-session-1"), out _));
@@ -82,7 +82,7 @@ public class SamlOutcomeStoreTests
     public void Redeem_WrongProvider_ReturnsNull_AndDoesNotConsumeTheOutcome()
     {
         // Cross-provider replay guard: an outcome verified for one provider is not redeemable on another's
-        // mint endpoint, and the failed attempt must NOT consume it — the correct provider still redeems.
+        // mint endpoint, and the failed attempt must NOT consume it - the correct provider still redeems.
         var store = new SamlOutcomeStore();
         store.TryAdd(Outcome("tok-1", provider: "adfs"), out _);
 
@@ -104,7 +104,7 @@ public class SamlOutcomeStoreTests
     public void Redeem_NegativeAge_ReturnsNull()
     {
         // A backward clock step (Created in the future relative to now) must not make an outcome
-        // effectively never expire — it is rejected as out of its window.
+        // effectively never expire - it is rejected as out of its window.
         var store = new SamlOutcomeStore();
         store.TryAdd(Outcome("tok-1", created: Now.AddMinutes(5)), out _);
 
@@ -198,7 +198,7 @@ public class SamlOutcomeStoreTests
     [Fact]
     public void Release_AfterReserveWithoutCommit_FreesThePerClientSlot()
     {
-        // A reservation that is not committed — a replayed or otherwise invalid assertion at the callback —
+        // A reservation that is not committed - a replayed or otherwise invalid assertion at the callback -
         // must release its per-client slot, or the sub-cap would leak on every refused login and eventually
         // lock the client out for real.
         var store = SmallStore(); // per-key cap 2
@@ -214,7 +214,7 @@ public class SamlOutcomeStoreTests
     public void NewToken_IsUnguessableAndDistinct()
     {
         // A CSPRNG token: two mints never collide. A token that misses the store falls through to the
-        // deprecation validation, which fails closed either way — the hex may Base64-decode, but its bytes
+        // deprecation validation, which fails closed either way - the hex may Base64-decode, but its bytes
         // are not a SAML response, so the XML parse rejects it (covered end-to-end by UnknownToken_Rejects).
         var a = SamlOutcomeStore.NewToken();
         var b = SamlOutcomeStore.NewToken();

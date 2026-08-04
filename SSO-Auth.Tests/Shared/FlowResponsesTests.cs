@@ -33,7 +33,7 @@ public class FlowResponsesTests
     [Fact]
     public void PlainTextError_PreservesTheGivenStatusVerbatim()
     {
-        // The code is passed straight through — a 400 request error and a 500 server error stay distinct.
+        // The code is passed straight through - a 400 request error and a 500 server error stay distinct.
         Assert.Equal(400, FlowResponses.PlainTextError(400, "bad").StatusCode);
         Assert.Equal(500, FlowResponses.PlainTextError(500, "boom").StatusCode);
     }
@@ -103,7 +103,7 @@ public class FlowResponsesTests
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        // 128 bits of entropy, base64-encoded — decodes back to 16 bytes.
+        // 128 bits of entropy, base64-encoded - decodes back to 16 bytes.
         Assert.Equal(16, Convert.FromBase64String(first!).Length);
         // A fresh nonce per response: reuse would let one page's script run under another page's policy.
         Assert.NotEqual(first, second);

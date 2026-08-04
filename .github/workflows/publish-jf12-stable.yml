@@ -1,22 +1,22 @@
 name: Publish JF12 Stable
 
-# The Jellyfin 12.0 (.NET 10) STABLE channel — the 5.0 line's GA publish leg (#607). Counterpart to
+# The Jellyfin 12.0 (.NET 10) STABLE channel - the 5.0 line's GA publish leg (#607). Counterpart to
 # publish.yml (JF10.11 stable, X.Y.Z-stable) and publish-jf12-beta.yml (JF12 beta). Triggered ONLY by a
 # maintainer pushing an X.Y.Z-JF12-stable tag (e.g. 5.0.0-JF12-stable): publish.yml's
 # [0-9]+.[0-9]+.[0-9]+-stable glob deliberately does NOT match -JF12-stable, so the two stable legs never
 # cross-fire. Like the JF11 stable tag, this tag is MAINTAINER-GATED (guard-git.ps1) and pushed by hand.
 #
 # DORMANT until Jellyfin 12.0 reaches GA: no X.Y.Z-JF12-stable tag is pushed until a real 12.0 stable
-# server exists, so this workflow does not run before then — but the pipeline is ready so the 5.0 line can
+# server exists, so this workflow does not run before then - but the pipeline is ready so the 5.0 line can
 # cut a stable release the day 12.0 ships. Until GA, JF12 users are served by the beta channel (#605).
 #
 # The JF12 build METADATA (version 5.0.0, targetAbi 12.0.0.0, framework net10.0, the net10 shipping
-# closure) lives in build-jf12.yaml, copied over build.yaml before JPRM builds — the same swap as
+# closure) lives in build-jf12.yaml, copied over build.yaml before JPRM builds - the same swap as
 # publish-jf12-beta.yml; the committed build.yaml stays the JF10.11 metadata. The full release
 # (prerelease: false, one shot like publish.yml) regenerates the SHARED manifest-release
-# (ignorePrereleases: true) — the same stable pages branch publish.yml writes. Each release ships its own
+# (ignorePrereleases: true) - the same stable pages branch publish.yml writes. Each release ships its own
 # build.yaml, so Jellyfin filters client-side by targetAbi: a 12.0 server installs the 5.0 build, a 10.11
-# server the 4.x build, from one stable manifest — no separate JF12 stable manifest is needed.
+# server the 4.x build, from one stable manifest - no separate JF12 stable manifest is needed.
 on:
   push:
     tags:
@@ -29,7 +29,7 @@ permissions: {}
 # Serialize manifest-release regenerations so two stable publishes never race the pages branch (the same
 # reader-vs-pusher TOCTOU #135 fixed for manifest-beta). cancel-in-progress is false: a publish holding
 # contents:write must never be killed mid-run. publish.yml (JF10.11 stable) shares this same group name,
-# so the two stable legs are serialized against each other as well — a JF10.11 and a JF12 stable publish
+# so the two stable legs are serialized against each other as well - a JF10.11 and a JF12 stable publish
 # can never regenerate manifest-release concurrently.
 concurrency:
   group: publish-manifest-release
@@ -63,7 +63,7 @@ jobs:
       run: dotnet build --no-restore --warnaserror
     - name: Use the JF12 build metadata
       # JPRM reads build.yaml; swap in the JF12 metadata (version 5.0.0, targetAbi 12.0.0.0, framework
-      # net10.0, net10 artifacts) for this build only. The committed build.yaml is untouched in the repo —
+      # net10.0, net10 artifacts) for this build only. The committed build.yaml is untouched in the repo -
       # this only rewrites the runner's checkout.
       run: cp build-jf12.yaml build.yaml
     - name: "JPRM: Build"
@@ -87,7 +87,7 @@ jobs:
     - name: Prepare GitHub Release assets
       run: |-
         pushd _dist
-        # ONLY the plugin zip gets a `.md5` — see the same note in publish-beta.yml. The
+        # ONLY the plugin zip gets a `.md5` - see the same note in publish-beta.yml. The
         # manifest generator keeps the LAST asset ending in `.md5`, so a second one
         # sorting after the plugin's becomes the published checksum and every install
         # fails verification.
@@ -100,7 +100,7 @@ jobs:
         popd
     - name: Publish output artifacts
       id: publish-assets
-      # Full stable release in ONE shot (prerelease: false), matching publish.yml — no draft flow. The
+      # Full stable release in ONE shot (prerelease: false), matching publish.yml - no draft flow. The
       # git TAG is the pushed X.Y.Z-JF12-stable; the release NAME is that same tag. build.yaml (the JF12
       # metadata) ships as an asset so the SHARED manifest-release picks up THIS release's targetAbi
       # (12.0.0.0); without it the manifest would fall back to the repo's JF10.11 build.yaml and mislabel
@@ -125,7 +125,7 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish Plugin Manifest
-      # ignorePrereleases: true — the STABLE channel. Regenerates the SHARED manifest-release from all
+      # ignorePrereleases: true - the STABLE channel. Regenerates the SHARED manifest-release from all
       # full (non-prerelease) releases: both this JF12 build (5.0.0, targetAbi 12.0.0.0) and the JF10.11
       # stable releases from publish.yml (4.x, targetAbi 10.11.0.0). Each release ships its own build.yaml,
       # so every version lands in the manifest with its correct targetAbi and a Jellyfin server installs
@@ -139,7 +139,7 @@ jobs:
         github-token: ${{ github.token }}
     - name: Verify the published manifest
       # Post-publish DETECTOR for the class of "the manifest ships a checksum that matches
-      # nothing" (#942) — it turns a silent, user-facing install outage into a red build.
+      # nothing" (#942) - it turns a silent, user-facing install outage into a red build.
       # It does not prevent: the release is already sealed and the manifest already written
       # by the time it runs.
       uses: ./.github/actions/verify-manifest

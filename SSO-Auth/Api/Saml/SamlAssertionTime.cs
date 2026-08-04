@@ -101,11 +101,11 @@ internal static class SamlAssertionTime
         }
 
         // SAML NotBefore/NotOnOrAfter are xsd:dateTime. Parse them with XmlConvert.ToDateTime, which
-        // implements the xsd:dateTime grammar faithfully — unlike DateTime.TryParse, which accepts non-xsd
+        // implements the xsd:dateTime grammar faithfully - unlike DateTime.TryParse, which accepts non-xsd
         // shapes and REJECTS some valid ones, notably fractional seconds beyond the 7 digits it caps at that
         // xsd permits and some IdPs emit (#677). XmlDateTimeSerializationMode.Utc normalizes any offset (or an
         // offset-less value) to UTC. XmlConvert.ToDateTime THROWS on malformed input, so wrap it and fail
-        // CLOSED (return false) on any parse failure — this method's non-throwing bool contract is unchanged.
+        // CLOSED (return false) on any parse failure - this method's non-throwing bool contract is unchanged.
         try
         {
             utc = XmlConvert.ToDateTime(raw, XmlDateTimeSerializationMode.Utc);

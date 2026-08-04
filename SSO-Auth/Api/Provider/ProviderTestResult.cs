@@ -9,8 +9,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Provider;
 /// <summary>
 /// The admin-facing result of a provider Test-connection probe (#163): whether the probe passed, a short
 /// actionable headline, and a list of non-secret detail lines (issuer, endpoints, JWKS reachability, or the
-/// SAML certificate's public facts). It NEVER carries a secret — no <c>OidSecret</c>, no signing-key/DEK
-/// material — and its <see cref="Message"/> stays generic about sensitive values (e.g. "authentication
+/// SAML certificate's public facts). It NEVER carries a secret - no <c>OidSecret</c>, no signing-key/DEK
+/// material - and its <see cref="Message"/> stays generic about sensitive values (e.g. "authentication
 /// failed", not the secret). Serialized to the admin UI as JSON; the page renders every field with
 /// <c>textContent</c>/<c>createElement</c> so a reflected provider string cannot inject markup.
 /// </summary>

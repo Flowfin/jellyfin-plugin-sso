@@ -13,7 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="OidcAuthorizeStateBuilder.Build"/> — the username/validity/
+/// Characterization tests for <see cref="OidcAuthorizeStateBuilder.Build"/> - the username/validity/
 /// avatar/folder derivation extracted from the OID callback. These pin the exact behavior (including
 /// the last-claim-wins username, the sub-claim fallback, and the fail-closed null-Roles throw) so the
 /// extraction is a proven no-op and the derivation is testable in isolation.
@@ -135,7 +135,7 @@ public class OidcAuthorizeStateBuilderTests
     [InlineData("")]
     public void EmailVerified_NonBooleanClaim_IsNull(string claimValue)
     {
-        // A non-boolean value is treated as absent (null) rather than coerced to true — fail closed.
+        // A non-boolean value is treated as absent (null) rather than coerced to true - fail closed.
         var result = OidcAuthorizeStateBuilder.Build(
             Claims(("preferred_username", "alice"), ("email_verified", claimValue)),
             Config(_ => { }));
@@ -324,7 +324,7 @@ public class OidcAuthorizeStateBuilderTests
     {
         // The exact #95 role path: a role claim matching the allow-list makes the login valid via the
         // role-grant merge (not the username branch), but with no username/sub claim there is no
-        // identity — the final clamp must reject it. Exercises grants.Valid=true with a null username.
+        // identity - the final clamp must reject it. Exercises grants.Valid=true with a null username.
         var config = Config(c =>
         {
             c.Roles = new[] { "jellyfin-users" };
@@ -341,7 +341,7 @@ public class OidcAuthorizeStateBuilderTests
     public void RoleGrantValid_NoUsernameClaim_IsNotValid()
     {
         // Fail closed (#95): a role matching the allow-list makes the login valid, but with no
-        // username claim (and no sub claim) there is no identity to log in — previously this minted
+        // username claim (and no sub claim) there is no identity to log in - previously this minted
         // a valid state whose null username failed downstream with a 500.
         var config = Config(c =>
         {
@@ -359,7 +359,7 @@ public class OidcAuthorizeStateBuilderTests
     public void RoleGrantValid_OnlySubClaim_IsNotValid()
     {
         // Fail closed (#95): the sub fallback only runs when the login is NOT yet valid, so a
-        // role-grant-valid login with only a sub claim never resolves a username — it is rejected,
+        // role-grant-valid login with only a sub claim never resolves a username - it is rejected,
         // and the sub claim is deliberately NOT adopted (that would widen the fallback's semantics).
         var config = Config(c =>
         {
@@ -387,7 +387,7 @@ public class OidcAuthorizeStateBuilderTests
     [Fact]
     public void WhitespaceUsernameClaimValue_IsNotValid()
     {
-        // Fail closed (#95): whitespace-only is no identity — Jellyfin's own username validation
+        // Fail closed (#95): whitespace-only is no identity - Jellyfin's own username validation
         // rejects it, so accepting it here could only ever produce a downstream 500.
         var result = OidcAuthorizeStateBuilder.Build(Claims(("preferred_username", "   ")), Config(_ => { }));
 
@@ -429,7 +429,7 @@ public class OidcAuthorizeStateBuilderTests
     public void InvalidLogin_SubClaimStillOverwritesUsername()
     {
         // Faithful quirk: the sub fallback runs whenever the login is not (yet) valid, even though
-        // a preferred-username claim already set the username — so a failed allow-list match with a
+        // a preferred-username claim already set the username - so a failed allow-list match with a
         // sub claim present ends invalid AND with the sub value as the username. Easily misread as
         // "fallback only when no username claim exists"; pinned here so a change is deliberate.
         var config = Config(c =>
@@ -597,7 +597,7 @@ public class OidcAuthorizeStateBuilderTests
     public void NoAvatarUrlFormat_PictureFallbackDisabled_YieldsNull()
     {
         // The admin opt-out (#723): with the picture fallback disabled and no template, no candidate is
-        // produced even when the IdP sends a picture claim — nothing is fetched.
+        // produced even when the IdP sends a picture claim - nothing is fetched.
         var config = Config(c => c.DisableAvatarFromPictureClaim = true);
         var result = OidcAuthorizeStateBuilder.Build(
             Claims(("preferred_username", "alice"), ("picture", "https://idp.example.com/alice.jpg")),

@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="PerClientBudgetLimiter"/> — the per-client occupancy sub-cap the in-flight state
+/// Tests for <see cref="PerClientBudgetLimiter"/> - the per-client occupancy sub-cap the in-flight state
 /// stores use so one source cannot fill the global budget (#327). Reserve is a single CAS, so a per-key
 /// count can never race past the cap; release is idempotent and drops the empty bucket; a null key is
 /// always exempt.
@@ -92,7 +92,7 @@ public class PerClientBudgetLimiterTests
     public async Task Reserve_UnderContentionOnOneKey_GrantsExactlyTheCap()
     {
         // The crux: N threads hammer TryReserve on the same key; the CAS makes the cap-check+increment
-        // one atom, so EXACTLY cap reservations succeed — zero overshoot.
+        // one atom, so EXACTLY cap reservations succeed - zero overshoot.
         const int Cap = 50;
         var limiter = new PerClientBudgetLimiter(Cap);
         var granted = 0;

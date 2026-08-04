@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to this plugin are documented here. Versions are three-part
-`X.Y.Z` as described in the release policy — **X** a breaking / Jellyfin-ABI
+`X.Y.Z` as described in the release policy - **X** a breaking / Jellyfin-ABI
 change, **Y** a feature, **Z** a bug-fix or security patch (the two share the
 digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
@@ -16,13 +16,13 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   a JSON object instead of from a list of strings. Zitadel needs it: it emits
   `{"jellyfin-access": {"<orgId>": "<domain>"}}` under
   `urn:zitadel:iam:org:project:roles`, which no previous configuration could
-  read, so its role gate could never be enabled. Only the names are read —
-  never the values, never nested objects — and every other claim shape still
+  read, so its role gate could never be enabled. Only the names are read -
+  never the values, never nested objects - and every other claim shape still
   fails closed to no roles. The option is **off by default**, so no existing
   provider changes behaviour.
 - **Managed login-page buttons (#722).** An opt-in global option, **Manage
   login-page buttons** (off by default), keeps a "Sign in with …" button block
-  on Jellyfin's login page in sync with the configured, enabled providers — so a
+  on Jellyfin's login page in sync with the configured, enabled providers - so a
   configured provider surfaces a button without hand-crafted branding HTML. The
   managed region is spliced into the login branding disclaimer and removed
   cleanly when the option is turned off, preserving any surrounding admin
@@ -77,7 +77,7 @@ a broad security + perfection audit.
 - **Internal consolidation (#670, #671, #695).** The duplicated challenge
   redirect-path resolver and a single-caller OpenID wrapper were unified, and the
   provider-config validation doc was corrected to describe the single source of
-  truth — no behavioural change, locked in by conformance tests.
+  truth - no behavioural change, locked in by conformance tests.
 
 ### Security
 
@@ -102,7 +102,7 @@ A bug-fix release.
 - **Admin-or-self authorization now denies explicitly on a null auth context
   (#626).** `RequestHelpers.AssertCanUpdateUser` previously failed closed by
   throwing a `NullReferenceException` (which could surface as a 500) on a null
-  or ambiguous authorization context. It now returns an explicit `false` — a
+  or ambiguous authorization context. It now returns an explicit `false` - a
   clean, total deny. Normal authenticated requests are unaffected; the fix
   removes a fragile reliance on an exception for a security-critical denial and
   eliminates the internal-error surface. A masked test that had tolerated the
@@ -120,13 +120,13 @@ A breaking release.
   signed assertion once and hands the intermediate page only an opaque token,
   and `SAML/Auth` redeems that token to mint the session without re-parsing the
   assertion. For one release `SAML/Auth` also still accepted and fully
-  re-validated the pre-#251 shape — a full base64 assertion POSTed straight to
-  it — so a login already in flight during an upgrade would not break. That
+  re-validated the pre-#251 shape - a full base64 assertion POSTed straight to
+  it - so a login already in flight during an upgrade would not break. That
   deprecation window has now closed: `SAML/Auth` accepts **only** the opaque
   outcome token. A scripted client that POSTs a raw assertion straight to
   `SAML/Auth`, bypassing the rendered page, is now rejected fail-closed (a clean
   400 in the uniform SAML body, nothing minted). The normal browser login and
-  linking flows are unaffected — the plugin has rendered only tokens for login
+  linking flows are unaffected - the plugin has rendered only tokens for login
   since #251. Callers that scripted the legacy direct-assertion POST must switch
   to the callback-plus-token round-trip.
 
@@ -140,12 +140,12 @@ configuration changes.
 - **The plugin no longer fails to load on Jellyfin 10.11 (#590).** 4.1.0.0
   shipped with `Duende.IdentityModel.OidcClient` 7.x, whose assemblies are built
   against the .NET 10 framework and reference
-  `Microsoft.Extensions.Logging.Abstractions` 10.0.0.0 in their manifest — an
+  `Microsoft.Extensions.Logging.Abstractions` 10.0.0.0 in their manifest - an
   assembly the host provides (Jellyfin 10.11 runs on .NET 9 and ships 9.0.0.0)
   and the plugin therefore does not bundle. Because .NET rolls a host assembly
   reference forward to a newer host but never down a major version, the packaged
   plugin threw `FileNotFoundException` the moment the host constructed it, and
-  the server disabled it at startup — taking down every OpenID and SAML login.
+  the server disabled it at startup - taking down every OpenID and SAML login.
   `dotnet build` and `dotnet test` stayed green because they run against the full
   publish output, which contains the 10.x assembly; the failure only surfaced on
   a real host, the same blind spot the SAML/OIDC crypto DLLs hit in 4.1.0.0.
@@ -153,7 +153,7 @@ configuration changes.
   The OIDC client is pinned back to the 6.x line, which references
   `Logging.Abstractions` 8.0.0.0 and rolls forward onto the host's 9.0.0.0
   cleanly; the whole dependency graph stays on the .NET 9 ABI. No behaviour
-  changes — the OpenID and SAML flows are identical to 4.1.0.0.
+  changes - the OpenID and SAML flows are identical to 4.1.0.0.
 
 ### Added
 
@@ -175,7 +175,7 @@ that decomposes the login controller into small, testable services.
 
 - **Provider secrets are now encrypted at rest (#158).** Client secrets and
   signing keys are stored as an AES-256-GCM envelope (`ssoenc:` values) instead
-  of plaintext. **Upgrading is transparent** — an existing plaintext config is
+  of plaintext. **Upgrading is transparent** - an existing plaintext config is
   read as-is and re-encrypted on the next save, no action required.
   **Downgrading is breaking:** an older plugin build cannot read `ssoenc:`
   values. Before rolling back, open each provider on the settings page and
@@ -185,12 +185,12 @@ that decomposes the login controller into small, testable services.
 - **OpenID logins that relied on legacy username matching are refused until you
   migrate (#358).** Links created by 4.0.0.4 and earlier are keyed on the
   username, which the IdP controls. After upgrade, a login carrying such a
-  legacy link is not followed automatically — the account is adopted only when
+  legacy link is not followed automatically - the account is adopted only when
   the provider has `AllowExistingAccountLink` enabled (treat this as a short,
   supervised maintenance window, not a standing setting), or when an admin links
   the account explicitly via `AddCanonicalLink`. A returning administrator with
   a pre-existing legacy link must be linked by an admin; self-migration is
-  refused for admins even with the flag on. Plan this before upgrading — see the
+  refused for admins even with the flag on. Plan this before upgrading - see the
   migration runbook under
   [OpenID Connect id_token requirements](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup#openid-connect-id_token-requirements)
   and the

@@ -22,7 +22,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Direct tests of <see cref="SessionMinter"/> — the session-minting flow extracted from the controller
+/// Direct tests of <see cref="SessionMinter"/> - the session-minting flow extracted from the controller
 /// (#318). They pin the fail-closed guard (a login whose resolved account no longer exists mints no
 /// session) and that the controller-supplied remote endpoint reaches the authentication request (the one
 /// behavior this extraction changes: the endpoint is passed in rather than read from HttpContext).
@@ -74,7 +74,7 @@ public class SessionMinterTests
     public async Task MintAsync_ResolvedAccountDeleted_ThrowsAndMintsNoSession()
     {
         // Fail closed (#318): the account resolved for this login no longer exists (deleted between
-        // resolution and the mint), so no session may be minted — the throw precedes any AuthenticateDirect.
+        // resolution and the mint), so no session may be minted - the throw precedes any AuthenticateDirect.
         var (minter, users, sessions) = Build();
         users.GetUserById(UserId).Returns((User?)null);
         var resolverInvoked = false;
@@ -116,8 +116,8 @@ public class SessionMinterTests
     [Fact]
     public async Task MintAsync_EnableAuthorizationWithRestrictedFolders_AppliesAllRoleGrants()
     {
-        // #215: with the master switch on, all five role-derived grants are applied — including the two
-        // Live TV grants — and folder access is restricted (!EnableAllFolders), which also writes the
+        // #215: with the master switch on, all five role-derived grants are applied - including the two
+        // Live TV grants - and folder access is restricted (!EnableAllFolders), which also writes the
         // enabled-folder list as a preference.
         var (minter, users, sessions) = Build();
         var user = TestUsers.Named("alice", UserId);
@@ -176,7 +176,7 @@ public class SessionMinterTests
     [Fact]
     public async Task MintAsync_EnableAuthorization_AppliesGenericPermissionGrants_GrantAndRevoke()
     {
-        // #164: with the master switch on, each generic role→permission grant is applied authoritatively —
+        // #164: with the master switch on, each generic role→permission grant is applied authoritatively -
         // a granted permission is set true and a revoked one set false. Seed the OPPOSITE of each so the
         // assertions prove the mint flipped them, not that a fresh user happened to match.
         var (minter, users, sessions) = Build();
@@ -206,7 +206,7 @@ public class SessionMinterTests
     {
         // The generic grants respect the same EnableAuthorization master switch as the admin/Live TV grants
         // (#215): with it off, a mapped permission is NOT applied. Seed the opposite of the grant and pass
-        // the master switch off — a correct skip leaves the seed intact.
+        // the master switch off - a correct skip leaves the seed intact.
         var (minter, users, sessions) = Build();
         var user = TestUsers.Named("alice", UserId);
         user.SetPermission(PermissionKind.EnableContentDownloading, false);
@@ -228,7 +228,7 @@ public class SessionMinterTests
     {
         // #165 Finding H1: while SSO-only mode is on, the designated break-glass admin's OWN SSO login must
         // not be able to demote it. Even with EnableAuthorization on and a login whose claims do NOT grant
-        // admin (isAdmin: false), the recovery account keeps IsAdministrator — otherwise the guaranteed
+        // admin (isAdmin: false), the recovery account keeps IsAdministrator - otherwise the guaranteed
         // recovery admin becomes useless once the IdP is down. Seed admin=true so the assertion proves the
         // demotion was SUPPRESSED, not that a fresh user happened to be non-admin.
         var (minter, users, sessions) = Build();
@@ -249,7 +249,7 @@ public class SessionMinterTests
     public async Task MintAsync_NonBreakGlassAccount_UnderNonAdminLogin_IsDemotedAsUsual()
     {
         // The negative of the break-glass exemption: a NON-break-glass account is authoritatively demoted when
-        // its login carries no admin claim (default-deny). The exemption is narrow — it must never leak to
+        // its login carries no admin claim (default-deny). The exemption is narrow - it must never leak to
         // ordinary accounts. Seed admin=true; a correct write flips it to false.
         var (minter, users, sessions) = Build();
         var user = TestUsers.Named("alice", UserId);
@@ -269,14 +269,14 @@ public class SessionMinterTests
     public async Task MintAsync_DefaultProviderSet_SetsItInASingleWrite()
     {
         // When a default provider is configured the user's AuthenticationProviderId is set before the
-        // one UpdateUserAsync, so it persists in a single write (#391) — the pre-extraction Authenticate
+        // one UpdateUserAsync, so it persists in a single write (#391) - the pre-extraction Authenticate
         // wrote the user a second time just for this field.
         var (minter, users, sessions) = Build();
         var user = TestUsers.Named("alice", UserId);
         users.GetUserById(UserId).Returns(user);
         sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
 
-        // Capture the id at the write boundary, not off the shared user after MintAsync returns —
+        // Capture the id at the write boundary, not off the shared user after MintAsync returns -
         // otherwise the assertion passes even if the id is set AFTER the write, defeating the point (#391).
         string? providerAtWrite = null;
         users.UpdateUserAsync(Arg.Do<User>(u => providerAtWrite = u.AuthenticationProviderId)).Returns(Task.CompletedTask);
@@ -293,7 +293,7 @@ public class SessionMinterTests
         // #232: the account resolved under the config lock, but an admin revocation (Unregister / link
         // delete / provider disable) committed before the mint, so the revocation re-check returns false.
         // The first gate refuses BEFORE any user side effect, so no grants are persisted and no session is
-        // minted — fail closed exactly like the deleted-user guard.
+        // minted - fail closed exactly like the deleted-user guard.
         var (minter, users, sessions) = Build();
         var user = TestUsers.Named("alice", UserId);
         users.GetUserById(UserId).Returns(user);
@@ -355,7 +355,7 @@ public class SessionMinterTests
     public async Task MintAsync_NoAuthorization_LeavesTheParentalRatingCeilingUntouched()
     {
         // The ceiling respects the same EnableAuthorization master switch (#215/#736): with it off, a resolved
-        // ceiling is NOT applied — the account's existing value survives.
+        // ceiling is NOT applied - the account's existing value survives.
         var (minter, users, sessions) = Build();
         var user = new User("alice", "SSO-Auth", "Default") { Id = UserId, MaxParentalRatingScore = 3 };
         users.GetUserById(UserId).Returns(user);
@@ -369,7 +369,7 @@ public class SessionMinterTests
     [Fact]
     public async Task MintAsync_NullCeiling_LeavesTheExistingValueUntouched()
     {
-        // #736 fail-safe: a null ceiling (no mapping matched) never raises or clears the existing value — an
+        // #736 fail-safe: a null ceiling (no mapping matched) never raises or clears the existing value - an
         // unmapped or malformed claim leaves MaxParentalRatingScore exactly as it was, even with RBAC on.
         var (minter, users, sessions) = Build();
         var user = new User("alice", "SSO-Auth", "Default") { Id = UserId, MaxParentalRatingScore = 3 };

@@ -7,9 +7,9 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AcrPolicy"/> — the step-up / forced-MFA acr allow-list check (#757). Fail-closed:
+/// Tests for <see cref="AcrPolicy"/> - the step-up / forced-MFA acr allow-list check (#757). Fail-closed:
 /// only a non-blank returned acr that exactly (ordinally) matches one of the space-separated configured
-/// values satisfies the policy; everything else — absent acr, empty allow-list, a non-listed value — is
+/// values satisfies the policy; everything else - absent acr, empty allow-list, a non-listed value - is
 /// refused.
 /// </summary>
 public class AcrPolicyTests

@@ -67,16 +67,16 @@ internal static class SsoHttp
         ConnectCallback = ConnectToAllowedAddressAsync,
 
         // A system proxy would be the connection target, so the connect callback would validate the proxy's
-        // address rather than the real host's — bypassing the guard.
+        // address rather than the real host's - bypassing the guard.
         UseProxy = false,
 
-        // The handler is reused, so bound how long a pooled connection lives — after this the connection is
+        // The handler is reused, so bound how long a pooled connection lives - after this the connection is
         // recycled and the host re-resolved, so DNS changes are honored despite reuse.
         PooledConnectionLifetime = TimeSpan.FromMinutes(2),
     };
 
     // Resolves the target host and connects only to a non-blocked (public) address, so a hostname that
-    // resolves to an internal address — including via DNS rebinding on a redirect hop — cannot be reached.
+    // resolves to an internal address - including via DNS rebinding on a redirect hop - cannot be reached.
     private static async ValueTask<Stream> ConnectToAllowedAddressAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
     {
         var addresses = await System.Net.Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken).ConfigureAwait(false);

@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 /// Reduces a login's roles to a maximum parental-rating-score ceiling (#736), the scalar-policy counterpart
 /// of the boolean <see cref="PermissionRolePolicy"/>. When <c>EnableParentalRatingRoles</c> is on, each
 /// configured mapping whose roles the login holds contributes its score, and the MOST RESTRICTIVE (minimum)
-/// wins — never the loosest. A login that matches no mapping (or the feature being off) yields null, so the
+/// wins - never the loosest. A login that matches no mapping (or the feature being off) yields null, so the
 /// mint leaves the account's existing ceiling untouched: an unmapped or malformed claim never raises it.
 /// </summary>
 internal static class ParentalRatingPolicy
@@ -26,7 +26,7 @@ internal static class ParentalRatingPolicy
     internal static int? Resolve(IEnumerable<string> roles, ProviderConfigBase config)
     {
         // Master switch off (the default) or no mappings configured: SSO manages no ceiling, so the mint
-        // leaves MaxParentalRatingScore exactly as it was — byte-for-byte the pre-#736 behavior.
+        // leaves MaxParentalRatingScore exactly as it was - byte-for-byte the pre-#736 behavior.
         if (!config.EnableParentalRatingRoles || config.ParentalRatingRoleMappings is null)
         {
             return null;
@@ -54,7 +54,7 @@ internal static class ParentalRatingPolicy
     }
 
     // A login holding any of the mapping's roles matches. The configured role is trimmed and compared
-    // ordinally to the (verbatim) login roles, null-safe — the same matching the boolean policy uses.
+    // ordinally to the (verbatim) login roles, null-safe - the same matching the boolean policy uses.
     private static bool MatchesAnyRole(string[]? mappingRoles, IReadOnlyCollection<string> loginRoles)
     {
         if (mappingRoles is null)

@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Trust-boundary tests for <see cref="SamlResponse"/> — the SAML signature/validation core.
+/// Trust-boundary tests for <see cref="SamlResponse"/> - the SAML signature/validation core.
 /// These pin the CURRENT behavior of the upstream implementation so the P2 hardening
 /// changes (see docs/ROADMAP.md) are deliberate, reviewed flips rather than surprises.
 ///
@@ -40,7 +40,7 @@ public class SamlResponseTests
     [Fact]
     public void IsValid_ResponseSignedByUnderStrengthKey_ReturnsFalse()
     {
-        // #733 end-to-end: a response correctly signed by an RSA-1024 certificate must fail validation —
+        // #733 end-to-end: a response correctly signed by an RSA-1024 certificate must fail validation -
         // the under-strength candidate is skipped before CheckSignature, so no trusted key verifies it and
         // IsValid fails closed exactly as for a wrong key. The 2048-bit baseline above proves this rejects
         // on key strength, not on a broken signature.
@@ -52,7 +52,7 @@ public class SamlResponseTests
     public void GetRecipient_And_GetInResponseTo_ReadFromSignedAssertion()
     {
         // Recipient and InResponseTo live inside the assertion, so they are covered even when only
-        // the assertion (not the whole SamlResponse) is signed — the #156 endpoint/solicited binding.
+        // the assertion (not the whole SamlResponse) is signed - the #156 endpoint/solicited binding.
         var fixture = SamlTestFactory.Create(
             scope: SamlTestFactory.SignatureScope.Assertion,
             recipient: "https://jellyfin.example/sso/SAML/post/idp",
@@ -121,7 +121,7 @@ public class SamlResponseTests
     public void Constructor_ExternalEntityDoctype_IsRejected()
     {
         // The classic XXE/SSRF shape (an external SYSTEM entity). XmlResolver=null already blocks the
-        // fetch, but DtdProcessing.Prohibit rejects the DOCTYPE outright — belt and suspenders.
+        // fetch, but DtdProcessing.Prohibit rejects the DOCTYPE outright - belt and suspenders.
         var xxe =
             "<?xml version=\"1.0\"?>" +
             "<!DOCTYPE samlp:Response [ <!ENTITY xxe SYSTEM \"file:///etc/passwd\"> ]>" +
@@ -136,7 +136,7 @@ public class SamlResponseTests
     public void Constructor_DoctypePrependedToSignedResponse_IsRejectedBeforeSignatureCheck()
     {
         // A DOCTYPE smuggled in front of an otherwise-valid, correctly-signed response must be
-        // rejected at parse time — DTD rejection pre-empts signature acceptance, so an attacker
+        // rejected at parse time - DTD rejection pre-empts signature acceptance, so an attacker
         // cannot pair a valid signature with a malicious DTD.
         var fixture = SamlTestFactory.Create();
         var signedXml = fixture.Document.OuterXml;
@@ -213,7 +213,7 @@ public class SamlResponseTests
     public void IsValid_TwoAssertions_ReturnsFalse()
     {
         // Single-assertion invariant: even a byte-for-byte duplicate of the validly-signed assertion
-        // makes the count two, which is rejected outright — the readers must never face a choice of
+        // makes the count two, which is rejected outright - the readers must never face a choice of
         // assertions to consume.
         var fixture = SamlTestFactory.Create(scope: SamlTestFactory.SignatureScope.Assertion);
         var doc = fixture.Document;
@@ -228,7 +228,7 @@ public class SamlResponseTests
     {
         // Sign the assertion, then move the enveloped signature out of the assertion up to the
         // SamlResponse. The reference still names the assertion ID, but the signature no longer sits
-        // inside the element it covers — a relocation attack, rejected by the envelopment check.
+        // inside the element it covers - a relocation attack, rejected by the envelopment check.
         var fixture = SamlTestFactory.Create(scope: SamlTestFactory.SignatureScope.Assertion);
         var doc = fixture.Document;
         var signature = doc.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#")[0]!;
@@ -251,8 +251,8 @@ public class SamlResponseTests
     public void IsValid_NestedAdviceAssertion_ReturnsTrue()
     {
         // A spec-legal supporting assertion nested in saml:Advice (part of the signed content) is a
-        // descendant, not a second top-level assertion, so the single-assertion invariant — scoped
-        // to the SamlResponse's direct-child assertions — must still accept the response.
+        // descendant, not a second top-level assertion, so the single-assertion invariant - scoped
+        // to the SamlResponse's direct-child assertions - must still accept the response.
         var fixture = SamlTestFactory.Create(scope: SamlTestFactory.SignatureScope.Assertion, includeAdviceAssertion: true);
         Assert.True(Load(fixture).IsValid());
     }
@@ -260,7 +260,7 @@ public class SamlResponseTests
     [Fact]
     public void IsValid_InclusiveCanonicalization_ReturnsTrue()
     {
-        // Inclusive (non-exclusive) comment-free C14N is on the allowlist — an IdP using it must
+        // Inclusive (non-exclusive) comment-free C14N is on the allowlist - an IdP using it must
         // still authenticate. Guards that allowlist entry end-to-end (the default fixture is exclusive).
         var fixture = SamlTestFactory.Create(signWithInclusiveC14n: true);
         Assert.True(Load(fixture).IsValid());
@@ -284,7 +284,7 @@ public class SamlResponseTests
     public void IsValid_Sha1SignedResponse_ReturnsFalse()
     {
         // A response signed with RSA-SHA1 and a SHA-1 digest verifies cryptographically against the
-        // certificate, but SHA-1 is collision-weak — it must be rejected fail-closed before that check.
+        // certificate, but SHA-1 is collision-weak - it must be rejected fail-closed before that check.
         var fixture = SamlTestFactory.Create(signWithSha1: true);
         Assert.False(Load(fixture).IsValid());
     }
@@ -333,7 +333,7 @@ public class SamlResponseTests
     public void GetNameID_MissingNameId_ReturnsNull()
     {
         // An assertion without a NameID must yield null (the callback rejects it as an invalid
-        // login), not throw — previously this was an unhandled NRE turning into a 500 (#95).
+        // login), not throw - previously this was an unhandled NRE turning into a 500 (#95).
         var fixture = SamlTestFactory.Create(includeNameId: false);
         Assert.Null(Load(fixture).GetNameID());
     }
@@ -354,7 +354,7 @@ public class SamlResponseTests
     [Fact]
     public void GetSessionIndex_AuthnStatementWithoutSessionIndex_ReturnsNull()
     {
-        // An IdP that emits an AuthnStatement without a SessionIndex simply yields no capture — null,
+        // An IdP that emits an AuthnStatement without a SessionIndex simply yields no capture - null,
         // never a throw (fail-safe: Single Logout is then unavailable for the session, nothing else).
         var fixture = SamlTestFactory.Create(includeAuthnStatement: true);
         Assert.Null(Load(fixture).GetSessionIndex());
@@ -371,7 +371,7 @@ public class SamlResponseTests
     public void GetSessionIndex_SecondAuthnStatement_IsNotConsulted()
     {
         // Session-index smuggling via a second statement: only the FIRST AuthnStatement is read, so a
-        // trailing statement carrying a different (attacker-chosen) index never becomes the captured value —
+        // trailing statement carrying a different (attacker-chosen) index never becomes the captured value -
         // neither when the first statement has its own index nor when it lacks the attribute entirely.
         // GetSessionIndex reads the DOM, so no signature is needed here (same idiom as the multi-value
         // Role test in this suite).
@@ -458,7 +458,7 @@ public class SamlResponseTests
     public void IsValid_OnlyConditionsUpperBound_ReturnsTrue()
     {
         // An IdP that carries the upper bound only in Conditions (not SubjectConfirmationData)
-        // must still authenticate — we require at least one upper bound, not that specific one.
+        // must still authenticate - we require at least one upper bound, not that specific one.
         var fixture = SamlTestFactory.Create(
             includeNotOnOrAfter: false,
             conditionsNotOnOrAfter: System.DateTime.UtcNow.AddMinutes(5));
@@ -548,7 +548,7 @@ public class SamlResponseTests
         Assert.Equal("alice", response.GetNameID());
         Assert.Equal(new List<string> { "jellyfin-admins" }, response.GetCustomAttributes("Role"));
 
-        // Disposal releases the certificate handle and is idempotent — a using plus an explicit Dispose, or a
+        // Disposal releases the certificate handle and is idempotent - a using plus an explicit Dispose, or a
         // double dispose, must not throw.
         response.Dispose();
         response.Dispose();
@@ -570,7 +570,7 @@ public class SamlResponseTests
     public void GetCustomAttributes_MaliciousAttributeName_DoesNotInjectOrThrow()
     {
         // An attr breaking out of the '...' XPath literal (an apostrophe plus a union/predicate payload) must
-        // be treated as a literal attribute name that matches nothing — it may never widen the node selection
+        // be treated as a literal attribute name that matches nothing - it may never widen the node selection
         // and must not throw. Latent today (every production caller passes the constant "Role"), but the
         // method is public, so it is made injection-safe for any input.
         var fixture = SamlTestFactory.Create(role: "jellyfin-users");
@@ -592,7 +592,7 @@ public class SamlResponseTests
         // NON-Role attribute precedes the Role attribute (so a mutated outer continue->break would skip Role
         // entirely), and Role carries TWO values (so a mutated inner value loop that stops at the first, or
         // one that reorders, would drop or swap a value). Role feeds the role->permission mapping, so this is
-        // authorization-relevant, not cosmetic. No signature is needed — GetCustomAttributes reads the DOM.
+        // authorization-relevant, not cosmetic. No signature is needed - GetCustomAttributes reads the DOM.
         var xml =
             "<samlp:Response xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ID=\"_r\" Version=\"2.0\">" +
                 "<saml:Assertion ID=\"_a\" Version=\"2.0\">" +
@@ -608,10 +608,10 @@ public class SamlResponseTests
             "</samlp:Response>";
         using var response = new SamlResponse(SamlFixture.ForeignCertificateBase64(), SamlFixture.Encode(xml));
 
-        // Exactly both Role values, in document order — kills the truncate-to-first and reorder mutants.
+        // Exactly both Role values, in document order - kills the truncate-to-first and reorder mutants.
         Assert.Equal(new List<string> { "admin", "user" }, response.GetCustomAttributes("Role"));
-        // The Role attribute is still reached past the preceding Department attribute — kills the outer
-        // continue->break mutant — and the non-Role attribute reads independently.
+        // The Role attribute is still reached past the preceding Department attribute - kills the outer
+        // continue->break mutant - and the non-Role attribute reads independently.
         Assert.Equal(new List<string> { "engineering" }, response.GetCustomAttributes("Department"));
     }
 }

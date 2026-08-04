@@ -12,7 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SsoRateLimiter"/> — the opt-in fixed-window limiter over the anonymous SSO
+/// Tests for <see cref="SsoRateLimiter"/> - the opt-in fixed-window limiter over the anonymous SSO
 /// endpoints (#128). The availability contract matters as much as the throttling: unattributable
 /// clients, non-public sources (a reverse proxy's loopback/private address would otherwise pool
 /// the whole userbase into one bucket), and a full table must all fail OPEN, and IPv6 must key on
@@ -123,7 +123,7 @@ public class SsoRateLimiterTests
         limiter.IsAllowed("b", 1, window, Now, out _);
 
         // Both entries have been quiet for more than two windows when the (once-per-minute) sweep
-        // next runs, so "c" gets a real, tracked slot instead of the at-cap fail-open path —
+        // next runs, so "c" gets a real, tracked slot instead of the at-cap fail-open path -
         // proven by it being refused once it exceeds the limit.
         var later = Now.AddMinutes(3);
         Assert.True(limiter.IsAllowed("c", 1, window, later, out _));
@@ -163,7 +163,7 @@ public class SsoRateLimiterTests
     public void RecordThrottledHit_DoesNotScaleWithVolume_OneSignalPerInterval_CarryingTheAccumulatedCount()
     {
         // The signal fires at most once per minute regardless of flood size, and each signal reports
-        // every refusal since the previous one — so a flood yields one bounded line, not one per hit.
+        // every refusal since the previous one - so a flood yields one bounded line, not one per hit.
         var limiter = new SsoRateLimiter();
         Assert.Equal(1, limiter.RecordThrottledHit(Now)); // onset drains the first hit
 
@@ -193,7 +193,7 @@ public class SsoRateLimiterTests
     [Fact]
     public async Task RecordThrottledHit_ConcurrentHitsAndDrains_ConserveEveryHit()
     {
-        // Conservation: every refusal lands in exactly one drain's returned count — an increment racing
+        // Conservation: every refusal lands in exactly one drain's returned count - an increment racing
         // with the winner's Exchange is included either in that drain or in a later one, never erased
         // (Interlocked increment and exchange on the same location are serialized atomic operations).
         // Advancing per-thread clocks force frequent gate wins, maximizing drain/increment races.
@@ -269,7 +269,7 @@ public class SsoRateLimiterTests
     public void NormalizeClientKey_Nat64EmbeddedIpv4_SharesBucketWithNativeIpv4_SameClient()
     {
         // The embedded public IPv4 IS the client identity, so a NAT64-translated hit and a native-IPv4
-        // hit from the same address share one bucket — the correct, consistent view, not key confusion.
+        // hit from the same address share one bucket - the correct, consistent view, not key confusion.
         Assert.Equal(
             SsoRateLimiter.NormalizeClientKey(IPAddress.Parse("8.8.8.8")),
             SsoRateLimiter.NormalizeClientKey(IPAddress.Parse("64:ff9b::808:808")));
@@ -304,7 +304,7 @@ public class SsoRateLimiterTests
     [Fact]
     public void NormalizeClientKey_TransitionClients_ThrottleIndependently_NoSharedLockout()
     {
-        // End-to-end: two distinct NAT64 clients must have independent budgets — one exhausting its
+        // End-to-end: two distinct NAT64 clients must have independent budgets - one exhausting its
         // limit must not throttle the other (the shared-bucket lockout class this fix removes).
         var limiter = new SsoRateLimiter();
         var abuser = SsoRateLimiter.NormalizeClientKey(IPAddress.Parse("64:ff9b::808:808"));
@@ -319,7 +319,7 @@ public class SsoRateLimiterTests
     public void NormalizeClientKey_NonTransitionIpv6_StillKeysOnSlash64()
     {
         // A regular global-unicast IPv6 (no embedded IPv4) keeps /64 keying, so rotation within one
-        // allocation still cannot evade — the transition handling must not widen this.
+        // allocation still cannot evade - the transition handling must not widen this.
         Assert.Equal(
             "2001:db8:1:2::/64",
             SsoRateLimiter.NormalizeClientKey(IPAddress.Parse("2001:db8:1:2:3:4:5:6")));
@@ -332,7 +332,7 @@ public class SsoRateLimiterTests
     }
 
     [Theory]
-    [InlineData("127.0.0.1")] // loopback — a local reverse proxy's source address
+    [InlineData("127.0.0.1")] // loopback - a local reverse proxy's source address
     [InlineData("10.1.2.3")] // RFC1918
     [InlineData("172.16.0.9")] // RFC1918
     [InlineData("192.168.1.50")] // RFC1918
@@ -345,7 +345,7 @@ public class SsoRateLimiterTests
     public void NormalizeClientKey_NonPublicSource_ReturnsNull_NeverThrottled(string ip)
     {
         // THE structural mass-lockout defense (#128): when a reverse proxy in front of Jellyfin is
-        // the socket peer (loopback/private/CGNAT), every user would share its one bucket — so no
+        // the socket peer (loopback/private/CGNAT), every user would share its one bucket - so no
         // bucket is created at all for non-public sources.
         Assert.Null(SsoRateLimiter.NormalizeClientKey(IPAddress.Parse(ip)));
     }

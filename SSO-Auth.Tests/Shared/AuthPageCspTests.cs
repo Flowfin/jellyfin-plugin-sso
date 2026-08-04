@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AuthPageCsp"/> — the Content-Security-Policy served with the auth page. The
+/// Tests for <see cref="AuthPageCsp"/> - the Content-Security-Policy served with the auth page. The
 /// policy must deny everything by default, allow only the nonce'd inline script and style, and keep
 /// fetch/frame same-origin so the login script can reach <c>/sso/*/Auth</c> and the iframe.
 /// </summary>

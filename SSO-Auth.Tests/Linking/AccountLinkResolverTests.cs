@@ -9,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="AccountLinkResolver"/> — the fail-closed decision that binds an SSO identity
+/// Tests for <see cref="AccountLinkResolver"/> - the fail-closed decision that binds an SSO identity
 /// to a Jellyfin account. The security-critical case is that a pre-existing, unlinked account is
 /// NOT adopted unless the administrator opted in, preventing account takeover by name collision.
 /// </summary>
@@ -75,7 +75,7 @@ public class AccountLinkResolverTests
     [InlineData(true)]
     public void ResolveCanonicalLink_SubjectKeyed_WinsOverLegacy_NoMigration(bool allow)
     {
-        // Once a subject-keyed link exists, the legacy name-keyed one is never consulted or migrated —
+        // Once a subject-keyed link exists, the legacy name-keyed one is never consulted or migrated -
         // even when the name is still held by its target (legacyNameStillHeldByTarget: true).
         var (linkedUserId, migrate) = AccountLinkResolver.ResolveCanonicalLink(Subject, Legacy, legacyNameStillHeldByTarget: true, allowExistingAccountLink: allow);
         Assert.Equal(Subject, linkedUserId);
@@ -110,7 +110,7 @@ public class AccountLinkResolverTests
     {
         // The security-critical case (#354): the legacy key is the mutable preferred_username, so with
         // AllowExistingAccountLink off a login must NOT be handed the account that key points at, and
-        // nothing may be migrated — even while the name is still held by its target. The login falls
+        // nothing may be migrated - even while the name is still held by its target. The login falls
         // through to Resolve(), whose adoption gate fails closed.
         var (linkedUserId, migrate) = AccountLinkResolver.ResolveCanonicalLink(subjectKeyedUserId: null, Legacy, legacyNameStillHeldByTarget: true, allowExistingAccountLink: false);
         Assert.Null(linkedUserId);

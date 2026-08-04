@@ -1,6 +1,6 @@
 # Authelia OpenID Provider config for the E2E login harness (#921). Test-only secrets (clearly marked),
 # an in-container sqlite store, a filesystem notifier, and a single OIDC client for the plugin. Groups are
-# exposed at the userinfo endpoint (the plugin fetches the profile to read them). OIDC-only — no SAML.
+# exposed at the userinfo endpoint (the plugin fetches the profile to read them). OIDC-only - no SAML.
 theme: light
 
 log:

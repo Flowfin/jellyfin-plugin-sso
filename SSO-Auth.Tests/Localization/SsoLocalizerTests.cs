@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SsoLocalizer"/> — the string localizer for the plugin's served surfaces (#913).
+/// Tests for <see cref="SsoLocalizer"/> - the string localizer for the plugin's served surfaces (#913).
 /// The lookup resolves through a fallback chain that never blanks: requested culture → base language →
 /// English → the key itself.
 /// </summary>
@@ -54,7 +54,7 @@ public class SsoLocalizerTests
     [Fact]
     public void GetString_MissingKey_ReturnsTheKeyVerbatim()
     {
-        // A key defined in no catalog returns itself — a missing translation is visible, never a blank.
+        // A key defined in no catalog returns itself - a missing translation is visible, never a blank.
         Assert.Equal("no.such.key", SsoLocalizer.GetString("no.such.key", "en"));
     }
 

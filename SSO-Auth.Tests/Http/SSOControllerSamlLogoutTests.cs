@@ -46,7 +46,7 @@ public class SSOControllerSamlLogoutTests
     public async Task SamlLogout_FeatureOff_ReturnsUniform400_WithoutTouchingSessions()
     {
         // The whole surface is opt-in: with EnableSingleLogout off, even a perfectly valid signed request is
-        // rejected — and no session is revoked.
+        // rejected - and no session is revoked.
         var fixture = SamlLogoutTestFactory.Create(nameId: "alice");
         var harness = new SsoControllerHarness(c =>
         {
@@ -157,7 +157,7 @@ public class SSOControllerSamlLogoutTests
 
         var result = await harness.Controller.SamlLogout("adfs", fixture.EncodeRequest());
 
-        // A's fault did not abort the loop — B was still revoked, so at least one user logged out → 200.
+        // A's fault did not abort the loop - B was still revoked, so at least one user logged out → 200.
         Assert.IsType<OkResult>(result);
         await harness.SessionManager.Received(1).RevokeUserTokens(UserB, null);
         Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("b")));
@@ -168,7 +168,7 @@ public class SSOControllerSamlLogoutTests
     public async Task SamlLogout_TheOnlyMatchedUserRevokeThrows_ReturnsUniform400_AndKeepsTheEntry()
     {
         // Fail-closed on the destructive action: sessions matched but the sole revoke faulted, so NOTHING was
-        // revoked and the user stays authenticated — the endpoint must NOT report success (no 200), and the
+        // revoked and the user stays authenticated - the endpoint must NOT report success (no 200), and the
         // entry is left in the store for a retry.
         var fixture = SamlLogoutTestFactory.Create(nameId: "alice");
         var harness = new SsoControllerHarness(c =>
@@ -188,7 +188,7 @@ public class SSOControllerSamlLogoutTests
     [Fact]
     public async Task SamlLogout_ValidRequestForUnknownSubject_ReturnsUniform400()
     {
-        // "Unknown subject" (no captured session) is the uniform 400 — indistinguishable from a bad signature.
+        // "Unknown subject" (no captured session) is the uniform 400 - indistinguishable from a bad signature.
         var fixture = SamlLogoutTestFactory.Create(nameId: "ghost");
         var harness = new SsoControllerHarness(c =>
         {
@@ -206,7 +206,7 @@ public class SSOControllerSamlLogoutTests
     [Fact]
     public async Task SamlLogout_ReplayedRequest_ReturnsUniform400()
     {
-        // The second presentation of the same request ID is a replay — rejected, and it does not revoke again.
+        // The second presentation of the same request ID is a replay - rejected, and it does not revoke again.
         var fixture = SamlLogoutTestFactory.Create(nameId: "alice", requestId: "_replay-id");
         var harness = new SsoControllerHarness(c =>
         {
@@ -285,7 +285,7 @@ public class SSOControllerSamlLogoutTests
         Assert.Equal(SpEntityId, doc.SelectSingleNode("/samlp:LogoutResponse/saml:Issuer", nsmgr)!.InnerText);
         Assert.Equal(SuccessStatus, ((XmlElement)doc.SelectSingleNode("/samlp:LogoutResponse/samlp:Status/samlp:StatusCode", nsmgr)!).GetAttribute("Value"));
 
-        // The revocation still happened and the entry was consumed — the signed response is additive.
+        // The revocation still happened and the entry was consumed - the signed response is additive.
         await harness.SessionManager.Received(1).RevokeUserTokens(UserA, null);
         Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
     }
@@ -404,7 +404,7 @@ public class SSOControllerSamlLogoutTests
     {
         // Protocol isolation (SLO-5): a signed SAML LogoutRequest for (adfs, alice) must NOT revoke an OpenID
         // capture that happens to share the provider name and subject string. The SAML and OpenID flows stay
-        // apart — the inbound path resolves only SAML captures, exactly as the SP-initiated path does.
+        // apart - the inbound path resolves only SAML captures, exactly as the SP-initiated path does.
         var fixture = SamlLogoutTestFactory.Create(nameId: "alice");
         var harness = new SsoControllerHarness(c =>
         {

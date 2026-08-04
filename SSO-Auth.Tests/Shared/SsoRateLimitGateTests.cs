@@ -15,11 +15,11 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SsoRateLimitGate"/> — the shared per-client gate the rate-limited SSO endpoints
+/// Tests for <see cref="SsoRateLimitGate"/> - the shared per-client gate the rate-limited SSO endpoints
 /// front themselves with (#128, #382, #516). These pin the gate's OWN behavior over the
 /// <see cref="Jellyfin.Plugin.SSO_Auth.Api.SsoRateLimiter"/> it wraps: it reads the live config through
 /// <see cref="Jellyfin.Plugin.SSO_Auth.SSOPlugin.Instance"/>, folds the endpoint class into the key so each
-/// class carries an independent budget, and — this is the load-bearing availability invariant — never
+/// class carries an independent budget, and - this is the load-bearing availability invariant - never
 /// throttles an unattributable or non-public client (fail open, availability over throttling), so a reverse
 /// proxy's private/loopback peer address or a null connection address can never mass-lock-out the userbase.
 ///
@@ -50,7 +50,7 @@ public class SsoRateLimitGateTests
 
     // remoteIp is nullable here on purpose: the no-attributable-address case (a null connection peer) is one
     // of the fail-open inputs under test. The gate's own NormalizeClientKey handles null (returns no key), so
-    // forwarding it is the behavior being exercised, not a defect — hence the deliberate null-forgiving pass.
+    // forwarding it is the behavior being exercised, not a defect - hence the deliberate null-forgiving pass.
     private static ActionResult? Check(string endpointClass, IPAddress? remoteIp, HttpResponse response) =>
         SsoRateLimitGate.Check(endpointClass, remoteIp!, Substitute.For<ILogger>(), response);
 
@@ -58,7 +58,7 @@ public class SsoRateLimitGateTests
     public void OverBudget_Emits429_WithRetryAfterHeader()
     {
         // A budget of one: the first request is allowed (null = proceed), the second is over budget and is
-        // refused with the throttled outcome rendered by the single mapper — a 429 carrying a Retry-After.
+        // refused with the throttled outcome rendered by the single mapper - a 429 carrying a Retry-After.
         SeedConfig(enabled: true, maxAttempts: 1, windowSeconds: 60);
         var response = new DefaultHttpContext().Response;
         const string EndpointClass = "gate-test-overbudget";
@@ -81,7 +81,7 @@ public class SsoRateLimitGateTests
     public void DistinctEndpointClasses_HaveIndependentBudgets()
     {
         // The endpoint class is part of the key, so exhausting one class's budget for a client must not
-        // throttle the SAME client on a different class — one login hitting challenge/callback/auth gets the
+        // throttle the SAME client on a different class - one login hitting challenge/callback/auth gets the
         // full budget at each stage rather than a third of it (#128).
         SeedConfig(enabled: true, maxAttempts: 1, windowSeconds: 60);
         var response = new DefaultHttpContext().Response;
@@ -93,7 +93,7 @@ public class SsoRateLimitGateTests
         var throttledOnA = Assert.IsType<ContentResult>(Check(ClassA, PublicClient, response));
         Assert.Equal(429, throttledOnA.StatusCode);
 
-        // Class B, same client: still has its own untouched budget — not collateral-throttled by class A.
+        // Class B, same client: still has its own untouched budget - not collateral-throttled by class A.
         Assert.Null(Check(ClassB, PublicClient, new DefaultHttpContext().Response));
     }
 
@@ -112,8 +112,8 @@ public class SsoRateLimitGateTests
     }
 
     [Theory]
-    [InlineData("127.0.0.1")] // loopback — a local reverse proxy's own peer address
-    [InlineData("10.0.0.5")] // RFC1918 private — a proxy on the LAN
+    [InlineData("127.0.0.1")] // loopback - a local reverse proxy's own peer address
+    [InlineData("10.0.0.5")] // RFC1918 private - a proxy on the LAN
     [InlineData("100.64.0.1")] // CGNAT
     [InlineData("::1")] // IPv6 loopback
     [InlineData(null)] // no attributable connection address at all

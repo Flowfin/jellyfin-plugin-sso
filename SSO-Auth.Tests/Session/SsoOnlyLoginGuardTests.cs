@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Negative-path suite for the pure SSO-only activation guard (#165) — the fail-closed last-admin interlock
+/// Negative-path suite for the pure SSO-only activation guard (#165) - the fail-closed last-admin interlock
 /// that refuses to enable <c>DisablePasswordLogin</c> unless a working non-SSO admin login path is provable
 /// (SSO-ONLY-LOGIN-DESIGN.md §3, criterion 3). Each refusal branch is pinned so loosening the guard to
 /// accept flips a test red, and the public refusal message is asserted to be actionable but non-enumerating
@@ -41,14 +41,14 @@ public class SsoOnlyLoginGuardTests
     [Fact]
     public void Evaluate_BreakGlassAccountMissing_Refuses()
     {
-        // The designated username resolves to no account — fail closed.
+        // The designated username resolves to no account - fail closed.
         Assert.Equal(SsoOnlyGuardVerdict.BreakGlassNotFound, SsoOnlyLoginGuard.Evaluate("ghost", default));
     }
 
     [Fact]
     public void Evaluate_BreakGlassNotAdministrator_Refuses()
     {
-        // The exemption may only spare an EXISTING administrator (T-E1) — a non-admin target cannot become
+        // The exemption may only spare an EXISTING administrator (T-E1) - a non-admin target cannot become
         // the break-glass door, and the exemption never grants admin.
         var nonAdmin = QualifiedAdmin with { IsAdministrator = false };
 
@@ -129,7 +129,7 @@ public class SsoOnlyLoginGuardTests
     public void ResolveLoginProvider_ModeOn_BreakGlassAdmin_PinsToPasswordProvider_EvenWhenDefaultIsSso()
     {
         // The core of Finding 1: operators commonly set a provider's DefaultProvider to the SSO provider id.
-        // A break-glass admin's SSO login must NOT be repointed off the password provider — otherwise a single
+        // A break-glass admin's SSO login must NOT be repointed off the password provider - otherwise a single
         // login strips their door and the whole org is locked out once the IdP is down.
         var config = new PluginConfiguration { DisablePasswordLogin = true, BreakGlassAdminUsername = "root" };
 
@@ -154,11 +154,11 @@ public class SsoOnlyLoginGuardTests
     public void ResolveLoginProvider_ModeOn_ThirdPartyProviderAccount_KeepsItsProvider()
     {
         // #690: an account whose CURRENT provider is neither the built-in password provider nor the SSO
-        // provider (a third-party IAuthenticationProvider — e.g. LDAP) already has NO password door, and the
+        // provider (a third-party IAuthenticationProvider - e.g. LDAP) already has NO password door, and the
         // enable sweep skips it via the same IsDefaultPasswordProvider test. The login path must skip it too:
         // keep it on its current provider rather than repoint it to SSO. Repointing here would be
         // repointed-but-UNTRACKED (the tracking write is gated on IsDefaultPasswordProvider), which the
-        // off-switch/reconcile could never reverse — the exact path-disagreement #690 fixes.
+        // off-switch/reconcile could never reverse - the exact path-disagreement #690 fixes.
         const string thirdPartyProvider = "Some.ThirdParty.LdapAuthenticationProvider";
         var config = new PluginConfiguration { DisablePasswordLogin = true, BreakGlassAdminUsername = "root" };
 
@@ -171,7 +171,7 @@ public class SsoOnlyLoginGuardTests
     [Fact]
     public void ResolveLoginProvider_ModeOn_AlreadySsoAccount_KeepsSsoProvider()
     {
-        // An account already on the SSO provider (a plugin-created natively-SSO account) is left on it — the
+        // An account already on the SSO provider (a plugin-created natively-SSO account) is left on it - the
         // return is a no-op write to the same provider, unchanged from before #690.
         var config = new PluginConfiguration { DisablePasswordLogin = true, BreakGlassAdminUsername = "root" };
 
@@ -199,7 +199,7 @@ public class SsoOnlyLoginGuardTests
     {
         // The enforcement sweep and the break-glass guard identify Jellyfin's built-in password provider by
         // this exact full type name. If a core rename ever diverged from it, EnableSsoOnly would repoint zero
-        // accounts and the guard would misjudge break-glass eligibility — a silent fail-open. The type lives
+        // accounts and the guard would misjudge break-glass eligibility - a silent fail-open. The type lives
         // in Jellyfin.Server.Implementations, which is not a referenceable dependency here, so this pins the
         // contract string: a change to the constant fails CI and forces a deliberate review rather than a
         // silent no-op.

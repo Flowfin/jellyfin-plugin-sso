@@ -22,13 +22,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 /// <see cref="VerifiedIdentity"/> (#473): resolve-or-create the account, build the session parameters, and
 /// mint the session under the in-flight revocation gate, then audit and map to a <see cref="LoginOutcome"/>.
 /// Extracting it here (#160, #318 step 11) leaves the controller's two callbacks a single delegation each,
-/// and keeps the whole tail — every decision from a resolved identity to a minted session — in one flow-tier
+/// and keeps the whole tail - every decision from a resolved identity to a minted session - in one flow-tier
 /// collaborator rather than inline on the controller.
 /// </summary>
 /// <remarks>
 /// The entrypoint takes a <see cref="VerifiedIdentity"/> and nothing rawer, so the compile-time "no mint
 /// without validation" property the keystone establishes is preserved across the extraction: there is no
-/// overload that accepts an unvalidated response. This flow tier holds no <c>HttpContext</c> dependency —
+/// overload that accepts an unvalidated response. This flow tier holds no <c>HttpContext</c> dependency -
 /// the controller passes the normalized client remote endpoint in as a resolver (#177), exactly as it does
 /// for <see cref="SessionMinter"/>.
 /// </remarks>
@@ -61,8 +61,8 @@ internal sealed class LoginCompletionService
     /// <summary>
     /// Completes a login from its fully-verified identity: resolve-or-create the account, build the session
     /// parameters, and mint the session under the in-flight revocation gate. Taking a
-    /// <see cref="VerifiedIdentity"/> — the only type either protocol can produce, and only after full
-    /// validation — is what makes minting from a raw, unvalidated response a compile error: there is no
+    /// <see cref="VerifiedIdentity"/> - the only type either protocol can produce, and only after full
+    /// validation - is what makes minting from a raw, unvalidated response a compile error: there is no
     /// overload that accepts anything else. The only per-protocol input left is the adoption gate (OpenID may
     /// require a verified email #218; SAML passes <see cref="AdoptionGate.None"/>), so it is a parameter;
     /// every other divergence collapsed into the identity's own fields (its link namespace, audit label,
@@ -72,7 +72,7 @@ internal sealed class LoginCompletionService
     /// <param name="response">The client's auth request context (app/device), carried into the session mint.</param>
     /// <param name="config">The provider configuration governing authorization/folder/default-provider grants.</param>
     /// <param name="adoptionGate">The extra proof a same-named adoption must clear (#218).</param>
-    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log (#177); the controller reads it from <c>HttpContext</c> and passes it in so this tier stays HttpContext-free. Evaluated at the original point inside the minter — after avatar/persistence, and not at all on the fail-closed path.</param>
+    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log (#177); the controller reads it from <c>HttpContext</c> and passes it in so this tier stays HttpContext-free. Evaluated at the original point inside the minter - after avatar/persistence, and not at all on the fail-closed path.</param>
     /// <param name="logoutContext">The optional Single Logout material captured at the callback (the OpenID id_token/sid or the SAML SessionIndex, #727); persisted after the mint only when <c>EnableSingleLogout</c> is on. Null (the default) skips the capture.</param>
     /// <returns>The HTTP result for the completed (or refused) login.</returns>
     internal async Task<ActionResult> CompleteAsync(
@@ -101,8 +101,8 @@ internal sealed class LoginCompletionService
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccountLinkForbidden));
         }
 
-        // Pending-approval gate (#737): a resolved account that is disabled — a brand-new user just
-        // provisioned inert under ProvisionNewUsersDisabled, OR any account an administrator disabled — must
+        // Pending-approval gate (#737): a resolved account that is disabled - a brand-new user just
+        // provisioned inert under ProvisionNewUsersDisabled, OR any account an administrator disabled - must
         // not be issued a session. This single read-only check fails closed for both the first login (the
         // account was just created disabled above) and every later login of a still-pending account, and it
         // fires BEFORE any SSO-only repoint or mint side effect. It never disables an account; it only refuses
@@ -160,7 +160,7 @@ internal sealed class LoginCompletionService
 
     // Persist the per-session Single Logout state (#727, SLO-1b), only when the feature is on. Runs AFTER a
     // successful mint and is fully fail-safe: the session is already live, so a capture problem must never
-    // turn a good login into a failure — any error is logged and swallowed. Keyed by the minted session id
+    // turn a good login into a failure - any error is logged and swallowed. Keyed by the minted session id
     // (never a secret); a missing session id or logout context simply skips capture.
     private void CaptureLogoutState(VerifiedIdentity identity, Guid userId, LogoutContext? logoutContext, AuthenticationResult authenticationResult)
     {

@@ -13,8 +13,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 /// </summary>
 /// <remarks>
 /// Jellyfin has no server-wide "disable password login" switch (see SSO-ONLY-LOGIN-DESIGN.md §2); the only
-/// lever is the per-user provider id. Setting it to <see cref="SsoProviderId"/> — a value that is NOT a
-/// registered <c>IAuthenticationProvider</c> — makes Jellyfin route that account's password attempts to its
+/// lever is the per-user provider id. Setting it to <see cref="SsoProviderId"/> - a value that is NOT a
+/// registered <c>IAuthenticationProvider</c> - makes Jellyfin route that account's password attempts to its
 /// <c>InvalidAuthenticationProvider</c>, which rejects every password. This is the exact same pinned value
 /// (<see cref="SsoManagedProviderId"/>) that <see cref="CanonicalLinkService"/> stamps on the accounts it
 /// creates, so the stamp and this detector can never disagree. Restoring
@@ -24,7 +24,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 internal static class SsoAuthenticationProviders
 {
     /// <summary>
-    /// Jellyfin's built-in password provider — the account routing that native (username + password) login
+    /// Jellyfin's built-in password provider - the account routing that native (username + password) login
     /// uses. Restoring it is the reversible off-switch (SSO-ONLY-LOGIN-DESIGN.md §3 option B); it never
     /// touches the stored password hash. This is the same full type name the config page documents as the
     /// common "Set default Provider" value.
@@ -34,8 +34,8 @@ internal static class SsoAuthenticationProviders
     /// <summary>
     /// Gets the provider id that disables native password login for an account: a value that resolves to no
     /// registered password provider (so core substitutes its <c>InvalidAuthenticationProvider</c>). It is the
-    /// pinned <see cref="SsoManagedProviderId.Value"/> — the exact string <see cref="CanonicalLinkService"/>
-    /// stamps on created accounts — so the stamp and this detector are guaranteed identical. Pinned to a
+    /// pinned <see cref="SsoManagedProviderId.Value"/> - the exact string <see cref="CanonicalLinkService"/>
+    /// stamps on created accounts - so the stamp and this detector are guaranteed identical. Pinned to a
     /// fixed literal (rather than derived from the controller's runtime type name) precisely so a future move
     /// of that type never orphans the already-persisted accounts that carry this literal (#837).
     /// </summary>

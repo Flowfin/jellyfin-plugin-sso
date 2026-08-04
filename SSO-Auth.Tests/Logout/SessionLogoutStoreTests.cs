@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
 /// <summary>
-/// Tests for <see cref="SessionLogoutStore"/> — the bounded, pure operations over the Single Logout session
+/// Tests for <see cref="SessionLogoutStore"/> - the bounded, pure operations over the Single Logout session
 /// store (#727): capture with TTL + cap eviction, removal, and the by-subject lookup the SAML SLO path uses.
 /// </summary>
 public class SessionLogoutStoreTests
