@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using Jellyfin.Plugin.SSO_Auth.Api.Net;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
@@ -22,10 +21,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// defense mirroring the login path's issuer checks). A mismatch yields <c>null</c> (local-only logout).
 /// </description></item>
 /// <item><description>
-/// <b><c>post_logout_redirect_uri</c> allow-listing.</b> The return URL is included only when it normalizes
-/// (via <see cref="CanonicalBaseUrl"/>) and sits at or under this server's canonical base - so logout can
-/// only return the browser to this Jellyfin, never to an attacker site. An absent, malformed, or off-base
-/// value is simply omitted; the logout still happens, without a redirect back.
+/// <b><c>post_logout_redirect_uri</c> allow-listing.</b> The return URL is included only when
+/// <see cref="IsAllowedPostLogoutRedirect"/> accepts it, i.e. when it parses as an absolute http(s) URL and
+/// sits at or under this server's canonical base under the rule stated there - so logout returns the browser
+/// to this Jellyfin or nowhere. The value is admin-configured rather than request-supplied, and the OP
+/// matches it against its own registered URI as well, so this is the RP-side half of a two-sided check. An
+/// absent, malformed, or off-base value is simply omitted; the logout still happens, without a redirect back.
 /// </description></item>
 /// </list>
 /// A blank <c>end_session_endpoint</c> (the OP advertises none, or discovery was unreachable) yields
@@ -105,10 +106,27 @@ internal static class OidcLogout
             && a.Port == b.Port;
 
     /// <summary>
-    /// Whether a <c>post_logout_redirect_uri</c> candidate is allowed: it normalizes to a valid http(s) URL
-    /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/> (same origin +
-    /// path prefix), so a logout can only return the browser to this Jellyfin. The SINGLE source of truth for
-    /// the return-URL rule - the runtime builder above and the save-time
+    /// Whether a <c>post_logout_redirect_uri</c> candidate is allowed: it parses as an absolute http(s) URL
+    /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/>, so a logout
+    /// can only return the browser to this Jellyfin. Both sides are reduced to the origin+path form
+    /// <see cref="Uri.GetLeftPart"/> canonicalizes to, with any trailing slash trimmed, and "at or under" is
+    /// then three conditions:
+    /// <list type="number">
+    /// <item><description>the SAME authority - scheme, host (<c>OrdinalIgnoreCase</c>, which for the ASCII
+    /// hosts Uri lower-cases makes host case irrelevant) and effective port - so a sibling host such as
+    /// <c>base.example.com.evil.net</c> and any subdomain of the base are refused;</description></item>
+    /// <item><description>no percent-escape and no <c>;</c> segment parameter anywhere in the path, because
+    /// Uri leaves both intact and a hop that decodes or strips them would resolve the path outside the base
+    /// after this check has passed;</description></item>
+    /// <item><description>a path that EQUALS the base path or continues it at a SEGMENT boundary, compared
+    /// ordinally, so URL path case is significant - under a base of <c>https://host/jellyfin</c>,
+    /// <c>/jellyfin</c> and <c>/jellyfin/web</c> are under it while <c>/jellyfinevil/x</c> and
+    /// <c>/JELLYFIN/x</c> are not.</description></item>
+    /// </list>
+    /// A query and a fragment on the candidate are outside the containment check and ride along into the
+    /// emitted URL; they cannot move the target off this server, which is what the check exists for. The
+    /// value returned in <paramref name="allowed"/> is the candidate itself, trimmed. The SINGLE source of
+    /// truth for the return-URL rule - the runtime builder above and the save-time
     /// <c>ProviderConfigValidator.ValidatePostLogoutRedirectUri</c> both call it, so the config-page save
     /// rejects exactly the values the runtime would silently drop (no second, divergent URL rule). A blank
     /// candidate or blank base yields <see langword="false"/>.
@@ -131,8 +149,8 @@ internal static class OidcLogout
             return false;
         }
 
-        // Same authority as the canonical base, and its path is under the base path - a prefix check on the
-        // canonicalized origin+path, so a sibling host or a path-traversal cannot slip through.
+        // Same authority as the canonical base, so a sibling host (a suffix of the base host) or a subdomain
+        // of it is a different server and cannot slip through.
         if (!IsSameAuthority(candidateUri, baseUri))
         {
             return false;
@@ -140,12 +158,31 @@ internal static class OidcLogout
 
         var basePath = baseUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
         var candidatePath = candidateUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
-        if (!candidatePath.StartsWith(basePath, StringComparison.Ordinal))
+
+        // The path is compared in the form Uri canonicalizes it to, and that form is only as good as what the
+        // NEXT hop does with it. Uri resolves literal and %2e dot segments here, but leaves every other
+        // escape escaped and keeps a ";" segment parameter, so "/jellyfin/..%2f..%2fevil" and
+        // "/jellyfin/..;/evil" would satisfy the boundary rule below and still resolve outside the base at any
+        // proxy that decodes or strips them. Enumerating the dangerous escapes does not close that: %252f and
+        // %3b reach the same place one decoding hop further out. A return URL to this server needs no escape
+        // in its path at all, so refuse the whole family rather than guess how the next hop normalizes (#1181).
+        if (candidatePath.Contains('%') || candidatePath.Contains(';'))
         {
             return false;
         }
 
-        allowed = candidate;
+        // Then the boundary itself: the candidate must EQUAL the base path or continue it at a SEGMENT
+        // boundary. A plain string prefix is not enough - under a base of "https://host/jellyfin" it would
+        // accept "https://host/jellyfinevil/x", a different application on the same reverse-proxied hostname.
+        if (!candidatePath.StartsWith(basePath, StringComparison.Ordinal)
+            || (candidatePath.Length != basePath.Length && candidatePath[basePath.Length] != '/'))
+        {
+            return false;
+        }
+
+        // Trimmed, because Uri.TryCreate above parsed the trimmed form: a padded value would otherwise be
+        // emitted with its padding and fail the OP's exact match against the registered URI.
+        allowed = candidate.Trim();
         return true;
     }
 

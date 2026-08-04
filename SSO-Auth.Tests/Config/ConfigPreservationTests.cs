@@ -144,6 +144,35 @@ public class ConfigPreservationTests
     }
 
     [Fact]
+    public void AllowPrivateNetworkAddresses_AbsentFromAStoredConfig_DeserializesOff()
+    {
+        // The upgrade arrival path (#1178): a config.xml written before the field existed carries no element
+        // for it, and every installation that upgrades takes exactly this path. An absent element leaves the
+        // property at the type's default, which is why the flag is named positively - a negatively named one
+        // would have defaulted to the relaxed transport on every existing installation at once.
+        var serializer = new XmlSerializer(typeof(OidConfig));
+        using var writer = new System.IO.StringWriter();
+        serializer.Serialize(writer, new OidConfig { OidClientId = "client", AllowPrivateNetworkAddresses = true });
+        var xml = writer.ToString();
+
+        // Prove the element is present before it is removed, so the removal below cannot be a silent no-op
+        // that would let this test pass against a config that never had the flag serialized at all.
+        const string Element = "<AllowPrivateNetworkAddresses>true</AllowPrivateNetworkAddresses>";
+        Assert.Contains(Element, xml, StringComparison.Ordinal);
+
+        using var reader = new System.IO.StringReader(xml.Replace(Element, string.Empty, StringComparison.Ordinal));
+        using var xmlReader = System.Xml.XmlReader.Create(
+            reader,
+            new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });
+        var restored = (OidConfig)serializer.Deserialize(xmlReader)!;
+
+        Assert.False(restored.AllowPrivateNetworkAddresses);
+
+        // The rest of the stored provider still loads, so this is the upgrade path and not a parse failure.
+        Assert.Equal("client", restored.OidClientId);
+    }
+
+    [Fact]
     public void CanonicalLinkIssuers_AreOmittedFromJson_ButKeptInXml()
     {
         // The issuer map is server-managed exactly like CanonicalLinks (#186/#157): withheld from JSON so it

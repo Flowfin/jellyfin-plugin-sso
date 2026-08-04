@@ -1,105 +1,160 @@
 name: Publish failure alert
 
-# Release-channel watchdog (#982). A scheduled or dispatched publish that fails does NOT email me the
-# way a push failure to the author does, so a broken release channel can go unnoticed - the 2026-07-23
-# beta.12 incident: the GitHub release was created but the manifest commit failed on a jq arg-length
-# error, and nothing alerted, so the build silently never reached Jellyfin until a user noticed.
+# Default-branch watchdog (#982, widened in #1015). A run that is not a required pull-request check does
+# NOT email me the way a push failure to the author does, so a workflow can stay red on `main` unnoticed:
+#  - the 2026-07-23 beta.12 incident, where the GitHub release was created but the manifest commit failed
+#    on a jq arg-length error and the build silently never reached Jellyfin until a user noticed;
+#  - `Wiki Lint` failing on `main` nine times in a row over fifteen hours (#1015), surfaced only because
+#    the maintainer happened to open the run log.
 #
-# This watches the nightly scheduler, the release-publish workflows, and the manifest-freshness check
-# and, on any non-success outcome, opens or updates a single tracking issue (label release-alert)
-# naming the failed run - turning a silent failure into an active, visible signal.
+# The first version of this file was event-driven and watched an ENUMERATED list of six workflow names,
+# which is why the second incident went unseen: `Wiki Lint` was not on the list, and neither was any other
+# scheduled or push-only guard. Coverage is now a PROPERTY, derived by asking the run list which runs on
+# the default branch concluded non-success, so a workflow added to this repository is watched the day it
+# lands and there is nothing to register anywhere. Outside these comments the file names no workflow at
+# all: strip the comment lines and no workflow name is left to go stale.
+#
+# Why a sweep and not a `workflow_run` trigger. Watching every workflow by event needs a `workflow_run`
+# trigger with no `workflows:` filter, and this repository's own workflow audit refuses to parse that
+# ("data did not match any variant of untagged enum Trigger"), so the enumeration cannot simply be
+# deleted. The sweep expresses the same property against the API instead, it can be exercised on demand
+# with `dry_run` below, and it costs latency: a failure is reported at the next tick rather than within
+# a minute of the run ending.
 #
 # Uses only the built-in gh CLI with the workflow token; no third-party action, so nothing to SHA-pin.
-# A workflow_run workflow always runs from the default branch with the default-branch definition, which
-# is why it can react to a failure in a workflow that itself runs on a schedule.
 
-# Documented accept for the zizmor `dangerous-triggers` finding on the workflow_run trigger below:
-# workflow_run is flagged because it runs with the elevated default-branch token and secrets, which is
-# dangerous ONLY when a workflow then checks out or executes the triggering run's (attacker-influenceable)
-# code or artifacts. This watchdog does neither: it never checks out any ref, downloads no artifact, and
-# only reads the public release list and files/updates an issue whose body is built entirely from
-# env-passed values (no ${{ }} shell splicing). Its token is least-privilege (issues: write). So the
-# audit's precondition for exploitability is absent here.
-on: # zizmor: ignore[dangerous-triggers]
-  workflow_run:
-    workflows:
-      - "Nightly betas" # the scheduler: if it dies, no beta is dispatched at all
-      - "Publish Beta"
-      - "Publish JF12 Beta"
-      - "Publish Release"
-      - "Publish JF12 Stable"
-      - "Manifest freshness" # the freshness monitor: its own failure must also surface
-    types: [completed]
+on:
+  schedule:
+    # Every half hour. The incident this exists for ran fifteen hours unseen, so the tick length is the
+    # worst-case delay on a signal that previously never arrived at all.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be filed to the run log, and open or update no issue."
+        type: boolean
+        default: true
 
-# Deny-all at the workflow level; the job opts into the single grant it needs.
+# Deny-all at the workflow level; the job opts into the two grants it needs.
 permissions: {}
 
-# Never run two alert jobs at once; never cancel one mid-flight (it may be creating/commenting an issue).
-# Serializing also closes the two-runs-fail race: run B sees the issue run A created and comments on it
+# Never run two sweeps at once; never cancel one mid-flight (it may be creating/commenting an issue).
+# Serializing also closes the two-sweeps race: sweep B sees the issue sweep A created and comments on it
 # instead of creating a duplicate.
 concurrency:
   group: publish-failure-alert
   cancel-in-progress: false
 
 jobs:
-  alert:
-    name: Open or update the release-failure tracking issue
-    # Fire on any non-success terminal outcome - expressed as a DENYLIST so a new/rare conclusion class is
-    # caught by default rather than silently dropped. The beta.12 mode (release created, then the job dies
-    # before the manifest commit) can surface as `failure`, `timed_out`, or `startup_failure` (a YAML/
-    # config error), and GitHub also has `neutral` / `action_required` / `stale` - all of which should
-    # alert. Only `success` and `skipped` (e.g. the gate job short-circuits an unchanged day) are no-ops;
-    # `cancelled` is treated as an intentional human action and is not alerted.
-    if: >-
-      ${{ github.event.workflow_run.conclusion != 'success'
-       && github.event.workflow_run.conclusion != 'skipped'
-       && github.event.workflow_run.conclusion != 'cancelled' }}
+  sweep:
+    name: Report any workflow that concluded non-success on the default branch
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only permission needed: file/update an issue (and its label). No contents, no actions.
     permissions:
+      # Read the run list, and file or update the tracking issue. Nothing else: no contents, so the job
+      # cannot write to the tree, and no ability to re-run or cancel anything.
+      actions: read
       issues: write
     steps:
-      - name: File or update the alert issue
-        # All run inputs are passed via env, never spliced into the shell as ${{ }}.
+      - name: Sweep the default branch and file or update the alert issue
+        # All values reaching the shell are passed via env, never spliced in as ${{ }}.
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          WF_NAME: ${{ github.event.workflow_run.name }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          EVENT: ${{ github.event.workflow_run.event }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+          SELF: ${{ github.workflow }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          # Only failures this recent are reported. The window is what keeps a long-dead red run from
+          # re-opening the tracking issue every time the issue is closed: after the cause is fixed and the
+          # issue closed, nothing older than this can resurrect it.
+          WINDOW_HOURS: "24"
         run: |
           set -euo pipefail
 
-          # Self-provision the dedup label so the alerter never dies on a missing/deleted label (the
-          # create path is the first-fire path). --force makes it idempotent; failure here is non-fatal.
+          cutoff=$(date -u -d "-${WINDOW_HOURS} hours" +%Y-%m-%dT%H:%M:%SZ)
+
+          # The derived set. No workflow is named: every run on the default branch is examined and the
+          # conclusion decides. The conclusion test is a DENYLIST so a new or rare conclusion class is
+          # caught by default rather than silently dropped - `failure`, `timed_out` and `startup_failure`
+          # (a YAML/config error) all alert, and so do `neutral`, `action_required` and `stale`. Only
+          # `success` and `skipped` are no-ops, `cancelled` is treated as an intentional human action, and
+          # an empty conclusion means the run has not finished. This workflow excludes itself so that a
+          # failing sweep does not sweep up its own failure; both sides of that test come from this same
+          # file, so renaming the workflow keeps it correct with no second place to edit.
+          gh run list --repo "$REPO" --branch "$BRANCH" --limit 100 \
+            --json workflowName,conclusion,url,event,updatedAt > runs.json
+          jq -r --arg self "$SELF" --arg cutoff "$cutoff" '
+            .[]
+            | select(.workflowName != $self)
+            | select(.updatedAt >= $cutoff)
+            | select((.conclusion // "") as $c
+                     | $c != "success" and $c != "skipped" and $c != "cancelled" and $c != "")
+            | [.url, .conclusion, .event, .workflowName] | @tsv
+          ' runs.json > red.tsv
+
+          echo "Examined $(jq length runs.json) run(s) on ${BRANCH}; $(wc -l < red.tsv) non-success since ${cutoff}."
+          if [ ! -s red.tsv ]; then
+            echo "Nothing red. No issue filed."
+            exit 0
+          fi
+
+          # Self-provision the dedup label so the sweep never dies on a missing/deleted label (the create
+          # path is the first-fire path). --force makes it idempotent; failure here is non-fatal.
           gh label create release-alert --repo "$REPO" --color B60205 \
-            --description "Automated alert: a release channel may be broken/stale (see #982)" \
+            --description "Automated alert: a workflow concluded non-success on the default branch (see #982, #1015)" \
             --force >/dev/null 2>&1 || true
 
-          title="Release publish/monitoring failed - a channel may be silently stale"
-          body="The **${WF_NAME}** workflow run ended with conclusion \`${CONCLUSION}\` (trigger: ${EVENT}).
-
-          A scheduled publish or monitoring failure is not emailed, so a release channel may not have
-          updated and installs can go stale unnoticed.
-
-          Failed run: ${RUN_URL}
-
-          What to check: whether a GitHub release was created but its channel manifest was not committed
-          (the beta.12 failure mode). Fix the cause, re-run the publish, then confirm the channel
-          manifest lists the newest release. Close this issue once the channel is fresh again.
-
-          Refs #982."
-
           # The release-alert label is the dedup key: one open tracking issue, updated by comment, so a
-          # run of failures does not spam a new issue each night.
+          # guard that flaps files one issue and comments on it rather than filing an issue per failure.
+          # The label name is kept from #982 so a tracking issue that is already open stays the one this
+          # finds. Everything already written on that issue is the second dedup key: a run whose URL is
+          # there has been reported, and every later sweep passes over it in silence.
           num=$(gh issue list --repo "$REPO" --state open --label release-alert \
             --json number --jq '.[0].number // empty')
+          reported=""
           if [ -n "${num:-}" ]; then
-            echo "Updating existing alert issue #${num}"
-            gh issue comment "$num" --repo "$REPO" --body "$body"
-          else
-            echo "No open alert issue; creating one"
-            gh issue create --repo "$REPO" --title "$title" --label release-alert --body "$body"
+            reported=$(gh issue view "$num" --repo "$REPO" --json body,comments \
+              --jq '.body, (.comments[].body)')
           fi
+
+          while IFS=$'\t' read -r url conclusion event wf_name; do
+            case "$reported" in
+              *"$url"*)
+                echo "Already reported, skipping: ${url}"
+                continue
+                ;;
+            esac
+
+            body="The **${wf_name}** workflow run on \`${BRANCH}\` ended with conclusion \`${conclusion}\` (trigger: ${event}).
+
+          A failure on the default branch is not a required pull-request check and is not emailed, so it
+          can stay red while every pull request shows green. If this was a publish or monitoring workflow,
+          a release channel may also not have updated and installs can go stale unnoticed.
+
+          Failed run: ${url}
+
+          What to check: the run log first. For a publish or monitoring workflow, check whether a GitHub
+          release was created but its channel manifest was not committed (the beta.12 failure mode), then
+          fix the cause, re-run the publish and confirm the channel manifest lists the newest release. For
+          any other workflow, fix the cause and re-run it green on the default branch. Close this issue
+          once nothing is red.
+
+          Refs #982, #1015."
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "DRY RUN, filing nothing. Would report ${wf_name} (${conclusion}) ${url}"
+              continue
+            fi
+
+            if [ -n "${num:-}" ]; then
+              echo "Updating existing alert issue #${num} with ${url}"
+              gh issue comment "$num" --repo "$REPO" --body "$body"
+            else
+              echo "No open alert issue; creating one for ${url}"
+              num=$(gh issue create --repo "$REPO" --label release-alert \
+                --title "A workflow concluded non-success on the default branch" \
+                --body "$body" | grep -o '[0-9]*$')
+            fi
+            reported="${reported}
+          ${url}"
+          done < red.tsv
