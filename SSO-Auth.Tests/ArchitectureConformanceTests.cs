@@ -590,6 +590,42 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void OutboundConnectGuard_ResolvesTheHostOnce_AndConnectsToTheAddressItJudged()
+    {
+        // The guard is only worth anything if the address it judged is the address the socket reaches. A
+        // second name resolution between the check and the connect, or a connect aimed at the host name
+        // instead of the validated address, reopens DNS rebinding exactly: the attacker's name resolves to
+        // a public address for the check and to an internal one for the connect. That property lives in
+        // three lines of ConnectToAllowedAddressAsync and no runtime test can observe it without a
+        // controllable resolver, so pin it at the source - the same way this file pins the other
+        // call-level invariants.
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Net", "SsoHttp.cs"));
+
+        // Exactly one resolution, and the host name is read only to perform it.
+        Assert.Equal(1, CountOccurrences(source, "GetHostAddressesAsync"));
+        Assert.Equal(1, CountOccurrences(source, "context.DnsEndPoint.Host"));
+
+        // The value that is judged and the value that is connected to are the same local.
+        Assert.Contains("IpAddressClassifier.IsBlockedAddress(address, policy)", source, StringComparison.Ordinal);
+        Assert.Contains("socket.ConnectAsync(address, context.DnsEndPoint.Port", source, StringComparison.Ordinal);
+
+        // The tier comes from the handler that captured it, never from the request, so a redirect hop is
+        // judged under the tier the connection started on.
+        Assert.Contains("ConnectToAllowedAddressAsync(context, policy, cancellationToken)", source, StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    [Fact]
     public void PrivateNetworkRelaxation_NeverReachesTheAvatarFetchOrTheSamlMetadataImporter()
     {
         // #1179's stated failure mode is a leak of the private-network relaxation to a caller that never
