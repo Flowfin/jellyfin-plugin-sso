@@ -1848,6 +1848,32 @@
                         <label>
                           <input
                             is="emby-checkbox"
+                            id="AllowPrivateNetworkAddresses"
+                            name="AllowPrivateNetworkAddresses"
+                            type="checkbox"
+                            class="sso-toggle"
+                          />
+                          <span
+                            >Allow Private Network Addresses (Insecure)</span
+                          >
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                          ⚠ Insecure: relaxes the outbound SSRF / DNS-rebind
+                          guard for this provider, allowing connection to an
+                          OIDC provider hosted on a private network. Permits RFC
+                          1918, CGNAT and IPv6 unique-local addresses. Loopback,
+                          link-local and cloud-metadata ranges remain blocked.
+                          Leave off for any provider reachable on the public
+                          internet. Enabling it is recorded as an audit warning.
+                        </div>
+                      </div>
+
+                      <div
+                        class="checkboxContainer checkboxContainer-withDescription"
+                      >
+                        <label>
+                          <input
+                            is="emby-checkbox"
                             id="DoNotValidateIssuerName"
                             name="DoNotValidateIssuerName"
                             type="checkbox"

@@ -45,6 +45,14 @@ internal static class OidcInsecureToggles
             enabled.Add(nameof(OidConfig.DoNotValidateEndpoints));
         }
 
+        // Ordered after DoNotValidateEndpoints and before DoNotValidateResponseIssuer (#1178): it widens
+        // where the backchannel is allowed to connect, but switches off no signature, issuer or transport
+        // check - a smaller downgrade than the three above it, a larger one than the mix-up defence below.
+        if (config.AllowPrivateNetworkAddresses)
+        {
+            enabled.Add(nameof(OidConfig.AllowPrivateNetworkAddresses));
+        }
+
         // RFC 9207 response-iss check (#125): last because it is defence-in-depth on top of the
         // per-provider callback binding, which already resists the classic mix-up on its own.
         if (config.DoNotValidateResponseIssuer)

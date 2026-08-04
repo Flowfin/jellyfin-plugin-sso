@@ -4,10 +4,14 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
+using MediaBrowser.Controller;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Xunit;
 
@@ -85,6 +89,333 @@ public class SsoHttpTests
         Assert.Contains("blocked address", ex.Message, StringComparison.OrdinalIgnoreCase);
         // And nothing reached the socket: the listener never accepted a connection.
         Assert.False(listener.Accepted, "the SSRF guard let a socket reach the blocked loopback listener");
+    }
+
+    [Fact]
+    public void CreateClient_WithoutTheOptIn_ResolvesTheStrictNamedClient()
+    {
+        // Strict by default is the whole safety property of #1179: SamlMetadataImporter and any future
+        // caller pass no flag, so they must keep landing on the fully-guarded client. A default that
+        // leaked the other way would relax the guard for callers that never asked.
+        using var factoryClient = new HttpClient();
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(SsoHttp.OutboundClientName).Returns(factoryClient);
+
+        Assert.Same(factoryClient, SsoHttp.CreateClient(factory));
+        Assert.Same(factoryClient, SsoHttp.CreateClient(factory, allowPrivateNetworkAddresses: false));
+
+        factory.Received(2).CreateClient(SsoHttp.OutboundClientName);
+        factory.DidNotReceive().CreateClient(SsoHttp.PrivateOutboundClientName);
+    }
+
+    [Fact]
+    public void CreateClient_WithTheOptIn_ResolvesThePrivatePermittedNamedClient()
+    {
+        // The relaxation is baked into WHICH client is resolved, not carried as an ambient per-request
+        // mode: the handlers are long-lived and shared across concurrent logins, so a mode that is not part
+        // of the client's identity could leak to a provider that never opted in.
+        using var factoryClient = new HttpClient();
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(SsoHttp.PrivateOutboundClientName).Returns(factoryClient);
+
+        var client = SsoHttp.CreateClient(factory, allowPrivateNetworkAddresses: true);
+
+        Assert.Same(factoryClient, client);
+        factory.Received(1).CreateClient(SsoHttp.PrivateOutboundClientName);
+        factory.DidNotReceive().CreateClient(SsoHttp.OutboundClientName);
+        Assert.Equal(SsoHttp.UserAgent, client.DefaultRequestHeaders.UserAgent.ToString());
+    }
+
+    [Fact]
+    public void TheTwoOutboundClientNames_AreDistinct()
+    {
+        // If these ever collide, one registration silently wins and every caller shares whichever tier that
+        // was - the leak this whole design exists to prevent.
+        Assert.NotEqual(SsoHttp.OutboundClientName, SsoHttp.PrivateOutboundClientName);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1")] // IPv4 loopback literal
+    [InlineData("http://[::1]")] // IPv6 loopback literal
+    [InlineData("http://169.254.169.254")] // link-local cloud metadata endpoint
+    [InlineData("http://[fe80::1]")] // IPv6 link-local
+    [InlineData("http://192.0.0.192")] // IETF protocol assignments (Oracle Cloud metadata)
+    [InlineData("http://localhost")] // a NAME that resolves to loopback
+    public async Task PrivatePermittedHandler_StillRefusesTheNeverRelaxableAddresses(string baseUrl)
+    {
+        // The opt-in widens the guard to the admin's own network - it must not open the ranges #1058 said
+        // stay closed regardless. The live loopback listener again proves the refusal happens BEFORE any
+        // socket reaches it.
+        using var listener = new BlockedListener();
+        using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        var target = $"{baseUrl}:{listener.Port}/";
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetAsync(target, TestContext.Current.CancellationToken));
+
+        Assert.Contains("blocked address", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(listener.Accepted, "the private-permitted guard let a socket reach a never-relaxable listener");
+    }
+
+    [Fact]
+    public async Task PrivatePermittedHandler_ConnectsToAnRfc1918Address_WhereTheStrictOneRefuses()
+    {
+        // The reproduction from #1058, at the socket layer: an IdP on the admin's own LAN. Bind a real
+        // listener to this machine's own private-range interface address and drive both handlers at it -
+        // the strict one must refuse before connecting, the private-permitted one must get through.
+        var privateAddress = FindLocalPrivateAddress();
+        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+
+        using var listener = new PrivateListener(privateAddress!);
+        var target = $"http://{privateAddress}:{listener.Port}/";
+
+        using (var strictHandler = SsoHttp.CreateHardenedHandler())
+        using (var strictClient = new HttpClient(strictHandler) { Timeout = TimeSpan.FromSeconds(10) })
+        {
+            var ex = await Assert.ThrowsAsync<HttpRequestException>(
+                () => strictClient.GetAsync(target, TestContext.Current.CancellationToken));
+
+            // The exact failure the reporter saw, from SsoHttp's own diagnostics.
+            Assert.Contains("The outbound host resolves only to blocked addresses.", ex.Message, StringComparison.Ordinal);
+            Assert.False(listener.Accepted, "the strict guard connected to a private address");
+        }
+
+        using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        using var response = await client.GetAsync(target, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(listener.Accepted, "the private-permitted guard did not reach the private-address listener");
+    }
+
+    [Fact]
+    public async Task CompositionRoot_GivesEachOutboundName_ItsOwnTier()
+    {
+        // Which tier a name carries is decided in SsoOnlyServiceRegistrator, and until now nothing read that
+        // decision back. The conformance rosters allow that file to name the relaxation, and the tests above
+        // build handlers directly - so registering the STRICT name with the relaxed policy would have
+        // relaxed every caller that names no tier, including the SAML metadata importer, with the whole
+        // suite still green. This drives the two registered names at a real socket instead.
+        var privateAddress = FindLocalPrivateAddress();
+        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        new SsoOnlyServiceRegistrator().RegisterServices(services, Substitute.For<IServerApplicationHost>());
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IHttpClientFactory>();
+
+        using var listener = new PrivateListener(privateAddress!);
+        var target = $"http://{privateAddress}:{listener.Port}/";
+
+        using (var strict = factory.CreateClient(SsoHttp.OutboundClientName))
+        {
+            strict.Timeout = TimeSpan.FromSeconds(10);
+            var ex = await Assert.ThrowsAsync<HttpRequestException>(
+                () => strict.GetAsync(target, TestContext.Current.CancellationToken));
+
+            Assert.Contains("The outbound host resolves only to blocked addresses.", ex.Message, StringComparison.Ordinal);
+            Assert.False(listener.Accepted, "the registered strict client connected to a private address");
+        }
+
+        using var relaxed = factory.CreateClient(SsoHttp.PrivateOutboundClientName);
+        relaxed.Timeout = TimeSpan.FromSeconds(10);
+        using var response = await relaxed.GetAsync(target, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(listener.Accepted, "the registered private-permitted client did not reach the private-address listener");
+    }
+
+    // This machine's own RFC 1918 / CGNAT interface address, or null when it has none (a container on a
+    // public address, or loopback-only) - the test skips rather than asserting on an absent network. Read
+    // from the interfaces rather than by resolving the host name, which is not resolvable on every machine.
+    private static IPAddress? FindLocalPrivateAddress()
+    {
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up || nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+            {
+                continue;
+            }
+
+            foreach (var info in nic.GetIPProperties().UnicastAddresses)
+            {
+                var address = info.Address;
+                if (address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(address))
+                {
+                    continue;
+                }
+
+                var b = address.GetAddressBytes();
+                var isPrivate = b[0] == 10
+                    || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+                    || (b[0] == 192 && b[1] == 168)
+                    || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
+                if (isPrivate)
+                {
+                    return address;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // A minimal HTTP listener bound to a private-range address - it answers 204, so a successful response
+    // proves the connection actually completed rather than merely not being refused at the guard.
+    private sealed class PrivateListener : IDisposable
+    {
+        private readonly Socket _socket;
+        private readonly CancellationTokenSource _cts = new();
+
+        internal PrivateListener(IPAddress address)
+        {
+            _socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            _socket.Bind(new IPEndPoint(address, 0));
+            _socket.Listen(16);
+            Port = ((IPEndPoint)_socket.LocalEndPoint!).Port;
+            _ = AcceptLoopAsync(_cts.Token);
+        }
+
+        internal int Port { get; }
+
+        internal bool Accepted { get; private set; }
+
+        private async Task AcceptLoopAsync(CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    using var conn = await _socket.AcceptAsync(token).ConfigureAwait(false);
+                    Accepted = true;
+
+                    var buffer = new byte[2048];
+                    await conn.ReceiveAsync(buffer, SocketFlags.None, token).ConfigureAwait(false);
+                    var response = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray();
+                    await conn.SendAsync(response, SocketFlags.None, token).ConfigureAwait(false);
+                    conn.Shutdown(SocketShutdown.Both);
+                }
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+            {
+                // Listener torn down - expected on dispose.
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _socket.Dispose();
+            _cts.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task PrivatePermittedHandler_JudgesEveryRedirectHop_AndRefusesOneAimedAtLoopback()
+    {
+        // A redirect is a second connection to a host the first response chose, so the guard has to run on
+        // it too - otherwise a permitted first hop becomes an open door to whatever it points at, which is
+        // the DNS-rebind/SSRF shape the guard exists for. Until now the handler's redirect settings were
+        // asserted as properties (AllowAutoRedirect, MaxAutomaticRedirections) but nothing proved a hop was
+        // actually judged.
+        //
+        // The first hop must be an address the tier permits, and the only such address that can be bound
+        // locally is this machine's own private one - so this test needs a private interface address and
+        // skips without one. It runs where the feature matters; the skip is recorded rather than hidden.
+        var privateAddress = FindLocalPrivateAddress();
+        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+
+        using var blocked = new BlockedListener();
+        using var redirector = new RedirectingListener(privateAddress!, _ => $"http://127.0.0.1:{blocked.Port}/");
+        using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetAsync($"http://{privateAddress}:{redirector.Port}/", TestContext.Current.CancellationToken));
+
+        // The first hop was allowed and reached, so the refusal below is the redirect hop being judged and
+        // not the request failing before it ever started.
+        Assert.True(redirector.Requests >= 1, "the private-permitted guard did not reach the permitted first hop");
+        Assert.Contains("blocked address", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(blocked.Accepted, "a redirect hop reached a loopback listener the guard must refuse");
+    }
+
+    [Fact]
+    public async Task PrivatePermittedHandler_StopsAtTheRedirectBoundTheHandlerSets()
+    {
+        // The hop-by-hop guard above is only bounded if the redirect chain is: an IdP that redirects
+        // forever would otherwise spin the connect guard indefinitely. MaxAutomaticRedirections is 5, so a
+        // listener that always redirects to itself must be asked exactly 6 times (the original request plus
+        // five hops) and the client must hand back the last redirect rather than following it.
+        var privateAddress = FindLocalPrivateAddress();
+        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+
+        using var redirector = new RedirectingListener(privateAddress!, port => $"http://{privateAddress}:{port}/next");
+        using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        using var response = await client.GetAsync($"http://{privateAddress}:{redirector.Port}/", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal(6, redirector.Requests);
+    }
+
+    // A TCP listener bound to a given address that answers every request with a 302 to a caller-chosen
+    // location, and counts how many requests it was asked - so a test can prove both that a hop was taken
+    // and how many were.
+    private sealed class RedirectingListener : IDisposable
+    {
+        private readonly Socket _socket;
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Func<int, string> _location;
+        private int _requests;
+
+        internal RedirectingListener(IPAddress address, Func<int, string> location)
+        {
+            _location = location;
+            _socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            _socket.Bind(new IPEndPoint(address, 0));
+            _socket.Listen(16);
+            Port = ((IPEndPoint)_socket.LocalEndPoint!).Port;
+            _ = AcceptLoopAsync(_cts.Token);
+        }
+
+        internal int Port { get; }
+
+        internal int Requests => Volatile.Read(ref _requests);
+
+        private async Task AcceptLoopAsync(CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    using var conn = await _socket.AcceptAsync(token).ConfigureAwait(false);
+                    var buffer = new byte[2048];
+                    await conn.ReceiveAsync(buffer, SocketFlags.None, token).ConfigureAwait(false);
+                    Interlocked.Increment(ref _requests);
+
+                    var response = Encoding.ASCII.GetBytes(
+                        $"HTTP/1.1 302 Found\r\nLocation: {_location(Port)}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    await conn.SendAsync(response, SocketFlags.None, token).ConfigureAwait(false);
+                    conn.Shutdown(SocketShutdown.Both);
+                }
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+            {
+                // Listener torn down - expected on dispose.
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _socket.Dispose();
+            _cts.Dispose();
+        }
     }
 
     // A loopback TCP listener that would accept any connection reaching it - so a passing test proves the

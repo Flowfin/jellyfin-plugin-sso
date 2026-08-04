@@ -11,6 +11,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **OpenID providers on a private network (#1058).** A new per-provider option,
+  **Allow Private Network Addresses**, lets a provider's backchannel
+  (discovery, JWKS, token, userinfo, back-channel logout) reach an identity
+  provider that lives on the administrator's own network. Previously the
+  outbound SSRF / DNS-rebind guard refused every non-public address with no way
+  to say a provider was deliberately internal, so the standard self-hosted shape
+  (Authelia or Keycloak on a `10.x`/`192.168.x` address behind a reverse proxy)
+  failed discovery with _"The outbound host resolves only to blocked
+  addresses"_, and the existing insecure toggles did not help because they relax
+  discovery policy rather than the transport. The option is **off by default**
+  and scoped to the one provider it is set on: it permits RFC 1918, carrier-grade
+  NAT and IPv6 unique-local only, while loopback, link-local and the cloud
+  metadata ranges (`169.254.169.254`, `192.0.0.192`) stay blocked regardless.
+  Every other provider, the avatar fetch and the SAML metadata importer keep the
+  full guard. Enabling it is surfaced as a security downgrade in the config page
+  and recorded in the insecure-toggle audit log.
 - **OpenID role claims carried as an object map.** A new per-provider option,
   **Role claim is an object map**, reads the roles from the property _names_ of
   a JSON object instead of from a list of strings. Zitadel needs it: it emits

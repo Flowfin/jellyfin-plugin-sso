@@ -62,7 +62,9 @@ internal static class ProviderConnectionTester
             return ProviderTestResult.Failure("The configured OpenID Endpoint is not a valid absolute URL (for example https://idp.example.com).");
         }
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger).ConfigureAwait(false);
+        // The probe uses the provider's own transport tier, so "Test connection" reports what the login will
+        // actually do - an opted-in provider on the admin's LAN must not fail here and then succeed at login.
+        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
         if (!discovery.Available)
         {
             // The reader already logged the fail-closed warning (with the library error, never a secret).

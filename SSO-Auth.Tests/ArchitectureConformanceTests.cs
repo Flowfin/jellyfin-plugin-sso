@@ -590,6 +590,97 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void OutboundConnectGuard_ResolvesTheHostOnce_AndConnectsToTheAddressItJudged()
+    {
+        // The guard is only worth anything if the address it judged is the address the socket reaches. A
+        // second name resolution between the check and the connect, or a connect aimed at the host name
+        // instead of the validated address, reopens DNS rebinding exactly: the attacker's name resolves to
+        // a public address for the check and to an internal one for the connect. That property lives in
+        // three lines of ConnectToAllowedAddressAsync and no runtime test can observe it without a
+        // controllable resolver, so pin it at the source - the same way this file pins the other
+        // call-level invariants.
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Net", "SsoHttp.cs"));
+
+        // Exactly one resolution, and the host name is read only to perform it.
+        Assert.Equal(1, CountOccurrences(source, "GetHostAddressesAsync"));
+        Assert.Equal(1, CountOccurrences(source, "context.DnsEndPoint.Host"));
+
+        // The value that is judged and the value that is connected to are the same local.
+        Assert.Contains("IpAddressClassifier.IsBlockedAddress(address, policy)", source, StringComparison.Ordinal);
+        Assert.Contains("socket.ConnectAsync(address, context.DnsEndPoint.Port", source, StringComparison.Ordinal);
+
+        // The tier comes from the handler that captured it, never from the request, so a redirect hop is
+        // judged under the tier the connection started on.
+        Assert.Contains("ConnectToAllowedAddressAsync(context, policy, cancellationToken)", source, StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    [Fact]
+    public void PrivateNetworkRelaxation_NeverReachesTheAvatarFetchOrTheSamlMetadataImporter()
+    {
+        // #1179's stated failure mode is a leak of the private-network relaxation to a caller that never
+        // opted in. Two files are named on the issue as out of scope for #1058 and must stay strict: the
+        // avatar fetch, which builds its own handler and would otherwise let an IdP-supplied picture URL
+        // reach the admin's LAN, and the SAML metadata importer, which resolves the named outbound client
+        // and must keep resolving the strict one. SsoHttp's strict-by-default signature is what makes them
+        // correct today, but a default protects nothing against someone later passing the flag explicitly -
+        // so pin the call sites, not just the default. A source scan because this is a call-level property.
+        foreach (var relativePath in new[]
+        {
+            Path.Combine("SSO-Auth", "Api", "Avatar", "AvatarService.cs"),
+            Path.Combine("SSO-Auth", "Api", "Http", "SamlMetadataImporter.cs"),
+        })
+        {
+            var source = File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
+
+            Assert.DoesNotContain("PrivateNetworkPermitted", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("PrivateOutboundClientName", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("allowPrivateNetworkAddresses", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("AllowPrivateNetworkAddresses", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void PrivateNetworkRelaxation_IsSelectedOnlyByTheOidcBackchannelAndItsComposition()
+    {
+        // The other direction: enumerate every file that may name the relaxation at all, so a new caller
+        // wiring itself to the private-permitted tier has to be added here deliberately rather than
+        // arriving unnoticed. The roster is the OIDC backchannel (the login flow, the discovery reader and
+        // the admin "Test connection" probe), the config surface that stores and audits the flag, and the
+        // transport plus its composition root that define and register the two tiers.
+        var allowed = new[]
+        {
+            "AddressPolicy.cs", "IpAddressClassifier.cs", "SsoHttp.cs", "SsoOnlyServiceRegistrator.cs",
+            "OidcLoginService.cs", "OidcDiscoveryReader.cs", "ProviderConnectionTester.cs",
+            "PluginConfiguration.cs", "OidcInsecureToggles.cs",
+        }.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var strays = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => !allowed.Contains(Path.GetFileName(path)))
+            .Where(path => File.ReadAllText(path).Contains("PrivateNetworkAddresses", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("PrivateNetworkPermitted", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("PrivateOutboundClientName", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(
+            strays.Count == 0,
+            "The private-network relaxation (#1058) must reach only the OIDC backchannel, its config surface and the transport; found named in: " + string.Join(", ", strays));
+    }
+
+    [Fact]
     public void Controller_NeverTouchesProviderLinkMaps()
     {
         // Locked in by the link/unlink admin-surface extraction (#372) and completed by #383: the two
@@ -1420,6 +1511,7 @@ public class ArchitectureConformanceTests
         {
             "EnableAuthorization", "OidSecret", "DisableHttps", "DisablePushedAuthorization",
             "DoNotValidateEndpoints", "DoNotValidateIssuerName", "DoNotValidateResponseIssuer",
+            "AllowPrivateNetworkAddresses",
             "DoNotLoadProfile", "RequirePkce", "AllowExistingAccountLink",
             "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
             "RequireAcr", "AcrValues",
@@ -1487,10 +1579,11 @@ public class ArchitectureConformanceTests
             "RequirePkce", "AllowExistingAccountLink", "ProvisionNewUsersDisabled", "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
             "AcrValues", "Prompt", "MaxAge", "RequireAcr",
             "DisableHttps", "DisablePushedAuthorization", "DoNotValidateEndpoints", "DoNotValidateIssuerName", "DoNotValidateResponseIssuer",
+            "AllowPrivateNetworkAddresses",
             "HideLoginButton", "LoginButtonText", "PostLogoutRedirectUri",
         };
 
-        Assert.Equal(44, expected.Length);
+        Assert.Equal(45, expected.Length);
         var missing = expected.Where(id => !markedIds.Contains(id)).ToList();
         Assert.True(
             missing.Count == 0,
@@ -1905,7 +1998,7 @@ public class ArchitectureConformanceTests
             body);
 
         // The flag / auto-expand trigger set must contain only settings whose ENABLED state is a downgrade or
-        // an attack-surface widening: the five insecure toggles and AllowExistingAccountLink. It must NOT
+        // an attack-surface widening: the six insecure toggles and AllowExistingAccountLink. It must NOT
         // contain the fail-closed hardening toggles (RequireVerifiedEmailForAdoption/ForLogin, RequirePkce),
         // which are OFF by default and whose ON state is MORE secure - flagging those is backwards (#689
         // re-review). Scoped to the two array literals so a stray mention elsewhere cannot mask a regression.
@@ -1915,7 +2008,8 @@ public class ArchitectureConformanceTests
         foreach (var id in new[]
         {
             "DisableHttps", "DisablePushedAuthorization", "DoNotValidateEndpoints",
-            "DoNotValidateIssuerName", "DoNotValidateResponseIssuer", "AllowExistingAccountLink",
+            "DoNotValidateIssuerName", "DoNotValidateResponseIssuer", "AllowPrivateNetworkAddresses",
+            "AllowExistingAccountLink",
         })
         {
             Assert.Contains("\"" + id + "\"", trigger, StringComparison.Ordinal);
