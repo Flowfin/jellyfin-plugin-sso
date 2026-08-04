@@ -96,6 +96,26 @@ public class SamlRecipientValidatorTests
             { "subdomain: label below the expected host", "https://evil.jf.example/sso/SAML/post/idp" },
             { "subdomain: label below the expected host", "https://a.jf.example/sso/SAML/post/idp" },
 
+            // scheme: the same host and path over plaintext. Nothing in #1182 names this family, and it is
+            // the one row here with a direct consequence beyond binding: it aims the assertion POST at a
+            // cleartext endpoint. The scheme is a per-provider knob (SchemeOverride, and the request scheme
+            // when no BaseUrlOverride is set), so both spellings of one host really can be in play.
+            { "scheme: http where https was published", "http://jf.example/sso/SAML/post/idp" },
+
+            // authority: the expected host parked in the userinfo of somebody else's authority. This is what
+            // a comparison anchored on "the expected host appears after the scheme" would accept.
+            { "authority: expected host as userinfo", "https://jf.example@evil.example/sso/SAML/post/idp" },
+
+            // url equivalence: strings a URL parser would fold into the expected URL and an ordinal compare
+            // refuses. They are grouped because they fail together: the most likely future loosening of this
+            // predicate is parsing both sides as Uri instead of comparing bytes, and Uri lowercases the host,
+            // elides the default port, resolves dot segments and folds percent-encoding. Every row here would
+            // start binding under that change, which is what makes them worth carrying.
+            { "url equivalence: trailing slash", "https://jf.example/sso/SAML/post/idp/" },
+            { "url equivalence: explicit default port", "https://jf.example:443/sso/SAML/post/idp" },
+            { "url equivalence: dot segment", "https://jf.example/sso/SAML/post/../post/idp" },
+            { "url equivalence: percent-encoded provider segment", "https://jf.example/sso/SAML/post/%69dp" },
+
             // case, and this is the family that carries a decision rather than an attack.
             //
             // The comparison is StringComparer.Ordinal, so all three rows are refused. For the path and the
