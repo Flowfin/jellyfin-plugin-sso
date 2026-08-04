@@ -126,17 +126,27 @@ public class OidcLogoutTests
     // segment prefix of it. "/jellyfinevil" is a different application, not something under "/jellyfin".
     [InlineData(PathBase, "https://jf.example.com/jellyfinevil/x")]
     [InlineData(PathBase, "https://jf.example.com/jellyfinevil")]
-    // Suffix family: a host the base host is a leading substring of. Different authority, so it is refused
-    // by the host compare rather than by the path rule.
-    [InlineData(Base, "https://jellyfin.example.com.evil.net/")]
+    // Suffix family, both readings of it: a host carrying the base host plus a suffix, and a host or path
+    // that ENDS with the base string without being under it. Different authority in the host cases, so those
+    // are refused by the host compare rather than by the path rule.
     [InlineData(Base, "https://jellyfin.example.com.evil.net/web/")]
+    [InlineData(Base, "https://eviljellyfin.example.com/")]
+    [InlineData(PathBase, "https://jf.example.com/notjellyfin")]
+    // Escaped separators and a segment parameter: Uri leaves them intact, so without the guard on them a
+    // hop that decodes or strips them resolves the path outside the base after the check has passed.
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..%2f..%2fevil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/%2E%2E%2Fevil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..%5C..%5Cevil")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/..;/evil")]
     // Subdomain family, in both directions: neither contains the other.
     [InlineData(Base, "https://sub.jellyfin.example.com/")]
     [InlineData("https://sub.jellyfin.example.com", "https://jellyfin.example.com/")]
     // Case family, path half: URL paths are case-sensitive, the path compare is ordinal, and a
-    // differently-cased path segment is a different path. Pinned deliberately - the host half below is the
-    // opposite direction and is intended.
+    // differently-cased path segment is a different path - including the candidate that differs from the
+    // base in nothing but case. Pinned deliberately; the host half below is the opposite direction and is
+    // intended.
     [InlineData(PathBase, "https://jf.example.com/JELLYFIN/x")]
+    [InlineData(PathBase, "https://jf.example.com/JELLYFIN")]
     public void IsAllowedPostLogoutRedirect_OutsideTheBase_IsRejected_WithEmptyOut(string canonicalBase, string candidate)
     {
         Assert.False(OidcLogout.IsAllowedPostLogoutRedirect(candidate, canonicalBase, out var allowed));
@@ -144,8 +154,11 @@ public class OidcLogoutTests
     }
 
     [Theory]
-    // Case family, host half: the acceptance is INTENDED. DNS host names are case-insensitive and
-    // IsSameAuthority compares them OrdinalIgnoreCase, so a differently-cased host is the same server.
+    // Case family, host half: the acceptance is INTENDED. DNS host names are case-insensitive and a
+    // differently-cased host is the same server. What delivers the acceptance for these rows is Uri's own
+    // lower-casing of an ASCII host rather than the OrdinalIgnoreCase compare in IsSameAuthority, so these
+    // rows pin the observable behaviour and not that compare - from this entry point the compare cannot be
+    // falsified, because no ASCII host reaches it with its case intact.
     [InlineData(Base, "https://JELLYFIN.EXAMPLE.COM/web/")]
     [InlineData("https://JELLYFIN.example.com", "https://jellyfin.example.com/web/")]
     // A base with a path base contains itself and everything at a segment boundary below it.
@@ -156,6 +169,15 @@ public class OidcLogoutTests
     {
         Assert.True(OidcLogout.IsAllowedPostLogoutRedirect(candidate, canonicalBase, out var allowed));
         Assert.Equal(candidate, allowed);
+    }
+
+    [Fact]
+    public void IsAllowedPostLogoutRedirect_PaddedCandidate_IsAcceptedTrimmed_SoWhatIsEmittedIsWhatWasChecked()
+    {
+        // Uri.TryCreate parses the trimmed form, so the padding is not part of what the checks above ran on.
+        // Emitting it would break the OP's exact match against the registered URI.
+        Assert.True(OidcLogout.IsAllowedPostLogoutRedirect("  " + Base + "/web/  ", Base, out var allowed));
+        Assert.Equal(Base + "/web/", allowed);
     }
 
     [Fact]

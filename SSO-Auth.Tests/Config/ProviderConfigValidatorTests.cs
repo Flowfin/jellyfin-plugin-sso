@@ -275,11 +275,17 @@ public class ProviderConfigValidatorTests
     [Theory]
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfinevil/x")] // prefix, not a segment prefix
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfinevil")]
-    [InlineData(PostLogoutBase, "https://jellyfin.example.com.evil.net/")] // suffix: a host the base is a prefix of
-    [InlineData(PostLogoutBase, "https://jellyfin.example.com.evil.net/web/")]
+    [InlineData(PostLogoutBase, "https://jellyfin.example.com.evil.net/web/")] // suffix, both readings of it
+    [InlineData(PostLogoutBase, "https://eviljellyfin.example.com/")]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/notjellyfin")]
     [InlineData(PostLogoutBase, "https://sub.jellyfin.example.com/")] // subdomain, both directions
     [InlineData("https://sub.jellyfin.example.com", "https://jellyfin.example.com/")]
     [InlineData(PostLogoutPathBase, "https://jf.example.com/JELLYFIN/x")] // path case: the path compare is ordinal
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/JELLYFIN")]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%2f..%2fevil")] // escaped separator
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/%2E%2E%2Fevil")]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..%5C..%5Cevil")]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/..;/evil")] // segment parameter
     public void ValidatePostLogoutRedirectUri_OutsideTheBase_Throws(string baseUrlOverride, string postLogoutRedirectUri)
     {
         var ex = Assert.Throws<ArgumentException>(() =>
@@ -295,6 +301,7 @@ public class ProviderConfigValidatorTests
     [InlineData(PostLogoutBase, "https://JELLYFIN.EXAMPLE.COM/web/")]
     [InlineData("https://JELLYFIN.example.com", "https://jellyfin.example.com/web/")]
     [InlineData(PostLogoutPathBase, PostLogoutPathBase)] // the base itself, with a path base
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/")] // the base plus a trailing slash
     [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/web/index.html")] // below the path base
     public void ValidatePostLogoutRedirectUri_AtOrUnderBase_IncludingADifferentlyCasedHost_DoesNotThrow(string baseUrlOverride, string postLogoutRedirectUri)
     {
