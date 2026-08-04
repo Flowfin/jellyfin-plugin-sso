@@ -106,8 +106,13 @@ internal static class OidcLogout
 
     /// <summary>
     /// Whether a <c>post_logout_redirect_uri</c> candidate is allowed: it normalizes to a valid http(s) URL
-    /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/> (same origin +
-    /// path prefix), so a logout can only return the browser to this Jellyfin. The SINGLE source of truth for
+    /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/>, so a logout
+    /// can only return the browser to this Jellyfin. "At or under" is exactly two conditions: the SAME
+    /// authority as the base (scheme, host compared case-insensitively per DNS, and effective port - so a
+    /// sibling host such as <c>base.example.com.evil.net</c> and any subdomain of the base are refused), and
+    /// a path that EQUALS the base path or continues it at a SEGMENT boundary (ordinal, so URL path case is
+    /// significant - under a base of <c>https://host/jellyfin</c>, <c>/jellyfin/web</c> is under it while
+    /// <c>/jellyfinevil/x</c> and <c>/JELLYFIN/x</c> are not). The SINGLE source of truth for
     /// the return-URL rule - the runtime builder above and the save-time
     /// <c>ProviderConfigValidator.ValidatePostLogoutRedirectUri</c> both call it, so the config-page save
     /// rejects exactly the values the runtime would silently drop (no second, divergent URL rule). A blank
@@ -131,16 +136,21 @@ internal static class OidcLogout
             return false;
         }
 
-        // Same authority as the canonical base, and its path is under the base path - a prefix check on the
-        // canonicalized origin+path, so a sibling host or a path-traversal cannot slip through.
+        // Same authority as the canonical base, so a sibling host (a suffix of the base host) or a subdomain
+        // of it is a different server and cannot slip through.
         if (!IsSameAuthority(candidateUri, baseUri))
         {
             return false;
         }
 
+        // Then the path, compared on the canonicalized origin+path (a path-traversal is already resolved
+        // there): the candidate must EQUAL the base path or continue it at a SEGMENT boundary. A plain
+        // string prefix is not enough - under a base of "https://host/jellyfin" it would accept
+        // "https://host/jellyfinevil/x", a different application on the same reverse-proxied hostname (#1181).
         var basePath = baseUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
         var candidatePath = candidateUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
-        if (!candidatePath.StartsWith(basePath, StringComparison.Ordinal))
+        if (!candidatePath.StartsWith(basePath, StringComparison.Ordinal)
+            || (candidatePath.Length != basePath.Length && candidatePath[basePath.Length] != '/'))
         {
             return false;
         }

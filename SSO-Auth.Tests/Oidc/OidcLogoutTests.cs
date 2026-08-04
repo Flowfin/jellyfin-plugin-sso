@@ -101,7 +101,7 @@ public class OidcLogoutTests
 
     [Theory]
     [InlineData("https://evil.example.net/steal")] // different authority
-    [InlineData("https://jellyfin.example.com.evil.net/")] // sibling-prefix host
+    [InlineData("https://jellyfin.example.com.evil.net/")] // suffix family: a host the base host is a prefix of
     [InlineData("not-a-url")] // not absolute
     [InlineData("ftp://jellyfin.example.com/x")] // not http(s)
     [InlineData("https://user:pass@jellyfin.example.com/")] // userinfo
@@ -110,6 +110,65 @@ public class OidcLogoutTests
     {
         Assert.False(OidcLogout.IsAllowedPostLogoutRedirect(candidate, Base, out var allowed));
         Assert.Equal(string.Empty, allowed);
+    }
+
+    // --- The containment boundary (#1181): prefix, suffix, subdomain and case ---
+    //
+    // Both the XML doc on the predicate and the admin-facing validator message promise a return URL "at or
+    // under this server's base URL". These rows are the four ways a candidate can look like it is under the
+    // base without being under it. The realistic deployment is a reverse proxy serving more than one app
+    // under one hostname, where the base carries a path base.
+
+    private const string PathBase = "https://jf.example.com/jellyfin";
+
+    [Theory]
+    // Prefix family: same authority, and the base path is a string prefix of the candidate path but not a
+    // segment prefix of it. "/jellyfinevil" is a different application, not something under "/jellyfin".
+    [InlineData(PathBase, "https://jf.example.com/jellyfinevil/x")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfinevil")]
+    // Suffix family: a host the base host is a leading substring of. Different authority, so it is refused
+    // by the host compare rather than by the path rule.
+    [InlineData(Base, "https://jellyfin.example.com.evil.net/")]
+    [InlineData(Base, "https://jellyfin.example.com.evil.net/web/")]
+    // Subdomain family, in both directions: neither contains the other.
+    [InlineData(Base, "https://sub.jellyfin.example.com/")]
+    [InlineData("https://sub.jellyfin.example.com", "https://jellyfin.example.com/")]
+    // Case family, path half: URL paths are case-sensitive, the path compare is ordinal, and a
+    // differently-cased path segment is a different path. Pinned deliberately - the host half below is the
+    // opposite direction and is intended.
+    [InlineData(PathBase, "https://jf.example.com/JELLYFIN/x")]
+    public void IsAllowedPostLogoutRedirect_OutsideTheBase_IsRejected_WithEmptyOut(string canonicalBase, string candidate)
+    {
+        Assert.False(OidcLogout.IsAllowedPostLogoutRedirect(candidate, canonicalBase, out var allowed));
+        Assert.Equal(string.Empty, allowed);
+    }
+
+    [Theory]
+    // Case family, host half: the acceptance is INTENDED. DNS host names are case-insensitive and
+    // IsSameAuthority compares them OrdinalIgnoreCase, so a differently-cased host is the same server.
+    [InlineData(Base, "https://JELLYFIN.EXAMPLE.COM/web/")]
+    [InlineData("https://JELLYFIN.example.com", "https://jellyfin.example.com/web/")]
+    // A base with a path base contains itself and everything at a segment boundary below it.
+    [InlineData(PathBase, PathBase)]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/")]
+    [InlineData(PathBase, "https://jf.example.com/jellyfin/web/index.html")]
+    public void IsAllowedPostLogoutRedirect_AtOrUnderBase_IncludingADifferentlyCasedHost_IsAllowed(string canonicalBase, string candidate)
+    {
+        Assert.True(OidcLogout.IsAllowedPostLogoutRedirect(candidate, canonicalBase, out var allowed));
+        Assert.Equal(candidate, allowed);
+    }
+
+    [Fact]
+    public void Build_PostLogoutRedirectSharingOnlyAPrefixOfTheBasePath_LeavesTheParameterAbsentEntirely()
+    {
+        var url = OidcLogout.BuildEndSessionUrl(EndSession, Issuer, "t", "c", "https://jf.example.com/jellyfinevil/x", PathBase);
+
+        // Absent, not present-and-empty: a bare "post_logout_redirect_uri=" is still a parameter the OP
+        // reads, and the whole value must be gone rather than blanked.
+        Assert.NotNull(url);
+        Assert.DoesNotContain("post_logout_redirect_uri", url, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("jellyfinevil", url, System.StringComparison.Ordinal);
+        Assert.Equal(EndSession + "?id_token_hint=t&client_id=c", url);
     }
 
     [Fact]

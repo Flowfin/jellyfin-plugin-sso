@@ -267,6 +267,43 @@ public class ProviderConfigValidatorTests
         Assert.Null(ex);
     }
 
+    // The containment boundary (#1181). The save gate delegates to OidcLogout.IsAllowedPostLogoutRedirect, so
+    // it must refuse exactly the set the runtime drops; these are the same four families pinned against the
+    // predicate in OidcLogoutTests, run through the second enforcement point.
+    private const string PostLogoutPathBase = "https://jf.example.com/jellyfin";
+
+    [Theory]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfinevil/x")] // prefix, not a segment prefix
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfinevil")]
+    [InlineData(PostLogoutBase, "https://jellyfin.example.com.evil.net/")] // suffix: a host the base is a prefix of
+    [InlineData(PostLogoutBase, "https://jellyfin.example.com.evil.net/web/")]
+    [InlineData(PostLogoutBase, "https://sub.jellyfin.example.com/")] // subdomain, both directions
+    [InlineData("https://sub.jellyfin.example.com", "https://jellyfin.example.com/")]
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/JELLYFIN/x")] // path case: the path compare is ordinal
+    public void ValidatePostLogoutRedirectUri_OutsideTheBase_Throws(string baseUrlOverride, string postLogoutRedirectUri)
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ProviderConfigValidator.ValidatePostLogoutRedirectUri("OpenID", "idp", baseUrlOverride, postLogoutRedirectUri));
+
+        Assert.Equal("postLogoutRedirectUri", ex.ParamName);
+        Assert.Contains("not at or under the configured Base URL", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(postLogoutRedirectUri, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    // Host case is INTENDED to be accepted (DNS is case-insensitive); path case above is not.
+    [InlineData(PostLogoutBase, "https://JELLYFIN.EXAMPLE.COM/web/")]
+    [InlineData("https://JELLYFIN.example.com", "https://jellyfin.example.com/web/")]
+    [InlineData(PostLogoutPathBase, PostLogoutPathBase)] // the base itself, with a path base
+    [InlineData(PostLogoutPathBase, "https://jf.example.com/jellyfin/web/index.html")] // below the path base
+    public void ValidatePostLogoutRedirectUri_AtOrUnderBase_IncludingADifferentlyCasedHost_DoesNotThrow(string baseUrlOverride, string postLogoutRedirectUri)
+    {
+        var ex = Record.Exception(() =>
+            ProviderConfigValidator.ValidatePostLogoutRedirectUri("OpenID", "idp", baseUrlOverride, postLogoutRedirectUri));
+
+        Assert.Null(ex);
+    }
+
     [Fact]
     public void ValidatePostLogoutRedirectUri_ControlCharacterInProvider_IsStrippedFromTheEchoedMessage()
     {
