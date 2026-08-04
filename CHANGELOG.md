@@ -38,6 +38,42 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   configuration are unchanged, so the rename lands as an in-place update that
   keeps every existing setting.
 
+### Security
+
+- **A provider response that names a JSON member twice is refused before it is
+  parsed.** A repeated member is accepted silently by every reader these
+  documents reach, and none of them raises an error, so which of the two values a
+  consumer acts on is decided by parser internals rather than by the document —
+  RFC 8259 leaves it unspecified and calls such objects interoperability-unsafe.
+  A **successfully served** OpenID discovery document, and the JWKS it names, are
+  now screened on the transport, so such a body never reaches the reader that
+  would resolve it: the refused document's `jwks_uri` is never requested at all,
+  rather than requested and reported afterwards. A document that cannot be
+  inspected as JSON — malformed, truncated, nested too deeply, or carrying a
+  character set the runtime does not know — is refused the same way. There is no
+  size limit here; bounding what the plugin reads from a provider is tracked
+  separately. An error response (a 404, a 500) is deliberately not screened and
+  keeps its own status, so the log still names what the provider actually
+  returned; the plugin uses no value out of such a body.
+
+  Note for operators. A provider whose discovery or JWKS document repeats **any**
+  member name inside one object will now fail to sign users in, where previously
+  the repeat was resolved silently, and no configuration overrides that. The
+  server log records which of the two documents was refused and why. It does not
+  yet name the repeated member: that value is the provider's to choose, and it
+  arrives together with the bounding and filtering that make it safe to record
+  rather than ahead of it. Twenty discovery and JWKS documents from ten widely
+  used hosted providers were checked and none repeats a member; that sample is
+  hosted providers rather than the self-hosted identity servers many
+  installations run, so it bounds the risk without eliminating it.
+
+  Two consequences worth knowing. The same refusal on the back-channel logout
+  path leaves the session untouched rather than ending it — the behaviour any
+  unreadable discovery document already had, unchanged here and tracked
+  separately. And the admin **Test connection** button does not yet name this as
+  a cause, so a refused document currently shows there under a check that does not
+  describe it.
+
 ## 4.3.0
 
 A feature release. This line advances the plugin's maturity to **Beta** on the

@@ -47,9 +47,9 @@ internal static class OidcDiscoveryReader
     /// Reads the discovery document named by <paramref name="options"/> (its <c>Authority</c> and
     /// <c>Policy.Discovery</c>) and returns the facts plus the provider metadata built from it, or
     /// <see cref="OidcDiscoveryResult.Unavailable"/> when the document could not be read. Never throws - a
-    /// transient failure, a policy rejection (e.g. non-HTTPS under <c>RequireHttps</c>), or a malformed
-    /// document all return <c>Unavailable</c> so the caller fails the login closed rather than proceeding on
-    /// unverified facts.
+    /// transient failure, a policy rejection (e.g. non-HTTPS under <c>RequireHttps</c>), a malformed document,
+    /// or a document refused by <see cref="RepeatedMemberScreen"/> for naming a member twice all return
+    /// <c>Unavailable</c> so the caller fails the login closed rather than proceeding on unverified facts.
     /// </summary>
     /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses - the same the login is built with.</param>
     /// <param name="provider">The provider name, for the failure warning only.</param>
@@ -63,7 +63,16 @@ internal static class OidcDiscoveryReader
             using var client = SsoHttp.CreateClient(httpClientFactory);
             client.Timeout = FetchTimeout;
 
-            var discovery = await client.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
+            // Screen both documents this read fetches — the well-known document and the JWKS it points at —
+            // on the transport, so a body that names a member twice never reaches the library that would
+            // resolve the repeat to its last occurrence (#1005). The screen forwards through the client
+            // above rather than replacing it, so the User-Agent, the timeout and the SSRF-hardened transport
+            // still apply to every screened request; the client is disposed by its own `using`, and
+            // disposeHandler:false keeps the invoker from disposing the screen a second time.
+            using var screen = new RepeatedMemberScreen(client, provider, logger);
+            using var invoker = new HttpMessageInvoker(screen, disposeHandler: false);
+
+            var discovery = await invoker.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
             {
                 Address = options.Authority,
                 Policy = options.Policy.Discovery,
