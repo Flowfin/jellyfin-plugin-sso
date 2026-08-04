@@ -8,16 +8,19 @@ name: Wiki Lint
 # Triggers: a weekly sweep, a manual run, and every push to main (so a merge that
 # moves a file the wiki links to is caught right away). Deliberately NOT on
 # pull_request: a pre-existing wiki typo must not red-X every unrelated code PR.
+#
+# The push trigger carries no paths filter, and it must not grow one. The dead
+# source link check resolves wiki links against the set of TRACKED paths, so the
+# lint's input is the whole repository and changes even when no source file is
+# edited: un-tracking a file through .gitignore alone is enough to break it. Any
+# enumeration of source locations therefore skips the very pushes that break the
+# lint, and leaves the failure to land on the next unrelated merge (#1151).
 on:
   schedule:
     - cron: "0 5 * * 1" # Mondays 05:00 UTC
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "SSO-Auth/**"
-      - "scripts/wiki-lint.py"
-      - ".github/workflows/wiki-lint.yml"
 
 permissions:
   contents: read
