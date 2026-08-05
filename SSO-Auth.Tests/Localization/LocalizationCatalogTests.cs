@@ -54,6 +54,12 @@ public class LocalizationCatalogTests
     // A text-marked element together with its tag name, so the element's own content can be located.
     private static readonly Regex MarkedElementPattern = new(@"<(?<tag>[a-z0-9]+)(?:\s[^>]*?)?\sdata-i18n=""(?<key>[^""]+)""[^>]*>", RegexOptions.Compiled);
 
+    // A script element with its content, so markup can be inspected without reading JavaScript.
+    private static readonly Regex ScriptBlockPattern = new(@"<script\b[^>]*>.*?</script>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+    // A `${…}` template placeholder of the shape the upstream markup used for its own substitution pass.
+    private static readonly Regex TemplatePlaceholderPattern = new(@"\$\{[^}]*\}", RegexOptions.Compiled);
+
     // The catalog namespaces the web assets own; everything else is server-side (see the orphan test).
     private static readonly string[] UiKeyPrefixes = ["config.", "link."];
 
@@ -245,6 +251,31 @@ public class LocalizationCatalogTests
         }
 
         Assert.True(problems.Count == 0, "These text markers do not sit on an element whose content is a single text node: " + string.Join(" | ", problems));
+    }
+
+    [Fact]
+    public void ShippedMarkup_CarriesNoUnsubstitutedTemplatePlaceholder()
+    {
+        // `title="${Add}"` and `>${Help}</a>` sat in the configuration page, carried over from the upstream
+        // markup and its substitution pass. Nothing on this side substitutes them, so the browser rendered
+        // the literal text `${Add}` as a button tooltip and `${Help}` as a link label (#1011). Review does
+        // not catch it because the shape reads like a binding some layer resolves, and the localization
+        // scans above cannot see it either - an unmarked placeholder references no catalog key, so it is
+        // invisible to every key-parity check. Scoped to the HTML assets, and to the markup OUTSIDE
+        // <script>, because `${…}` inside a script is an ordinary JavaScript template literal and this rule
+        // must not forbid one.
+        var html = FirstPartyWebAssets()
+            .Where(name => name.EndsWith(".html", System.StringComparison.Ordinal))
+            .ToList();
+        Assert.True(html.Count > 0, "no embedded HTML asset was found - the placeholder scan would pass without inspecting anything");
+
+        var offenders = html
+            .SelectMany(resource => TemplatePlaceholderPattern
+                .Matches(ScriptBlockPattern.Replace(ReadResourceText(resource), string.Empty))
+                .Select(match => $"{resource}: {match.Value}"))
+            .ToList();
+
+        Assert.True(offenders.Count == 0, "These template placeholders reach the browser as literal text: " + string.Join(" | ", offenders));
     }
 
     [Fact]

@@ -35,6 +35,7 @@
   "config.saml_providers": "SAML providers",
   "config.add_oidc_provider": "Add OIDC provider",
   "config.add_saml_provider": "Add SAML provider",
+  "config.add_button": "Add",
   "config.no_oidc_providers": "No SSO providers yet",
   "config.no_saml_providers": "No SAML providers yet",
   "config.loaded_provider": "Loaded provider",
