@@ -1,0 +1,1 @@
+{"issuer":"https://idp.example.com","code_challenge_methods_supported":["S256","plain"],"issuer":"https://evil.example.net","authorization_response_iss_parameter_supported":true,"jwks_uri":"https://idp.example.com/jwks"}
