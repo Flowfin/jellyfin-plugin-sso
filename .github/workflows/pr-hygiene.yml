@@ -22,8 +22,12 @@
 #
 # The checks are tiered by confidence so it does not red-flag reasonable PRs:
 #   - FAIL  (high confidence, near-zero false-positive):
-#       * PR body carries an issue reference (Closes/Refs #N) - skipped for bots.
+#       * PR body carries an issue reference (Closes/Refs #N).
+#       * every commit subject carries a bracketed issue reference.
 #       * a build.yaml version bump also touches CHANGELOG.md.
+#     The whole FAIL tier is skipped for bots and for authors from outside this
+#     repository; the two skips have different reasons and both are written at
+#     the check, not only here (#1207).
 #   - WARN  (soft convention, annotation only - never fails):
 #       * the diff is large (>=400 changed lines) - advisory; a feature, doc
 #         migration, or bulk rename legitimately exceeds any cap, so size never reds.
@@ -83,16 +87,54 @@ jobs:
             const labels = (pr.labels || []).map((l) => l.name);
             const isBot = pr.user && pr.user.type === "Bot";
 
+            // --- Who the FAIL tier is for (#1207) --------------------------------
+            // The issue convention this tier enforces is OURS. Somebody arriving
+            // from outside has no way to know the issue numbers this board expects
+            // before they file, and often no issue exists yet - so failing their
+            // contribution on it is a gatekeeping ritual, not a caught slip.
+            // Applied to work from inside the repository the same check catches a
+            // real one, which is why the tier is narrowed by audience rather than
+            // removed.
+            //
+            // This is NOT the bot reason. A bot cannot know the convention; a
+            // person can, and is simply not the one who owes it here.
+            //
+            // `author_association` reports the author's relationship to THIS
+            // repository, so an occasional outside collaborator who is later added
+            // as a member stops being exempt from that moment - correct, and worth
+            // knowing rather than discovering. COLLABORATOR is deliberately NOT in
+            // the inside set: the issue asks for member-or-owner.
+            //
+            // The linkage itself is still wanted for an outside contribution - it
+            // moves to whoever handles it, and the annotation below says so on the
+            // pull request, where that person will meet it. Read this skip as
+            // "not their obligation", never as "linkage does not matter here".
+            const INSIDE_ASSOCIATIONS = ["OWNER", "MEMBER"];
+            const isOutside = !INSIDE_ASSOCIATIONS.includes(
+              pr.author_association || "NONE",
+            );
+            const failTierApplies = !isBot && !isOutside;
+            if (isOutside && !isBot) {
+              warnings.push(
+                "Author is outside this repository " +
+                  `(author_association: ${pr.author_association || "NONE"}), so the ` +
+                  "FAIL-tier hygiene checks are skipped. The issue linkage is still " +
+                  "wanted: whoever handles this contribution supplies the issue " +
+                  "reference, and files the issue where none exists yet.",
+              );
+            }
+
             // --- Check 1: PR body references an issue (Closes/Refs #N) ----------
             // Directive: every change is issue-driven and linked. Bots (Dependabot)
-            // open PRs with no issue, so they are exempt. A bare `#123`, a keyword
+            // open PRs with no issue, so they are exempt; so is an outside author,
+            // for the separate reason written above. A bare `#123`, a keyword
             // form (`Closes #123`), or a full issue URL all satisfy it - lenient on
             // purpose so a legitimately-linked PR is never flagged on phrasing.
             const body = pr.body || "";
             const hasIssueRef =
               /(^|[^\w])#\d+\b/.test(body) ||
               /github\.com\/[^\/\s]+\/[^\/\s]+\/issues\/\d+/i.test(body);
-            if (!isBot && !hasIssueRef) {
+            if (failTierApplies && !hasIssueRef) {
               failures.push(
                 "PR body has no issue reference. Link the issue it addresses " +
                   "(e.g. `Closes #123` or `Refs #123`).",
@@ -105,9 +147,9 @@ jobs:
             // PR-body link (check 1) is not enough. The reference lives in the
             // subject, bracketed, one bracket per issue: `Fix the thing [#12][#34]`.
             // (GitHub's auto-close keywords still go in the body - `[#N]` in a
-            // subject does not close anything.) Bots and merge commits (subject
-            // starts with "Merge ") are exempt; merge commits are machine-generated
-            // and inherit the merged PR's own linkage.
+            // subject does not close anything.) Bots, outside authors and merge
+            // commits (subject starts with "Merge ") are exempt; merge commits are
+            // machine-generated and inherit the merged PR's own linkage.
             const commits = await github.paginate(github.rest.pulls.listCommits, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -126,7 +168,7 @@ jobs:
                 !authorIsBot && !isMerge && !subjectHasBracketedRef(c.commit.message)
               );
             });
-            if (!isBot && unlinked.length > 0) {
+            if (failTierApplies && unlinked.length > 0) {
               const list = unlinked
                 .map((c) => `${c.sha.slice(0, 7)} ("${c.commit.message.split("\n")[0]}")`)
                 .join(", ");
@@ -140,13 +182,16 @@ jobs:
             // --- Check 2: a build.yaml version bump must touch CHANGELOG.md -----
             // The version field only changes in a release PR, which must also record
             // the release in CHANGELOG.md. Near-zero false-positive: a non-release PR
-            // never edits the `version:` line, so this stays silent for it.
+            // never edits the `version:` line, so this stays silent for it. It is in
+            // the FAIL tier, so it takes the same audience narrowing as checks 1 and
+            // 1b - the tier is skipped as a whole rather than per check, so a later
+            // reader does not have to work out which failures a skip covered.
             const buildYaml = files.find((f) => f.filename === "build.yaml");
             const versionBumped =
               buildYaml &&
               buildYaml.patch &&
               /^\+\s*version:/m.test(buildYaml.patch);
-            if (versionBumped && !changed.includes("CHANGELOG.md")) {
+            if (failTierApplies && versionBumped && !changed.includes("CHANGELOG.md")) {
               failures.push(
                 "build.yaml `version:` changed but CHANGELOG.md was not updated. " +
                   "Record the release in CHANGELOG.md.",
