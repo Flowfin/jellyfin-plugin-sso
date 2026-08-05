@@ -173,7 +173,7 @@ internal static class StrictJson
                 {
                     case JsonTokenType.StartObject:
                         sawObject = true;
-                        scopes.Push(new HashSet<string>(StringComparer.Ordinal));
+                        scopes.Push(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
                         break;
 
                     case JsonTokenType.EndObject:
