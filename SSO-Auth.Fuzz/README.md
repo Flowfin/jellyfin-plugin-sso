@@ -4,9 +4,10 @@ This project is the coverage-guided fuzz harness prototype for the plugin's logi
 written evaluation behind [Scorecard alert #36 (Fuzzing)](https://github.com/iderex/jellyfin-plugin-sso/issues/402).
 It is the concrete harness the weekly scheduled job (#174) runs.
 
-It is **out of band**: not part of `SSO-Auth.sln`, so a normal `dotnet build` / `dotnet test` and every
-per-PR CI job never restore SharpFuzz or build it. It is compiled and driven only by the scheduled Linux
-fuzzing job, exactly as the acceptance criteria require ("scheduled, non-blocking").
+It is **out of band**: not part of `SSO-Auth.sln`, so a normal `dotnet build` / `dotnet test` never
+restores SharpFuzz or builds it. The _fuzzing_ is driven only by the scheduled Linux job, exactly as the
+acceptance criteria require ("scheduled, non-blocking"). Since #1132 the gating `build` job does compile
+the harness by path, so a module rename that breaks it reds the PR rather than the weekly run.
 
 ## The attack surface we target
 
@@ -66,8 +67,9 @@ value is the fuzzing itself, which the scheduled job delivers regardless of whet
 - **Actual fuzzing is Linux-only.** The `sharpfuzz` instrumentation CLI and the libFuzzer runtime are
   Linux-oriented; a coverage-guided run on Windows is impractical. So the _run_ lives in CI, never on the
   maintainer's machine. This is expected and is why #174 is a scheduled Linux job.
-- Because the project is not in the solution, the per-PR CI never builds it. The weekly job is what keeps
-  it compiling and running; that is an accepted trade-off for a non-shipping prototype.
+- The project is not in the solution, so nothing that works from the solution builds it. Since #1132 the
+  gating `build` job compiles it by path on every PR, which is what keeps it from bitrotting; the weekly
+  job is what keeps it _running_.
 
 ## Value assessment vs. the existing gate
 
