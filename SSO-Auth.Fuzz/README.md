@@ -20,6 +20,7 @@ are what the harness drives (selected per run by the `SSO_FUZZ_TARGET` environme
 | `saml` (default)           | `SamlResponseLoader.TryParse` → `SamlResponse` ctor + `IsValid` + every claim getter    | The Base64 `SAMLResponse` form field (Base64 decode → hardened XML DOM load → signature/claim reads) |
 | `discovery`                | `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
 | `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                          | The raw id_token JWT string                                                                          |
+| `jwks`                     | `OidcSignatureKeys.Convert` (after the library's `new JsonWebKeySet(json)`)             | The raw JWKS the challenge fetches from `jwks_uri`                                                   |
 
 The property under test is uniform: on **any** input the entry point must terminate with a fail-closed
 result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps - it must never
@@ -95,7 +96,7 @@ dotnet tool install --global SharpFuzz.CommandLine
 sharpfuzz SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll
 
 # 3. Fuzz one target, seeded from its corpus (libFuzzer flags after --).
-export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken
+export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll \
     SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET -max_total_time=300
 ```
@@ -112,7 +113,7 @@ runs and that every seed is handled fail-closed, so the harness can be validated
 CI sanity check. This is how the prototype was validated at delivery (all three targets, exit 0):
 
 ```sh
-export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken
+export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
 ```
 
@@ -121,7 +122,8 @@ dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$
 `corpus/<target>/` holds representative seeds so the fuzzer starts from meaningful coverage rather than
 random noise: a well-formed and several malformed shapes per target (a minimal signed-shaped SAML
 response, a DOCTYPE body, non-Base64; a full and a minimal discovery document plus a type-confused one; a
-`none`-alg JWT and a non-JWT). libFuzzer expands the corpus from these as it explores.
+`none`-alg JWT and a non-JWT; a genuine two-key RSA key set). libFuzzer expands the corpus from these as
+it explores.
 
 One class is seeded deliberately rather than left to the mutator: a **repeated property name**, where a
 document parses cleanly and the reader silently keeps one occurrence. The mutator is unlikely to invent
@@ -130,7 +132,12 @@ as `none`, and which occurrence wins is a decision each reader makes without say
 it (#1153): `discovery/repeated-issuer.json` repeats `issuer` beside a real
 `code_challenge_methods_supported` array so the mutator has grammar on both sides of the repeat;
 `idtoken/repeated-alg-header.jwt` repeats `alg` in the JWT header; `idtoken/repeated-aud-payload.jwt`
-repeats `aud` in the payload, collapsing two audiences to one.
+repeats `aud` in the payload, collapsing two audiences to one. `jwks/repeated-kid.json` (#1156) is the
+same class on the key set: its second entry names `kid` twice, once as the first entry's name and once as
+its own, so the set advertises two keys under one name until the last occurrence wins and it advertises
+two under two. Measured against `jwks/two-rsa-keys.json`, both documents convert to the same two usable
+keys under the same two ids, so the repeat leaves no trace downstream - which is the point. The seed is
+grammar for the mutator, not a claim that the plugin misreads it.
 
 ## Scorecard alert #36 and #174
 
