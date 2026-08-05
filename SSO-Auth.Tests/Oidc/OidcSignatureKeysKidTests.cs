@@ -182,6 +182,81 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
         Assert.Equal("user-1", result.Subject);
     }
 
+    /// <summary>
+    /// The other half of the same question (#1029): a <c>kid</c> the PROVIDER advertises in its JWKS,
+    /// outside the same allowlist. These are the shapes that turn up in the field - a standard-base64
+    /// thumbprint rather than a base64url one is the common case, because the two alphabets differ in
+    /// exactly the characters the allowlist excludes.
+    /// </summary>
+    public static TheoryData<string> OutOfAllowlistAdvertisedKeyIds() => new()
+    {
+        "ab+cd/ef=",              // standard base64 rather than base64url: + / =
+        "signing key 2026",       // spaces
+        "kid:2026:rotate",        // colons, the shape of a namespaced identifier
+    };
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public void AdvertisedKeyOutsideTheAllowlist_IsKept(string keyId)
+    {
+        // THE DECISION, pinned: the allowlist screens the needle, never the haystack. An advertised key is
+        // skipped only when it is unusable AS A KEY - not a signing key, under the RSA floor, un-decodable
+        // material - and the spelling of its kid is none of those. Skipping it would refuse a
+        // well-behaved provider over an alphabet choice and take its signature verification down with it,
+        // which is a real outage traded for nothing: the header screen already stops a hostile kid from
+        // reaching the lookup, and this value is what the lookup is searched THROUGH.
+        Assert.False(OidcSignatureKeys.IsAcceptableKeyId(keyId), "row is not actually outside the allowlist");
+
+        var ephemeral = new List<IDisposable>();
+        try
+        {
+            var keys = OidcSignatureKeys.Convert(new Duende.IdentityModel.Jwk.JsonWebKeySet(Jwks(keyId)), ephemeral);
+
+            var key = Assert.Single(keys);
+            Assert.Equal(keyId, key.KeyId);
+        }
+        finally
+        {
+            foreach (var disposable in ephemeral)
+            {
+                disposable.Dispose();
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task TokenWithoutAKid_StillValidatesAgainstSuchAKey(string keyId)
+    {
+        // "Kept" is not the same as "usable", so the decision is pinned end to end as well: the provider
+        // advertises only this key, the token names no key, and the signature still verifies. Without this
+        // row, a change that kept the key but made it unreachable would leave the row above green.
+        var token = CreateTokenWithoutKid();
+        Assert.True(string.IsNullOrEmpty(new JsonWebToken(token).Kid), "the token was supposed to carry no kid");
+
+        var result = await _idTokenValidator.ValidateAsync(token, Options(keyId), TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsError, result.Error);
+        Assert.Equal("RS256", result.SignatureAlgorithm);
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task TokenNamingSuchAKeyByKid_IsStillRefused(string keyId)
+    {
+        // And the cost of the decision, stated rather than left to be discovered: such a key can be reached
+        // by trying every advertised key, but never BY NAME, because naming it means putting the same
+        // characters in the token header where the screen refuses them. A provider that advertises one of
+        // these AND mints tokens carrying it therefore does not log anyone in - which is a configuration
+        // this repository cannot verify against a live IdP, so it is recorded here rather than claimed to
+        // be impossible.
+        var result = await _idTokenValidator.ValidateAsync(
+            CreateToken(keyId: keyId), Options(keyId), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Contains("unacceptable kid", result.Error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ValidToken_OnBothPaths_StillSucceeds()
     {
@@ -222,6 +297,24 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
         var p = _rsa.ExportParameters(false);
         return "{\"keys\":[{\"kty\":\"RSA\",\"use\":\"sig\",\"kid\":\"" + keyId + "\","
             + "\"n\":\"" + Base64UrlEncoder.Encode(p.Modulus) + "\",\"e\":\"" + Base64UrlEncoder.Encode(p.Exponent) + "\"}]}";
+    }
+
+    // A token signed by the same RSA key but carrying no kid header, so key resolution has to fall back to
+    // trying every advertised key. The signing credentials get no KeyId, which is what leaves the header
+    // member out; the caller asserts the absence rather than trusting it.
+    private string CreateTokenWithoutKid()
+    {
+        var now = DateTime.UtcNow;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = ClientId,
+            IssuedAt = now - TimeSpan.FromMinutes(1),
+            NotBefore = now - TimeSpan.FromMinutes(1),
+            Expires = now + TimeSpan.FromMinutes(5),
+            Claims = new Dictionary<string, object> { ["sub"] = "user-1" },
+            SigningCredentials = new SigningCredentials(new RsaSecurityKey(_rsa), SecurityAlgorithms.RsaSha256),
+        });
     }
 
     private string CreateToken(string keyId = KeyId, IDictionary<string, object>? claims = null)

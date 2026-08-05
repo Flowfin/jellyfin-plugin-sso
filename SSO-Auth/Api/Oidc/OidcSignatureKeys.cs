@@ -168,6 +168,17 @@ internal static class OidcSignatureKeys
     /// Converts the advertised JWKS into usable signing keys, skipping any key that is null, not a signing
     /// key (<c>use != "sig"</c>), under the RSA size floor (#733), or of un-decodable/invalid material - so
     /// one broken key in the set cannot take down verification against a good one. Never throws.
+    /// <para>
+    /// The <c>kid</c> the PROVIDER advertises is deliberately NOT screened against
+    /// <see cref="IsAcceptableKeyId"/>, and that is a decision rather than an omission (#1029). Every
+    /// exclusion above is a key that cannot do the job; a spelling is not one of them. The two sides of a
+    /// lookup are not symmetric: the token header is the needle and arrives from outside, the advertised
+    /// <c>kid</c> is what the haystack is searched THROUGH, and refusing a key over its alphabet - a
+    /// standard-base64 thumbprint rather than a base64url one is the ordinary case - would take a
+    /// well-behaved provider's signature verification down for nothing the header screen does not already
+    /// stop. The cost that comes with it is that such a key is reachable by trying every advertised key
+    /// but never by name, and <c>OidcSignatureKeysKidTests</c> pins both halves.
+    /// </para>
     /// </summary>
     /// <param name="keySet">The advertised JSON Web Key Set (may be null/empty).</param>
     /// <param name="ephemeralKeys">Collects disposable ECDsa handles for the caller to release.</param>
