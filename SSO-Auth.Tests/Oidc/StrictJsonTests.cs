@@ -226,7 +226,7 @@ public class StrictJsonTests
     {
         // The decision of #1191, and it is a decision rather than a fact about JSON consumers in general.
         // JSON member names are case-sensitive, and every reader on the plugin's own path INDEXES a name it
-        // spells itself - PkceDiscovery and OidcResponseIssuer both JObject.Parse and index, JsonDocument
+        // spells itself - PkceDiscovery and OidcResponseIssuer both index the shared discovery parse, JsonDocument
         // indexes, and the identity library's typed mapping is case-sensitive - so a case-variant pair is
         // unambiguous to all of them. Refusing it would take offline a provider whose document none of its
         // consumers misreads, and the walk compares EVERY member at every scope, so the pair that took the

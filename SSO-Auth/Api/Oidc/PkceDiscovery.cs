@@ -3,7 +3,6 @@
 
 using System;
 using System.Linq;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -26,24 +25,23 @@ internal static class PkceDiscovery
     /// <c>true</c> only when <c>S256</c> is advertised; <c>false</c> on absence, an empty/other-only set,
     /// a non-array value, non-string elements, or malformed/blank JSON.
     /// </returns>
-    internal static bool SupportsS256(string? discoveryJson)
-    {
-        if (string.IsNullOrWhiteSpace(discoveryJson))
-        {
-            return false;
-        }
+    internal static bool SupportsS256(string? discoveryJson) => SupportsS256(DiscoveryJson.TryParse(discoveryJson));
 
-        try
-        {
-            var methods = JObject.Parse(discoveryJson)["code_challenge_methods_supported"] as JArray;
-            return methods is not null
-                && methods.Any(method =>
-                    method.Type == JTokenType.String
-                    && string.Equals(method.Value<string>(), "S256", StringComparison.Ordinal));
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
+    /// <summary>
+    /// The same decision taken on an already-parsed document, so the challenge reads both of its discovery
+    /// facts out of one parse (#1170).
+    /// </summary>
+    /// <param name="discovery">The parsed discovery document, or <see langword="null"/> when it could not be parsed.</param>
+    /// <returns>
+    /// <c>true</c> only when <c>S256</c> is advertised; <c>false</c> on absence, an empty/other-only set,
+    /// a non-array value, non-string elements, or a null root.
+    /// </returns>
+    internal static bool SupportsS256(JObject? discovery)
+    {
+        var methods = discovery?["code_challenge_methods_supported"] as JArray;
+        return methods is not null
+            && methods.Any(method =>
+                method.Type == JTokenType.String
+                && string.Equals(method.Value<string>(), "S256", StringComparison.Ordinal));
     }
 }
