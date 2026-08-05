@@ -44,6 +44,13 @@ public class StrictJsonTests
     // accusation against a provider, which is the one direction a screen must never fail in.
     private const string TwoRawLoneSurrogateNames = "{\"a\uD800\":1,\"a\uDC00\":1}";
 
+    // The same pair spelled as ESCAPES, which is the shape #1197 decides. It reaches a different arm: the
+    // escape is thirteen ASCII bytes the encoder is perfectly happy with, and the refusal comes from the
+    // decoder inside GetString instead. No name is produced for either member, so the walk cannot fold the
+    // two into one however it compares names - which is why the answer here is forced by the decoder rather
+    // than chosen by this walk.
+    private const string TwoEscapedLoneSurrogateNames = "{\"a\\ud800\":1,\"a\\udc00\":1}";
+
     // Two member names differing only in case, carrying two DIFFERENT values. This is the document the
     // recorded decision on #1191 is about, and it is a fixture rather than a literal inside one test
     // because the same bytes are read three ways below.
@@ -128,6 +135,7 @@ public class StrictJsonTests
         LoneSurrogateName,
         RawLoneSurrogateName,
         TwoRawLoneSurrogateNames,
+        TwoEscapedLoneSurrogateNames,
     };
 
     public static TheoryData<string, string> RepeatedFixtures()
@@ -293,16 +301,54 @@ public class StrictJsonTests
         Assert.Equal("issuer", repeated);
     }
 
+    [Fact]
+    public void NamesDifferingOnlyInAnInvalidEscape_AreNeverFoldedIntoOne()
+    {
+        // The decision of #1197, and the direction matters: this is the FALSE-REFUSAL side. A verdict of
+        // Repeated on a document whose two members are not the same name is an accusation against a
+        // provider, and Unreadable is a refusal too - both cost the provider its login - so the choice is
+        // between two refusals and is made on which one is honest about the bytes.
+        //
+        // An invalid escape establishes no name at all. Spelled raw, the char has no UTF-8 encoding and the
+        // encoder refuses the document before the walk starts; spelled as an escape, the decoder inside
+        // GetString refuses the name it cannot complete. Either way the walk never holds two names to
+        // compare, so it reports that nothing was established rather than that a member was named twice.
+        //
+        // The alternative - decoding leniently, which is what the platform default does - is what makes the
+        // fold: every unpaired surrogate becomes U+FFFD, so two different names collapse to one key and the
+        // walk reports Repeated for a document that has no repeat. That is the false accusation, and it is
+        // the reason the strict encoder is here rather than a tidier default.
+        //
+        // The cost of the decision, stated rather than implied: a provider whose document names a member
+        // with an unpaired surrogate is refused, and a lenient reader downstream would have read that
+        // document. It is refused because no verdict about its members would be a verdict about the bytes
+        // its consumers see.
+        foreach (var json in new[] { TwoEscapedLoneSurrogateNames, TwoRawLoneSurrogateNames })
+        {
+            var verdict = StrictJson.Inspect(json, out var repeated);
+
+            Assert.Equal(StrictJson.Verdict.Unreadable, verdict);
+            Assert.NotEqual(StrictJson.Verdict.Repeated, verdict);
+            Assert.Null(repeated);
+        }
+
+        // The positive control the pair needs: a VALID escape does fold, and must, or an attacker spells one
+        // of two occurrences differently and walks past the screen. The two rules are neighbours and it is
+        // the difference between them that this row protects.
+        Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect("{\"\\u0061\":1,\"a\":2}", out _));
+    }
+
     [Theory]
     [MemberData(nameof(UnreadableFixtures))]
     public void HostileInput_IsUnreadable_NeverThrows(string json)
     {
         // One fixture per raised type, because each is raised by a different party and a walk that catches
         // one hands the others to a caller that catches none. `not-json` and the truncation raise
-        // JsonException from the reader. The thirteen bytes of LoneSurrogateName raise
-        // InvalidOperationException from GetString, NOT JsonException. The two RAW surrogate fixtures raise
-        // EncoderFallbackException from the encoder, before any of the walk has run. Unreadable is what the
-        // caller refuses on, so the fail-closed direction holds for all three.
+        // JsonException from the reader. The ESCAPED surrogate fixtures - LoneSurrogateName and the pair in
+        // TwoEscapedLoneSurrogateNames - are thirteen ASCII bytes each and raise InvalidOperationException
+        // from GetString, NOT JsonException. The two RAW surrogate fixtures raise EncoderFallbackException
+        // from the encoder, before any of the walk has run. Unreadable is what the caller refuses on, so the
+        // fail-closed direction holds for all three.
         var verdict = StrictJson.Inspect(json, out var repeated);
 
         Assert.Equal(StrictJson.Verdict.Unreadable, verdict);
