@@ -2973,7 +2973,7 @@ public class ArchitectureConformanceTests
         Assert.Equal(2, validators.Count);
 
         var missing = validators
-            .Where(path => !File.ReadAllText(path).Contains(Invocation, StringComparison.Ordinal))
+            .Where(path => !SourceCallsInCode(File.ReadAllText(path), Invocation))
             .Select(Path.GetFileName)
             .ToList();
 
@@ -2992,6 +2992,37 @@ public class ArchitectureConformanceTests
         Assert.True(
             localChecks.Count == 0,
             "A signature validator must not re-implement the reference-URI rule locally alongside the shared one (#1003): " + string.Join(" | ", localChecks));
+    }
+
+    // The presence half of the rule above, fed synthetic source. A commented-out invocation is the shape that
+    // defeats a whole-file text search, so it is pinned from both sides: every comment form the exclusion
+    // knows about reads as absent, and a real call reads as present even when a comment names it too (#1122).
+    [Theory]
+    [InlineData("var id = SamlSignatureReference.TryGetSameDocumentId(uri);", true)]
+    [InlineData("        var id = SamlSignatureReference.TryGetSameDocumentId(uri);", true)]
+    [InlineData("// dropped: SamlSignatureReference.TryGetSameDocumentId( is no longer called here", false)]
+    [InlineData("        // SamlSignatureReference.TryGetSameDocumentId(uri);", false)]
+    [InlineData("/* SamlSignatureReference.TryGetSameDocumentId(uri); */", false)]
+    [InlineData("     * SamlSignatureReference.TryGetSameDocumentId( - see the shared rule", false)]
+    [InlineData("nothing here", false)]
+    public void CallSitePresence_ReadsCodeLinesNotRawText(string line, bool expected)
+    {
+        Assert.Equal(expected, SourceCallsInCode(line, "SamlSignatureReference.TryGetSameDocumentId("));
+    }
+
+    [Fact]
+    public void CallSitePresence_ACommentDoesNotStandInForARemovedCall()
+    {
+        var source = string.Join(
+            "\n",
+            "internal static bool Validate(string uri)",
+            "{",
+            "    // SamlSignatureReference.TryGetSameDocumentId( was inlined below; see #1003.",
+            "    return uri.Length > 0 && uri[0] != '#';",
+            "}");
+
+        Assert.False(SourceCallsInCode(source, "SamlSignatureReference.TryGetSameDocumentId("));
+        Assert.True(source.Contains("SamlSignatureReference.TryGetSameDocumentId(", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -3139,6 +3170,13 @@ public class ArchitectureConformanceTests
     // non-empty token, so nothing matches it.
     private static IEnumerable<(int Number, string Text)> CodeLines(string path) =>
         CodeLinesOf(File.ReadAllText(path));
+
+    // Whether a source text CALLS something, as opposed to merely mentioning it. Comment lines are excluded,
+    // because the likeliest edit that breaks a call-site rule is removing the call and documenting the
+    // removal in a comment that names it - which reads as diligence and would turn a whole-file text search
+    // green (#1122). Takes source rather than a path so a fixture can feed it synthetic lines.
+    private static bool SourceCallsInCode(string source, string invocation) =>
+        CodeLinesOf(source).Any(l => l.Text.Contains(invocation, StringComparison.Ordinal));
 
     // The double-quoted string literals on a line, escapes honoured so a \" cannot end one early. Verbatim
     // (@"...") literals are not modelled: the SAML module uses none, and a markup literal spelled that way
