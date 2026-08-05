@@ -177,7 +177,7 @@ internal static class StrictJson
             // surrogate to U+FFFD, so two genuinely different member names would re-encode to the same key and
             // the walk would report a repeat in a document that has none. The throw is caught below and
             // reported as Unreadable, which is the honest answer for bytes that cannot round-trip.
-            var bytes = new UTF8Encoding(false, true).GetBytes(document);
+            var bytes = new UTF8Encoding(false, false).GetBytes(document);
             var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = MaxDepth });
             while (reader.Read())
             {
