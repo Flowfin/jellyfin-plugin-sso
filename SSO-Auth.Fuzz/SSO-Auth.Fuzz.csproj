@@ -3,8 +3,12 @@
   <!--
     Out-of-band, coverage-guided fuzz harness for the untrusted-input parse surface (#402), the
     prototype the weekly SharpFuzz job (#174) runs. It is DELIBERATELY NOT part of SSO-Auth.sln, so a
-    normal `dotnet build`/`dotnet test` (and every PR CI job) never restores SharpFuzz or builds this
-    project - it is compiled and run only by the scheduled Linux fuzzing job. See README.md for the
+    normal `dotnet build`/`dotnet test` never restores SharpFuzz or builds this project, and neither
+    does any CI step that works from the solution. Since #1132 the gating `build` job compiles it BY
+    PATH, so a module rename that breaks the harness reds the PR instead of surfacing days later in
+    the weekly run; the fuzzing itself is still run only by the scheduled Linux job. Staying out of
+    the solution is what keeps `dotnet test`, the coverage gate and the vulnerable-dependency scan
+    operating on the shipping project set alone. See README.md for the
     ClusterFuzzLite-vs-SharpFuzz evaluation, the feasibility finding, and how to run it.
   -->
   <PropertyGroup>

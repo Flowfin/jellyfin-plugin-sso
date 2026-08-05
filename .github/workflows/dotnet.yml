@@ -61,6 +61,26 @@ jobs:
         fi
     - name: Build
       run: dotnet build --no-restore --warnaserror
+    # The fuzz harness is deliberately absent from SSO-Auth.sln, so the restore and
+    # build above never see it and a module rename in the plugin could break it
+    # unnoticed until the weekly fuzzing run days later (#1132, #1008). Compiling it
+    # inside the job the "Protect main" ruleset gates on makes that break red on the
+    # PR that causes it.
+    #
+    # It stays OUT of the solution and is built by path on purpose: joining the
+    # solution would also pull it into `dotnet test`, the coverage gate and the
+    # vulnerable-dependency scan above, all of which are meant to see the shipping
+    # project set and nothing else.
+    #
+    # This compiles the harness; it does not fuzz. No clang, no `sharpfuzz` CLI and
+    # no libFuzzer runtime is needed for that, and the libFuzzer run itself stays
+    # non-gating in fuzz.yml, which gains no push or pull_request trigger.
+    - name: Restore the fuzz harness (locked)
+      # Same --locked-mode reasoning as the solution restore above: the harness has
+      # its own committed packages.lock.json and a drifted graph must not build.
+      run: dotnet restore SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj --locked-mode
+    - name: Build the fuzz harness (Release)
+      run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror
     - name: Test
       run: dotnet test --no-build --verbosity normal
     # Line coverage for the RC coverage gate (#718). A second, instrumented run
