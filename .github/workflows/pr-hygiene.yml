@@ -8,10 +8,19 @@
 # this reasons about the *pull request* (its linkage, size, and changelog/test
 # co-changes) - a class none of them cover.
 #
-# This workflow is deliberately ADVISORY: it is NOT wired into the "Protect main"
-# required-status-check ruleset, so it never blocks a merge. It surfaces a
-# deterministic hygiene signal for me; I keep the final say. The
-# checks are tiered by confidence so it does not red-flag reasonable PRs:
+# This workflow BLOCKS a merge on its FAIL tier. Its job name, "Deterministic
+# PR-hygiene checks", is in the branch ruleset's required set, so a red run holds
+# the merge and only the WARN tier below is advisory. This header claimed the
+# whole workflow was advisory and never blocked anything, and reading it sent an
+# investigation of a blocked merge down the wrong path before the live ruleset
+# was queried (#1199). Do not restate the required set here, where it drifts
+# unnoticed; print it:
+#
+#   gh api repos/iderex/jellyfin-plugin-sso/rules/branches/main \
+#     --jq '.[] | select(.type=="required_status_checks")
+#           | .parameters.required_status_checks[].context'
+#
+# The checks are tiered by confidence so it does not red-flag reasonable PRs:
 #   - FAIL  (high confidence, near-zero false-positive):
 #       * PR body carries an issue reference (Closes/Refs #N) - skipped for bots.
 #       * a build.yaml version bump also touches CHANGELOG.md.
