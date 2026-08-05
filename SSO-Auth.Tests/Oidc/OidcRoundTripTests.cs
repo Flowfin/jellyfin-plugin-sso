@@ -126,9 +126,9 @@ public class OidcRoundTripTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
 
-        Assert.Equal("phr mfa", QueryValue(challenge.Url, "acr_values"));
-        Assert.Equal("login", QueryValue(challenge.Url, "prompt"));
-        Assert.Equal("0", QueryValue(challenge.Url, "max_age"));
+        Assert.Equal("phr mfa", UrlEncodedQuery.Require(challenge.Url, "acr_values"));
+        Assert.Equal("login", UrlEncodedQuery.Require(challenge.Url, "prompt"));
+        Assert.Equal("0", UrlEncodedQuery.Require(challenge.Url, "max_age"));
     }
 
     [Fact]
@@ -141,9 +141,12 @@ public class OidcRoundTripTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
 
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "acr_values"));
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "prompt"));
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "max_age"));
+        // Omitted means the name is absent from the query, not present with an empty value: the builder adds
+        // each pair only when its setting is set (OidcFrontChannelParameters), and the copy this file used to
+        // carry could not tell those two apart.
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "acr_values"));
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "prompt"));
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "max_age"));
     }
 
     [Fact]
@@ -464,7 +467,8 @@ public class OidcRoundTripTests
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
         Assert.StartsWith(Authority + "/authorize", challenge.Url);
 
-        var state = QueryValue(challenge.Url, "state");
+        // An absent state reads back as empty here, so the assertion below reports it rather than a throw.
+        var state = UrlEncodedQuery.Find(challenge.Url, "state") ?? string.Empty;
         Assert.False(string.IsNullOrEmpty(state));
         var binding = BindingCookie(harness.Controller.Response);
         Assert.False(string.IsNullOrEmpty(binding));
@@ -489,21 +493,6 @@ public class OidcRoundTripTests
         AppName = "Jellyfin Web",
         AppVersion = "1.0",
     };
-
-    // Reads a single query-parameter value out of the challenge's authorization redirect URL.
-    private static string QueryValue(string url, string key)
-    {
-        foreach (var pair in new Uri(url).Query.TrimStart('?').Split('&'))
-        {
-            var kv = pair.Split('=', 2);
-            if (kv.Length == 2 && kv[0] == key)
-            {
-                return Uri.UnescapeDataString(kv[1]);
-            }
-        }
-
-        return string.Empty;
-    }
 
     // Extracts the browser-binding cookie value the challenge wrote to the response's Set-Cookie header.
     private static string BindingCookie(HttpResponse response)
