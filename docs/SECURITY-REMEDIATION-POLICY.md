@@ -23,6 +23,37 @@ ever drift, the policy is corrected or the gate is fixed, never papered over.
 - **Dependabot** watches both ecosystems (NuGet and GitHub Actions); its
   security PRs run the full gate like any other change.
 
+### Publishing a not-exploitable disposition (VEX)
+
+- **What may be dispositioned at all:** only a finding this plugin does not
+  reach - a transitive component whose vulnerable code no plugin path executes.
+  A vulnerability in code the login path runs is **fixed**, never dispositioned;
+  the existence of VEX does not soften the merge gate above or the
+  security-before-features ordering. "Upgrading is inconvenient" is not a
+  disposition.
+- **Who decides, and on what evidence:** I do, and the evidence is a
+  reachability argument written down with the statement: which entry point would
+  have to be reached for the advisory to bite, and what stops it. The statement
+  carries a `justification` from the **OpenVEX enum** (so a consumer can act on
+  it) plus an `impact_statement` a person can read.
+  `scripts/check-vex.py` refuses free text in the justification field, so a
+  statement that skips the enum fails the build rather than shipping.
+- **When it is written:** in the **same change** that dispositions the finding,
+  never batched afterwards - the reasoning is only cheap while the triage is in
+  hand, and an undocumented disposition is indistinguishable from an overlooked
+  one.
+- **Where it lives:** `security/vex/openvex.json`, at that fixed path. Product
+  identifiers use the same purls the CycloneDX SBOM emits, so a consumer joins
+  the two without a mapping table; the checker compares products against an SBOM
+  when it is handed one, and validates the document's structure on every pull
+  request. A document with **zero statements is the correct state** while
+  nothing is triaged as not-exploitable.
+- **When a statement is revisited or withdrawn:** when the dependency is
+  upgraded past the advisory, or when the reachability judgement stops holding -
+  a new call site into the component is the ordinary trigger. The statement is
+  corrected or removed in the change that broke it, not left to be discovered by
+  whoever next reads the document.
+
 ## SAST - static analysis
 
 - **Merge gate:** CodeQL (with the `security-extended` query pack) and the
@@ -37,6 +68,9 @@ ever drift, the policy is corrected or the gate is fixed, never papered over.
 - **Accepted residuals** are documented where they live: the
   [Review Gate](https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate)
   wiki page records the known accepted residual(s) of the overall gate stack.
+  A dependency advisory triaged as not-exploitable is not a residual of this
+  kind - it is a published statement in `security/vex/openvex.json`, under
+  _Publishing a not-exploitable disposition (VEX)_ above.
 
 ## Secrets management
 
