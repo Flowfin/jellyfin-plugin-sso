@@ -454,17 +454,7 @@ public class SSOControllerSamlLogoutTests
     // Extracts and inflates the SAMLResponse query parameter of the redirect URL back into its XML document.
     private static XmlDocument DecodeSamlResponse(string url)
     {
-        var query = url[(url.IndexOf('?') + 1)..];
-        string? encoded = null;
-        foreach (var pair in query.Split('&'))
-        {
-            var eq = pair.IndexOf('=');
-            if (eq > 0 && pair[..eq] == "SAMLResponse")
-            {
-                encoded = Uri.UnescapeDataString(pair[(eq + 1)..]);
-                break;
-            }
-        }
+        var encoded = UrlEncodedQuery.Find(url, "SAMLResponse");
 
         Assert.NotNull(encoded);
         var compressed = Convert.FromBase64String(encoded!);

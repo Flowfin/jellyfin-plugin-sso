@@ -181,7 +181,7 @@ public class SamlRedirectSignerTests
         using var rsa = RSA.Create(2048);
         var url = SamlRedirectSigner.BuildSignedRedirectUrl(Endpoint, "SAMLRequest", Message, relayState: null, rsa);
 
-        var sigAlg = ExtractQueryValue(url, "SigAlg");
+        var sigAlg = UrlEncodedQuery.Require(url, "SigAlg");
 
         // The outgoing signer must reuse the inbound response-validator's allowlist, and never SHA-1.
         Assert.True(SamlSignatureAlgorithms.IsSignatureMethodAllowed(sigAlg));
@@ -197,9 +197,9 @@ public class SamlRedirectSignerTests
 
     private static bool SignatureVerifies(string url, RSA publicKey, string? expectedRelayState)
     {
-        var samlRequest = ExtractQueryValue(url, "SAMLRequest");
-        var sigAlg = ExtractQueryValue(url, "SigAlg");
-        var signature = Convert.FromBase64String(ExtractQueryValue(url, "Signature"));
+        var samlRequest = UrlEncodedQuery.Require(url, "SAMLRequest");
+        var sigAlg = UrlEncodedQuery.Require(url, "SigAlg");
+        var signature = Convert.FromBase64String(UrlEncodedQuery.Require(url, "Signature"));
 
         var signedQuery = "SAMLRequest=" + Uri.EscapeDataString(samlRequest);
         if (!string.IsNullOrEmpty(expectedRelayState))
@@ -216,9 +216,9 @@ public class SamlRedirectSignerTests
     // IEEE P1363 r||s concatenation the signer emits, so verification must use the same format.
     private static bool EcdsaSignatureVerifies(string url, ECDsa publicKey, string? expectedRelayState)
     {
-        var samlRequest = ExtractQueryValue(url, "SAMLRequest");
-        var sigAlg = ExtractQueryValue(url, "SigAlg");
-        var signature = Convert.FromBase64String(ExtractQueryValue(url, "Signature"));
+        var samlRequest = UrlEncodedQuery.Require(url, "SAMLRequest");
+        var sigAlg = UrlEncodedQuery.Require(url, "SigAlg");
+        var signature = Convert.FromBase64String(UrlEncodedQuery.Require(url, "Signature"));
 
         var signedQuery = "SAMLRequest=" + Uri.EscapeDataString(samlRequest);
         if (!string.IsNullOrEmpty(expectedRelayState))
@@ -229,20 +229,5 @@ public class SamlRedirectSignerTests
         signedQuery += "&SigAlg=" + Uri.EscapeDataString(sigAlg);
 
         return publicKey.VerifyData(Encoding.UTF8.GetBytes(signedQuery), signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-    }
-
-    private static string ExtractQueryValue(string url, string name)
-    {
-        var query = url[(url.IndexOf('?') + 1)..];
-        foreach (var pair in query.Split('&'))
-        {
-            var eq = pair.IndexOf('=');
-            if (eq > 0 && pair[..eq] == name)
-            {
-                return Uri.UnescapeDataString(pair[(eq + 1)..]);
-            }
-        }
-
-        throw new InvalidOperationException($"Query parameter '{name}' not found in {url}.");
     }
 }

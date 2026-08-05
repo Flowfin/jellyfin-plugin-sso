@@ -196,26 +196,12 @@ public class SSOControllerChallengeTests
 
     private static bool RedirectSignatureVerifies(string url, RSA publicKey)
     {
-        var samlRequest = QueryValue(url, "SAMLRequest");
-        var sigAlg = QueryValue(url, "SigAlg");
-        var signature = Convert.FromBase64String(QueryValue(url, "Signature"));
+        var samlRequest = UrlEncodedQuery.Require(url, "SAMLRequest");
+        var sigAlg = UrlEncodedQuery.Require(url, "SigAlg");
+        var signature = Convert.FromBase64String(UrlEncodedQuery.Require(url, "Signature"));
 
         var signedQuery = "SAMLRequest=" + Uri.EscapeDataString(samlRequest) + "&SigAlg=" + Uri.EscapeDataString(sigAlg);
         return publicKey.VerifyData(Encoding.UTF8.GetBytes(signedQuery), signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    }
-
-    private static string QueryValue(string url, string name)
-    {
-        foreach (var pair in url[(url.IndexOf('?') + 1)..].Split('&'))
-        {
-            var eq = pair.IndexOf('=');
-            if (eq > 0 && pair[..eq] == name)
-            {
-                return Uri.UnescapeDataString(pair[(eq + 1)..]);
-            }
-        }
-
-        throw new InvalidOperationException($"Query parameter '{name}' not found in {url}.");
     }
 
     [Fact]

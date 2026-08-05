@@ -405,7 +405,8 @@ public class SSOControllerOidPostTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
 
-        var state = QueryValue(challenge.Url, "state");
+        // An absent state reads back as empty here, so the assertion below reports it rather than a throw.
+        var state = UrlEncodedQuery.Find(challenge.Url, "state") ?? string.Empty;
         Assert.False(string.IsNullOrEmpty(state));
         var binding = BindingCookie(harness.Controller.Response);
         Assert.False(string.IsNullOrEmpty(binding));
@@ -415,21 +416,6 @@ public class SSOControllerOidPostTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/redirect/kc";
         harness.Controller.HttpContext.Request.Headers.Cookie = $"{AuthorizeStateBinding.CookieName}={binding}";
         return (harness, state);
-    }
-
-    // Reads a single query-parameter value out of the challenge's authorization redirect URL.
-    private static string QueryValue(string url, string key)
-    {
-        foreach (var pair in new Uri(url).Query.TrimStart('?').Split('&'))
-        {
-            var kv = pair.Split('=', 2);
-            if (kv.Length == 2 && kv[0] == key)
-            {
-                return Uri.UnescapeDataString(kv[1]);
-            }
-        }
-
-        return string.Empty;
     }
 
     // Extracts the browser-binding cookie value the challenge wrote to the response's Set-Cookie header.
