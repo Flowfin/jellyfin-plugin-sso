@@ -42,6 +42,15 @@ internal sealed class OidcIdTokenValidator : IIdentityTokenValidator
             // below; any failure rejects (fail closed). MapInboundClaims=false keeps the raw JWT claim
             // types - the default mapping would rename "sub" and friends to SOAP-style URIs and break
             // every ordinal claim comparison downstream.
+            //
+            // The header kid is constrained to the shared allowlist BEFORE any signing key is looked up
+            // (#1167). Not a signature check and not the fail-closed floor - the handler below owns that -
+            // but the point where an out-of-set kid stops travelling.
+            if (!OidcSignatureKeys.TokenHasAcceptableKeyId(identityToken))
+            {
+                return Reject("Identity token validation failed: unacceptable kid");
+            }
+
             var handler = new JsonWebTokenHandler { MapInboundClaims = false };
             var result = await handler.ValidateTokenAsync(identityToken, OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys)).ConfigureAwait(false);
             if (!result.IsValid)

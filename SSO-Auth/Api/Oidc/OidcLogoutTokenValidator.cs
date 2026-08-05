@@ -55,6 +55,13 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.Malformed);
         }
 
+        // The header kid is constrained to the shared allowlist BEFORE any signing key is looked up
+        // (#1167), from the same predicate the id_token path calls, so the two postures cannot drift.
+        if (!OidcSignatureKeys.TokenHasAcceptableKeyId(logoutToken))
+        {
+            return new Result(false, null, null, RejectReason.UnacceptableKeyId);
+        }
+
         // Signature / issuer / audience / lifetime - the SAME hardened basis as the id_token (the caller
         // builds validationParameters via OidcSignatureKeys); any failure is fail-closed.
         var handler = new JsonWebTokenHandler { MapInboundClaims = false };
@@ -164,5 +171,8 @@ internal sealed class OidcLogoutTokenValidator
 
         /// <summary>The jti was already consumed - a replayed logout_token.</summary>
         internal const string Replay = "replay";
+
+        /// <summary>The header kid carries characters outside the accepted set, or is over-length (#1167).</summary>
+        internal const string UnacceptableKeyId = "unacceptable_kid";
     }
 }
