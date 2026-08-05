@@ -11,6 +11,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// re-encoded, since encoding would change the bytes identity providers already have registered.
 /// (Split out of the kernel SsoUrlBuilder in #790 so the OIDC half lives in the Oidc module.)
 /// </summary>
+/// <remarks>
+/// This type only EMITS a redirect_uri; it never compares one, and it is not where a redirect-URI
+/// variant would be refused. That comparison is the authorization server's, and the two places this
+/// plugin compares a URL it published against one arriving from outside are
+/// <see cref="OidcLogout.IsAllowedPostLogoutRedirect"/> and
+/// <see cref="Saml.SamlRecipientValidator.IsBound"/> (#1180).
+/// </remarks>
 internal static class OidcRedirectUriBuilder
 {
     /// <summary>Builds the challenge-time redirect_uri; the spelling follows the route the login started on.</summary>
