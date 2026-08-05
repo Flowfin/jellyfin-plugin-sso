@@ -1,0 +1,9 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/iderex/jellyfin-plugin-sso/security/vex/openvex.json",
+  "author": "iderex",
+  "role": "Maintainer",
+  "timestamp": "2026-08-05T00:00:00Z",
+  "version": 1,
+  "statements": []
+}
