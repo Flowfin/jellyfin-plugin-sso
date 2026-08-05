@@ -360,6 +360,40 @@ public class OidcRoundTripTests
     }
 
     [Fact]
+    public async Task Challenge_SendsNoNonce_AndBindsTheCodeWithPkceS256()
+    {
+        // The recorded answer to #1157, held by a test rather than by a sentence, because the two halves
+        // only mean something together.
+        //
+        // This plugin's code flow sends NO authentication-request nonce. Every nonce in the source is a
+        // different thing - the CSP nonce on the interstitial page, the AES-GCM nonce in the secret
+        // envelope, and the logout_token's PROHIBITION under OIDC Back-Channel Logout 2.4 - and none of
+        // them is this one. The authorize request is built by the pinned Duende.IdentityModel.OidcClient,
+        // so what it emits is a property of that package rather than of this repository, and this row
+        // measures it on the real challenge leg instead of quoting a plan comment about the version.
+        //
+        // OIDC Core 1.0 3.1.3.7 rule 11 requires nonce validation only when a nonce was sent, so with none
+        // sent, "missing nonce", "echoed-but-unbound nonce" and "nonce from another request" are assertions
+        // with no subject. What binds the code to this browser instead is PKCE S256 (RFC 9700 2.1.1), which
+        // is the second half asserted here: the pair is the guard, and a row asserting only the absence
+        // would be satisfied by a challenge that bound the code with nothing at all.
+        //
+        // WHAT MAKES THIS WORTH ITS LINE is the day it fails. A nonce appearing on the authorize request
+        // with no validator on the callback is the roadiz shape (CVE-2026-42206): generated, never checked,
+        // and worse than absent because it reads as a control. This row goes red on that day, and its
+        // failure is the signal to build the negatives rather than to relax the assertion.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, fixture.IdToken("sub-1", "alice")));
+
+        var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
+
+        Assert.StartsWith(Authority + "/authorize", challenge.Url, StringComparison.Ordinal);
+        Assert.DoesNotContain("nonce", challenge.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("code_challenge=", challenge.Url, StringComparison.Ordinal);
+        Assert.Contains("code_challenge_method=S256", challenge.Url, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ParEnabledButNotAdvertised_ChallengeUsesThePlainRedirect()
     {
         // The compatibility half of the production default: a provider that advertises no PAR endpoint
