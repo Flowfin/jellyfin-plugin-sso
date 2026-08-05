@@ -184,6 +184,8 @@ We are always open to better docs! The main place documentation could be improve
 
 Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
+If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution.
+
 ### Sign Your Work (DCO)
 
 This project uses the [Developer Certificate of Origin](DCO) (DCO 1.1) - a lightweight, standard way to certify that you wrote or otherwise have the right to submit the code you contribute, under the project's GPL-3.0 license. It is not a copyright-assignment CLA; you keep your copyright.
