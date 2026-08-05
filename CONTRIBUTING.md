@@ -151,8 +151,20 @@ Any code editor or IDE with .NET support will work out of the box with this prog
 dotnet restore                               # once on a fresh clone; the --no-restore flags below assume it
 dotnet build --no-restore --warnaserror      # warnings are errors, exactly as in CI
 dotnet test --no-build --verbosity normal    # the xUnit project SSO-Auth.Tests must stay green
+bash scripts/check-lockfiles.sh              # after building: no pinned lockfile may be left modified
 npx prettier --check --end-of-line auto "**/*.{js,html,md,css,scss}"   # for any .js/.html/.md/.css change
 ```
+
+`scripts/check-lockfiles.sh` is the last step because a restore rewrites a
+`packages.lock.json` whenever it resolves a version other than the pinned one,
+and nothing local says so. The usual cause is passing an explicit
+`-p:JellyfinVersion` to an ordinary build: the defaults in
+`SSO-Auth/SSO-Auth.csproj` are conditioned on that property being empty, so any
+value defeats them and the pins are rewritten under you. Left uncommitted it
+resurfaces later as an NU1004 restore failure in CI, which restores in
+`--locked-mode`. The script reports the drifted files and the command that
+restores them; it never reverts or commits anything itself, because the rewritten
+pins are the evidence for what caused the drift.
 
 `--end-of-line auto` is not optional on Windows. Prettier's default is `lf`,
 CI checks out on Linux, and a Windows checkout under `core.autocrlf=true` is
