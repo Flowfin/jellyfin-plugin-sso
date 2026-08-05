@@ -98,9 +98,7 @@ internal static class OidcDiscoveryReader
             // parsed from), read through the two fail-closed/tolerant pure parsers: PKCE-S256 fails closed
             // (#141, caller rejects only under RequirePkce), response-iss stays tolerant (#210, absence
             // never locks out a provider that omits `iss`).
-            var facts = new DiscoveryFacts(
-                PkceDiscovery.SupportsS256(discovery.Raw),
-                OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(discovery.Raw));
+            var facts = FactsFrom(discovery.Raw);
 
             // The exact discovery -> ProviderInformation mapping OidcClient performs internally, so feeding
             // this back into PrepareLoginAsync reproduces the library's own login setup from the very
@@ -128,5 +126,23 @@ internal static class OidcDiscoveryReader
                 provider?.ReplaceLineEndings(string.Empty));
             return OidcDiscoveryResult.Unavailable;
         }
+    }
+
+    /// <summary>
+    /// Reads both discovery facts out of ONE parse of the document (#1170). The two readers used to take
+    /// the raw body and each walk it themselves, so one response was parsed twice for two booleans; the
+    /// parse now happens here, once, and both readers index the root it produced. The asymmetry between
+    /// them is unchanged and deliberate: PKCE-S256 fails closed on a document that cannot be parsed,
+    /// the RFC 9207 response-<c>iss</c> flag stays tolerant so an unreadable flag never locks out a
+    /// provider that omits <c>iss</c> (#210).
+    /// </summary>
+    /// <param name="discoveryJson">The raw discovery body of the response the facts are read from.</param>
+    /// <returns>The two facts this document advertises.</returns>
+    internal static DiscoveryFacts FactsFrom(string? discoveryJson)
+    {
+        var document = DiscoveryJson.TryParse(discoveryJson);
+        return new DiscoveryFacts(
+            PkceDiscovery.SupportsS256(document),
+            OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(document));
     }
 }
