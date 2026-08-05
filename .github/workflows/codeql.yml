@@ -15,8 +15,17 @@
 # Hardened per the repo's workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
 # permissions are deny-all at the top level and the job grants only the CodeQL
-# minimum (security-events:write, contents:read, actions:read). CodeQL is a
-# NON-required check - no ruleset depends on this workflow's check-run name.
+# minimum (security-events:write, contents:read, actions:read).
+#
+# The check-run names this workflow produces ARE depended on: the branch ruleset
+# requires `CodeQL` and `Analyze (csharp)`, so renaming the workflow or a matrix
+# language removes a required context instead of renaming one. This header
+# claimed the opposite until #1027. Do not restate the required set here, where
+# it drifts unnoticed; print it:
+#
+#   gh api repos/iderex/jellyfin-plugin-sso/rules/branches/main \
+#     --jq '.[] | select(.type=="required_status_checks")
+#           | .parameters.required_status_checks[].context'
 name: CodeQL
 
 on:
