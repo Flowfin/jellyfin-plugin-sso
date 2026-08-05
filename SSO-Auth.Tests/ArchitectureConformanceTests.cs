@@ -3025,6 +3025,29 @@ public class ArchitectureConformanceTests
         Assert.True(source.Contains("SamlSignatureReference.TryGetSameDocumentId(", StringComparison.Ordinal));
     }
 
+    // The two comment exclusions in this file, asked the same question about the same line. The argument-level
+    // scan (CallsTo, through IsOnACommentLine) reads the text ahead of a call; the line scan (CodeLinesOf)
+    // reads whole lines; only a shared form list makes them agree, and they did NOT agree about a line opening
+    // with /* until this row existed (#1214). Remove any form from OpensAComment and a row here goes red.
+    //
+    // The last row is the residual both of them carry: a comment opened part-way along a line hides nothing
+    // from either scan. That is the honest state, not an oversight this row waves through - it is pinned so
+    // that closing it later has to be a deliberate edit with a failing test in front of it.
+    [Theory]
+    [InlineData("document.Load(reader);", true)]
+    [InlineData("        document.Load(reader);", true)]
+    [InlineData("// document.Load(reader);", false)]
+    [InlineData("        // document.Load(reader);", false)]
+    [InlineData("/* document.Load(reader); */", false)]
+    [InlineData("        /* document.Load(reader); */", false)]
+    [InlineData("     * document.Load(reader); - the spelling before the hardened reader", false)]
+    [InlineData("var settings = Harden(); // document.Load(reader);", true)]
+    public void CommentExclusion_ReadsTheSameFormsForALineAndForACallSite(string line, bool isCode)
+    {
+        Assert.Equal(isCode, CallsTo(line, "Load").Any());
+        Assert.Equal(isCode, CodeLinesOf(line).Any(l => l.Text.Contains("Load(", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public void SamlSignaturePath_ResolvesElementsNamespaceAware()
     {
@@ -3153,17 +3176,27 @@ public class ArchitectureConformanceTests
         return files;
     }
 
+    // Whether trimmed text opens a comment: a line comment, a block-comment opener, or the continuation line
+    // of a block or XML-doc comment. THE ONLY COPY of the form list - a fourth form added to one of two
+    // copies is how a rule silently stops covering the spelling it was written for, and the two consumers
+    // below had already drifted apart on the block-comment opener (#1214).
+    //
+    // It reads the FIRST characters of what it is given and nothing else, so a comment opened part-way along
+    // a line ("Load(x); // moved") is not a comment to either consumer, and a block comment is only seen on
+    // the lines that begin one. That limit is shared by both, which is the property the fixture pins.
+    private static bool OpensAComment(string trimmedText) =>
+        trimmedText.StartsWith("//", StringComparison.Ordinal)
+        || trimmedText.StartsWith("/*", StringComparison.Ordinal)
+        || trimmedText.StartsWith("*", StringComparison.Ordinal);
+
     // A source text's numbered CODE lines: comment and XML-doc lines are excluded, because prose can name a
-    // banned type or quote a piece of markup without any call site reaching for it. THE ONLY COPY of that
-    // exclusion - a fourth comment form added to one of two copies is how a rule silently stops covering the
-    // spelling it was written for. On CRLF input the trailing \r survives the split and is removed by the
-    // Trim, so a line's text does not depend on the checkout's line endings.
+    // banned type or quote a piece of markup without any call site reaching for it. On CRLF input the
+    // trailing \r survives the split and is removed by the Trim, so a line's text does not depend on the
+    // checkout's line endings.
     private static IEnumerable<(int Number, string Text)> CodeLinesOf(string source) =>
         source.Split('\n')
             .Select((line, index) => (Number: index + 1, Text: line.Trim()))
-            .Where(l => !l.Text.StartsWith("//", StringComparison.Ordinal)
-                && !l.Text.StartsWith("/*", StringComparison.Ordinal)
-                && !l.Text.StartsWith("*", StringComparison.Ordinal));
+            .Where(l => !OpensAComment(l.Text));
 
     // A file's numbered CODE lines, by the rule above and no second opinion. A file that ends in a newline
     // yields one extra entry past its last line, whose text is empty; every predicate above searches for a
@@ -3351,12 +3384,14 @@ public class ArchitectureConformanceTests
     }
 
     // Whether the call at index sits on a line whose code has already been commented out - the argument-level
-    // scan reads the whole file, so it needs the same comment exclusion CodeLines applies.
+    // scan reads the whole file, so it needs the same comment exclusion CodeLines applies. The two cannot be
+    // the same function: this one judges the text AHEAD OF a call index, which is what lets it decide about a
+    // call sitting part-way along a line, where CodeLinesOf judges a whole trimmed line. They share the form
+    // list instead, so the parity this comment claims is a call and not a coincidence.
     private static bool IsOnACommentLine(string source, int index)
     {
         var lineStart = source.LastIndexOf('\n', Math.Min(index, source.Length - 1)) + 1;
-        var prefix = source[lineStart..index].TrimStart();
-        return prefix.StartsWith("//", StringComparison.Ordinal) || prefix.StartsWith("*", StringComparison.Ordinal);
+        return OpensAComment(source[lineStart..index].TrimStart());
     }
 
     // obj/bin hold generated and compiled output; the source scans read hand-written source only.
