@@ -1,0 +1,6 @@
+# Visual Studio writes and rewrites the solution file with CRLF, so the working
+# tree keeps CRLF on every platform and the file is never rewritten back by the
+# next tool that opens it. Git still stores it normalised, which is what makes
+# the ending a declared decision rather than whatever core.autocrlf produced on
+# the machine that last committed it.
+*.sln text eol=crlf
