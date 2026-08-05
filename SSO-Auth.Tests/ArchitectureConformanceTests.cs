@@ -3122,8 +3122,11 @@ public class ArchitectureConformanceTests
         return files;
     }
 
-    // A source text's numbered CODE lines - the same exclusion as CodeLines, for the rules whose fixtures feed
-    // synthetic source rather than a file on disk.
+    // A source text's numbered CODE lines: comment and XML-doc lines are excluded, because prose can name a
+    // banned type or quote a piece of markup without any call site reaching for it. THE ONLY COPY of that
+    // exclusion - a fourth comment form added to one of two copies is how a rule silently stops covering the
+    // spelling it was written for. On CRLF input the trailing \r survives the split and is removed by the
+    // Trim, so a line's text does not depend on the checkout's line endings.
     private static IEnumerable<(int Number, string Text)> CodeLinesOf(string source) =>
         source.Split('\n')
             .Select((line, index) => (Number: index + 1, Text: line.Trim()))
@@ -3131,14 +3134,11 @@ public class ArchitectureConformanceTests
                 && !l.Text.StartsWith("/*", StringComparison.Ordinal)
                 && !l.Text.StartsWith("*", StringComparison.Ordinal));
 
-    // A file's numbered CODE lines: comment and XML-doc lines are excluded, because prose can name a banned
-    // type or quote a piece of markup without any call site reaching for it.
+    // A file's numbered CODE lines, by the rule above and no second opinion. A file that ends in a newline
+    // yields one extra entry past its last line, whose text is empty; every predicate above searches for a
+    // non-empty token, so nothing matches it.
     private static IEnumerable<(int Number, string Text)> CodeLines(string path) =>
-        File.ReadAllLines(path)
-            .Select((line, index) => (Number: index + 1, Text: line.Trim()))
-            .Where(l => !l.Text.StartsWith("//", StringComparison.Ordinal)
-                && !l.Text.StartsWith("/*", StringComparison.Ordinal)
-                && !l.Text.StartsWith("*", StringComparison.Ordinal));
+        CodeLinesOf(File.ReadAllText(path));
 
     // The double-quoted string literals on a line, escapes honoured so a \" cannot end one early. Verbatim
     // (@"...") literals are not modelled: the SAML module uses none, and a markup literal spelled that way
