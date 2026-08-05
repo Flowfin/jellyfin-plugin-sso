@@ -7,6 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api.Crypto;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -22,6 +23,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 internal static class OidcSignatureKeys
 {
     /// <summary>
+    /// The longest token-header <c>kid</c> the plugin will look a key up by. Every shape a real provider
+    /// mints is far shorter - a base64url certificate thumbprint is 43 characters, a UUID 36 - so the cap
+    /// is set well above the field rather than close to it: the value being bounded is what matters, and a
+    /// tight cap would trade a hypothetical attack for a real lockout of an IdP nobody surveyed.
+    /// </summary>
+    private const int MaxKeyIdLength = 256;
+
+    /// <summary>
     /// Gets the asymmetric signature algorithms the plugin accepts (RFC 7518). Symmetric HS* would accept a
     /// token minted by anyone holding the shared client secret, and <c>none</c> is unauthenticated by
     /// definition - both are rejected regardless of what the discovery document advertises.
@@ -32,6 +41,86 @@ internal static class OidcSignatureKeys
         "PS256", "PS384", "PS512",
         "ES256", "ES384", "ES512",
     };
+
+    /// <summary>
+    /// Whether a token-header <c>kid</c> may be used as a key-lookup value. Accepts the RFC 3986 unreserved
+    /// set only, up to <see cref="MaxKeyIdLength"/>.
+    /// <para>
+    /// There is no live sink today: the value is only ever compared ordinally against the in-memory
+    /// <see cref="SecurityKey.KeyId"/> values converted from the discovery JWKS, so it reaches no
+    /// filesystem, database, URL or parser. This is the standing mitigation for the JWT <c>kid</c>-injection
+    /// class applied ahead of a sink, so that any future consumer of the header value - a log line, a cache
+    /// key, a keyed store, a remote key fetch - is born behind the constraint instead of re-opening it.
+    /// </para>
+    /// <para>
+    /// An ABSENT <c>kid</c> is not a violation: it is the ordinary "try every advertised key" case and must
+    /// keep working, so null, empty and whitespace are accepted. That also makes the predicate indifferent
+    /// to whether the token library reports an absent header member as null or as an empty string.
+    /// </para>
+    /// </summary>
+    /// <param name="keyId">The <c>kid</c> read from the token header, or null when the header carries none.</param>
+    /// <returns><c>true</c> when the value may reach a key lookup.</returns>
+    internal static bool IsAcceptableKeyId(string? keyId)
+    {
+        if (string.IsNullOrWhiteSpace(keyId))
+        {
+            return true;
+        }
+
+        if (keyId.Length > MaxKeyIdLength)
+        {
+            return false;
+        }
+
+        foreach (var character in keyId)
+        {
+            var unreserved = (character >= 'A' && character <= 'Z')
+                || (character >= 'a' && character <= 'z')
+                || (character >= '0' && character <= '9')
+                || character == '-' || character == '.' || character == '_' || character == '~';
+
+            if (!unreserved)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a compact-serialized JWT's header <c>kid</c> passes <see cref="IsAcceptableKeyId"/>. Both
+    /// token paths call this ahead of validation, so the constraint has ONE definition and the id_token and
+    /// <c>logout_token</c> postures cannot drift.
+    /// <para>
+    /// A token this cannot read at all is reported as acceptable rather than refused. That is deliberate and
+    /// it is not a fail-open: this gate is not the floor. A token whose header will not parse is refused
+    /// moments later by the handler, which owns signature, issuer, audience and lifetime, and reporting a
+    /// refusal from here would only replace an accurate rejection reason with a misleading one.
+    /// </para>
+    /// </summary>
+    /// <param name="token">The raw compact-serialized JWT.</param>
+    /// <returns><c>false</c> only when a <c>kid</c> was positively read and is outside the allowlist.</returns>
+    internal static bool TokenHasAcceptableKeyId(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return true;
+        }
+
+        string? keyId;
+        try
+        {
+            keyId = new JsonWebToken(token).Kid;
+        }
+        catch (ArgumentException)
+        {
+            // Not a readable JWT. The handler rejects it on its own terms; see the remark above.
+            return true;
+        }
+
+        return IsAcceptableKeyId(keyId);
+    }
 
     /// <summary>
     /// Builds the signature/issuer/audience/lifetime validation parameters every JWT the plugin verifies
