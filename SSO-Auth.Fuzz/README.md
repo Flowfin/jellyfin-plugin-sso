@@ -121,6 +121,15 @@ random noise: a well-formed and several malformed shapes per target (a minimal s
 response, a DOCTYPE body, non-Base64; a full and a minimal discovery document plus a type-confused one; a
 `none`-alg JWT and a non-JWT). libFuzzer expands the corpus from these as it explores.
 
+One class is seeded deliberately rather than left to the mutator: a **repeated property name**, where a
+document parses cleanly and the reader silently keeps one occurrence. The mutator is unlikely to invent
+it, because it is not a malformation - `{"alg":"RS256","alg":"none"}` is well-formed JSON that reads back
+as `none`, and which occurrence wins is a decision each reader makes without saying so. Three seeds carry
+it (#1153): `discovery/repeated-issuer.json` repeats `issuer` beside a real
+`code_challenge_methods_supported` array so the mutator has grammar on both sides of the repeat;
+`idtoken/repeated-alg-header.jwt` repeats `alg` in the JWT header; `idtoken/repeated-aud-payload.jwt`
+repeats `aud` in the payload, collapsing two audiences to one.
+
 ## Scorecard alert #36 and #174
 
 This prototype does not itself flip the Scorecard Fuzzing check - that check only credits a wired-in
