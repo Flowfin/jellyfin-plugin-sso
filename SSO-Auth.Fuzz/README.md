@@ -9,6 +9,12 @@ restores SharpFuzz or builds it. The _fuzzing_ is driven only by the scheduled L
 acceptance criteria require ("scheduled, non-blocking"). Since #1132 the gating `build` job does compile
 the harness by path, so a module rename that breaks it reds the PR rather than the weekly run.
 
+Since #1134 that job also **replays every committed seed** through its target in smoke mode, which asks a
+different question from compiling: a plugin change can leave the harness building perfectly while making a
+known-hostile input throw an exception the fail-closed filters do not name. The target list comes from the
+corpus directories, so a new target is replayed by the fact of having a corpus. An empty corpus directory,
+or no corpus at all, fails the step rather than passing quietly. The coverage-guided run stays non-gating.
+
 ## The attack surface we target
 
 The login endpoints are anonymous and hand attacker-controlled bytes straight into parsers before any
