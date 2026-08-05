@@ -20,6 +20,34 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 internal static class OidcRoleExtractor
 {
     /// <summary>
+    /// Why a walk produced the role set it produced (#1147). Before this existed every failure collapsed to
+    /// an empty list, which an operator could not tell from a provider that legitimately sent no roles - so
+    /// a mistyped path and a correct path over an empty array looked identical from outside.
+    /// <para>
+    /// The set is deliberately OPEN: a later reason may be added (a repeated member inside the role claim,
+    /// #1053) without the existing members changing meaning. Only <see cref="Resolved"/> is not a refusal.
+    /// </para>
+    /// </summary>
+    internal enum Outcome
+    {
+        /// <summary>
+        /// The path resolved to the configured shape. The role set may still be EMPTY and that is not a
+        /// refusal: an empty terminal array, an empty object map, and an array whose elements are all
+        /// non-strings all resolved correctly and simply carry no roles.
+        /// </summary>
+        Resolved,
+
+        /// <summary>The claim value did not parse as a JSON object, or parsed to null.</summary>
+        ValueNotJson,
+
+        /// <summary>An intermediate key was missing, an intermediate node was not an object, or the terminal key was absent.</summary>
+        PathNotResolved,
+
+        /// <summary>The terminal node was reached but is not the configured shape - a non-array where an array was expected, or a non-object in object-map mode.</summary>
+        TerminalWrongShape,
+    }
+
+    /// <summary>
     /// Extracts the role values from a claim value for the given role-claim path.
     /// </summary>
     /// <param name="roleClaimSegments">
@@ -33,20 +61,22 @@ internal static class OidcRoleExtractor
     /// every call site has to state which shape it reads.
     /// </param>
     /// <returns>
-    /// The extracted roles: for an array terminal, the string elements of the array reached by walking the
-    /// JSON path (non-string elements are ignored); for an object-map terminal, that object's property
-    /// names; and, only when the path is one segment and the terminal is not an object map, the raw claim
-    /// value as a single role. Returns an empty list when the path does not resolve to the expected shape
-    /// (missing segment, non-object node, wrong terminal type) and when the claim value is malformed
-    /// JSON - a parse failure fails closed to no roles rather than throwing (#216).
+    /// The extracted roles and why (#1147): for an array terminal, the string elements of the array reached
+    /// by walking the JSON path (non-string elements are ignored); for an object-map terminal, that object's
+    /// property names; and, only when the path is one segment and the terminal is not an object map, the raw
+    /// claim value as a single role. Every non-resolving shape (missing segment, non-object node, wrong
+    /// terminal type) and a malformed claim value carry no roles AND a refusal reason - a parse failure
+    /// fails closed rather than throwing (#216). The refusal reasons exist so a caller can tell a broken
+    /// path from a provider that legitimately sent no roles; the ROLE SET this returns is exactly the one
+    /// the previous bare-list version returned, for every input.
     /// </returns>
-    internal static List<string> ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
+    internal static Result ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
     {
         // A single-segment path is not JSON: the claim value itself is the role. An object-map claim is the
         // exception - there the claim value IS the terminal object, so it falls through to the parse below.
         if (roleClaimSegments.Length == 1 && !terminalIsObjectMap)
         {
-            return new List<string> { claimValue };
+            return Resolved(new List<string> { claimValue });
         }
 
         // Everything else parses the claim value as a JSON object and walks it. The claim value is
@@ -59,14 +89,15 @@ internal static class OidcRoleExtractor
             var json = JsonConvert.DeserializeObject<IDictionary<string, object>>(claimValue);
             if (json is null)
             {
-                return new List<string>();
+                return Refused(Outcome.ValueNotJson);
             }
 
             // A one-segment object-map path has no key to look under: the parsed claim value IS the terminal
-            // object, so its property names are the roles. An empty object yields NO roles, never "any role".
+            // object, so its property names are the roles. An empty object yields NO roles, never "any role"
+            // - and it RESOLVED, so it is not a refusal.
             if (roleClaimSegments.Length == 1)
             {
-                return json.Keys.ToList();
+                return Resolved(json.Keys.ToList());
             }
 
             // Walk the intermediate segments; any missing key or non-object node yields no roles.
@@ -75,39 +106,54 @@ internal static class OidcRoleExtractor
                 var segment = roleClaimSegments[i];
                 if (!json.TryGetValue(segment, out var nextToken) || nextToken is not JObject nextObject)
                 {
-                    return new List<string>();
+                    return Refused(Outcome.PathNotResolved);
                 }
 
                 json = nextObject.ToObject<IDictionary<string, object>>();
                 if (json is null)
                 {
-                    return new List<string>();
+                    return Refused(Outcome.PathNotResolved);
                 }
             }
 
             if (!json.TryGetValue(roleClaimSegments[^1], out var rolesToken))
             {
-                return new List<string>();
+                return Refused(Outcome.PathNotResolved);
             }
 
-            // The terminal must resolve to the configured shape - anything else is no roles, not a guess.
+            // The terminal must resolve to the configured shape - anything else is no roles, not a guess,
+            // and it is a distinct refusal from a path that never reached a terminal at all.
             if (terminalIsObjectMap)
             {
                 // Property NAMES only: the values are provider bookkeeping (Zitadel puts the granting org
                 // there), and reading them, or recursing, would turn unrelated data into granted roles.
                 return rolesToken is JObject rolesObject
-                    ? rolesObject.Properties().Select(property => property.Name).ToList()
-                    : new List<string>();
+                    ? Resolved(rolesObject.Properties().Select(property => property.Name).ToList())
+                    : Refused(Outcome.TerminalWrongShape);
             }
 
             // Take only the array's string elements so a terminal array of objects or numbers cannot throw.
+            // An array with no string elements RESOLVED and carries no roles; it is not a refusal.
             return rolesToken is JArray rolesArray
-                ? rolesArray.Where(token => token.Type == JTokenType.String).Select(token => token.Value<string>()!).ToList()
-                : new List<string>();
+                ? Resolved(rolesArray.Where(token => token.Type == JTokenType.String).Select(token => token.Value<string>()!).ToList())
+                : Refused(Outcome.TerminalWrongShape);
         }
         catch (JsonException)
         {
-            return new List<string>();
+            return Refused(Outcome.ValueNotJson);
         }
     }
+
+    private static Result Resolved(List<string> roles) => new(Outcome.Resolved, roles);
+
+    // Every refusal carries an EMPTY role set, in one place, so no future reason can be added with roles
+    // attached to it by accident.
+    private static Result Refused(Outcome outcome) => new(outcome, new List<string>());
+
+    /// <summary>
+    /// The classified result of a role-claim walk: the roles it produced, and why.
+    /// </summary>
+    /// <param name="Outcome">Whether the walk resolved, and if not, what refused it.</param>
+    /// <param name="Roles">The extracted role strings; empty on every refusal, and possibly empty on a resolution.</param>
+    internal readonly record struct Result(Outcome Outcome, List<string> Roles);
 }

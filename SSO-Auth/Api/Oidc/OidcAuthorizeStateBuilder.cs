@@ -217,7 +217,10 @@ internal static class OidcAuthorizeStateBuilder
 
             if (roleClaimSegments.Length > 0 && string.Equals(claim.Type, roleClaimSegments[0], StringComparison.Ordinal))
             {
-                roles.AddRange(OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap));
+                // The walk now says WHY it produced what it produced (#1147). This step reads only the roles
+                // and discards the reason deliberately: reporting it is #1149's step, and folding the two
+                // together would put a behaviour change behind a pure classification.
+                roles.AddRange(OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap).Roles);
             }
         }
 
