@@ -123,6 +123,18 @@ internal static class StrictJson
     /// readers beside it, and the divergence it would inherit is written down in that same row rather than
     /// left to be rediscovered. Not established, and so not claimed: that no consumer anywhere folds case.
     ///
+    /// An INVALID escape is the opposite question and has the opposite answer (#1197): it establishes no name
+    /// at all, so two members spelled with one are never folded into a single key. A raw unpaired surrogate
+    /// has no UTF-8 encoding and the document is refused before the walk starts; an escaped one is a name the
+    /// decoder cannot complete, and <c>GetString</c> refuses it. Either way the walk never holds two names to
+    /// compare and reports <see cref="Verdict.Unreadable"/> - nothing was established - rather than
+    /// <see cref="Verdict.Repeated"/>. The alternative is what a lenient decoder gives you: every unpaired
+    /// surrogate becomes U+FFFD, two different names collapse to one, and the walk accuses a provider of a
+    /// repeat its document does not contain. Both verdicts refuse the document, so the choice is between two
+    /// refusals and is made on which is honest about the bytes; the cost, stated rather than implied, is that
+    /// a provider naming a member with an unpaired surrogate is locked out of a login a lenient reader
+    /// downstream would have completed.
+    ///
     /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 replaces this walk with once net9.0 is
     /// dropped, takes the same decision in both directions - it refuses a member named twice and does not
     /// treat a case-variant pair as one. Measured on net10.0 in <c>TheStrictPresetTakesTheSameDecisionOnCase</c>,
