@@ -12,6 +12,26 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// 4.1.3 equality), so the pins here are the primary evidence that refactors change nothing - the
 /// end-to-end suites assert only URL prefixes and parameter presence, not full bytes.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This file holds a TRANSMISSION property - the bytes sent equal the configured ones - and deliberately
+/// no REJECTION property. There are no "variant is refused" negatives here because
+/// <see cref="OidcRedirectUriBuilder"/> refuses nothing: it concatenates, and the comparison that would
+/// refuse a variant belongs to the authorization server (RFC 6749 section 3.1.2, OIDC Core section
+/// 3.1.2.1). A client cannot test another party's enforcement, so an absent negative here is the correct
+/// shape rather than a gap (#1180, #1051).
+/// </para>
+/// <para>
+/// Redirect-URI comparison that this plugin DOES own - a URL this deployment published, checked against
+/// one arriving from outside - lives at exactly two sites, and the negatives belong with them:
+/// <c>OidcLogout.IsAllowedPostLogoutRedirect</c> (origin equality plus base-path prefix, reused at save
+/// time by <c>ProviderConfigValidator.ValidatePostLogoutRedirectUri</c>), and
+/// <c>SamlRecipientValidator.IsBound</c> (ordinal set membership of the assertion Recipient and the
+/// Response Destination against <c>SamlAcsUrlBuilder.ExpectedAcsUrls</c>). Other URL comparisons in the
+/// plugin test a scheme or a host against a constant, or a path-segment spelling, which is policy on an
+/// inbound value rather than a check against something this deployment emitted.
+/// </para>
+/// </remarks>
 public class OidcRedirectUriBuilderTests
 {
     private const string Base = "https://jf.example.com";
