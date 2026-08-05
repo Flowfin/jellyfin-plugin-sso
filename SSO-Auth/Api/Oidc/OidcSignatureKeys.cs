@@ -209,6 +209,13 @@ internal static class OidcSignatureKeys
     // use!="sig" is not a signing key, and un-decodable/invalid key material is caught and skipped so one
     // broken key in the set cannot take down verification signed by a good one. Returns false - never
     // throws - on every reject path so the caller drops the key without aborting the scan.
+    //
+    // The advertised kid is NOT one of the exclusions, and that is the decided contract rather than a
+    // gap (#1029, #1168): every exclusion above is a key that cannot do the job, and a spelling is not
+    // one of those. The set is also never refused whole over one entry - the odd key is kept, the good
+    // ones beside it keep working, and the token header's own kid is screened separately by
+    // IsAcceptableKeyId before any lookup. OidcSignatureKeysKidTests holds both directions of this,
+    // including what it costs: such a key is reachable by trying every advertised key, never by name.
     private static bool TryConvertSigningKey(Duende.IdentityModel.Jwk.JsonWebKey? webKey, List<IDisposable> ephemeralKeys, [NotNullWhen(true)] out SecurityKey? key)
     {
         key = null;
