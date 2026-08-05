@@ -108,13 +108,25 @@ internal static class StrictJson
     /// readers rather than a fact about consumers, see below - and AFTER unescaping, so a name spelled with a
     /// <c>\u</c> escape counts as the same name as its plain spelling.
     ///
-    /// Ordinal is a decision about THIS plugin's readers, not a fact about JSON consumers in general, and the
-    /// difference matters: a deserializer configured case-insensitively - which is what
+    /// Ordinal is a DECISION about this plugin's readers (#1191), not a fact about JSON consumers in general,
+    /// and the difference matters: a deserializer configured case-insensitively - which is what
     /// <c>JsonSerializerDefaults.Web</c> gives you - resolves <c>ISSUER</c> onto <c>Issuer</c> and keeps the
-    /// last occurrence, while an indexing reader over the same bytes returns the first. The plugin's own
-    /// discovery readers index, so a case-variant pair is unambiguous to them and refusing it would take a
-    /// working provider offline; whether that holds for every consumer this walk may acquire is not settled
-    /// here and is tracked separately.
+    /// last occurrence, while an indexing reader over the same bytes returns the first. Both readings are
+    /// measured, on those bytes, in <c>WhatAdmittingACaseVariantPairLeavesOpen_IsMeasuredRatherThanAssumed</c>.
+    ///
+    /// A case-variant pair is therefore ADMITTED, and what each direction costs is this. Refusing one takes
+    /// offline a provider whose document no reader on this login path misreads - every one of them indexes a
+    /// name it spells itself - and because every member at every scope is compared, the pair that took the
+    /// provider down need not be a member a login rests on at all; two unrelated vendor extensions differing
+    /// in case would do it. Admitting one costs nothing to any reader present today and leaves one thing
+    /// open: a future consumer on this path that folds case would answer differently from the indexing
+    /// readers beside it, and the divergence it would inherit is written down in that same row rather than
+    /// left to be rediscovered. Not established, and so not claimed: that no consumer anywhere folds case.
+    ///
+    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 replaces this walk with once net9.0 is
+    /// dropped, takes the same decision in both directions - it refuses a member named twice and does not
+    /// treat a case-variant pair as one. Measured on net10.0 in <c>TheStrictPresetTakesTheSameDecisionOnCase</c>,
+    /// so the replacement inherits this posture rather than contradicting it.
     ///
     /// Never throws.
     /// </returns>
