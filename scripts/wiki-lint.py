@@ -12,6 +12,11 @@ creep back:
                                 cite modules and type names, never paths that move.
   3. Dead source links        - a blob/<ref>/<path> link to a file not in the tree.
 
+Check 3 resolves against the code repository's git INDEX, so a local run and a CI run
+reach the same verdict on the same wiki: a file the repository ignores but a developer
+still has on disk is not scored live. Point it at a git work tree; if it is not one, the
+run says so and falls back to the filesystem.
+
 Usage: wiki-lint.py <wiki_dir> <code_repo_dir>
 Exit code 1 (with a report) on any finding; 0 when clean.
 """
@@ -19,6 +24,7 @@ Exit code 1 (with a report) on any finding; 0 when clean.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -89,12 +95,49 @@ def check_file_line_citations(wiki: Path) -> list[str]:
 _BLOB = re.compile(r"github\.com/[^/]+/[^/]+/blob/[^/]+/([^)#\s]+)")
 
 
+def tracked_paths(code: Path) -> set[str] | None:
+    """The repo-relative POSIX paths git has in its index, plus every directory they imply.
+
+    Returns None when `code` is not a git work tree, or git is unavailable - the caller then
+    falls back to the filesystem and says so, rather than scoring every link dead.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(code), "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    live = {p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p}
+    for path in list(live):
+        parts = path.split("/")
+        live.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    return live
+
+
 def check_dead_source_links(wiki: Path, code: Path) -> list[str]:
+    # Resolved against the INDEX, not the filesystem. A file the repository ignores can still sit in a
+    # developer's working checkout, and .exists() scores it live - so the same wiki linted clean locally
+    # and reported findings in CI, where actions/checkout materialises tracked files only (#1152).
+    tracked = tracked_paths(code)
+    if tracked is None:
+        print(
+            f"warning: '{code}' is not a readable git work tree - source links are checked against the "
+            "filesystem, so an ignored-but-present file will score live and this verdict may differ from CI.",
+            file=sys.stderr,
+        )
+
+    def is_live(rel: str) -> bool:
+        rel = rel.rstrip("/")
+        return (code / rel).exists() if tracked is None else rel in tracked
+
     findings: list[str] = []
     for path in wiki.glob("*.md"):
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for rel in _BLOB.findall(line):
-                if not (code / rel).exists():
+                if not is_live(rel):
                     findings.append(f"{path.name}:{n}: dead source link '{rel}' (not in the code tree)")
     return findings
 
