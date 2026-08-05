@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Duende.IdentityModel.OidcClient;
@@ -26,12 +27,18 @@ internal static class OidcSignatureKeys
     /// token minted by anyone holding the shared client secret, and <c>none</c> is unauthenticated by
     /// definition - both are rejected regardless of what the discovery document advertises.
     /// </summary>
-    internal static string[] AllowedSignatureAlgorithms { get; } =
-    {
+    /// <remarks>
+    /// Immutable, not just get-only: the same instance is handed by reference into the validation parameters
+    /// of BOTH token types, so a writable array would let one in-assembly write to element zero change what
+    /// the id_token and the back-channel logout_token accept, at once, with nothing else noticing. Freezing
+    /// the collection makes that write a compile error rather than a control nobody is watching (#1190).
+    /// </remarks>
+    internal static ImmutableArray<string> AllowedSignatureAlgorithms { get; } =
+    [
         "RS256", "RS384", "RS512",
         "PS256", "PS384", "PS512",
         "ES256", "ES384", "ES512",
-    };
+    ];
 
     /// <summary>
     /// Builds the signature/issuer/audience/lifetime validation parameters every JWT the plugin verifies
