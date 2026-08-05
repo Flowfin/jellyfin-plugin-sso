@@ -85,6 +85,8 @@ Full documentation lives in the **[Wiki](https://github.com/iderex/jellyfin-plug
 - [Installation](https://github.com/iderex/jellyfin-plugin-sso/wiki/Installation) · [Provider Setup](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup) · [Login Flow](https://github.com/iderex/jellyfin-plugin-sso/wiki/Login-Flow) · [Security Model](https://github.com/iderex/jellyfin-plugin-sso/wiki/Security-Model) · [Troubleshooting](https://github.com/iderex/jellyfin-plugin-sso/wiki/Troubleshooting)
 - Project policies: [Governance](GOVERNANCE.md) · [Support & security updates](SECURITY.md#supported-versions--security-updates) · [Remediation & secrets policy](docs/SECURITY-REMEDIATION-POLICY.md)
 
+The plugin's own served pages are translatable from JSON catalogs, no C# involved. [Translating the UI](CONTRIBUTING.md#translating-the-ui) lists the supported languages, the catalog format, and how to add one.
+
 ## Security
 
 This plugin is built to **fail closed by default**: a missing signature, a weak signature or under-strength key, an out-of-bounds time window, a wrong audience, a replayed assertion, or an unrecognized identity is rejected rather than waved through. Secrets are stored write-only and AES-256-GCM-encrypted at rest. The controls and their tuning - encryption at rest, optional rate limiting, new-user approval, step-up/MFA passthrough - are on the [Security Model](https://github.com/iderex/jellyfin-plugin-sso/wiki/Security-Model) wiki page, and security-relevant behavior is covered by the test suite.

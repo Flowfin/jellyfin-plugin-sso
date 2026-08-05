@@ -23,6 +23,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Suggesting Enhancements](#suggesting-enhancements)
   - [Your First Code Contribution](#your-first-code-contribution)
   - [Improving The Documentation](#improving-the-documentation)
+  - [Translating the UI](#translating-the-ui)
 - [Styleguides](#styleguides)
   - [Commit Messages](#commit-messages)
   - [Sign Your Work (DCO)](#sign-your-work-dco)
@@ -189,6 +190,22 @@ This is a security-sensitive login path: before opening a pull request, understa
 ### Improving The Documentation
 
 We are always open to better docs! The main place documentation could be improved is the [provider setup](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup) documentation. This file keeps track of configurations that are known to work with common SSO providers.
+
+### Translating the UI
+
+The plugin serves two pages of its own, the interstitial login page and the browser error page, and their text comes from per-language JSON catalogs rather than from the C# source. Translating one needs no build and no C# at all.
+
+Supported languages today are English alone, shipped as `SSO-Auth/Localization/en.json`. English is also the invariant fallback: every key exists there, and a lookup walks the requested culture, then its base language, then English, then the key itself, so a string that is missing from a catalog falls back rather than rendering blank.
+
+**To add a language**, copy `en.json` to `SSO-Auth/Localization/<bcp47>.json` (`de.json`, `pt-BR.json`), translate the values, and keep the key set exactly as English has it. Nothing else needs editing: the project file globs `Localization\*.json` into the assembly as embedded resources.
+
+**To fix a translation**, change the value and never the key. Keys are internal identifiers that the served pages reference by name, and no user-supplied or provider-supplied value is ever used as one.
+
+**Keep every `{name}` placeholder** in the value you translate. `SSO-Auth/Web/i18n.js` substitutes them from the parameters the page passes, so a placeholder dropped from a translated string takes its substituted text with it. The reverse is safe: a parameter that is absent at runtime leaves the placeholder standing verbatim rather than blanking the line.
+
+**Some text is deliberately not translated.** Server logs and the audit trail are operator-facing and stay in English; the catalogs are read only by the served pages, so nothing on those paths reaches a translator. Error text that an identity provider interpolated into a message is passed through as it arrived rather than translated, HTML-encoded on the way out.
+
+The standing guard is `SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs`, and it runs in CI on every pull request. A catalog that is not a flat string-to-string map, that carries a blank value, or whose key set diverges from English in either direction (a missing key or an orphan one) fails the build. So an incomplete catalog is caught before it ships rather than discovered by whoever speaks that language.
 
 ## Styleguides
 
