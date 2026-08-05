@@ -151,8 +151,15 @@ Any code editor or IDE with .NET support will work out of the box with this prog
 dotnet restore                               # once on a fresh clone; the --no-restore flags below assume it
 dotnet build --no-restore --warnaserror      # warnings are errors, exactly as in CI
 dotnet test --no-build --verbosity normal    # the xUnit project SSO-Auth.Tests must stay green
-npx prettier --check "**/*.{js,html,md,css,scss}"   # for any .js/.html/.md/.css change
+npx prettier --check --end-of-line auto "**/*.{js,html,md,css,scss}"   # for any .js/.html/.md/.css change
 ```
+
+`--end-of-line auto` is not optional on Windows. Prettier's default is `lf`,
+CI checks out on Linux, and a Windows checkout under `core.autocrlf=true` is
+CRLF - so without it the command reports every tracked Markdown and web file as
+failing on a tree with no modifications at all, and a real formatting defect in
+your change is indistinguishable from the noise. On Linux the flag changes
+nothing.
 
 `dotnet test` requires the **.NET 10 SDK**: the repo's `global.json` selects the
 SDK's Microsoft.Testing.Platform mode of `dotnet test` (#718), which older SDKs
@@ -214,7 +221,7 @@ The architecture, comment/documentation, and object-oriented rules a change is h
 
 ### HTML/CSS/JS/Markdown
 
-We use [Prettier](https://prettier.io) to format these files. Run `npx prettier --write "**/*.{js,html,md,css,scss}"` before committing, and `npx prettier --check "**/*.{js,html,md,css,scss}"` to confirm - CI enforces the check (only `*.min.js` is exempt).
+We use [Prettier](https://prettier.io) to format these files. Run `npx prettier --write --end-of-line auto "**/*.{js,html,md,css,scss}"` before committing, and `npx prettier --check --end-of-line auto "**/*.{js,html,md,css,scss}"` to confirm - CI enforces the check (only `*.min.js` is exempt). Keep `--end-of-line auto` on both: it is what makes the check honest on a CRLF working copy, and it stops `--write` rewriting the line endings of every file you did not touch.
 
 Not every file under `SSO-Auth/Web` is project code. Check the provenance header before editing: `emby-restyle.css` and the minified `jellyfin-apiClient.esm.min.js` are **vendored** from jellyfin-web - update them by re-copying from upstream, not by editing in place - whereas `ApiClient.js` is **project-maintained** code (loosely based on the linked upstream) that carries our own security logic and is edited here directly.
 
