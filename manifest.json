@@ -1,7 +1,7 @@
 [
   {
     "category": "Authentication",
-    "description": "Single sign-on for Jellyfin via OpenID Connect and SAML 2.0 — works with self-hosted and\nmanaged identity providers such as Authelia, Authentik, Keycloak, Pocket ID and Kanidm,\nwith multiple providers side by side.\nRole-based access from provider claims (login, administrator, library folders, Live TV),\navatar sync, self-service account linking, and an optional SSO-only mode that disables\npassword login for every account except a designated break-glass admin.\nSign-in works in the Jellyfin Web UI and, via Quick Connect, in native clients.\nA security-first continuation of the archived 9p4/jellyfin-plugin-sso.\nDocumentation and provider setup guides: https://github.com/iderex/jellyfin-plugin-sso\n",
+    "description": "Single sign-on for Jellyfin via OpenID Connect and SAML 2.0 - works with self-hosted and\nmanaged identity providers such as Authelia, Authentik, Keycloak, Pocket ID and Kanidm,\nwith multiple providers side by side.\nRole-based access from provider claims (login, administrator, library folders, Live TV),\navatar sync, self-service account linking, and an optional SSO-only mode that disables\npassword login for every account except a designated break-glass admin.\nSign-in works in the Jellyfin Web UI and, via Quick Connect, in native clients.\nA security-first continuation of the archived 9p4/jellyfin-plugin-sso.\nDocumentation and provider setup guides: https://github.com/iderex/jellyfin-plugin-sso\n",
     "guid": "505ce9d1-d916-42fa-86ca-673ef241d7df",
     "imageUrl": "https://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
@@ -129,6 +129,14 @@
         "version": "5.0.0.13"
       },
       {
+        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.25).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* The em dash leaves the source and the infrastructure, and one marker literal stays [#1202] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1203\n* Refuse a provider response that names a JSON member twice, before the library resolves it by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1065\n* Run the wiki lint on every push to main [#1151] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1206\n* Allow an OIDC provider on a private network, per provider and opt-in [#1058] by @teekennedy in https://github.com/iderex/jellyfin-plugin-sso/pull/1205\n* Derive the failure alert's watched set instead of listing it by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1208\n* Bound the post-logout return URL at a path segment boundary by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1209\n* Prove the SAML Recipient and Destination binding refuses near misses [#1182] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1211\n* Stop two workflow headers asserting a required-check set they get wrong by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1213\n* Declare the solution file's line endings in .gitattributes [#1080] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1212\n* Express the comment-exclusion rule once in the conformance tests [#1124] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1215\n* Localize the three unsubstituted template placeholders in the config page by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1216\n* Seed the discovery and idtoken fuzz corpora with repeated property names by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1217\n* Read the call-site presence scan off code lines, not raw file text [#1122] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1219\n* Freeze the OpenID signature-algorithm allowlist [#1190] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1220\n* Refuse a token-header kid outside the unreserved set before key lookup by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1221\n* Make the documented Prettier command honest on a Windows checkout [#1066] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1222\n* Classify why the role-claim walk produced no roles by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1223\n* Record that the OIDC redirect_uri builder only emits, never compares [#1180] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1224\n* Resolve wiki source links against the git index, not the filesystem [#1152] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1225\n\n## New Contributors\n* @teekennedy made their first contribution in https://github.com/iderex/jellyfin-plugin-sso/pull/1205\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.24...4.3.0-beta.25",
+        "checksum": "92f8471c2fbabf5d54a7c913b6165084",
+        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.25/community-sso-for-jellyfin_4.3.0.25.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-08-05T06:37:44Z",
+        "version": "4.3.0.25"
+      },
+      {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.24).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Add the per-object-scope repeated-member walk by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1071\n* Move every codeql-action pin to v4.37.3 in one step by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1198\n* Bump scorecard-action to v2.4.4 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1200\n* Bump setup-uv to v9.0.0 off a branch that can gate by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1201\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.16...4.3.0-beta.24",
         "checksum": "60eccdc00f9db61d067275292fdfde3c",
         "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.3.0-beta.24/community-sso-for-jellyfin_4.3.0.24.zip",
@@ -239,14 +247,6 @@
         "targetAbi": "10.11.0.0",
         "timestamp": "2026-07-18T22:38:05Z",
         "version": "4.1.2.6"
-      },
-      {
-        "changelog": "Jellyfin 10.11 beta 4.1.2-beta (plugin version 4.1.2.5).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* publish-beta: shared publish-manifest-beta concurrency group by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/606\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.1.2-beta.4...4.1.2-beta.5",
-        "checksum": "5f7e3ff51a1062d1078edcdc0e5fa39a",
-        "sourceUrl": "https://github.com/iderex/jellyfin-plugin-sso/releases/download/4.1.2-beta.5/sso-authentication_4.1.2.5.zip",
-        "targetAbi": "10.11.0.0",
-        "timestamp": "2026-07-18T20:41:43Z",
-        "version": "4.1.2.5"
       }
     ]
   }
