@@ -738,8 +738,8 @@ public class OidcStateStoreTests
     public void Summaries_ProjectExactlyTheNonSecretFields_AndMapTheVariantToValid()
     {
         // Structural redaction: the Summary record carries Provider/Created/Valid/IsLinking and
-        // nothing else - the authorize-state token and PKCE code_verifier / nonce cannot leak through it,
-        // even to an admin. "Valid" is now which variant the entry is: a promoted Ready is valid.
+        // nothing else - the authorize-state token and PKCE code_verifier cannot leak through it,
+        // even to an admin. No nonce is named here any more: the store never held one (#1157). "Valid" is now which variant the entry is: a promoted Ready is valid.
         var store = Store();
         store.Seed("secret-ready", Ready("p", "secret-ready", Now, isLinking: true));
         store.Seed("secret-pending", Pending("q", "secret-pending", Now));
