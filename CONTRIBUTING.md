@@ -184,7 +184,11 @@ We are always open to better docs! The main place documentation could be improve
 
 Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
-If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution.
+A commit message may only use printable ASCII plus a short, named set of extra characters: tab, the em and en dash, the ellipsis, the section sign, the rightwards arrow, the greater-than-or-equal sign, and the German letters `ÄÖÜäöüß`. Anything else fails the gate, naming the commit, the code point and the line. The set is an allowlist rather than a list of forbidden characters, because that is the only shape that also refuses a script nobody has thought of yet - the reasoning is Unicode Technical Standard #55 and the Trojan Source work (CVE-2021-42574). Widening it is a deliberate edit of the table in `.github/workflows/pr-hygiene.yml`, where the table also records which characters were measured in the existing history and which one was refused.
+
+The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
+
+If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution. The character check still reports what it finds on your PR, as a note rather than a failure, because a message nobody can read is a problem whoever wrote it.
 
 ### Sign Your Work (DCO)
 
