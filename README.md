@@ -104,3 +104,5 @@ Built on the [Jellyfin LDAP plugin](https://github.com/jellyfin/jellyfin-plugin-
 ## License
 
 Licensed under the [GNU GPL v3.0](https://github.com/iderex/jellyfin-plugin-sso/blob/main/LICENSE.txt).
+
+See NOTICE.md for the intended-use notice.
