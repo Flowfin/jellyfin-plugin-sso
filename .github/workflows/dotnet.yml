@@ -47,6 +47,12 @@ jobs:
         cache-dependency-path: '**/packages.lock.json'
     - name: Jellyfin compatibility metadata check
       run: bash scripts/check-jellyfin-compat.sh
+    - name: VEX document check
+      # The published VEX statements are only useful if they parse and carry machine-readable
+      # dispositions, so a malformed edit fails here rather than at the release leg that ships the
+      # document (#1092). Structural only: the product-against-SBOM leg of the same checker takes the
+      # SBOM as a second argument, and no SBOM exists at this point in the job.
+      run: python3 scripts/check-vex.py security/vex/openvex.json
     - name: Restore dependencies
       # --locked-mode fails the restore if the committed packages.lock.json files would change,
       # so a drifted or tampered dependency graph cannot build in CI.
