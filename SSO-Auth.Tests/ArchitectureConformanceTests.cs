@@ -2930,7 +2930,11 @@ public class ArchitectureConformanceTests
             Assert.True(block.Routes is not null, $"ProviderNameRegistrationRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#1160).");
         }
 
-        foreach (var route in new[] { "OID/Add/{provider}", "SAML/Add/{provider}" })
+        // Derived from the list rather than named again here: a fourth registration route added to the list
+        // would otherwise be checked only for existing, which is the same forgotten-step this rule is about.
+        // A registration route carrying the name in a route SEGMENT gates it at the controller; the ones that
+        // carry it inside a body reach the config tier's gate instead and are covered by the rule below.
+        foreach (var route in ProviderNameRegistrationRoutes.Where(r => r.Contains("{provider}", StringComparison.Ordinal)))
         {
             var block = actions.First(a => a.Routes.Contains(route, StringComparer.Ordinal));
             Assert.True(
