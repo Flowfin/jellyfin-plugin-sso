@@ -701,22 +701,10 @@ internal sealed class OidcLoginService
 
         options.ProviderInformation = discovery.ProviderInformation;
 
-        var ephemeralKeys = new List<IDisposable>();
-        try
-        {
-            // requireExpiration:false - OIDC Back-Channel Logout 1.0 §2.4 does not mandate exp on a
-            // logout_token; replay is bounded by the jti one-time-use, not by exp. Requiring it would
-            // silently reject (and thus no-op the logout for) a spec-compliant exp-less IdP (#962).
-            var parameters = OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys, requireExpiration: false);
-            return await new OidcLogoutTokenValidator().ValidateAsync(logoutToken, parameters, options.ClockSkew, DateTime.UtcNow).ConfigureAwait(false);
-        }
-        finally
-        {
-            foreach (var key in ephemeralKeys)
-            {
-                key.Dispose();
-            }
-        }
+        // The validator derives its own validation basis from these options and owns the ephemeral signing
+        // keys that come with it, so nothing here holds a TokenValidationParameters that could be weakened
+        // between building it and verifying against it (#1176).
+        return await new OidcLogoutTokenValidator().ValidateAsync(logoutToken, options, DateTime.UtcNow).ConfigureAwait(false);
     }
 
     private OidcClientOptions BuildOidcOptions(OidConfig config, string redirectUri, string scope)

@@ -153,7 +153,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     {
         var token = CreateToken(keyId: keyId, claims: LogoutClaims());
 
-        var result = await _logoutValidator.ValidateAsync(token, Parameters(), Skew, _now);
+        var result = await _logoutValidator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.UnacceptableKeyId, result.ReasonCode);
@@ -180,7 +180,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     {
         var token = CreateToken(keyId: keyId, claims: LogoutClaims());
 
-        var result = await _logoutValidator.ValidateAsync(token, Parameters(keyId), Skew, _now);
+        var result = await _logoutValidator.ValidateAsync(token, Options(keyId), _now);
 
         Assert.True(result.IsValid, result.ReasonCode);
         Assert.Equal("user-1", result.Subject);
@@ -324,7 +324,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
         Assert.False(idResult.IsError, idResult.Error);
 
         var logoutResult = await _logoutValidator.ValidateAsync(
-            CreateToken(claims: LogoutClaims()), Parameters(), Skew, _now);
+            CreateToken(claims: LogoutClaims()), Options(), _now);
         Assert.True(logoutResult.IsValid, logoutResult.ReasonCode);
     }
 
@@ -342,15 +342,13 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     private OidcClientOptions OptionsFor(string jwks) => new()
     {
         ClientId = ClientId,
+        ClockSkew = Skew,
         ProviderInformation = new ProviderInformation
         {
             IssuerName = Issuer,
             KeySet = new Duende.IdentityModel.Jwk.JsonWebKeySet(jwks),
         },
     };
-
-    private TokenValidationParameters Parameters(string keyId = KeyId) =>
-        OidcSignatureKeys.BuildValidationParameters(Options(keyId), new List<IDisposable>(), requireExpiration: false);
 
     private string Jwks(string keyId) => "{\"keys\":[" + KeyEntry(keyId, _rsa) + "]}";
 
