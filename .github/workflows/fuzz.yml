@@ -5,8 +5,8 @@
 # libFuzzer runtime work. The headline target is the SAML response parse/validate
 # path (`SamlResponseLoader.TryParse` -> `SamlResponse` ctor + `IsValid` + every
 # claim getter, seeded from the SamlTestFactory-shaped corpus), which is what
-# #174 asks for; the same harness also exposes the OIDC `discovery`, `idtoken`
-# and `jwks` parse readers, fuzzed in the same sweep at no extra maintenance.
+# #174 asks for; the same harness also exposes the OIDC `discovery`, `idtoken`,
+# `jwks` and `roles` readers, fuzzed in the same sweep at no extra maintenance.
 #
 # NON-GATING BY CONSTRUCTION: this workflow runs ONLY on a weekly schedule and on
 # manual dispatch - never on push or pull_request - so it is not a PR check and
@@ -61,11 +61,12 @@ jobs:
       # One target's crasher (a real finding) must not cancel the others' runs.
       fail-fast: false
       matrix:
-        # saml is the #174 target and is listed first; discovery/idtoken/jwks are
-        # the sibling parse readers the same harness (#402) exposes. jwks (#1156)
-        # is the only one whose surface touches key material rather than JSON
-        # alone, which is why it is worth its own leg.
-        target: [saml, discovery, idtoken, jwks]
+        # saml is the #174 target and is listed first; the rest are the sibling
+        # readers the same harness (#402) exposes. jwks (#1156) is the only one
+        # whose surface touches key material rather than JSON alone, and roles
+        # (#1158) the only one whose output decides a privilege rather than a
+        # diagnostic, which is why each is worth its own leg.
+        target: [saml, discovery, idtoken, jwks, roles]
     env:
       # The managed harness executable libFuzzer drives, and the plugin assembly
       # SharpFuzz instruments in place (loaded by the harness from the same dir).

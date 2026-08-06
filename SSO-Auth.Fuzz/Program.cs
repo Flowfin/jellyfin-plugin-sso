@@ -38,6 +38,11 @@ internal static class Program
     // code path's robustness, not a signature bypass (which coverage-guided fuzzing cannot reach).
     private static readonly string SamlCertificateBase64 = CreateSelfSignedCertificateBase64();
 
+    // The role-claim path the `roles` target drives, pinned beside the corpus it belongs to: segment[0] is
+    // the claim name the caller matched, the rest walk into the claim value. Changing it invalidates every
+    // seed in corpus/roles, which is why it lives here as one constant rather than at the call.
+    private static readonly string[] RoleClaimPath = { "resource_access", "jellyfin", "roles" };
+
     private static int Main(string[] args)
     {
         var target = Environment.GetEnvironmentVariable("SSO_FUZZ_TARGET") ?? "saml";
@@ -48,8 +53,9 @@ internal static class Program
             "discovery" => FuzzOidcDiscovery,
             "idtoken" => FuzzOidcIdToken,
             "jwks" => FuzzJwks,
+            "roles" => FuzzOidcRoles,
             _ => throw new ArgumentException(
-                $"Unknown SSO_FUZZ_TARGET '{target}'. Expected one of: saml, discovery, idtoken, jwks."),
+                $"Unknown SSO_FUZZ_TARGET '{target}'. Expected one of: saml, discovery, idtoken, jwks, roles."),
         };
 
         // Smoke mode replays the seed corpus through the selected target once and exits, WITHOUT libFuzzer.
@@ -188,6 +194,28 @@ internal static class Program
                 ephemeralKey.Dispose();
             }
         }
+    }
+
+    // OpenID role claim: the value of the claim the role-claim path names, which reaches the plugin from
+    // the id_token or the UserInfo response and is provider-authored. OidcRoleExtractor.ExtractRoles parses
+    // it as JSON and walks it, so it is a byte-level parse surface like the readers above, and today no
+    // target feeds it.
+    //
+    // The path is FIXED so a seed and the driver cannot drift apart: every seed in corpus/roles is the value
+    // of a `resource_access` claim under the path resource_access.jellyfin.roles, which is Keycloak's shape.
+    // Both terminal shapes are driven from the one input span, because the shape is a per-provider setting
+    // (RoleClaimIsObjectMap, #934) rather than a property of the bytes: the same document is a valid input
+    // to either, and the mutator should reach both arms without needing two corpora.
+    //
+    // Only the harness's uniform property is asserted, by not catching: the call must terminate with a
+    // fail-closed result or an exception the extractor maps. WHICH roles come back from an unreadable or
+    // repeated-key claim is #1053's decision to make, and nothing here encodes an answer to it.
+    private static void FuzzOidcRoles(ReadOnlySpan<byte> data)
+    {
+        var claimValue = Encoding.UTF8.GetString(data);
+
+        _ = OidcRoleExtractor.ExtractRoles(RoleClaimPath, claimValue, terminalIsObjectMap: false);
+        _ = OidcRoleExtractor.ExtractRoles(RoleClaimPath, claimValue, terminalIsObjectMap: true);
     }
 
     private static string CreateSelfSignedCertificateBase64()
