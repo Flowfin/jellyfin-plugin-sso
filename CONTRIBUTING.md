@@ -181,6 +181,31 @@ you need both runtimes' SDKs installed - exactly what CI installs).
 
 CI restores in a separate step, so its build/test use `--no-restore`/`--no-build`; on a fresh local clone run `dotnet restore` once first (or drop `--no-restore` on the first build) or the build fails before any package is fetched.
 
+**The suite needs no administrator rights, on Windows included** (#1227), and a
+change that makes it need them is a defect rather than a step to document. What
+used to break that on Windows was a consent dialog: four tests in
+`SSO-Auth.Tests/Net/SsoHttpTests.cs` reproduce the "IdP on the admin's own LAN"
+case at the socket layer, so they bind a listener to this machine's own
+interface address instead of loopback, and that bind is what Windows Defender
+Firewall asks about. The dialog is answered by an administrator, and its subject
+is the executable's full path rather than the project, so answering it settles
+nothing beyond that one path - every new build directory is asked again. The
+four skip on Windows instead, each printing why, and the Linux legs carry the
+coverage with no opt-in. Run them on Windows deliberately, and expect the
+dialog, with:
+
+```sh
+SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net9.0/SSO-Auth.Tests.exe
+```
+
+Nothing else in the three test-side projects listens off loopback, writes a
+certificate into a store, or shells out to a tool that needs elevation. Before
+adding something that does, check what is there now:
+
+```sh
+git grep -rniE "\.Bind\(|HttpListener|netsh|sc\.exe|runas|X509Store|dev-certs" -- SSO-Auth.Tests SSO-Auth.Tests.Stryker SSO-Auth.Fuzz
+```
+
 **Developing the admin UI.** The settings page and the account-linking page are **embedded resources**, not files served from disk: `configPage.html`, `config.js`, and the `linking.*` assets are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). So the edit loop is **rebuild → redeploy the DLL → restart Jellyfin**: `dotnet publish -c Release`, copy the output into your Jellyfin `config/plugins/sso/`, and restart the server; there is no live reload. Jellyfin's logs (the plugin logs through them) live under the server's `config/log/` directory. One gotcha while iterating: the `/SSOViews` assets are served with an ETag derived from the assembly `FileVersion`, so a browser will `304`-serve the **previous** build of `linking.js`/`linking.css` until the version changes - disable the browser cache (DevTools → Network → "Disable cache") during a UI edit session, or you will be testing stale assets.
 
 **Branching and pull requests.** `main` is the released line and is PR-only. Branch every change - even a one-liner - off `main` for fixes and security work, or off the feature branch for features, using a short kebab-case name with a `fix/`, `harden/`, `feature/`, `chore/`, or `refactor/` prefix. Reference the issue your change addresses (`Closes #N`) and fill in the [pull request template](.github/pull_request_template.md).
