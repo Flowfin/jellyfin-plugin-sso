@@ -200,5 +200,13 @@ internal sealed class OidcLogoutTokenValidator
 
         /// <summary>The header kid carries characters outside the accepted set, or is over-length (#1167).</summary>
         internal const string UnacceptableKeyId = "unacceptable_kid";
+
+        /// <summary>
+        /// The provider's discovery document could not be read, so the signing keys never arrived and the
+        /// token was never checked. Alone among these codes it does not describe a refused forgery: the
+        /// legitimate IdP ordered a termination and the plugin declined to perform it, which the caller
+        /// audits as its own event at its own severity (#1184).
+        /// </summary>
+        internal const string ProviderUnreachable = "discovery_unavailable";
     }
 }
