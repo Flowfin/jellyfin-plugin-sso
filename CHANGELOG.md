@@ -56,6 +56,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A document that says two things about a user's roles now grants none of
+  them.** When a provider's UserInfo response names the role claim twice, the
+  two copies reach the plugin as two separate claims, each one clean on its own,
+  so the screen that refuses a repeated member inside a claim value never saw
+  them. The roles of both copies were merged, which means a second copy naming
+  an extra role granted that role. Copies that disagree are now refused
+  outright: the login proceeds with no roles rather than with the union.
+  Providers that emit the same role claim in both the id_token and the UserInfo
+  response are unaffected, because copies that agree still grant, and so is the
+  common shape of one claim per group, which is a list written as repeated
+  claims rather than two statements about one object.
 - **A provider response that names a JSON member twice is refused before it is
   parsed.** A repeated member is accepted silently by every reader these
   documents reach, and none of them raises an error, so which of the two values a

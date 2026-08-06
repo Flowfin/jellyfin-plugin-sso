@@ -203,7 +203,7 @@ internal static class OidcAuthorizeStateBuilder
 
         string? username = null;
         var valid = false;
-        var roles = new List<string>();
+        var copies = new List<List<string>>();
         foreach (var claim in claims)
         {
             if (string.Equals(claim.Type, usernameClaimType, StringComparison.Ordinal))
@@ -220,11 +220,57 @@ internal static class OidcAuthorizeStateBuilder
                 // The walk now says WHY it produced what it produced (#1147). This step reads only the roles
                 // and discards the reason deliberately: reporting it is #1149's step, and folding the two
                 // together would put a behaviour change behind a pure classification.
-                roles.AddRange(OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap).Roles);
+                //
+                // Each copy is kept SEPARATE rather than appended to one list, because how several copies
+                // combine is a decision, and appending made it silently (#1040).
+                copies.Add(OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap).Roles);
             }
         }
 
-        return (username, valid, roles);
+        return (username, valid, RolesFromCopies(copies, roleClaimSegments, config));
+    }
+
+    /// <summary>
+    /// Reduces the copies of the role claim a document carried to the role set the login is granted.
+    /// </summary>
+    /// <remarks>
+    /// One copy is the ordinary case and stands as it is. SEVERAL copies of an OBJECT-VALUED role claim are
+    /// two statements about the same thing, and the plugin never sees the bytes behind them: with
+    /// <c>LoadProfile</c> on (the default) OidcClient merges the UNSIGNED UserInfo response into the
+    /// principal, so a UserInfo body naming the claim twice arrives here as two claims of one type, each
+    /// individually clean, which is why the value-level screen (#1005) never fires on it. Appending them
+    /// granted the UNION, so a second copy naming an extra role was granted that role (#1040).
+    /// <para>
+    /// Copies that AGREE still grant. A provider that emits the claim in both the id_token and the UserInfo
+    /// response says one thing twice, and refusing that would take every role from a normal deployment.
+    /// Copies that DISAGREE grant nothing: a document that says two things about the roles says nothing
+    /// this login can act on, and the fail-closed reading is the one that cannot be talked into a
+    /// privilege. The refusal is silent for now; the operator trail for a refused role claim is #1042.
+    /// </para>
+    /// <para>
+    /// Scoped to the object-valued shapes on purpose. A provider emitting one claim per group - a
+    /// one-segment path over plain string values - is a normal, documented shape whose copies are MEANT to
+    /// be unioned, so it keeps the append.
+    /// </para>
+    /// </remarks>
+    /// <param name="copies">The roles each copy of the role claim produced, in document order.</param>
+    /// <param name="roleClaimSegments">The split role-claim path; more than one segment means the claim value is JSON.</param>
+    /// <param name="config">The provider configuration, for the object-map opt-in.</param>
+    /// <returns>The roles the login is granted.</returns>
+    private static List<string> RolesFromCopies(List<List<string>> copies, string[] roleClaimSegments, OidConfig config)
+    {
+        if (copies.Count <= 1)
+        {
+            return copies.Count == 1 ? copies[0] : new List<string>();
+        }
+
+        if (roleClaimSegments.Length == 1 && !config.RoleClaimIsObjectMap)
+        {
+            return copies.SelectMany(copy => copy).ToList();
+        }
+
+        var first = new HashSet<string>(copies[0], StringComparer.Ordinal);
+        return copies.TrueForAll(first.SetEquals) ? copies[0] : new List<string>();
     }
 
     /// <summary>
