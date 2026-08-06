@@ -2945,23 +2945,33 @@ public class ArchitectureConformanceTests
         // namespace, which SPDX/REUSE tooling expects).
         const string CopyrightLine = "// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors";
         const string LicenceLine = "// SPDX-License-Identifier: GPL-3.0-only";
-        var offenders = new List<string>();
-        foreach (var root in new[] { "SSO-Auth", "SSO-Auth.Tests", "SSO-Auth.Fuzz" })
-        {
-            foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), root), "*.cs", SearchOption.AllDirectories))
-            {
-                if (IsBuildOutput(src))
-                {
-                    continue;
-                }
+        var roots = ProjectRoots();
+        var sources = roots
+            .SelectMany(root => Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+            .Where(src => !IsBuildOutput(src))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                var firstLines = File.ReadLines(src).Take(2).ToList();
-                if (firstLines.Count < 2
-                    || firstLines[0].Trim() != CopyrightLine
-                    || firstLines[1].Trim() != LicenceLine)
-                {
-                    offenders.Add(Path.GetFileName(src));
-                }
+        // The liveness floor. A derived root set can silently become empty - a rename, a project moved, a
+        // repository root resolved one directory too high - and an empty scan reports no offenders, which
+        // reads exactly like a tree where every file carries its header. Both halves are floored, and both
+        // sit well under the real counts so an ordinary project or file being added or removed never moves
+        // them; this must fail when the DERIVATION breaks, not when the tree changes shape.
+        Assert.True(
+            roots.Count >= 3,
+            $"The SPDX root derivation found only {roots.Count} project directories; it has stopped seeing the tree, and this rule would now pass over the projects it no longer walks (#1270).");
+        Assert.True(
+            sources.Count >= 100,
+            $"The SPDX scan found only {sources.Count} C# files under the derived roots; the walk has broken and a missing header would no longer be seen (#1270).");
+
+        var offenders = new List<string>();
+        foreach (var src in sources)
+        {
+            var firstLines = File.ReadLines(src).Take(2).ToList();
+            if (firstLines.Count < 2
+                || firstLines[0].Trim() != CopyrightLine
+                || firstLines[1].Trim() != LicenceLine)
+            {
+                offenders.Add(Path.GetFileName(src));
             }
         }
 
@@ -2969,6 +2979,19 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "Every C# source file must open with the SPDX copyright + GPL-3.0-only header (#747). Missing or incorrect in: " + string.Join(", ", offenders));
     }
+
+    // Every directory in the tree that owns a C# project, derived from the project files themselves rather
+    // than listed (#1270). A literal list is the defect and not the fix: adding a root is a step somebody
+    // has to remember, and the project that lands while nobody remembers is the one carrying the unheaded
+    // file. Deriving it means a new project of the same shape - non-shipping, outside the solution, ordinary
+    // C# source - is covered on the day it lands, without this rule being edited.
+    private static IReadOnlyList<string> ProjectRoots() =>
+        Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(project => !IsBuildOutput(project))
+            .Select(project => Path.GetDirectoryName(project)!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(root => root, StringComparer.Ordinal)
+            .ToList();
 
     [Fact]
     public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
