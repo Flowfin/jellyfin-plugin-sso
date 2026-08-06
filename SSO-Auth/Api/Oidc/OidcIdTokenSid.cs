@@ -47,5 +47,12 @@ internal static class OidcIdTokenSid
         {
             return null;
         }
+        catch (FormatException)
+        {
+            // A token with more than three segments gets far enough for the library to base64url-decode a
+            // LATER segment, and that decode raises FormatException rather than the malformed-token
+            // ArgumentException above. Unreadable by another name, so it reads as absent like the rest.
+            return null;
+        }
     }
 }
