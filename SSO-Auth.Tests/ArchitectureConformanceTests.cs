@@ -2627,7 +2627,9 @@ public class ArchitectureConformanceTests
         // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
         // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
         // self-enforcing: a NEW test class that constructs the harness without joining the collection is
-        // a red build naming the file, not a flaky suite three weeks later.
+        // a red build naming the file, not a flaky suite three weeks later. The scan reads each file's own
+        // code lines, which is sound only because a test class cannot inherit its setup from elsewhere -
+        // <see cref="NoTestClass_DeclaresABaseClass"/> is what holds that (#1172).
         var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
         var offenders = new List<string>();
         foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
@@ -2656,6 +2658,56 @@ public class ArchitectureConformanceTests
             Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
                 .Count(f => !IsBuildOutput(f) && File.ReadAllText(f).Contains("new SsoControllerHarness", StringComparison.Ordinal)) >= 10,
             "The harness-usage scan matched fewer than 10 files - SsoControllerHarness was renamed; update this rule.");
+    }
+
+    [Fact]
+    public void NoTestClass_DeclaresABaseClass()
+    {
+        // #1172: the harness rule above reads each file's own code lines. That is sound only while a test
+        // class cannot inherit its setup: `sealed class FooTests : SomeTestBase` where the base constructs
+        // the harness or clears a static matches no literal in FooTests.cs, so the file would be scanned
+        // clean and run in parallel with a class clearing the same statics. This rule closes that route by
+        // construction rather than by scanning for spellings of it - a test-bearing type inherits nothing
+        // but object, so whatever a test class does is in the file that declares it. Interfaces are not
+        // base types in the CLR, so IDisposable, IClassFixture<T> and IAsyncLifetime are unaffected. It
+        // also puts the Coding-Standards wiki rule "there are no test base classes" behind a build gate.
+        var testBearing = typeof(ArchitectureConformanceTests).Assembly.GetTypes()
+            .Where(t => !IsCompilerGenerated(t))
+            .Where(t => t
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Any(m => m.GetCustomAttributes(typeof(FactAttribute), inherit: true).Length > 0))
+            .ToList();
+
+        var offenders = testBearing
+            .Where(t => t.BaseType is not null && t.BaseType != typeof(object))
+            .Select(t => $"{TestSourceFileDeclaring(t)}: {SimpleName(t)} : {SimpleName(t.BaseType!)}")
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "A test class must not derive from a base class - the file-local test scans (harness collection, statics) would not see what the base does. Implement an interface, or put the shared code in a fixture the class holds. Offenders: " + string.Join(", ", offenders));
+
+        // Liveness floor: the scan must actually reach the test classes. A reflection that stopped finding
+        // [Fact]/[Theory] carriers would report zero offenders forever.
+        Assert.True(
+            testBearing.Count >= 120,
+            $"The test-class reflection found only {testBearing.Count} types carrying [Fact]/[Theory] - the scan has been blinded (attribute renamed, tests moved out of this assembly); update this rule.");
+    }
+
+    // The test source file declaring a type, so an offender is reported as a file a reader can open rather
+    // than as a type name they then have to find. Test-side counterpart of SourceFilesDeclaring, which
+    // scans the plugin project.
+    private static string TestSourceFileDeclaring(Type type)
+    {
+        var declaration = new Regex(
+            $@"\b(?:{string.Join("|", TypeDeclarationKeywords)})\s+{Regex.Escape(SimpleName(type))}\b");
+
+        return Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => declaration.IsMatch(File.ReadAllText(path)))
+            .Select(Path.GetFileName)
+            .FirstOrDefault() ?? SimpleName(type) + " (declaring file not found)";
     }
 
     [Fact]
