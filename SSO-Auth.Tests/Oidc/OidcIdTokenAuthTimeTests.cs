@@ -48,6 +48,28 @@ public class OidcIdTokenAuthTimeTests
     public void Read_AbsentOrDegenerateToken_ReturnsNullWithoutThrowing(string? token)
         => Assert.Null(OidcIdTokenAuthTime.Read(token));
 
+    [Fact]
+    public void Read_MultiValuedAuthTime_TakesTheLastElement()
+    {
+        // The third reader over the same shape: an array-valued auth_time arrives as two claims, and which
+        // one is taken decides the moment the max_age gate measures freshness from (#961) - here the later
+        // element is also the more permissive one, which is why it is pinned rather than left implicit.
+        //
+        // This reader parses what it takes, so an array whose last element is not a whole number of seconds
+        // still reads as absent and the caller still fails closed; the row below is that half.
+        Assert.Equal(1_700_000_200L, OidcIdTokenAuthTime.Read(TokenWithArray("auth_time", 1_700_000_100L, 1_700_000_200L)));
+    }
+
+    [Fact]
+    public void Read_MultiValuedAuthTimeEndingInANonNumber_ReadsAsNull()
+        => Assert.Null(OidcIdTokenAuthTime.Read(TokenWithArray("auth_time", 1_700_000_100L, "yesterday")));
+
+    private static string TokenWithArray(string type, params object[] values)
+        => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Claims = new Dictionary<string, object> { ["sub"] = "user-1", [type] = values },
+        });
+
     private static string TokenWith(params (string Type, object Value)[] claims)
     {
         var dict = new Dictionary<string, object>();
