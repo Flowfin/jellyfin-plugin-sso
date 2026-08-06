@@ -2955,9 +2955,11 @@ public class ArchitectureConformanceTests
         // repository root resolved one directory too high - and an empty scan reports no offenders, which
         // reads exactly like a tree where every file carries its header. Both halves are floored, and both
         // sit well under the real counts so an ordinary project or file being added or removed never moves
-        // them; this must fail when the DERIVATION breaks, not when the tree changes shape.
+        // them; this must fail when the DERIVATION breaks, not when the tree changes shape. Two is the floor
+        // rather than today's count because the non-shipping projects are the ones that come and go, while
+        // the plugin and this test project cannot both leave without taking this rule with them.
         Assert.True(
-            roots.Count >= 3,
+            roots.Count >= 2,
             $"The SPDX root derivation found only {roots.Count} project directories; it has stopped seeing the tree, and this rule would now pass over the projects it no longer walks (#1270).");
         Assert.True(
             sources.Count >= 100,
