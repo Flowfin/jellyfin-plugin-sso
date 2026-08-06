@@ -92,6 +92,14 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             // know is the measured instance, and it is provider-chosen. Refusing rather than letting the throw
             // escape keeps the reason an operator needs, and keeps this handler from being the one fail path
             // that reports nothing.
+            //
+            // Of the three types named above, only InvalidOperationException can arrive TODAY (#1196):
+            // the client this forwards through completes under the default ResponseContentRead, so the body is
+            // already buffered when SendAsync returns and a copy failure is raised one line above this try —
+            // measured, and wrapped into an HttpRequestException on the way. The other two arms are the net for
+            // the day the read is no longer pre-buffered, and
+            // ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm goes red on
+            // exactly that day, so keeping them stays a checkable claim rather than a decorative one.
             return Refuse(request, response, UninspectableReason, cause: e);
         }
 
