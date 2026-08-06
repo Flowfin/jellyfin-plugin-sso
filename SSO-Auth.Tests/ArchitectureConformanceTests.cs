@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jellyfin.Plugin.SSO_Auth.Api.Routing;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
@@ -2167,11 +2168,31 @@ public class ArchitectureConformanceTests
         // same compile-time-anchored source root the source-scan rules use; the plugin build output lives under
         // it in CI (which builds and tests the one checkout).
         var depsPath = Path.Combine(RepoRoot(), "SSO-Auth", "bin", configuration, targetFramework, "SSO-Auth.deps.json");
-        Assert.True(
-            File.Exists(depsPath),
-            $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed - build SSO-Auth for this target before the test runs (#608).");
 
-        var publishClosure = PublishClosureAssemblies(depsPath);
+        // #1072. That input is the build output of ANOTHER project, and any build of the plugin rewrites it, so
+        // the row's answer depended on what else was running. Both directions were open, and only one of them
+        // was visible: a read that lands mid-write sees a partial or momentarily absent file and reds a correct
+        // tree, and a read that lands on the PREVIOUS build's file compares the ship-list against a closure the
+        // dependency graph has already moved past, and passes. The two checks below close one direction each.
+        // A retry alone would have closed only the first and left the silent one, which is why there is not one.
+        var settledDeps = ReadSettledText(() => SampleArtifact(depsPath), () => Thread.Sleep(ArtifactSettlePauseMs), ArtifactSettleAttempts);
+        Assert.True(
+            settledDeps is not null,
+            File.Exists(depsPath)
+                ? $"SSO-Auth.deps.json at {depsPath} never held still across {ArtifactSettleAttempts} samples, so a build was writing it while this row read it (#1072). The comparison was not made - re-run the suite without a concurrent build of SSO-Auth."
+                : $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed - build SSO-Auth for this target before the test runs (#608).");
+
+        // The closure's content is a function of the declared dependency set and nothing else, and that set
+        // reaches the build through obj/project.assets.json. An artifact older than the restore graph therefore
+        // predates the dependencies it claims to describe, whatever its bytes parse to. MSBuild takes the assets
+        // file as an input of the target that writes deps.json, so any build refreshes the artifact past it, and
+        // this can only be red when no build has run since the graph moved.
+        var restoreGraphPath = Path.Combine(RepoRoot(), "SSO-Auth", "obj", "project.assets.json");
+        Assert.False(
+            ArtifactPredatesRestoreGraph(depsPath, restoreGraphPath),
+            $"SSO-Auth.deps.json at {depsPath} is older than the restore graph at {restoreGraphPath}, so the publish closure it carries predates the current dependency declaration and the ship-list would be compared against a set that no longer holds (#1072). Build SSO-Auth for {configuration}/{targetFramework} before the test runs.");
+
+        var publishClosure = PublishClosureAssemblies(settledDeps!);
 
         // Liveness against a vacuous closure: the plugin's own assembly must be in it, proving the deps.json parse
         // found the real runtime set rather than an empty one that would make the set-equality below trivially true.
@@ -2205,6 +2226,137 @@ public class ArchitectureConformanceTests
             + "Reconcile the build yaml with `dotnet publish -f " + targetFramework + "`, or extend HostProvidedAssemblyPrefixes if a genuinely new host-provided family appeared.");
     }
 
+    [Fact]
+    public void SettledRead_ReturnsTheTextWhenNoWriterMovedAcrossTwoSamples()
+    {
+        // The ordinary case, and the positive control for every refusal below: a file nobody is writing is read
+        // on the first pair of samples, so the guard costs the row nothing when it is not needed (#1072).
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var settled = SamplerOf(("{\"targets\":{}}", written, 14), ("{\"targets\":{}}", written, 14));
+
+        Assert.Equal("{\"targets\":{}}", ReadSettledText(settled, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_ReturnsTheTextOnceTheWriterStopsInsideTheBudget()
+    {
+        // A build that finishes while the row is sampling. The whole point of sampling more than twice is that
+        // this case ends in the comparison being made, not in a red the operator has to interpret.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var settles = SamplerOf(
+            ("{\"targ", written, 6),
+            ("{\"targets\":{}}", written.AddSeconds(1), 14),
+            ("{\"targets\":{}}", written.AddSeconds(1), 14));
+
+        Assert.Equal("{\"targets\":{}}", ReadSettledText(settles, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesWhileAWriterKeepsMoving()
+    {
+        // The failure the issue reproduces with two concurrent builds. It has to end as null, and the caller
+        // has to say the comparison was NOT MADE - a row that quietly used the last sample would be reading
+        // whatever byte count the writer happened to have flushed.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var moves = 0;
+        (string Text, DateTime WrittenUtc, long Length)? NeverSettles() =>
+            ("{\"targets\":{}}", written.AddSeconds(moves), 14 + moves++);
+
+        Assert.Null(ReadSettledText(NeverSettles, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesAnArtifactNoSampleEverSaw()
+    {
+        // Two absences in a row are equal to each other, so an unguarded sample comparison would call a missing
+        // file settled and hand the parser an empty string. Nothing was read, so nothing is returned.
+        Assert.Null(ReadSettledText(() => null, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesTwoDifferentBodiesUnderOneStampAndLength()
+    {
+        // The near-miss worth spending the fixture on: a rewrite that lands inside the filesystem's timestamp
+        // granularity and happens to keep the length. Comparing only the stat would accept the pair. The bytes
+        // are part of the sample for this reason and no other. The budget is two here on purpose: the fixture
+        // is about what one PAIR of samples decides, and a longer run would legitimately settle on the second
+        // body once the writer stopped.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var indistinguishableStats = SamplerOf(
+            ("{\"targets\":{\"a\":{}}}", written, 20),
+            ("{\"targets\":{\"b\":{}}}", written, 20));
+
+        Assert.Null(ReadSettledText(indistinguishableStats, NoPause, 2));
+    }
+
+    [Theory]
+    [InlineData(5, false)] // written after the graph, which is what a build leaves behind
+    [InlineData(0, false)] // the same second: equal is not older, and a rebuild may not move a coarse stamp
+    [InlineData(-5, true)] // the stale read the row used to pass on
+    public void ArtifactPredatesRestoreGraph_JudgesByTheGraphsTimestamp(int artifactOffsetSeconds, bool expected)
+    {
+        // Fixtures for the staleness predicate itself. This is the direction that produced no red at all, so
+        // the assertion in the row above is the only thing standing between a moved dependency graph and a
+        // ship-list compared against a closure that no longer describes it (#1072).
+        var root = Path.Combine(Path.GetTempPath(), "sso-deps-stale-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var artifact = Path.Combine(root, "SSO-Auth.deps.json");
+            var graph = Path.Combine(root, "project.assets.json");
+            File.WriteAllText(artifact, "{}");
+            File.WriteAllText(graph, "{}");
+
+            var graphWrittenUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(graph, graphWrittenUtc);
+            File.SetLastWriteTimeUtc(artifact, graphWrittenUtc.AddSeconds(artifactOffsetSeconds));
+
+            Assert.Equal(expected, ArtifactPredatesRestoreGraph(artifact, graph));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArtifactPredatesRestoreGraph_AnswersFalseWhenEitherFileIsAbsent()
+    {
+        // A checkout that has not restored, and a target that has not been built, are both states this
+        // predicate cannot speak about. It says false rather than inventing a staleness verdict out of a
+        // missing file; the absent artifact is reported by the settled read, which is where that belongs.
+        var root = Path.Combine(Path.GetTempPath(), "sso-deps-absent-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var artifact = Path.Combine(root, "SSO-Auth.deps.json");
+            var graph = Path.Combine(root, "project.assets.json");
+            File.WriteAllText(artifact, "{}");
+
+            Assert.False(ArtifactPredatesRestoreGraph(artifact, graph));
+            Assert.False(ArtifactPredatesRestoreGraph(graph, artifact));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // The fixtures below drive the settle loop through every branch, so they must not also spend the real
+    // caller's wall time doing it: thirty seconds of sleeping would be paid on every green run of the suite.
+    private static void NoPause()
+    {
+    }
+
+    // Replays a fixed sequence of samples and then holds on the last one, so a fixture states exactly what the
+    // filesystem did and nothing about how often the reader looked.
+    private static Func<(string Text, DateTime WrittenUtc, long Length)?> SamplerOf(
+        params (string Text, DateTime WrittenUtc, long Length)?[] samples)
+    {
+        var taken = 0;
+        return () => samples[Math.Min(taken++, samples.Length - 1)];
+    }
+
     // The assembly-name families the Jellyfin host provides at runtime and therefore must NOT ship in the plugin
     // zip, even though `dotnet publish` copies them into the plugin's own publish output (they are not part of the
     // .NET/ASP.NET Core shared framework, so publish does not strip them the way it strips the framework). Matched
@@ -2235,9 +2387,12 @@ public class ArchitectureConformanceTests
     // `dotnet publish` copies for that framework (#608). A framework-dependent build has one target (the runtime
     // target); read every library's `runtime` map and take each entry's leaf filename, because deps.json keys
     // runtime items by their in-package path (e.g. "lib/net8.0/Duende.IdentityModel.dll"), not the bare name.
-    private static HashSet<string> PublishClosureAssemblies(string depsJsonPath)
+    // Takes the TEXT rather than the path, because whether that text was read off a file nobody was writing is
+    // a separate question with its own answer (ReadSettledText, #1072) and the parse must not re-open the file
+    // and get a different one.
+    private static HashSet<string> PublishClosureAssemblies(string depsJson)
     {
-        using var doc = JsonDocument.Parse(File.ReadAllText(depsJsonPath));
+        using var doc = JsonDocument.Parse(depsJson);
         var targets = doc.RootElement.GetProperty("targets");
 
         var result = new HashSet<string>(StringComparer.Ordinal);
@@ -2263,6 +2418,74 @@ public class ArchitectureConformanceTests
 
         return result;
     }
+
+    // The budget for waiting out a build that is writing the artifact this row reads. A tree nobody is
+    // building settles on the first pair of samples and pays none of it, because the pause is taken only after
+    // two samples disagreed. What the budget has to outlast is one full rebuild of the plugin project, which
+    // deletes the artifact and writes it back seconds later, so it is measured in wall time rather than in
+    // reads: 150 samples 200ms apart is thirty seconds, comfortably past a --no-incremental build of SSO-Auth
+    // on this machine (measured at 4 to 20 seconds) and still bounded, so a genuinely stuck run ends in a
+    // failure that says what happened instead of hanging (#1072).
+    private const int ArtifactSettleAttempts = 150;
+    private const int ArtifactSettlePauseMs = 200;
+
+    // A build artifact, together with the identity of the write that produced the bytes: the stat is taken
+    // AFTER the read, so a sample that agrees with its predecessor is one no writer moved across. Absent or
+    // exclusively locked reads back as no sample at all rather than as an empty file, which is the shape a
+    // concurrent build passes through and must not be mistaken for a real closure (#1072).
+    private static (string Text, DateTime WrittenUtc, long Length)? SampleArtifact(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var text = File.ReadAllText(path);
+            var info = new FileInfo(path);
+            return info.Exists ? (text, info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    // The text of an artifact nobody was writing, or null when no two consecutive samples agreed inside the
+    // budget. Sampling twice is what separates "the file says this" from "the file said this at the instant I
+    // looked": a partial read differs from the settled one in its bytes, and a completed rewrite differs in its
+    // stamp or length, so both are caught by comparing whole samples rather than any one field. The pause is a
+    // parameter so the fixtures below can exercise every branch without spending the wall time the real caller
+    // needs, and it is taken only between disagreeing samples.
+    private static string? ReadSettledText(
+        Func<(string Text, DateTime WrittenUtc, long Length)?> sample,
+        Action pause,
+        int attempts)
+    {
+        var previous = sample();
+        for (var taken = 1; taken < attempts; taken++)
+        {
+            var current = sample();
+            if (previous is { } settled && current == previous)
+            {
+                return settled.Text;
+            }
+
+            previous = current;
+            pause();
+        }
+
+        return null;
+    }
+
+    // Whether a derived build artifact predates the restore graph it is derived from. An absent graph answers
+    // false: the question cannot be decided, and inventing a red from a missing file would make the row fail on
+    // a checkout that has not restored yet rather than on the condition it is about (#1072).
+    private static bool ArtifactPredatesRestoreGraph(string artifactPath, string restoreGraphPath) =>
+        File.Exists(artifactPath)
+        && File.Exists(restoreGraphPath)
+        && File.GetLastWriteTimeUtc(artifactPath) < File.GetLastWriteTimeUtc(restoreGraphPath);
 
     // The `.dll` names under the build yaml's `artifacts:` list. Minimal hand-parse (the test project takes no YAML
     // dependency): once at the `artifacts:` key, collect the `- "X.dll"` list items, skip the interleaved comments,
