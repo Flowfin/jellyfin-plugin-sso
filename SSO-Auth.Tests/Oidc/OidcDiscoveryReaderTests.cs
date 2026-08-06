@@ -326,7 +326,7 @@ public class OidcDiscoveryReaderTests
         //
         // What is pinned is therefore the position, not a refusal that cannot happen: the failure still fails
         // the read closed, and no screen refusal is recorded for it. The day the read stops being pre-buffered
-        // this row goes red — the two arms become reachable, the screen starts refusing here, and their
+        // this row goes red: the two arms become reachable, the screen starts refusing here, and their
         // retention becomes checkable instead of decorative.
         var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
         var logger = new CapturingLogger();
@@ -508,7 +508,7 @@ public class OidcDiscoveryReaderTests
         return response;
     }
 
-    // A response body that fails while it is being copied — the aborted or truncated read the content-read
+    // A response body that fails while it is being copied: the aborted or truncated read the content-read
     // catch's HttpRequestException and IOException arms name. HttpClient wraps the IOException raised here
     // into an HttpRequestException, measured, and raises it from SendAsync rather than from the later read.
     private sealed class UncopyableContent : HttpContent
