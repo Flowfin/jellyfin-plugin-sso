@@ -295,6 +295,101 @@ public class OidcAuthorizeStateBuilderTests
     }
 
     [Fact]
+    public void ARepeatedObjectValuedRoleClaim_WhoseCopiesDisagree_GrantsNeitherCopysRoles()
+    {
+        // With LoadProfile on (the default) OidcClient merges the UNSIGNED UserInfo response into the
+        // principal, so a UserInfo body naming the role claim twice arrives here as two claims of one type.
+        // Each copy is individually clean, so the value-level screen (#1005) never fires on it, and
+        // appending them granted the UNION - the second copy's "admins" among them.
+        //
+        // The fixture is the exact document from #1040: {"realm_access": {...}, "realm_access": {...}}.
+        var config = Config(c =>
+        {
+            c.AdminRoles = new[] { "admins" };
+            c.RoleClaim = "realm_access.roles";
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(
+                ("preferred_username", "alice"),
+                ("realm_access", "{\"roles\":[\"users\"]}"),
+                ("realm_access", "{\"roles\":[\"admins\"]}")),
+            config);
+
+        // Neither copy's roles are granted, not merely the second one's: a document that says two things
+        // about the roles says nothing this login can act on.
+        Assert.False(result.Admin);
+        Assert.Empty(result.Folders);
+    }
+
+    [Fact]
+    public void ARepeatedObjectValuedRoleClaim_WhoseCopiesAgree_StillGrants()
+    {
+        // The positive control for the row above, and the reason it compares rather than counts. A provider
+        // that emits the role claim in BOTH the id_token and the UserInfo response produces two claims of
+        // one type saying the same thing. Refusing on the count alone would take every role from that
+        // ordinary deployment.
+        var config = Config(c =>
+        {
+            c.AdminRoles = new[] { "admins" };
+            c.RoleClaim = "realm_access.roles";
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(
+                ("preferred_username", "alice"),
+                ("realm_access", "{\"roles\":[\"admins\"]}"),
+                ("realm_access", "{\"roles\":[\"admins\"]}")),
+            config);
+
+        Assert.True(result.Admin);
+    }
+
+    [Fact]
+    public void ARepeatedObjectMapRoleClaim_WhoseCopiesDisagree_GrantsNothing()
+    {
+        // The object-map opt-in (#934) reads the roles from the property NAMES, and a one-segment path there
+        // is still object-valued: the claim value IS the terminal object. So the same comparison applies,
+        // and the row exists because the shape reaches a different branch of the extractor.
+        var config = Config(c =>
+        {
+            c.AdminRoles = new[] { "admins" };
+            c.RoleClaim = "urn:zitadel:iam:org:project:roles";
+            c.RoleClaimIsObjectMap = true;
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(
+                ("preferred_username", "alice"),
+                ("urn:zitadel:iam:org:project:roles", "{\"users\":{\"7364\":\"example.com\"}}"),
+                ("urn:zitadel:iam:org:project:roles", "{\"admins\":{\"7364\":\"example.com\"}}")),
+            config);
+
+        Assert.False(result.Admin);
+    }
+
+    [Fact]
+    public void AProviderEmittingOneClaimPerGroup_KeepsBeingUnioned()
+    {
+        // The shape the comparison must NOT catch: a one-segment path over plain string values, where a
+        // provider emits the claim once per group. Those copies are meant to be unioned - they are a list
+        // written as repeated claims, not two statements about one object - so a rule that refused every
+        // repeated role-claim type would silently strip the roles of every provider that emits groups this
+        // way. Deliberately disagreeing values, which is exactly what makes the shape legitimate.
+        var config = Config(c =>
+        {
+            c.AdminRoles = new[] { "admins" };
+            c.RoleClaim = "groups";
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("groups", "users"), ("groups", "admins")),
+            config);
+
+        Assert.True(result.Admin);
+    }
+
+    [Fact]
     public void SubFallback_WhenNotValidAndRolesEmpty_UsesSubAndIsValid()
     {
         // No preferred-username claim, an empty (non-null) allow-list → the sub claim is the username
