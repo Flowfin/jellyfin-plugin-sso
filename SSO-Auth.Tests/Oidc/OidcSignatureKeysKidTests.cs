@@ -25,6 +25,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// yet, set too tight, buys a real IdP lockout for a hypothetical attack.
 /// </para>
 /// </summary>
+[Collection("SSOController")]
 public sealed class OidcSignatureKeysKidTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";

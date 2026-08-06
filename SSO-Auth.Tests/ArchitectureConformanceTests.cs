@@ -2842,45 +2842,173 @@ public class ArchitectureConformanceTests
         return results;
     }
 
-    [Fact]
-    public void EveryHarnessUsingTestClass_IsInTheNonParallelControllerCollection()
+    // The harness door, spelled as a construction rather than as a call: building the harness is what swaps
+    // SSOPlugin.Instance and clears the flow caches.
+    private const string HarnessDoor = "new SsoControllerHarness";
+
+    // A door no test names because it sits behind another one: a production reset hook opens it, so every
+    // test opening THAT door opens this one too. Keyed door -> the door that opens it. The rule proves both
+    // halves rather than trusting the table, so an entry whose indirection is removed fails as loudly as a
+    // door with no user at all. Without this, a per-door floor would redden on a door that is genuinely
+    // reached, and the only way to quiet it would be the combined count this rule exists to remove.
+    private static readonly Dictionary<string, string> DoorsOpenedThroughAnotherDoor = new(StringComparer.Ordinal)
     {
-        // The SsoControllerHarness constructor swaps the process-wide SSOPlugin.Instance and resets the
-        // OIDC/SAML static caches - two harness-based classes running in parallel therefore race each
-        // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
-        // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
-        // self-enforcing: a NEW test class that constructs the harness without joining the collection is
-        // a red build naming the file, not a flaky suite three weeks later. The scan reads each file's own
-        // code lines, which is sound only because a test class cannot inherit its setup from elsewhere -
-        // <see cref="NoTestClass_DeclaresABaseClass"/> is what holds that (#1172).
-        var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
+        // Opened by the flow service's own reset hook, so every test that resets the OpenID state also
+        // reinstalls this gate.
+        ["ChallengeNewPathResolver.ResetForTests"] = "OidcLoginService.ResetOidStateForTests",
+
+        // Opened by the harness constructor, so every test that builds a harness clears the one-time
+        // SAML outcome store; no test names it directly.
+        ["SamlLoginService.ResetSamlOutcomesForTests"] = HarnessDoor,
+    };
+
+    /// <summary>
+    /// Every test class that can reach a process-wide static sits in the serialized <c>SSOController</c>
+    /// collection. What it stops: two test classes outside that collection clearing the same static under
+    /// each other's one-time-use assertion, so a replay a validator must refuse is instead refused because a
+    /// neighbouring class had just cleared the cache, or accepted because it had just repopulated it. That
+    /// failure is intermittent, it lands on whichever class the runner happened to schedule alongside, and it
+    /// reads as flakiness rather than as a lost guard (#928 U4, #1171).
+    /// <para>
+    /// The set of doors is DERIVED from the production tree - every <c>internal static ... ForTests(</c>
+    /// declaration, keyed by the qualified name a call site spells, plus the harness type - so adding a hook
+    /// under <c>SSO-Auth/</c> adds a door here with no edit to this rule. Keying on the qualified name is not
+    /// cosmetic: three types declare <c>ResetReplaysForTests</c>, and a key of the bare method name would
+    /// collapse them into one door whose floor clears on any one of the three.
+    /// </para>
+    /// <para>
+    /// Each door carries its OWN floor. A single combined count is the conjunction defect this rule class
+    /// keeps reproducing: it clears on one door's population while another door is blind. The scan reads
+    /// <see cref="CodeLines(string)"/> only, so a door named in a comment is not a use, and it is sound to
+    /// read each file alone only because a test class cannot inherit its setup -
+    /// <see cref="NoTestClass_DeclaresABaseClass"/> is what holds that (#1172).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryTestClassOpeningAProcessWideDoor_IsInTheNonParallelControllerCollection()
+    {
+        var doors = ProcessWideDoors();
+
+        // Liveness on the derivation itself: the production tree carries the harness door plus a hook per
+        // flow service, per replay cache and per one-time store. A derivation that stopped matching
+        // declarations would otherwise report an empty door set and pass every file below vacuously.
+        Assert.True(
+            doors.Count >= 10,
+            $"The door derivation found only {doors.Count} doors - the `internal static ... ForTests(` scan has been blinded (declaration shape changed, hooks moved out of SSO-Auth/); fix the derivation, do not lower this floor. Found: " + string.Join(", ", doors));
+
         var offenders = new List<string>();
-        foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
+        var users = doors.ToDictionary(door => door, _ => new List<string>(), StringComparer.Ordinal);
+        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories))
         {
-            // Skip THIS file: it carries the scanned literal inside the rule itself, not a harness use.
+            // Skip THIS file: it carries the scanned names inside the rule itself, not as uses.
             if (IsBuildOutput(src) || Path.GetFileName(src) == "ArchitectureConformanceTests.cs")
             {
                 continue;
             }
 
-            var text = File.ReadAllText(src);
-            if (text.Contains("new SsoControllerHarness", StringComparison.Ordinal)
-                && !text.Contains("[Collection(\"SSOController\")]", StringComparison.Ordinal))
+            var source = File.ReadAllText(src);
+
+            // Support types (no [Fact]/[Theory]) are not scheduled by the runner, so they cannot race
+            // anything; the harness itself opens six doors and would otherwise be a permanent offender.
+            if (!SourceCallsInCode(source, "[Fact]") && !SourceCallsInCode(source, "[Theory]"))
             {
-                offenders.Add(Path.GetFileName(src));
+                continue;
+            }
+
+            var serialized = SourceCallsInCode(source, "[Collection(\"SSOController\")]");
+            foreach (var door in doors.Where(door => SourceCallsInCode(source, door)))
+            {
+                users[door].Add(Path.GetFileName(src));
+                if (!serialized)
+                {
+                    offenders.Add(Path.GetFileName(src) + " opens " + door);
+                }
             }
         }
 
         Assert.True(
             offenders.Count == 0,
-            "Every test class constructing SsoControllerHarness must carry [Collection(\"SSOController\")] (the harness swaps process-wide statics; parallel classes race). Missing in: " + string.Join(", ", offenders));
+            "A test class reaching a process-wide door must carry [Collection(\"SSOController\")], or it runs in parallel with another class clearing the same static: " + string.Join("; ", offenders));
 
-        // Liveness sentinel: the scan must actually see the known harness users, or a harness rename has
-        // silently blinded it.
+        // Per-door floor: every derived door is named by at least one test-bearing file, unless it is
+        // declared as reached only through another door and that indirection still holds.
+        var blind = doors
+            .Where(door => users[door].Count == 0 && !DoorsOpenedThroughAnotherDoor.ContainsKey(door))
+            .ToList();
+
         Assert.True(
-            Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
-                .Count(f => !IsBuildOutput(f) && File.ReadAllText(f).Contains("new SsoControllerHarness", StringComparison.Ordinal)) >= 10,
-            "The harness-usage scan matched fewer than 10 files - SsoControllerHarness was renamed; update this rule.");
+            blind.Count == 0,
+            "These doors are named by no test-bearing file, so this rule is blind to them - a rename has outrun the scan, or the hook is unused and should go: " + string.Join(", ", blind));
+
+        foreach (var (door, opener) in DoorsOpenedThroughAnotherDoor)
+        {
+            Assert.True(
+                doors.Contains(door, StringComparer.Ordinal),
+                $"'{door}' is declared as reached through another door but is no longer a derived door at all; drop the entry.");
+            Assert.True(
+                doors.Contains(opener, StringComparer.Ordinal) && users[opener].Count > 0,
+                $"'{door}' is declared as reached through '{opener}', which is itself not a door with a test user; the indirection no longer holds.");
+            Assert.True(
+                OpenerOpens(opener, door),
+                $"'{opener}' no longer calls '{door}', so the declared indirection is gone; the door needs a test user of its own or the hook needs removing.");
+        }
+    }
+
+    // Every process-wide door a test can reach: the test-only hooks the production tree declares, keyed
+    // Type.Method exactly as a call site spells them, plus the harness construction. Derived rather than
+    // listed, so a new hook cannot create a door the rule above is blind to.
+    private static IReadOnlyList<string> ProcessWideDoors()
+    {
+        var declaration = new Regex(@"\b(?:class|record|struct)\s+(?<type>[A-Za-z0-9_]+)");
+        var hook = new Regex(@"\binternal\s+static\s+[^;=]*?\b(?<hook>[A-Za-z0-9_]+ForTests)\s*\(");
+        var doors = new List<string> { HarnessDoor };
+
+        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories))
+        {
+            if (IsBuildOutput(src))
+            {
+                continue;
+            }
+
+            var type = string.Empty;
+            foreach (var line in CodeLines(src))
+            {
+                var declared = declaration.Match(line.Text);
+                if (declared.Success)
+                {
+                    type = declared.Groups["type"].Value;
+                }
+
+                var found = hook.Match(line.Text);
+                if (found.Success && type.Length > 0)
+                {
+                    doors.Add(type + "." + found.Groups["hook"].Value);
+                }
+            }
+        }
+
+        return doors;
+    }
+
+    // Whether the declared opener really opens the door, proved in the opener's own source rather than
+    // anywhere in the tree: a call from some third place would leave the table's sentence false while the
+    // assertion passed. The harness opener is proved in the harness file; a hook opener is proved in the
+    // file that declares that hook. The door's own declaration is not a call, and the trailing paren keeps
+    // it out.
+    private static bool OpenerOpens(string opener, string door)
+    {
+        if (string.Equals(opener, HarnessDoor, StringComparison.Ordinal))
+        {
+            var harness = Path.Combine(RepoRoot(), "SSO-Auth.Tests", "_Support", "SsoControllerHarness.cs");
+            return File.Exists(harness) && CodeLines(harness).Any(l => l.Text.Contains(door + "(", StringComparison.Ordinal));
+        }
+
+        var hook = opener.Split('.')[^1];
+        return Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(src => !IsBuildOutput(src))
+            .Select(src => CodeLines(src).Select(l => l.Text).ToList())
+            .Where(lines => lines.Any(text => text.Contains("internal static", StringComparison.Ordinal) && text.Contains(hook + "(", StringComparison.Ordinal)))
+            .Any(lines => lines.Any(text => text.Contains(door + "(", StringComparison.Ordinal)));
     }
 
     [Fact]
