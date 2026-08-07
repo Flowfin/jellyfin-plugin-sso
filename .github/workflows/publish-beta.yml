@@ -216,7 +216,7 @@ jobs:
           body: |
             Jellyfin 10.11 beta ${{ steps.version.outputs.base }}-beta (plugin version ${{ steps.version.outputs.beta }}).
             Install via the beta repository URL:
-            https://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json
+            https://raw.githubusercontent.com/${{ github.repository }}/manifest-beta/manifest.json
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish the draft release as the repo's Latest release
