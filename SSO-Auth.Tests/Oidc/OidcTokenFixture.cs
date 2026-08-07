@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -80,6 +81,28 @@ internal sealed class OidcTokenFixture : IDisposable
             SigningCredentials = new SigningCredentials(new RsaSecurityKey(_rsa) { KeyId = KeyId }, SecurityAlgorithms.RsaSha256),
         };
         return new JsonWebTokenHandler().CreateToken(descriptor);
+    }
+
+    /// <summary>
+    /// Signs a payload supplied VERBATIM, with this fixture's key and <c>kid</c>, so the token validates
+    /// through the real path while carrying bytes no claim dictionary could express. <see cref="IdToken"/>
+    /// builds its payload from a <c>Dictionary&lt;string, object&gt;</c> and therefore cannot emit a
+    /// repeated member at all, which is the posture #1192 has to read: what every id_token route does with
+    /// a payload that names one claim twice is a property of the JWT library, and a fixture that cannot
+    /// produce the bytes cannot ask the question.
+    /// </summary>
+    /// <param name="payloadJson">The id_token payload, used exactly as written.</param>
+    /// <returns>The signed token: this fixture's RS256 header, the given payload, and a matching signature.</returns>
+    internal string RawPayloadIdToken(string payloadJson)
+    {
+        var header = "{\"alg\":\"RS256\",\"kid\":\"" + KeyId + "\",\"typ\":\"JWT\"}";
+        var signingInput = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(header))
+            + "." + Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payloadJson));
+
+        var signature = _rsa.SignData(
+            Encoding.UTF8.GetBytes(signingInput), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+        return signingInput + "." + Base64UrlEncoder.Encode(signature);
     }
 
     /// <summary>
