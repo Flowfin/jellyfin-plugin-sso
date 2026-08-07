@@ -3,7 +3,8 @@
 > [!NOTE]
 >
 > **Part of [Flowfin](https://github.com/Flowfin).** It works with any Jellyfin
-> server, and with the Flowfin clients.
+> server, and sign-in reaches any client that supports Quick Connect, not only
+> the Flowfin ones.
 >
 > **Status: Release Candidate**, the fourth rung of the maturity ladder (In-Development, Alpha, Beta, Release Candidate, Full Release). Install it by adding this plugin's own repository to Jellyfin, see [Installing](#installing).
 
