@@ -21,12 +21,12 @@ The login endpoints are anonymous and hand attacker-controlled bytes straight in
 signature or claim is trusted. Those byte-level entry points are the classic fuzzing sweet spot, and they
 are what the harness drives (selected per run by the `SSO_FUZZ_TARGET` environment variable):
 
-| Target (`SSO_FUZZ_TARGET`) | Entry point                                                                             | Untrusted input                                                                                      |
-| -------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `saml` (default)           | `SamlResponseLoader.TryParse` → `SamlResponse` ctor + `IsValid` + every claim getter    | The Base64 `SAMLResponse` form field (Base64 decode → hardened XML DOM load → signature/claim reads) |
-| `discovery`                | `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
-| `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                          | The raw id_token JWT string                                                                          |
-| `jwks`                     | `OidcSignatureKeys.Convert` (after the library's `new JsonWebKeySet(json)`)             | The raw JWKS the challenge fetches from `jwks_uri`                                                   |
+| Target (`SSO_FUZZ_TARGET`) | Entry point                                                                                                   | Untrusted input                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `saml` (default)           | `SamlResponseLoader.TryParse` → `SamlResponse` ctor + `IsValid` + every claim getter                          | The Base64 `SAMLResponse` form field (Base64 decode → hardened XML DOM load → signature/claim reads) |
+| `discovery`                | `StrictJson.Inspect`, `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
+| `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                                                | The raw id_token JWT string                                                                          |
+| `jwks`                     | `OidcSignatureKeys.Convert` (after the library's `new JsonWebKeySet(json)`)                                   | The raw JWKS the challenge fetches from `jwks_uri`                                                   |
 
 The property under test is uniform: on **any** input the entry point must terminate with a fail-closed
 result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps - it must never
@@ -123,6 +123,31 @@ export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
 ```
 
+### Differential mode (any platform, no libFuzzer)
+
+Both modes above only ever ask whether the target _survives_ an input. Neither can see a **wrong answer**,
+and on the repeated-member walk that is the failure that matters: a walk quietly returning `Clean` for
+every document never throws, so it passes libFuzzer and smoke alike while approving documents that mean
+two things.
+
+`SSO_FUZZ_DIFFERENTIAL=1` runs the walk that ships against a **second parser family** - Newtonsoft's
+`JsonTextReader`, already in the dependency graph - over the committed corpus plus generated
+discovery-shaped documents, and reports every case where the two answer differently about whether an
+object scope names a member twice:
+
+```sh
+SSO_FUZZ_DIFFERENTIAL=1 SSO_FUZZ_CASES=50000 SSO_FUZZ_SEED=1188 \
+    dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/discovery
+```
+
+Exit 0 is a clean, non-vacuous run; exit 1 is a divergence, which is a **finding** and is filed with the
+document that produced it rather than patched inside the driver; exit 3 is a vacuous run - the two readers
+never agreed in both directions, so a zero divergence count would have established nothing.
+
+The generated documents are deliberately narrow: a seven-name member pool, two of whose entries spell an
+earlier name with a `\u` escape, and a root that is an object nine times in ten. A wide pool spends the
+run proving that documents without repeats have no repeats.
+
 ## The seed corpus
 
 `corpus/<target>/` holds representative seeds so the fuzzer starts from meaningful coverage rather than
@@ -144,6 +169,13 @@ its own, so the set advertises two keys under one name until the last occurrence
 two under two. Measured against `jwks/two-rsa-keys.json`, both documents convert to the same two usable
 keys under the same two ids, so the repeat leaves no trace downstream - which is the point. The seed is
 grammar for the mutator, not a claim that the plugin misreads it.
+
+`discovery/lone-surrogate-name.json` (#1188) is the other class the mutator will not invent: a member
+name carrying an **unpaired surrogate escape**. Thirteen ASCII bytes that both parser families read
+without complaint, and the input on which `System.Text.Json`'s `GetString` raises
+`InvalidOperationException` rather than `JsonException` - so a walk catching only the latter takes the
+throw on the anonymous discovery read. It is committed as a seed so the arm stays replayed by the smoke
+gate rather than resting on a unit test alone.
 
 ## Scorecard alert #36 and #174
 
