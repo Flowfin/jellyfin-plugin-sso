@@ -139,6 +139,65 @@ internal static class OidcSignatureKeys
     }
 
     /// <summary>
+    /// Whether a compact-serialized JWT's header is free of the <c>crit</c> parameter (RFC 7515 §4.1.11,
+    /// #1038). A recipient MUST reject a token whose <c>crit</c> names an extension it does not understand
+    /// AND process; this plugin implements no JWS extension at all, so the rule collapses to a presence
+    /// test: <c>crit</c> in the header means refuse. Both token paths call this, so the id_token and the
+    /// <c>logout_token</c> cannot drift on it, exactly as they share the algorithm allowlist.
+    /// <para>
+    /// Not exploitable on its own - the token must still carry a signature from a key in the discovery
+    /// JWKS. What it prevents is semantic: an IdP marks a header extension critical precisely because
+    /// ignoring it changes what the token asserts (a narrowed audience, a scope restriction, a
+    /// proof-of-possession binding), so accepting one means acting on an assertion whose stated
+    /// constraints were silently dropped.
+    /// </para>
+    /// <para>
+    /// The member is looked up by PRESENCE - <c>object</c>, the one type every JSON value converts to -
+    /// and not by reading it as the string array §4.1.11 says a well-formed <c>crit</c> is. Reading it as
+    /// a typed value is the mistake this spelling exists to avoid, and the difference is measured rather
+    /// than supposed: <c>TryGetHeaderValue&lt;JsonElement&gt;</c> reports a STRING-valued <c>crit</c> as
+    /// ABSENT, so a typed read admits <c>"crit":"urn:example:ext"</c> - a malformed <c>crit</c>, which the
+    /// RFC forbids too, walking through the guard meant to stop it. Presence subsumes every malformed
+    /// shape the RFC lists (non-array, empty array, empty or duplicate member, registered header name, a
+    /// bare null): no extension is processed here, so nothing about the value could make it acceptable.
+    /// </para>
+    /// <para>
+    /// A token this cannot read at all is reported as free of it rather than refused, the same contract
+    /// (and the same reason) as <see cref="TokenHasAcceptableKeyId"/>: this gate is not the fail-closed
+    /// floor. The handler that follows owns signature, issuer, audience and lifetime and refuses an
+    /// unreadable token on its own terms, and refusing from here would replace an accurate rejection
+    /// reason with a misleading one. It reads the header through the token library for the same reason
+    /// that predicate does - so the plugin gains no second, unscreened JSON parse over provider bytes.
+    /// </para>
+    /// </summary>
+    /// <param name="token">The raw compact-serialized JWT.</param>
+    /// <returns><c>false</c> only when a header member named <c>crit</c> was positively read.</returns>
+    internal static bool TokenHasNoCriticalHeader(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return true;
+        }
+
+        try
+        {
+            return !new JsonWebToken(token).TryGetHeaderValue<object>("crit", out _);
+        }
+        catch (ArgumentException)
+        {
+            // Not a readable JWT. The handler rejects it on its own terms; see the remark above.
+            return true;
+        }
+        catch (FormatException)
+        {
+            // A later segment that will not base64url-decode, the same shape TokenHasAcceptableKeyId
+            // documents. This endpoint is anonymous, so an escaping decode failure would be a 500 an
+            // unauthenticated caller can drive.
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Builds the signature/issuer/audience/lifetime validation parameters every JWT the plugin verifies
     /// against a provider uses - the id_token and the back-channel logout_token share this ONE builder, so
     /// their signature posture cannot drift apart. Signed + expiring tokens are required (fail closed); the

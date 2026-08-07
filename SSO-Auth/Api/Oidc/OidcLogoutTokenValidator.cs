@@ -65,6 +65,14 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.UnacceptableKeyId);
         }
 
+        // RFC 7515 4.1.11, from the same shared predicate the id_token path calls (#1038). The handler
+        // below ignores crit, so without this a genuinely signed token could assert a constraint this
+        // plugin never applied - and this endpoint is anonymous, which is where that matters most.
+        if (!OidcSignatureKeys.TokenHasNoCriticalHeader(logoutToken))
+        {
+            return new Result(false, null, null, RejectReason.CriticalHeader);
+        }
+
         // ECDsa instances built from the JWKS are ours to dispose; RSA keys built from RSAParameters are
         // not disposable. Owned here rather than by the caller because the basis is now built here too -
         // the finally must not run until ValidateTokenAsync has returned (#1176).
@@ -182,6 +190,9 @@ internal sealed class OidcLogoutTokenValidator
     {
         /// <summary>The token was absent, unparseable, or not a JWT.</summary>
         internal const string Malformed = "malformed";
+
+        /// <summary>The header carries a crit parameter, naming a JWS extension this plugin does not process (RFC 7515 4.1.11, #1038).</summary>
+        internal const string CriticalHeader = "unprocessed_critical_header";
 
         /// <summary>Signature, issuer, audience, algorithm, or lifetime validation failed (unsigned, wrong key, weak alg, expired).</summary>
         internal const string Invalid = "signature_or_time_invalid";
