@@ -56,6 +56,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A back-channel logout that did not happen is now its own audit entry.** When
+  an identity provider orders a session termination and the plugin cannot reach
+  that provider to verify the request, the termination does not happen and the
+  signed-out session keeps running. That used to be recorded with the same
+  warning as a forged or replayed logout token, which is the opposite situation:
+  an attacker blocked, with nothing that was supposed to end. The two are now
+  separate entries at separate levels: a refused token stays a warning, while a
+  termination that was ordered and not performed is logged as an error naming the
+  reason, so it can be alerted on without wading through the rejection noise. The
+  same entry covers a validated logout whose token revocation failed. OpenID
+  back-channel rejections are also no longer worded as SAML rejections, so a log
+  filter for OpenID logout failures finds them. The HTTP response is unchanged:
+  every rejection is still the one uniform 400 with nothing that distinguishes
+  the branches to the caller.
 - **A provider response that names a JSON member twice is refused before it is
   parsed.** A repeated member is accepted silently by every reader these
   documents reach, and none of them raises an error, so which of the two values a

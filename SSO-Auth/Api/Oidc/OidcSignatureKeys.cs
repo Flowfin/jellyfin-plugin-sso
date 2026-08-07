@@ -125,6 +125,15 @@ internal static class OidcSignatureKeys
             // Not a readable JWT. The handler rejects it on its own terms; see the remark above.
             return true;
         }
+        catch (FormatException)
+        {
+            // The same case arriving under another name. A token with more than three segments gets far
+            // enough for the library to base64url-decode a LATER segment, and that decode raises
+            // FormatException rather than the malformed-token ArgumentException the line above catches -
+            // so an anonymous caller could turn this gate into a 500. Unreadable is unreadable whichever
+            // exception says so; the handler still owns the refusal.
+            return true;
+        }
 
         return IsAcceptableKeyId(keyId);
     }

@@ -181,6 +181,31 @@ you need both runtimes' SDKs installed - exactly what CI installs).
 
 CI restores in a separate step, so its build/test use `--no-restore`/`--no-build`; on a fresh local clone run `dotnet restore` once first (or drop `--no-restore` on the first build) or the build fails before any package is fetched.
 
+**The suite needs no administrator rights, on Windows included** (#1227), and a
+change that makes it need them is a defect rather than a step to document. What
+used to break that on Windows was a consent dialog: four tests in
+`SSO-Auth.Tests/Net/SsoHttpTests.cs` reproduce the "IdP on the admin's own LAN"
+case at the socket layer, so they bind a listener to this machine's own
+interface address instead of loopback, and that bind is what Windows Defender
+Firewall asks about. The dialog is answered by an administrator, and its subject
+is the executable's full path rather than the project, so answering it settles
+nothing beyond that one path - every new build directory is asked again. The
+four skip on Windows instead, each printing why, and the Linux legs carry the
+coverage with no opt-in. Run them on Windows deliberately, and expect the
+dialog, with:
+
+```sh
+SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net9.0/SSO-Auth.Tests.exe
+```
+
+Nothing else in the three test-side projects listens off loopback, writes a
+certificate into a store, or shells out to a tool that needs elevation. Before
+adding something that does, check what is there now:
+
+```sh
+git grep -rniE "\.Bind\(|HttpListener|netsh|sc\.exe|runas|X509Store|dev-certs" -- SSO-Auth.Tests SSO-Auth.Tests.Stryker SSO-Auth.Fuzz
+```
+
 **Developing the admin UI.** The settings page and the account-linking page are **embedded resources**, not files served from disk: `configPage.html`, `config.js`, and the `linking.*` assets are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). So the edit loop is **rebuild → redeploy the DLL → restart Jellyfin**: `dotnet publish -c Release`, copy the output into your Jellyfin `config/plugins/sso/`, and restart the server; there is no live reload. Jellyfin's logs (the plugin logs through them) live under the server's `config/log/` directory. One gotcha while iterating: the `/SSOViews` assets are served with an ETag derived from the assembly `FileVersion`, so a browser will `304`-serve the **previous** build of `linking.js`/`linking.css` until the version changes - disable the browser cache (DevTools → Network → "Disable cache") during a UI edit session, or you will be testing stale assets.
 
 **Branching and pull requests.** `main` is the released line and is PR-only. Branch every change - even a one-liner - off `main` for fixes and security work, or off the feature branch for features, using a short kebab-case name with a `fix/`, `harden/`, `feature/`, `chore/`, or `refactor/` prefix. Reference the issue your change addresses (`Closes #N`) and fill in the [pull request template](.github/pull_request_template.md).
@@ -213,7 +238,11 @@ The standing guard is `SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs`,
 
 Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
-If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution.
+A commit message may only use printable ASCII plus a short, named set of extra characters: tab, the em and en dash, the ellipsis, the section sign, the rightwards arrow, the greater-than-or-equal sign, and the German letters `ÄÖÜäöüß`. Anything else fails the gate, naming the commit, the code point and the line. The set is an allowlist rather than a list of forbidden characters, because that is the only shape that also refuses a script nobody has thought of yet - the reasoning is Unicode Technical Standard #55 and the Trojan Source work (CVE-2021-42574). Widening it is a deliberate edit of the table in `.github/workflows/pr-hygiene.yml`, where the table also records which characters were measured in the existing history and which one was refused.
+
+The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
+
+If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution. The character check still reports what it finds on your PR, as a note rather than a failure, because a message nobody can read is a problem whoever wrote it.
 
 ### Sign Your Work (DCO)
 

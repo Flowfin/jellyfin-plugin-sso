@@ -26,6 +26,36 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </summary>
 public class SsoHttpTests
 {
+    // Opt in to binding a listener off loopback on Windows - see LanListenerAddress for why it is off by
+    // default and what answering the dialog it avoids actually costs.
+    private const string LanBindOptIn = "SSO_TESTS_ALLOW_LAN_BIND";
+
+    [Fact]
+    public void TheLanListenerGate_SkipsInsteadOfBindingOffLoopback_OnAWindowsRunThatDidNotOptIn()
+    {
+        // #1227. Four tests in this file bind a listener to this machine's own LAN interface address, and
+        // that bind is what raises the Windows firewall consent dialog - the administrator prompt that made
+        // the suite unrunnable without admin rights. The gate is the whole repair, so it is asserted here
+        // rather than assumed from a skip that nobody reads: remove its Windows arm and this goes red on a
+        // Windows run that has a LAN address, widen it to every platform and the branch below goes red on
+        // the Linux legs. The condition is re-derived from the environment rather than read back from the
+        // gate, so a gate that decided the opposite would not agree with it.
+        var (address, reason) = LanListenerAddress();
+        var optedIn = string.Equals(Environment.GetEnvironmentVariable(LanBindOptIn), "1", StringComparison.Ordinal);
+
+        if (OperatingSystem.IsWindows() && !optedIn)
+        {
+            Assert.Null(address);
+            Assert.Contains(LanBindOptIn, reason, StringComparison.Ordinal); // the way out is named in the skip
+        }
+        else
+        {
+            // Everywhere else the gate has to be transparent. A repair that skipped these tests on Linux
+            // too would take the #1058 coverage with it and still leave every run green.
+            Assert.Equal(FindLocalPrivateAddress(), address);
+        }
+    }
+
     [Fact]
     public void CreateClient_ResolvesTheNamedHardenedClient_AndAppliesTheUserAgent()
     {
@@ -164,8 +194,8 @@ public class SsoHttpTests
         // The reproduction from #1058, at the socket layer: an IdP on the admin's own LAN. Bind a real
         // listener to this machine's own private-range interface address and drive both handlers at it -
         // the strict one must refuse before connecting, the private-permitted one must get through.
-        var privateAddress = FindLocalPrivateAddress();
-        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+        var (privateAddress, skipReason) = LanListenerAddress();
+        Assert.SkipWhen(privateAddress is null, skipReason);
 
         using var listener = new PrivateListener(privateAddress!);
         var target = $"http://{privateAddress}:{listener.Port}/";
@@ -198,8 +228,8 @@ public class SsoHttpTests
         // build handlers directly - so registering the STRICT name with the relaxed policy would have
         // relaxed every caller that names no tier, including the SAML metadata importer, with the whole
         // suite still green. This drives the two registered names at a real socket instead.
-        var privateAddress = FindLocalPrivateAddress();
-        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+        var (privateAddress, skipReason) = LanListenerAddress();
+        Assert.SkipWhen(privateAddress is null, skipReason);
 
         var services = new ServiceCollection();
         services.AddLogging();
@@ -226,6 +256,26 @@ public class SsoHttpTests
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.True(listener.Accepted, "the registered private-permitted client did not reach the private-address listener");
+    }
+
+    // The address the four LAN-facing tests bind their listener to, or null with the reason they skip.
+    //
+    // Two things make it null. The machine may have no RFC 1918 / CGNAT interface address at all - a
+    // container on a public address, or loopback-only. Or the run is on Windows without the opt-in: a
+    // process that begins listening on a socket bound to something other than loopback is what Windows
+    // Defender Firewall raises its consent dialog for, and that dialog is approved by an administrator.
+    // Its subject is the executable's full path, so answering it settles nothing beyond that one path -
+    // every new build directory is a program Windows holds no decision about, and is asked again. That is
+    // #1227: the suite must run unelevated by default. Set SSO_TESTS_ALLOW_LAN_BIND=1 to bind off loopback
+    // on Windows anyway; the Linux legs carry this coverage with no opt-in, so it is not lost.
+    private static (IPAddress? Address, string SkipReason) LanListenerAddress()
+    {
+        if (OperatingSystem.IsWindows() && !string.Equals(Environment.GetEnvironmentVariable(LanBindOptIn), "1", StringComparison.Ordinal))
+        {
+            return (null, $"Binding a listener off loopback raises the Windows firewall consent dialog, which needs an administrator (#1227) - set {LanBindOptIn}=1 to run this test on Windows.");
+        }
+
+        return (FindLocalPrivateAddress(), "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
     }
 
     // This machine's own RFC 1918 / CGNAT interface address, or null when it has none (a container on a
@@ -325,8 +375,8 @@ public class SsoHttpTests
         // The first hop must be an address the tier permits, and the only such address that can be bound
         // locally is this machine's own private one - so this test needs a private interface address and
         // skips without one. It runs where the feature matters; the skip is recorded rather than hidden.
-        var privateAddress = FindLocalPrivateAddress();
-        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+        var (privateAddress, skipReason) = LanListenerAddress();
+        Assert.SkipWhen(privateAddress is null, skipReason);
 
         using var blocked = new BlockedListener();
         using var redirector = new RedirectingListener(privateAddress!, _ => $"http://127.0.0.1:{blocked.Port}/");
@@ -350,8 +400,8 @@ public class SsoHttpTests
         // forever would otherwise spin the connect guard indefinitely. MaxAutomaticRedirections is 5, so a
         // listener that always redirects to itself must be asked exactly 6 times (the original request plus
         // five hops) and the client must hand back the last redirect rather than following it.
-        var privateAddress = FindLocalPrivateAddress();
-        Assert.SkipWhen(privateAddress is null, "This machine has no RFC 1918 / CGNAT interface address to bind a listener to.");
+        var (privateAddress, skipReason) = LanListenerAddress();
+        Assert.SkipWhen(privateAddress is null, skipReason);
 
         using var redirector = new RedirectingListener(privateAddress!, port => $"http://{privateAddress}:{port}/next");
         using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted);
