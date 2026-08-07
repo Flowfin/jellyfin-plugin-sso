@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -276,27 +277,67 @@ public class OidcDiscoveryReaderTests
     }
 
     [Fact]
-    public async Task ABodyWhoseCharsetTheRuntimeDoesNotKnow_IsRefusedRatherThanThrown()
+    public async Task AnUnknownCharset_IsRefusedRatherThanThrown_AndRecordedByExceptionTypeOnly()
     {
         // Content-Type is the provider's to choose, and an unknown charset makes the decode throw
         // InvalidOperationException — on a body the ANONYMOUS challenge endpoint fetches. Unhandled, that
         // escapes the screen: the read still fails closed via the caller's blanket catch, but the operator
-        // loses the reason and this handler becomes the one fail path that reports nothing.
-        var http = new CountingFactory(request =>
-        {
-            var response = new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(FullDiscovery(Authority)),
-            };
-            response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "x-not-a-charset" };
-            return response;
-        });
+        // loses the reason and this handler becomes the one fail path that reports nothing. This is the one
+        // arm of the content-read catch a provider can reach; the other two are the row below.
+        //
+        // The decode failure's exception also quotes the Content-Type back. Measured: the InvalidOperationException
+        // carries an inner ArgumentException reading "'<charset>' is not a supported encoding name". Handing that
+        // exception to the sink would route a provider-authored string around every bound and filter the entry is
+        // built to keep out, so the entry names the exception TYPE and the object itself is never passed.
+        //
+        // Both halves are asserted because neither alone is enough: a sink renders the exception SEPARATELY
+        // from the formatted message, so a message that does not contain the charset says nothing about
+        // whether the exception carrying it was handed over.
+        const string MarkerCharset = "zzMarkerCharsetzz";
+        var http = new CountingFactory(_ => JsonWithCharset(FullDiscovery(Authority), MarkerCharset));
         var logger = new CapturingLogger();
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
 
         Assert.False(result.Available);
         AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
+
+        var record = Assert.Single(logger.Records, r => r.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
+        Assert.Contains("[" + nameof(InvalidOperationException) + "]", record.Message, StringComparison.Ordinal);
+        Assert.Null(record.Exception);
+        Assert.DoesNotContain(MarkerCharset, record.Message + record.Exception?.ToString(), StringComparison.Ordinal);
+
+        // And the marker really is in what was withheld, so the two assertions above are not passing over a
+        // fixture whose charset never reached an exception in the first place.
+        var withheld = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => JsonWithCharset("{}", MarkerCharset).Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Contains(MarkerCharset, withheld.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm()
+    {
+        // The content-read catch names three exception types and only one of them, InvalidOperationException
+        // above, can arrive here. Measured: the screen forwards through an HttpClient, whose default
+        // ResponseContentRead has already buffered the body by the time SendAsync returns, so a body that
+        // fails mid-copy raises one line ABOVE the try and never reaches the catch at all. HttpClient also
+        // wraps the IOException into an HttpRequestException on the way, which is why neither of those two
+        // arms has a reachable input rather than merely an untested one.
+        //
+        // What is pinned is therefore the position, not a refusal that cannot happen: the failure still fails
+        // the read closed, and no screen refusal is recorded for it. The day the read stops being pre-buffered
+        // this row goes red: the two arms become reachable, the screen starts refusing here, and their
+        // retention becomes checkable instead of decorative.
+        var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
+        var logger = new CapturingLogger();
+
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+
+        Assert.False(result.Available);
+        Assert.DoesNotContain(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
+
+        var failClosed = Assert.Single(logger.Entries, e => e.Message.StartsWith("Could not read the OpenID discovery document", StringComparison.Ordinal));
+        Assert.Contains("copying content to a stream", failClosed.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -457,6 +498,30 @@ public class OidcDiscoveryReaderTests
 
     private static HttpResponseMessage Json(string body) =>
         new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    // A JSON body under a caller-chosen charset, so a test can plant the provider-authored value the decode
+    // failure quotes back.
+    private static HttpResponseMessage JsonWithCharset(string body, string charset)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset };
+        return response;
+    }
+
+    // A response body that fails while it is being copied: the aborted or truncated read the content-read
+    // catch's HttpRequestException and IOException arms name. HttpClient wraps the IOException raised here
+    // into an HttpRequestException, measured, and raises it from SendAsync rather than from the later read.
+    private sealed class UncopyableContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            throw new IOException("the connection dropped while the body was being read");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
 
     // A factory whose every client is backed by the responder and that counts the outbound discovery-document
     // requests (the well-known URL) it serves, so a test can assert a single discovery read.

@@ -37,6 +37,10 @@ internal static class OidcIdTokenAuthTime
 
         try
         {
+            // A repeated MEMBER folds to one claim before this runs (#1192); an ARRAY value does not, and
+            // arrives as several claims of one type. The LAST of them is the pinned choice, held identically
+            // by all three id_token readers and proved by Read_MultiValuedAuthTime_TakesTheLastElement
+            // (#1268); the parse below still refuses whatever it picks if that is not a whole number.
             var raw = new JsonWebToken(identityToken).Claims
                 .LastOrDefault(c => string.Equals(c.Type, "auth_time", StringComparison.Ordinal))?.Value;
 
@@ -64,6 +68,13 @@ internal static class OidcIdTokenAuthTime
         }
         catch (SecurityTokenException)
         {
+            return null;
+        }
+        catch (FormatException)
+        {
+            // A token with more than three segments gets far enough for the library to base64url-decode a
+            // LATER segment, and that decode raises FormatException rather than the malformed-token
+            // ArgumentException above. Unreadable by another name, so it reads as absent like the rest.
             return null;
         }
     }

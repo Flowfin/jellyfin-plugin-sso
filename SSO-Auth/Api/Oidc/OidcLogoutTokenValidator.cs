@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -19,8 +20,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// request-derived text, so a rejection leaves an audit trail without a subject-identifier oracle,
 /// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification goes through the
 /// SAME <see cref="OidcSignatureKeys"/> basis the id_token validator uses - there is no second, laxer
-/// verification path. On success it yields the (sub, sid) pair the revocation lookup keys on; the
-/// validator itself revokes nothing.
+/// verification path, and this class derives that basis from the provider's options itself rather than
+/// accepting one, so no caller holds the object between its construction and the verification (#1176). On
+/// success it yields the (sub, sid) pair the revocation lookup keys on; the validator itself revokes
+/// nothing.
 /// </summary>
 internal sealed class OidcLogoutTokenValidator
 {
@@ -40,16 +43,16 @@ internal sealed class OidcLogoutTokenValidator
     /// Parses and fully validates a <c>logout_token</c> for a provider.
     /// </summary>
     /// <param name="logoutToken">The raw compact-serialized logout_token.</param>
-    /// <param name="validationParameters">The signature/issuer/audience/lifetime parameters - the SAME basis the id_token uses.</param>
-    /// <param name="clockSkew">The validation clock skew (used for the jti-retention window; matches the parameters' ClockSkew).</param>
+    /// <param name="options">The provider's client options - the issuer, client id, discovery JWKS and clock skew this method derives its own validation basis from.</param>
     /// <param name="nowUtc">The current time (injected for determinism).</param>
     /// <returns>The validation outcome.</returns>
     internal async Task<Result> ValidateAsync(
         string? logoutToken,
-        TokenValidationParameters validationParameters,
-        TimeSpan clockSkew,
+        OidcClientOptions options,
         DateTime nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         if (string.IsNullOrEmpty(logoutToken))
         {
             return new Result(false, null, null, RejectReason.Malformed);
@@ -62,68 +65,91 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.UnacceptableKeyId);
         }
 
-        // Signature / issuer / audience / lifetime - the SAME hardened basis as the id_token (the caller
-        // builds validationParameters via OidcSignatureKeys); any failure is fail-closed.
-        var handler = new JsonWebTokenHandler { MapInboundClaims = false };
-        var result = await handler.ValidateTokenAsync(logoutToken, validationParameters).ConfigureAwait(false);
-        if (!result.IsValid)
+        // ECDsa instances built from the JWKS are ours to dispose; RSA keys built from RSAParameters are
+        // not disposable. Owned here rather than by the caller because the basis is now built here too -
+        // the finally must not run until ValidateTokenAsync has returned (#1176).
+        var ephemeralKeys = new List<IDisposable>();
+        try
         {
-            return new Result(false, null, null, RejectReason.Invalid);
+            // Signature / issuer / audience / lifetime, from the SAME hardened basis as the id_token; any
+            // failure is fail-closed. The basis is built into the call rather than into a local, exactly as
+            // OidcIdTokenValidator does it: no reference to it exists for anything to write through
+            // between construction and verification (#1176).
+            //
+            // requireExpiration:false - OIDC Back-Channel Logout 1.0 §2.4 does not mandate exp on a
+            // logout_token; replay is bounded by the jti one-time-use below, not by exp. Requiring it would
+            // silently reject (and so no-op the logout for) a spec-compliant exp-less IdP (#962).
+            var handler = new JsonWebTokenHandler { MapInboundClaims = false };
+            var result = await handler.ValidateTokenAsync(
+                logoutToken,
+                OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys, requireExpiration: false)).ConfigureAwait(false);
+            if (!result.IsValid)
+            {
+                return new Result(false, null, null, RejectReason.Invalid);
+            }
+
+            var token = (JsonWebToken)result.SecurityToken;
+
+            // azp / additional-audience restriction (OIDC Core 3.1.3.7 rules 3-5), the SAME check the
+            // id_token validator applies - §2.4 says the logout_token aud follows OpenID.Core, so the two
+            // token types must not drift on it: when azp is present it MUST equal this client's id, and a
+            // multi-audience token MUST carry azp (a token minted for a different party that merely
+            // co-lists this client is refused). ValidateAudience already confirmed this client is AMONG the
+            // audiences, from the same options.ClientId compared here.
+            var azp = result.ClaimsIdentity.FindFirst("azp")?.Value;
+            if (azp != null && !string.Equals(azp, options.ClientId, StringComparison.Ordinal))
+            {
+                return new Result(false, null, null, RejectReason.Invalid);
+            }
+
+            if (azp == null && token.Audiences.Count() > 1)
+            {
+                return new Result(false, null, null, RejectReason.Invalid);
+            }
+
+            // §2.4: a logout_token MUST NOT contain a nonce. Rejecting it here is what refuses an id_token
+            // (which carries nonce) replayed at the back-channel endpoint.
+            if (token.TryGetPayloadValue<string>("nonce", out var nonce) && !string.IsNullOrEmpty(nonce))
+            {
+                return new Result(false, null, null, RejectReason.ProhibitedNonce);
+            }
+
+            // §2.4/§2.6: the events claim MUST be a JSON object containing the back-channel-logout member.
+            if (!HasBackChannelLogoutEvent(token))
+            {
+                return new Result(false, null, null, RejectReason.NotALogoutToken);
+            }
+
+            var sub = token.TryGetPayloadValue<string>("sub", out var s) && !string.IsNullOrEmpty(s) ? s : null;
+            var sid = token.TryGetPayloadValue<string>("sid", out var i) && !string.IsNullOrEmpty(i) ? i : null;
+
+            // §2.4: at least one of sub / sid MUST be present.
+            if (sub is null && sid is null)
+            {
+                return new Result(false, null, null, RejectReason.NoSubjectOrSid);
+            }
+
+            // One-time-use on jti so a captured valid token cannot be replayed to churn revocations. A token
+            // without a jti is treated as non-replayable-once (fail-closed): give it a synthetic key derived
+            // from its signature so an identical token still collides, while distinct tokens do not.
+            var jti = token.TryGetPayloadValue<string>("jti", out var j) && !string.IsNullOrEmpty(j)
+                ? j
+                : token.EncodedSignature;
+            var retention = ReplayCache.ComputeRetention(nowUtc, token.ValidTo == DateTime.MinValue ? null : token.ValidTo, options.ClockSkew);
+            if (!LogoutTokenReplays.TryConsume(jti, retention, nowUtc, out _))
+            {
+                return new Result(false, null, null, RejectReason.Replay);
+            }
+
+            return new Result(true, sub, sid, string.Empty);
         }
-
-        var token = (JsonWebToken)result.SecurityToken;
-
-        // azp / additional-audience restriction (OIDC Core 3.1.3.7 rules 3-5), the SAME check the id_token
-        // validator applies - §2.4 says the logout_token aud follows OpenID.Core, so the two token types
-        // must not drift on it: when azp is present it MUST equal this client's id, and a multi-audience
-        // token MUST carry azp (a token minted for a different party that merely co-lists this client is
-        // refused). ValidateAudience already confirmed this client is AMONG the audiences.
-        var azp = result.ClaimsIdentity.FindFirst("azp")?.Value;
-        if (azp != null && !string.Equals(azp, validationParameters.ValidAudience, StringComparison.Ordinal))
+        finally
         {
-            return new Result(false, null, null, RejectReason.Invalid);
+            foreach (var key in ephemeralKeys)
+            {
+                key.Dispose();
+            }
         }
-
-        if (azp == null && token.Audiences.Count() > 1)
-        {
-            return new Result(false, null, null, RejectReason.Invalid);
-        }
-
-        // §2.4: a logout_token MUST NOT contain a nonce. Rejecting it here is what refuses an id_token
-        // (which carries nonce) replayed at the back-channel endpoint.
-        if (token.TryGetPayloadValue<string>("nonce", out var nonce) && !string.IsNullOrEmpty(nonce))
-        {
-            return new Result(false, null, null, RejectReason.ProhibitedNonce);
-        }
-
-        // §2.4/§2.6: the events claim MUST be a JSON object containing the back-channel-logout member.
-        if (!HasBackChannelLogoutEvent(token))
-        {
-            return new Result(false, null, null, RejectReason.NotALogoutToken);
-        }
-
-        var sub = token.TryGetPayloadValue<string>("sub", out var s) && !string.IsNullOrEmpty(s) ? s : null;
-        var sid = token.TryGetPayloadValue<string>("sid", out var i) && !string.IsNullOrEmpty(i) ? i : null;
-
-        // §2.4: at least one of sub / sid MUST be present.
-        if (sub is null && sid is null)
-        {
-            return new Result(false, null, null, RejectReason.NoSubjectOrSid);
-        }
-
-        // One-time-use on jti so a captured valid token cannot be replayed to churn revocations. A token
-        // without a jti is treated as non-replayable-once (fail-closed): give it a synthetic key derived
-        // from its signature so an identical token still collides, while distinct tokens do not.
-        var jti = token.TryGetPayloadValue<string>("jti", out var j) && !string.IsNullOrEmpty(j)
-            ? j
-            : token.EncodedSignature;
-        var retention = ReplayCache.ComputeRetention(nowUtc, token.ValidTo == DateTime.MinValue ? null : token.ValidTo, clockSkew);
-        if (!LogoutTokenReplays.TryConsume(jti, retention, nowUtc, out _))
-        {
-            return new Result(false, null, null, RejectReason.Replay);
-        }
-
-        return new Result(true, sub, sid, string.Empty);
     }
 
     // The events claim is a JSON object; presence of the back-channel-logout member is what makes this a
@@ -174,5 +200,13 @@ internal sealed class OidcLogoutTokenValidator
 
         /// <summary>The header kid carries characters outside the accepted set, or is over-length (#1167).</summary>
         internal const string UnacceptableKeyId = "unacceptable_kid";
+
+        /// <summary>
+        /// The provider's discovery document could not be read, so the signing keys never arrived and the
+        /// token was never checked. Alone among these codes it does not describe a refused forgery: the
+        /// legitimate IdP ordered a termination and the plugin declined to perform it, which the caller
+        /// audits as its own event at its own severity (#1184).
+        /// </summary>
+        internal const string ProviderUnreachable = "discovery_unavailable";
     }
 }

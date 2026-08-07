@@ -4,6 +4,7 @@
 using System;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -217,6 +218,63 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void BackChannelLogoutRejected_LogsWarning_AndDoesNotFileItselfUnderSaml()
+    {
+        var logger = new CapturingLogger();
+
+        SsoAudit.BackChannelLogoutRejected(logger, "corp\nX", OidcLogoutTokenValidator.RejectReason.Replay);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("[SSO Audit]", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("OpenID back-channel logout", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("corpX", entry.Message, StringComparison.Ordinal);
+        Assert.Contains(OidcLogoutTokenValidator.RejectReason.Replay, entry.Message, StringComparison.Ordinal);
+        Assert.Contains("No session was terminated", entry.Message, StringComparison.Ordinal);
+
+        // An operator filtering for OpenID logout failures used to find them all worded as SAML, because the
+        // OpenID sites called the shared SAML helper (#1184).
+        Assert.DoesNotContain("SAML", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackChannelLogoutNotPerformed_IsAnErrorAndSaysTheTerminationDidNotHappen()
+    {
+        var logger = new CapturingLogger();
+
+        SsoAudit.BackChannelLogoutNotPerformed(logger, "corp\nX", OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);
+
+        var entry = Assert.Single(logger.Entries);
+
+        // The severity is the filter an operator alerts on, so it is asserted rather than the wording alone:
+        // a revocation the IdP ordered and the plugin did not perform must not sit at the same level as the
+        // forged tokens it is supposed to stand out from.
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Contains("[SSO Audit]", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("could NOT be performed", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("corpX", entry.Message, StringComparison.Ordinal);
+        Assert.Contains(OidcLogoutTokenValidator.RejectReason.ProviderUnreachable, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("SAML", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackChannelLogoutNotPerformed_StillEmitsWhereWarningsAreOff()
+    {
+        // The counterpart to the IsEnabled row below: the two events differ by severity, so the one an
+        // operator pages on must survive a sink that has already filtered the rejection noise away.
+        var warningsOff = new LevelFilteredLogger(minimum: LogLevel.Error);
+
+        SsoAudit.BackChannelLogoutRejected(warningsOff, "corp", OidcLogoutTokenValidator.RejectReason.Replay);
+        SsoAudit.BackChannelLogoutNotPerformed(warningsOff, "corp", OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);
+
+        var entry = Assert.Single(warningsOff.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Contains("could NOT be performed", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EveryEntry_CarriesTheFilterablePrefix_AndInformationLevelEmissionsRespectIsEnabled()
     {
         // The IsEnabled guard exists so the inline sanitizer is not evaluated when the level is off
@@ -231,6 +289,7 @@ public class SsoAuditTests
         SsoAudit.AccountDeprovisioned(off, "OpenID", "corp");
         SsoAudit.PkceNotAdvertised(off, "corp");
         SsoAudit.LogoutRejected(off, "corp", "Replay");
+        SsoAudit.BackChannelLogoutRejected(off, "corp", OidcLogoutTokenValidator.RejectReason.Replay);
 
         Assert.Empty(off.Entries);
     }
