@@ -13,7 +13,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </summary>
 internal sealed class CapturingLogger : ILogger
 {
-    internal List<(LogLevel Level, string Message)> Entries { get; } = new List<(LogLevel, string)>();
+    // The exception is kept beside the message because a real sink renders the two SEPARATELY: an entry that
+    // must carry a type name and nothing more looks identical, in its formatted message, to one that also
+    // handed the exception object over. A test that only reads the message cannot tell those apart, so a
+    // value the entry exists to withhold could reach the sink with every assertion still green (#1196).
+    internal List<(LogLevel Level, string Message, Exception? Exception)> Records { get; } = new();
+
+    internal List<(LogLevel Level, string Message)> Entries => Records.ConvertAll(r => (r.Level, r.Message));
 
     public IDisposable BeginScope<TState>(TState state)
         where TState : notnull => null!;
@@ -21,5 +27,5 @@ internal sealed class CapturingLogger : ILogger
     public bool IsEnabled(LogLevel logLevel) => true;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        => Entries.Add((logLevel, formatter(state, exception)));
+        => Records.Add((logLevel, formatter(state, exception), exception));
 }
