@@ -683,7 +683,7 @@ internal sealed class OidcLoginService
                 _logger.LogWarning("OpenID back-channel logout refused for provider {Provider}: the configured endpoint is not a usable URL.", provider?.ReplaceLineEndings(string.Empty));
             }
 
-            return new OidcLogoutTokenValidator.Result(false, null, null, "discovery_unavailable");
+            return new OidcLogoutTokenValidator.Result(false, null, null, OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);
         }
 
         options.ClientId = config.OidClientId?.Trim();
@@ -696,7 +696,7 @@ internal sealed class OidcLoginService
         var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
         if (!discovery.Available)
         {
-            return new OidcLogoutTokenValidator.Result(false, null, null, "discovery_unavailable");
+            return new OidcLogoutTokenValidator.Result(false, null, null, OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);
         }
 
         options.ProviderInformation = discovery.ProviderInformation;
