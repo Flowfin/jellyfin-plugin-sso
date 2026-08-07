@@ -33,6 +33,29 @@ public class OidcIdTokenAcrTests
     public void Read_AbsentOrDegenerateToken_ReturnsNullWithoutThrowing(string? token)
         => Assert.Null(OidcIdTokenAcr.Read(token));
 
+    [Fact]
+    public void Read_MultiValuedAcr_TakesTheLastElement()
+    {
+        // The same shape as the sid row, on the claim the step-up gate compares (#757): an array-valued acr
+        // reaches this reader as two claims of the same type, and which one is taken decides whether the
+        // session satisfies the requirement. OIDC Core gives acr as one string, so a provider sending an
+        // array is already outside the spec.
+        //
+        // This is the reader where a refusal would have been the fail-closed answer, since refusing an
+        // ambiguous assurance level denies rather than grants. It is still pinned to the last element, so all
+        // three readers say the same thing about the same shape, and the row exists so that turning acr into
+        // the exception is a deliberate change with a red test rather than a silent divergence. Nothing here
+        // asserts that last-wins is the RIGHT answer for a gate - only that it is the answer, and that it can
+        // no longer change unnoticed.
+        Assert.Equal("acr-b", OidcIdTokenAcr.Read(TokenWithArray("acr", "acr-a", "acr-b")));
+    }
+
+    private static string TokenWithArray(string type, params string[] values)
+        => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Claims = new Dictionary<string, object> { ["sub"] = "user-1", [type] = values },
+        });
+
     private static string TokenWith(params (string Type, string Value)[] claims)
     {
         var dict = new Dictionary<string, object>();
