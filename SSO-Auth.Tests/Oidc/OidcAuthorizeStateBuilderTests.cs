@@ -8,6 +8,7 @@ using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -860,5 +861,88 @@ public class OidcAuthorizeStateBuilderTests
             config);
 
         Assert.False(result.Valid);
+    }
+
+    // --- the refused-role-claim audit trail (#1149) ---
+
+    [Fact]
+    public void AValueThatIsNotJson_AndAPathThatDoesNotResolve_AreAuditedApartByReasonCode()
+    {
+        // The whole point of the trail. Both logins end with no roles, and under a configured allow-list
+        // both are denied, so from the operator's side they are one symptom with two very different causes:
+        // a provider sending something other than JSON, and a role-claim path that does not match what the
+        // provider actually emits. One entry each, and the codes must differ - a trail that gave both the
+        // same code would be no better than the empty role set they already share.
+        var notJson = Audit(c => c.RoleClaim = "realm_access.roles", ("realm_access", "not-json-at-all"));
+        var unresolved = Audit(c => c.RoleClaim = "realm_access.missing", ("realm_access", "{\"roles\":[\"a\"]}"));
+
+        var first = Assert.Single(notJson.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+        var second = Assert.Single(unresolved.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+
+        Assert.Equal(LogLevel.Warning, first.Level);
+        Assert.Contains(OidcRoleExtractor.Outcome.ValueNotJson.ToString(), first.Message, StringComparison.Ordinal);
+        Assert.Contains(OidcRoleExtractor.Outcome.PathNotResolved.ToString(), second.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(OidcRoleExtractor.Outcome.PathNotResolved.ToString(), first.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALoginThatSimplyCarriedNoRoles_IsAuditedNotAtAll()
+    {
+        // Both directions of the positive control, and this is what keeps the trail a signal. A provider
+        // that sends no role claim, and one that sends the claim with an empty terminal array, are both
+        // working exactly as configured. An entry on either would land on ordinary logins, and an operator
+        // who sees the warning on every login stops reading it.
+        var noClaim = Audit(c => c.RoleClaim = "realm_access.roles", ("preferred_username", "alice"));
+        var emptyArray = Audit(c => c.RoleClaim = "realm_access.roles", ("realm_access", "{\"roles\":[]}"));
+
+        Assert.DoesNotContain(noClaim.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+        Assert.DoesNotContain(emptyArray.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheRefusedClaimValueNeverReachesTheLog()
+    {
+        // A role claim carries group memberships, distinguished names and sometimes e-mail addresses. The
+        // provider name and the reason code are the whole permitted payload, so the refusal is driven with a
+        // value nothing else in the entry could produce and every captured record is searched for it.
+        const string Marker = "CN=payroll-secret,OU=groups,DC=corp,DC=example";
+
+        var log = Audit(c => c.RoleClaim = "realm_access.roles", ("realm_access", Marker));
+
+        Assert.Contains(log.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Records, r => r.Message.Contains(Marker, StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Records, r => r.Message.Contains("payroll-secret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RepeatedCopiesOfOneFailingClaim_AreAuditedOnce_AndTwoDIFFERENTFailuresAreBothKept()
+    {
+        // The chosen behaviour, stated so it is a decision rather than a side effect: once per distinct
+        // reason per login. A provider that repeats its role claim - which happens on every login where
+        // LoadProfile merges an UNSIGNED UserInfo response beside the id_token - would otherwise write one
+        // entry per copy, and the number of copies is the provider's choice, not this plugin's.
+        var repeated = Audit(
+            c => c.RoleClaim = "realm_access.roles",
+            ("realm_access", "not-json-at-all"),
+            ("realm_access", "also-not-json"));
+
+        Assert.Single(repeated.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+
+        // And the bound is per REASON, not per login: two claims failing for different reasons are two
+        // different things an operator has to fix, and collapsing them would hide one behind the other.
+        var mixed = Audit(
+            c => c.RoleClaim = "realm_access.roles",
+            ("realm_access", "not-json-at-all"),
+            ("realm_access", "{\"roles\":\"a-string-not-an-array\"}"));
+
+        Assert.Equal(2, mixed.Entries.FindAll(e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal)).Count);
+    }
+
+    // Drives one login through the builder with a capturing logger, and hands back what it recorded.
+    private static CapturingLogger Audit(Action<OidConfig> configure, params (string Type, string Value)[] claims)
+    {
+        var logger = new CapturingLogger();
+        OidcAuthorizeStateBuilder.Build(Claims(claims), Config(configure), issuer: null, logger, "kc");
+        return logger;
     }
 }

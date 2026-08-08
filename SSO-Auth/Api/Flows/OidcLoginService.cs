@@ -385,7 +385,7 @@ internal sealed class OidcLoginService
         // bound to (#186) is read from the RAW id_token, not result.User: OidcClient filters the standard
         // protocol claims (iss, aud, exp, …) out of the redeemed principal, so the claim list carries no
         // `iss` - the same reason the RFC 9207 check above re-reads it from result.IdentityToken.
-        var derived = OidcAuthorizeStateBuilder.Build(result.User.Claims, config, OidcResponseIssuer.IdTokenIssuer(result.IdentityToken));
+        var derived = OidcAuthorizeStateBuilder.Build(result.User.Claims, config, OidcResponseIssuer.IdTokenIssuer(result.IdentityToken), _logger, provider);
 
         // Capture the logout material (#727, SLO-1b) onto the in-flight state so it rides the one-time Ready
         // to the mint: the raw id_token (the later RP-initiated logout's id_token_hint) and the OpenID sid

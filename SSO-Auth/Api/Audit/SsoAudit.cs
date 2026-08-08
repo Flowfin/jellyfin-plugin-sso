@@ -329,6 +329,34 @@ internal static class SsoAudit
             reasonCode);
     }
 
+    /// <summary>
+    /// Records an OpenID role claim the walk REFUSED, with the reason it refused it (#1149). Before this
+    /// existed a broken role-claim path and a provider that legitimately sent no roles looked identical from
+    /// outside: both produced an empty role set and no entry, and under a configured <c>Roles</c> allow-list
+    /// both produced a denied login the operator could not explain.
+    /// <para>
+    /// The reason is a FIXED code taken from the walk's own outcome, never claim-derived text. The claim
+    /// VALUE never appears: a role claim carries group memberships, distinguished names and sometimes
+    /// e-mail addresses, so the provider name and the reason code are the whole permitted payload. The
+    /// provider is stripped of line endings inline at the call, like every other entry here.
+    /// </para>
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="provider">The OpenID provider whose claim was refused.</param>
+    /// <param name="reasonCode">The fixed refusal reason from the walk (not claim-derived).</param>
+    internal static void RoleClaimRefused(ILogger logger, string provider, string reasonCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] OpenID provider '{Provider}': the configured role claim could not be read ({ReasonCode}), so this login was granted NO roles from it. Under a configured role allow-list that denies the login; check the role-claim path against what the provider actually emits.",
+            provider?.ReplaceLineEndings(string.Empty),
+            reasonCode);
+    }
+
     /// <summary>Records a provider being saved with one or more default-on security checks disabled (#140, #672).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
