@@ -52,6 +52,16 @@ internal static class Program
                 $"Unknown SSO_FUZZ_TARGET '{target}'. Expected one of: saml, discovery, idtoken, jwks."),
         };
 
+        // Differential mode asks a different question from either mode below, and it is the only one that can
+        // catch a WRONG answer rather than a crash: libFuzzer and smoke both pass any input the target
+        // survives, so a repeated-member walk that quietly returned Clean for every document would look
+        // perfect to both. The driver compares the shipping walk against a second parser family instead.
+        // It needs no libFuzzer runtime, so it runs on any platform (#1188).
+        if (Environment.GetEnvironmentVariable("SSO_FUZZ_DIFFERENTIAL") == "1")
+        {
+            return DiscoveryDifferential.Run(args);
+        }
+
         // Smoke mode replays the seed corpus through the selected target once and exits, WITHOUT libFuzzer.
         // It proves the dispatch + parse wiring runs and that every seed is handled fail-closed (no unmapped
         // throw), so the harness can be validated on any platform - including the maintainer's Windows box,
@@ -122,13 +132,20 @@ internal static class Program
         }
     }
 
-    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Both pure readers
-    // that interpret it must fail closed/tolerant on any malformed or hostile document and never throw an
+    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Every pure reader
+    // that interprets it must fail closed/tolerant on any malformed or hostile document and never throw an
     // unmapped exception (they catch only JsonException today).
+    //
+    // StrictJson.Inspect is here because it now runs FIRST on this surface: since #1061 the transport screen
+    // walks the body before either reader below sees it, so a corpus seed that never reached the walk would
+    // be replaying a path production no longer takes. Its own contract is that it never throws - it maps
+    // JsonException, EncoderFallbackException and InvalidOperationException itself - so anything escaping it
+    // is a crasher on the discovery read, which is what this target exists to find (#1188).
     private static void FuzzOidcDiscovery(ReadOnlySpan<byte> data)
     {
         var json = Encoding.UTF8.GetString(data);
 
+        _ = StrictJson.Inspect(json, out _);
         _ = PkceDiscovery.SupportsS256(json);
         _ = OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(json);
     }

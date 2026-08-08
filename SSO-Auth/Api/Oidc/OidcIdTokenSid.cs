@@ -36,6 +36,9 @@ internal static class OidcIdTokenSid
 
         try
         {
+            // A repeated MEMBER folds to one claim before this runs (#1192); an ARRAY value does not, and
+            // arrives as several claims of one type. The LAST of them is the pinned choice, held identically
+            // by all three id_token readers and proved by Read_MultiValuedSid_TakesTheLastElement (#1268).
             return new JsonWebToken(identityToken).Claims
                 .LastOrDefault(c => string.Equals(c.Type, "sid", StringComparison.Ordinal))?.Value;
         }

@@ -4,7 +4,7 @@ name: "Community SSO for Jellyfin"
 # per channel and Jellyfin filters client-side, so a 10.11 server never offers this build and vice
 # versa.
 guid: "505ce9d1-d916-42fa-86ca-673ef241d7df"
-imageUrl: "https://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/main/img/logo.png"
+imageUrl: "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png"
 # The JF12 (5.0) line's target version. The beta workflow overrides this to 5.0.0.<run> at build time;
 # a 5.0.0-JF12-stable tag releases 5.0.0. Bump per change class exactly like build.yaml's version.
 version: "5.0.0"

@@ -23,6 +23,23 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # init und analyze sind EINE Sache und muessen zusammen wandern.
+    #
+    # Dependabot fuehrt github/codeql-action/init und .../analyze als zwei
+    # Abhaengigkeiten und hat sie am 06.08. in zwei getrennten PRs auf 4.37.4
+    # gehoben. Jeder dieser PRs traegt nur eine der beiden Stufen, und die
+    # Action bricht dann ab:
+    #
+    #     Loaded a configuration file for version '4.37.3',
+    #     but running version '4.37.4'
+    #
+    # Beide PRs mussten also scheitern, jeder fuer sich, und keiner der beiden
+    # war reparierbar - ein gruener Lauf war nur mit beiden Aenderungen im
+    # selben Baum moeglich. Diese Gruppe sorgt dafuer, dass es einer bleibt.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
     # What this hold reaches: a freshly published malicious version of an action,
     # which then waits 7 days before it can be proposed here. Same carve-out as
     # above, in GitHub's words - the cooldown "does not apply to security
