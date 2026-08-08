@@ -73,6 +73,18 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.CriticalHeader);
         }
 
+        // The algorithm is judged before the handler runs, purely so the refusal can be named. The handler
+        // refuses a disallowed alg on its own - nothing new is rejected here - but it reports alg: none, a
+        // case-variant spelling and an HS256 token keyed with the advertised public key as
+        // SecurityTokenInvalidSignatureException, indistinguishable from an ordinary bad signature, because
+        // ValidAlgorithms is evaluated per key inside signature validation. An operator watching this
+        // endpoint needs those apart: a spread of algorithm refusals is somebody probing, a steady stream of
+        // signature failures is usually a rotated key nobody re-published (#1164).
+        if (!OidcSignatureKeys.TokenHasAllowedAlgorithm(logoutToken))
+        {
+            return new Result(false, null, null, RejectReason.AlgorithmNotAllowed);
+        }
+
         // ECDsa instances built from the JWKS are ours to dispose; RSA keys built from RSAParameters are
         // not disposable. Owned here rather than by the caller because the basis is now built here too -
         // the finally must not run until ValidateTokenAsync has returned (#1176).
@@ -93,7 +105,7 @@ internal sealed class OidcLogoutTokenValidator
                 OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys, requireExpiration: false)).ConfigureAwait(false);
             if (!result.IsValid)
             {
-                return new Result(false, null, null, RejectReason.Invalid);
+                return new Result(false, null, null, ReasonFor(result.Exception));
             }
 
             var token = (JsonWebToken)result.SecurityToken;
@@ -107,12 +119,12 @@ internal sealed class OidcLogoutTokenValidator
             var azp = result.ClaimsIdentity.FindFirst("azp")?.Value;
             if (azp != null && !string.Equals(azp, options.ClientId, StringComparison.Ordinal))
             {
-                return new Result(false, null, null, RejectReason.Invalid);
+                return new Result(false, null, null, RejectReason.AuthorizedPartyMismatch);
             }
 
             if (azp == null && token.Audiences.Count() > 1)
             {
-                return new Result(false, null, null, RejectReason.Invalid);
+                return new Result(false, null, null, RejectReason.MultipleAudiencesWithoutAuthorizedParty);
             }
 
             // §2.4: a logout_token MUST NOT contain a nonce. Rejecting it here is what refuses an id_token
@@ -160,6 +172,35 @@ internal sealed class OidcLogoutTokenValidator
         }
     }
 
+    // The fixed code for a handler refusal, chosen from the exception TYPE and never from its message: an
+    // IdentityModel message can embed claim values, and this trail must stay free of anything derived from
+    // the token's subject. Every arm is a const, so no request byte can reach the audit line.
+    //
+    // Which exception each shape actually produces was measured against this basis rather than inferred from
+    // the type names, and the measurement is why several shapes share one arm: alg: none, a case-variant
+    // alg, an HS256 token keyed with the advertised public key, a stripped signature and a foreign key
+    // signing under a trusted kid all arrive as SecurityTokenInvalidSignatureException. The first three are
+    // separated ahead of the handler by the algorithm gate above; the last two are not separable here, and
+    // calling both signature_invalid is the honest answer rather than a guess.
+    //
+    // Anything unmapped keeps the old collapsed code, which is the fail-closed default: a library version
+    // introducing a new exception type reports a refusal this plugin has not classified, rather than
+    // reporting one it has.
+    private static string ReasonFor(Exception? exception) => exception switch
+    {
+        SecurityTokenMalformedException => RejectReason.Malformed,
+        SecurityTokenSignatureKeyNotFoundException => RejectReason.KeyNotFound,
+        SecurityTokenInvalidSignatureException => RejectReason.SignatureInvalid,
+        SecurityTokenInvalidAlgorithmException => RejectReason.AlgorithmNotAllowed,
+        SecurityTokenInvalidIssuerException => RejectReason.IssuerInvalid,
+        SecurityTokenInvalidAudienceException => RejectReason.AudienceInvalid,
+        SecurityTokenExpiredException => RejectReason.Expired,
+        SecurityTokenNotYetValidException => RejectReason.NotYetValid,
+        SecurityTokenInvalidLifetimeException => RejectReason.LifetimeInvalid,
+        SecurityTokenNoExpirationException => RejectReason.LifetimeInvalid,
+        _ => RejectReason.Invalid,
+    };
+
     // The events claim is a JSON object; presence of the back-channel-logout member is what makes this a
     // logout_token. Read it as a JsonElement and require the member - a claim that is absent, not an object,
     // or an object without the member is rejected. Any parse failure is a fail-closed "not a logout_token".
@@ -194,8 +235,42 @@ internal sealed class OidcLogoutTokenValidator
         /// <summary>The header carries a crit parameter, naming a JWS extension this plugin does not process (RFC 7515 4.1.11, #1038).</summary>
         internal const string CriticalHeader = "unprocessed_critical_header";
 
-        /// <summary>Signature, issuer, audience, algorithm, or lifetime validation failed (unsigned, wrong key, weak alg, expired).</summary>
+        /// <summary>
+        /// A handler refusal this plugin has not classified. Every shape reaching it today has its own code
+        /// below; this is what a future library version's new exception type falls through to, so an
+        /// unrecognised refusal reads as unrecognised instead of borrowing a neighbour's name (#1164).
+        /// </summary>
         internal const string Invalid = "signature_or_time_invalid";
+
+        /// <summary>The header alg is outside the asymmetric-only allowlist: alg none, a case variant, or a symmetric algorithm keyed with the advertised public key (#1164).</summary>
+        internal const string AlgorithmNotAllowed = "algorithm_not_allowed";
+
+        /// <summary>The signature did not verify under any advertised key, or the token carries none. A stripped signature and a foreign key signing under a trusted kid are not separable here (#1164).</summary>
+        internal const string SignatureInvalid = "signature_invalid";
+
+        /// <summary>The header names a kid no key in the provider's JWKS carries, so nothing could verify it (#1164).</summary>
+        internal const string KeyNotFound = "key_not_found";
+
+        /// <summary>The iss claim is not this provider's issuer (#1164).</summary>
+        internal const string IssuerInvalid = "issuer_invalid";
+
+        /// <summary>The aud claim does not list this client (#1164).</summary>
+        internal const string AudienceInvalid = "audience_invalid";
+
+        /// <summary>The token's exp has passed, allowing for the configured clock skew (#1164).</summary>
+        internal const string Expired = "expired";
+
+        /// <summary>The token's nbf is still in the future, allowing for the configured clock skew (#1164).</summary>
+        internal const string NotYetValid = "not_yet_valid";
+
+        /// <summary>The token's lifetime is not coherent: nbf at or after exp, or a required expiry absent (#1164).</summary>
+        internal const string LifetimeInvalid = "lifetime_invalid";
+
+        /// <summary>The azp claim names a party other than this client (OIDC Core 3.1.3.7 rule 4, #1164).</summary>
+        internal const string AuthorizedPartyMismatch = "azp_mismatch";
+
+        /// <summary>The token lists several audiences and carries no azp, so it was not minted for this client alone (OIDC Core 3.1.3.7 rule 3, #1164).</summary>
+        internal const string MultipleAudiencesWithoutAuthorizedParty = "multiple_audiences_without_azp";
 
         /// <summary>The events claim is absent or does not contain the back-channel-logout event - this is not a logout_token.</summary>
         internal const string NotALogoutToken = "not_a_logout_token";
