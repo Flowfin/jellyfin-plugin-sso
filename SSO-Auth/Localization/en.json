@@ -45,7 +45,7 @@
   "config.provider_enabled_label": "Enabled",
   "config.provider_hide_login_button_label": "Hide from managed login-page buttons",
   "config.provider_hide_login_button_help": "Excludes this provider from the managed \"Sign in with …\" block on the login page while keeping it usable through its direct start URL. Only takes effect while the global \"Manage login buttons on the login page\" option is on; it never hides anything you added to the branding yourself.",
-  "config.provider_login_button_text_help": "Custom label for this provider's managed login-page button. Leave blank to use the provider name. Only takes effect while the global \"Manage login buttons on the login page\" option is on and the button is not hidden; any text is safe — it is always rendered inert, never as markup.",
+  "config.provider_login_button_text_help": "Custom label for this provider's managed login-page button. Leave blank to use the provider name. Only takes effect while the global \"Manage login buttons on the login page\" option is on and the button is not hidden; any text is safe: it is always rendered inert, never as markup.",
   "config.provider_enable_authorization_label": "Enable Authorization by Plugin",
   "config.provider_library_access_group": "Library access",
   "config.provider_enable_all_folders_label": "Enable All Folders",

@@ -67,7 +67,7 @@
 /*
   Provider workspace redesign (#365). Purely additive presentation classes. Colours reuse the AA-safe
   #b71c1c red from emby-restyle.css (destructive/danger) as a solid background or accent border paired with
-  light text — never as body text on the dark dashboard, where a dark red fails the 4.5:1 contrast floor.
+  light text, never as body text on the dark dashboard, where a dark red fails the 4.5:1 contrast floor.
   Error and status TEXT stays in the theme's own high-contrast foreground so it clears WCAG AA in both the
   dark and light dashboards; the red is carried by the accent border, the tinted panel and the ⚠ glyph, so
   meaning is never signalled by colour alone.
@@ -237,7 +237,7 @@
 }
 
 .sso-required {
-  color: #ff8a80; /* Light red: an accent glyph, not body text — decorative emphasis only. */
+  color: #ff8a80; /* Light red: an accent glyph, not body text; decorative emphasis only. */
   font-weight: 700;
 }
 
@@ -362,7 +362,7 @@
 }
 
 .sso-danger-title {
-  color: #ff8a80; /* Accent heading, paired with the descriptive text below it — not colour-only. */
+  color: #ff8a80; /* Accent heading, paired with the descriptive text below it, not colour-only. */
 }
 
 .sso-insecure-toggle {

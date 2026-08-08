@@ -41,8 +41,8 @@ const ssoConfigLinking = {
         .catch(() => ssoConfigLinking.showError());
     });
   },
-  // When a protocol section ends up with no rows — no enabled providers to offer and no existing
-  // link the user still holds — show a placeholder instead of a bare heading over blank space
+  // When a protocol section ends up with no rows (no enabled providers to offer and no existing
+  // link the user still holds), show a placeholder instead of a bare heading over blank space
   // (#669), so a single-protocol or fresh install does not look broken. Called only after both the
   // enabled-provider list and the existing-links feed have resolved, since a disabled provider the
   // user still holds a link to is rendered from the links feed and keeps the section non-empty.
@@ -92,7 +92,7 @@ const ssoConfigLinking = {
             // No container means the provider is not offered for new links because it is disabled
             // (it is absent from the enabled-only GetNames list, #344). The server still returns
             // such links and still lets the user delete them (LinksByUser / TryRemoveLink pass
-            // requireEnabled:false — disabling then cleaning up is the intended workflow), so render
+            // requireEnabled:false; disabling then cleaning up is the intended workflow), so render
             // a container without an add button, marked disabled, rather than dropping it and
             // throwing on a null container. A disabled provider the user holds no link to (empty
             // list, nothing to remove) is skipped.
