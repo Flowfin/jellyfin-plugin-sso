@@ -27,6 +27,7 @@ are what the harness drives (selected per run by the `SSO_FUZZ_TARGET` environme
 | `discovery`                | `StrictJson.Inspect`, `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
 | `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                                                | The raw id_token JWT string                                                                          |
 | `jwks`                     | `OidcSignatureKeys.Convert` (after the library's `new JsonWebKeySet(json)`)                                   | The raw JWKS the challenge fetches from `jwks_uri`                                                   |
+| `roles`                    | `OidcRoleExtractor.ExtractRoles`, driven at both terminal shapes from one input                               | The role-claim value from the id_token or the UserInfo response                                      |
 
 The property under test is uniform: on **any** input the entry point must terminate with a fail-closed
 result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps - it must never
@@ -102,7 +103,7 @@ dotnet tool install --global SharpFuzz.CommandLine
 sharpfuzz SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll
 
 # 3. Fuzz one target, seeded from its corpus (libFuzzer flags after --).
-export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
+export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks | roles
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll \
     SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET -max_total_time=300
 ```
@@ -116,10 +117,12 @@ a plain 500/DoS), and fix the parser in a separate change - the harness only sur
 Because libFuzzer is Linux-only, set `SSO_FUZZ_SMOKE=1` to replay a corpus directory through the selected
 target **once** and exit - no instrumentation, no native runtime. It proves the dispatch + parse wiring
 runs and that every seed is handled fail-closed, so the harness can be validated on Windows and as a cheap
-CI sanity check. This is how the prototype was validated at delivery (all three targets, exit 0):
+CI sanity check. This is how the prototype was validated at delivery, and how a new target is validated
+before it lands: every target over its own corpus, exit 0. The count is not restated here because it
+moved once already and the loop above derives it from the corpus directories.
 
 ```sh
-export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
+export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks | roles
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
 ```
 
@@ -176,6 +179,16 @@ without complaint, and the input on which `System.Text.Json`'s `GetString` raise
 `InvalidOperationException` rather than `JsonException` - so a walk catching only the latter takes the
 throw on the anonymous discovery read. It is committed as a seed so the arm stays replayed by the smoke
 gate rather than resting on a unit test alone.
+
+`corpus/roles/` (#1158) carries the repeated-name class on the role claim, which is the one surface here
+where a repeat could decide a privilege rather than a diagnostic. Every seed is the value of a
+`resource_access` claim read under the path `resource_access.jellyfin.roles`, pinned in `Program.cs`
+beside the driver so a seed and the path cannot drift apart: `array-terminal.json` and
+`object-map-terminal.json` are the two terminal shapes the extractor supports,
+`repeated-key-at-terminal.json` names `roles` twice in the object that holds it, and
+`repeated-key-below-terminal.json` repeats a role name inside the object map one level below. What the
+extractor should DO with a repeat is #1053's decision and is deliberately not encoded here; the target
+asserts only that the walk terminates fail-closed or with an exception it maps.
 
 ## Scorecard alert #36 and #174
 
