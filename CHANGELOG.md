@@ -142,6 +142,25 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   a cause, so a refused document currently shows there under a check that does not
   describe it.
 
+- **A token whose JWS header marks an extension critical is refused (#1038).**
+  RFC 7515 §4.1.11 requires a recipient to reject a token whose `crit` header
+  names an extension it does not understand and process. The plugin implements
+  no JWS extension, and the token library ignores `crit` entirely, so a
+  genuinely signed `id_token` or back-channel `logout_token` carrying one was
+  accepted with the constraint it declared silently dropped — an extension is
+  marked critical precisely because ignoring it changes what the token asserts,
+  such as a narrowed audience or a proof-of-possession binding. Both token paths
+  now refuse such a token from one shared rule, so they cannot drift apart.
+
+  This was not exploitable on its own: the token still had to carry a signature
+  from a key the provider's own JWKS advertises, so nobody could mint one. What
+  changes is that a provider using a JWS extension the plugin cannot honour now
+  gets a refusal rather than a login granted on terms the plugin never applied.
+  The back-channel refusal carries its own reason code
+  (`unprocessed_critical_header`) rather than the generic signature failure, so
+  an operator can tell a provider that needs a feature apart from an attempted
+  forgery.
+
 ## 4.3.0
 
 A feature release. This line advances the plugin's maturity to **Beta** on the

@@ -51,6 +51,14 @@ internal sealed class OidcIdTokenValidator : IIdentityTokenValidator
                 return Reject("Identity token validation failed: unacceptable kid");
             }
 
+            // RFC 7515 4.1.11: a header naming a critical extension this plugin does not process is
+            // refused (#1038). Screened here rather than by the handler because the handler ignores crit
+            // entirely, and from the same shared predicate the logout_token path calls.
+            if (!OidcSignatureKeys.TokenHasNoCriticalHeader(identityToken))
+            {
+                return Reject("Identity token validation failed: unprocessed critical header");
+            }
+
             var handler = new JsonWebTokenHandler { MapInboundClaims = false };
             var result = await handler.ValidateTokenAsync(identityToken, OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys)).ConfigureAwait(false);
             if (!result.IsValid)
