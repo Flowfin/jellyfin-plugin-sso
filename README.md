@@ -91,6 +91,8 @@ Full documentation lives in the **[Wiki](https://github.com/Flowfin/jellyfin-plu
 
 The plugin's own served pages are translatable from JSON catalogs, no C# involved. [Translating the UI](CONTRIBUTING.md#translating-the-ui) lists the supported languages, the catalog format, and how to add one.
 
+Setup questions ("how do I configure provider X") go to [Discussions Q&A](https://github.com/Flowfin/jellyfin-plugin-sso/discussions/categories/q-a), defects to the [issue tracker](https://github.com/Flowfin/jellyfin-plugin-sso/issues), and vulnerabilities to a [private advisory](https://github.com/Flowfin/jellyfin-plugin-sso/security/advisories/new) rather than either public channel.
+
 ## Security
 
 This plugin is built to **fail closed by default**: a missing signature, a weak signature or under-strength key, an out-of-bounds time window, a wrong audience, a replayed assertion, or an unrecognized identity is rejected rather than waved through. Secrets are stored write-only and AES-256-GCM-encrypted at rest. The controls and their tuning - encryption at rest, optional rate limiting, new-user approval, step-up/MFA passthrough - are on the [Security Model](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model) wiki page, and security-relevant behavior is covered by the test suite.
