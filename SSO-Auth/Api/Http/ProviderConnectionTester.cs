@@ -69,8 +69,7 @@ internal static class ProviderConnectionTester
         {
             // The reader already logged the fail-closed warning (with the library error, never a secret).
             // The admin-facing message stays generic: it names what to check, not any sensitive value.
-            return ProviderTestResult.Failure(
-                "Could not read the OpenID discovery document. Check that the endpoint is reachable, serves /.well-known/openid-configuration, and - unless HTTPS discovery is disabled - is served over HTTPS.");
+            return ProviderTestResult.Failure(CauseOf(discovery.Refusal));
         }
 
         var info = discovery.ProviderInformation;
@@ -143,6 +142,28 @@ internal static class ProviderConnectionTester
             return ProviderTestResult.Success("The SAML signing certificate parsed successfully.", details);
         }
     }
+
+    // Why the discovery read came back unavailable, in words that describe THIS failure (#1064). The probe is
+    // the one in-product diagnostic on the recovery path, so a message that answers confidently and points
+    // somewhere else is worse than a vague one: an admin whose provider serves a document the screen refuses
+    // would otherwise be sent to look at reachability, the well-known path and TLS, none of which is wrong.
+    //
+    // Each screened cause opens with the SAME constant the server log carries, so an admin matching the two
+    // sees one wording rather than two paraphrases of it. Neither names the repeated member. The surface is
+    // elevation-gated, so that is not the login path's disclosure question, but the member name is a
+    // provider-authored string and every bound and filter it needs sits on the log entry (#1068, #1194) and
+    // nowhere else; pointing at the log spends nothing and keeps one place responsible for it.
+    private static string CauseOf(OidcDiscoveryRefusal refusal) => refusal switch
+    {
+        OidcDiscoveryRefusal.RepeatedMember =>
+            RepeatedMemberScreen.RefusalReason
+            + ", so the OpenID discovery read was refused. The document was served and rejected before it was parsed, which is a defect to report to the identity provider - a document whose meaning depends on which reader parses it. The Jellyfin server log records which document and which member.",
+        OidcDiscoveryRefusal.Uninspectable =>
+            RepeatedMemberScreen.UninspectableReason
+            + ", so the OpenID discovery read was refused. That is usually a truncated body or a Content-Type naming a character set this server cannot decode, rather than a connectivity problem. The Jellyfin server log records which document and the failure it hit.",
+        _ =>
+            "Could not read the OpenID discovery document. Check that the endpoint is reachable, serves /.well-known/openid-configuration, and - unless HTTPS discovery is disabled - is served over HTTPS.",
+    };
 
     // A discovery value the admin can eyeball, or an explicit marker when the document did not advertise it,
     // so a blank field reads as "not advertised" rather than an empty line.

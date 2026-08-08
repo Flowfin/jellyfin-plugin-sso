@@ -6,11 +6,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.Extensions.Logging;
@@ -75,6 +77,80 @@ public class ProviderConnectionTesterTests
         Assert.False(result.Ok);
         Assert.Contains("discovery document", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(result.Details);
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_ADocumentTheScreenRefused_IsReportedUnderItsOwnCause()
+    {
+        // The probe is the one in-product diagnostic on the recovery path (#1064). A document the provider
+        // served fine and the screen refused used to arrive under the reachability/well-known/HTTPS message,
+        // which answers confidently and sends the admin to look at connectivity for a provider defect.
+        //
+        // The generic sentence's own marker is asserted ABSENT rather than the cause merely being asserted
+        // present: a probe that appended the new cause to the old one would satisfy a presence-only check
+        // while still telling the admin to go and check their TLS.
+        var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
+        var repeated = FullDiscovery(Authority).Insert(1, "\"issuer\":\"https://attacker.example\",");
+        var logger = new CapturingLogger();
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(repeated)), logger);
+
+        Assert.False(result.Ok);
+        Assert.Contains(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
+
+        // The wording the admin reads on screen is the wording the server log carries, byte for byte, because
+        // both render one constant. Reword either side alone and this goes red, which is what keeps an admin
+        // matching the UI against the log from having to translate between two paraphrases.
+        Assert.Contains(
+            logger.Entries,
+            e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal)
+                && e.Message.Contains(RepeatedMemberScreen.RefusalReason, StringComparison.Ordinal));
+
+        // The member name is a provider-authored string, and every bound and filter it needs sits on the log
+        // entry rather than here. This surface is elevation-gated, so the reason it stays out is not the login
+        // path's disclosure question - it is that one place stays responsible for bounding it.
+        Assert.DoesNotContain("attacker.example", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_AnUninspectableBody_IsReportedApartFromTheRepeatedMember()
+    {
+        // The two screened refusals have different remedies - one is a provider defect to report, the other is
+        // a truncation or a charset problem - so collapsing them into one message loses the thing the admin
+        // came to the probe for. An unknown charset is the provider-reachable instance of the second.
+        var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
+        var factory = FactoryFor(_ => JsonWithCharset(FullDiscovery(Authority), "zzMarkerCharsetzz"));
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+
+        Assert.False(result.Ok);
+        Assert.Contains(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
+
+        // The charset is the provider's to choose, so it is one more untrusted string and never reaches an
+        // admin-facing field, exactly as it never reaches the log entry.
+        Assert.DoesNotContain("zzMarkerCharsetzz", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_AFailureNoScreenRaised_KeepsTheReachabilityCause()
+    {
+        // The other direction, and the one that stops the new causes being reported for every failure. An
+        // unreachable endpoint is refused before any body exists to screen, so the reason stays Unnamed and
+        // the message that names what to CHECK is still the right one. Without this row, a probe that reported
+        // a screen refusal unconditionally would pass every assertion above.
+        var config = new OidConfig { OidEndpoint = "https://idp-unreachable.example.com", OidClientId = "jf" };
+        var factory = FactoryFor(_ => throw new HttpRequestException("unreachable"));
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+
+        Assert.False(result.Ok);
+        Assert.Contains("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -239,6 +315,15 @@ public class ProviderConnectionTesterTests
 
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     };
+
+    // A body the runtime cannot decode, because the Content-Type names a character set it does not know. The
+    // charset is provider-chosen, so this is the reachable instance of the screen's uninspectable refusal.
+    private static HttpResponseMessage JsonWithCharset(string body, string charset)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset };
+        return response;
+    }
 
     private static HttpResponseMessage Json(string body) =>
         new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
