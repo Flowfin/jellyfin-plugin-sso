@@ -3,7 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api;
@@ -91,19 +94,30 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Theory]
     [InlineData("not-a-jwt")]
     [InlineData("only.two")]
-    [InlineData("a.b.c")]
-    public async Task GarbageNonJwt_IsInvalid_FailClosed(string token)
+    public async Task GarbageNonJwt_IsMalformed_FailClosed(string token)
     {
-        // A non-empty non-JWT reaches the handler and fails signature/parse validation - still fail-closed,
-        // reported as Invalid (the handler catches it, it never throws a 500).
+        // A non-empty non-JWT reaches the handler and comes back malformed - still fail-closed, and now
+        // under the code whose own summary already claimed this case ("absent, unparseable, or not a JWT").
         var result = await _validator.ValidateAsync(token, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Malformed, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task ThreeGarbageSegments_FallThroughToTheUnclassifiedCode()
+    {
+        // The fail-closed default, exercised rather than described. Three segments of nonsense get far
+        // enough into the handler to fail somewhere this plugin has not classified, so the refusal keeps
+        // the old collapsed code instead of borrowing a name that would be a guess.
+        var result = await _validator.ValidateAsync("a.b.c", Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
     }
 
     [Fact]
-    public async Task WrongSigningKey_IsInvalid()
+    public async Task WrongSigningKey_UnderATrustedKid_IsSignatureInvalid()
     {
         using var attacker = RSA.Create(2048);
         var forged = new JsonWebTokenHandler().CreateToken(Descriptor(Claims(sub: "user-1"), signingKey: attacker));
@@ -111,42 +125,200 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         var result = await _validator.ValidateAsync(forged, Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.SignatureInvalid, result.ReasonCode);
     }
 
     [Fact]
-    public async Task WrongIssuer_IsInvalid()
+    public async Task WrongSigningKey_UnderAnUnknownKid_IsKeyNotFound()
+    {
+        // The neighbour of the test above, and the pair is the point: the same forgery separates into two
+        // codes purely on whether the kid names a key the provider published. An operator reading the trail
+        // sees "somebody signed with their own key" apart from "somebody named a key we do not have".
+        using var attacker = RSA.Create(2048);
+        var descriptor = Descriptor(Claims(sub: "user-1"));
+        descriptor.SigningCredentials = new SigningCredentials(
+            new RsaSecurityKey(attacker) { KeyId = "some-other-key" },
+            SecurityAlgorithms.RsaSha256);
+        var forged = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(forged, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.KeyNotFound, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task WrongIssuer_IsIssuerInvalid()
     {
         var token = CreateToken(claims: Claims(sub: "user-1"), issuer: "https://evil.example.test");
 
         var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.IssuerInvalid, result.ReasonCode);
     }
 
     [Fact]
-    public async Task WrongAudience_IsInvalid()
+    public async Task WrongAudience_IsAudienceInvalid()
     {
         var token = CreateToken(claims: Claims(sub: "user-1"), audience: "another-client");
 
         var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.AudienceInvalid, result.ReasonCode);
     }
 
     [Fact]
-    public async Task ExpiredToken_IsInvalid()
+    public async Task IncoherentLifetime_IsLifetimeInvalid()
     {
-        // 10 minutes past exp is beyond the default 5-minute clock skew.
+        // exp BEFORE nbf. This is the shape the previous "expired" test actually built, and it is a
+        // different refusal from an ordinary expiry: the handler reports the lifetime as incoherent before
+        // it ever compares exp to the clock.
         var token = CreateToken(claims: Claims(sub: "user-1"), lifetime: TimeSpan.FromMinutes(-10));
 
         var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.LifetimeInvalid, result.ReasonCode);
     }
+
+    [Fact]
+    public async Task GenuinelyExpiredToken_IsExpired()
+    {
+        // A coherent lifetime wholly in the past, beyond the 5-minute skew: the ordinary case an operator
+        // reads as a slow or retrying IdP rather than as an attack.
+        var descriptor = Descriptor(Claims(sub: "user-1"));
+        descriptor.IssuedAt = DateTime.UtcNow - TimeSpan.FromHours(3);
+        descriptor.NotBefore = DateTime.UtcNow - TimeSpan.FromHours(3);
+        descriptor.Expires = DateTime.UtcNow - TimeSpan.FromHours(1);
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Expired, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task NotYetValidToken_IsNotYetValid()
+    {
+        var descriptor = Descriptor(Claims(sub: "user-1"));
+        descriptor.IssuedAt = DateTime.UtcNow;
+        descriptor.NotBefore = DateTime.UtcNow + TimeSpan.FromHours(2);
+        descriptor.Expires = DateTime.UtcNow + TimeSpan.FromHours(3);
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.NotYetValid, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task AlgNone_IsAlgorithmNotAllowed()
+    {
+        var result = await _validator.ValidateAsync(UnsignedAlgNoneToken(), Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.AlgorithmNotAllowed, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task AlgCaseVariant_IsAlgorithmNotAllowed()
+    {
+        // "rs256" is not "RS256". The allowlist holds the exact RFC 7518 names and the comparison is
+        // Ordinal, so a case-folded spelling is refused rather than quietly accepted as its neighbour.
+        var reheadered = WithHeaderAlgorithm("rs256", CreateToken(Claims(sub: "user-1")));
+
+        var result = await _validator.ValidateAsync(reheadered, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.AlgorithmNotAllowed, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task AlgorithmConfusion_HS256KeyedWithTheAdvertisedPublicKey_IsAlgorithmNotAllowed()
+    {
+        // The classic: sign with HMAC using the provider's PUBLIC key as the secret, which anybody can
+        // fetch. It is refused either way; what this pins is that the trail says so. Measured before the
+        // gate existed, the handler reported it as an ordinary invalid signature, because ValidAlgorithms
+        // is evaluated per key inside signature validation.
+        var publicKey = _rsa.ExportSubjectPublicKeyInfo();
+        var descriptor = Descriptor(Claims(sub: "user-1"));
+        descriptor.SigningCredentials = new SigningCredentials(
+            new SymmetricSecurityKey(publicKey) { KeyId = KeyId },
+            SecurityAlgorithms.HmacSha256);
+        var forged = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(forged, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.AlgorithmNotAllowed, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task StrippedSignature_IsSignatureInvalid()
+    {
+        // alg stays RS256, so the algorithm gate passes it through and the handler owns the refusal. It is
+        // not separable from a wrong-key signature here, and the code says signature rather than pretending
+        // to a distinction the library does not make.
+        var token = CreateToken(Claims(sub: "user-1"));
+        var stripped = token[..(token.LastIndexOf('.') + 1)];
+
+        var result = await _validator.ValidateAsync(stripped, Options(), _now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.SignatureInvalid, result.ReasonCode);
+    }
+
+    [Fact]
+    public async Task EveryReasonCodeIsAFixedConstant_AndNoneCarriesTokenText()
+    {
+        // The constraint the whole split is bounded by: more codes must not mean more information about
+        // WHO the token named. Every code is compared against the declared constants, so a code
+        // interpolated from a claim would have to be added to this list to pass, which is the moment a
+        // reviewer sees it.
+        var declared = typeof(OidcLogoutTokenValidator.RejectReason)
+            .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToList();
+
+        Assert.NotEmpty(declared);
+        Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());
+
+        using var attacker = RSA.Create(2048);
+        string[] subjects = ["user-secret-1", "user-secret-2"];
+        foreach (var subject in subjects)
+        {
+            var forged = new JsonWebTokenHandler().CreateToken(Descriptor(Claims(sub: subject), signingKey: attacker));
+            var result = await _validator.ValidateAsync(forged, Options(), _now);
+
+            Assert.Contains(result.ReasonCode, declared);
+            Assert.DoesNotContain(subject, result.ReasonCode, StringComparison.Ordinal);
+        }
+    }
+
+    private static string Base64Url(string json) => Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(json));
+
+    private static string UnsignedAlgNoneToken()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var payload = "{\"iss\":\"" + Issuer + "\",\"aud\":\"" + ClientId + "\",\"sub\":\"user-1\",\"jti\":\""
+            + Guid.NewGuid() + "\",\"iat\":" + now + ",\"nbf\":" + (now - 60) + ",\"exp\":" + (now + 300)
+            + ",\"events\":{\"" + LogoutEvent + "\":{}}}";
+        return Header("none") + "." + Base64Url(payload) + ".";
+    }
+
+    private static string WithHeaderAlgorithm(string algorithm, string token)
+    {
+        var parts = token.Split('.');
+        return Header(algorithm) + "." + parts[1] + "." + parts[2];
+    }
+
+    private static string Header(string algorithm) =>
+        Base64Url("{\"alg\":\"" + algorithm + "\",\"typ\":\"JWT\",\"kid\":\"" + KeyId + "\"}");
 
     [Fact]
     public async Task NoEventsClaim_IsNotALogoutToken()
@@ -253,7 +425,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     }
 
     [Fact]
-    public async Task AzpMismatch_IsInvalid()
+    public async Task AzpMismatch_IsAuthorizedPartyMismatch()
     {
         // Parity with the id_token validator (OIDC Core 3.1.3.7 rule 5): an azp naming a different party is
         // refused even though this client is the audience.
@@ -262,11 +434,11 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         var result = await _validator.ValidateAsync(CreateToken(claims: claims), Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.AuthorizedPartyMismatch, result.ReasonCode);
     }
 
     [Fact]
-    public async Task MultipleAudiencesWithoutAzp_IsInvalid()
+    public async Task MultipleAudiencesWithoutAzp_IsItsOwnCode()
     {
         // Rules 3-4: a multi-audience token MUST carry azp; one minted for a co-listed different party is refused.
         var claims = Claims(sub: "user-1");
@@ -283,7 +455,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.MultipleAudiencesWithoutAuthorizedParty, result.ReasonCode);
     }
 
     private static Dictionary<string, object> Claims(string? sub = null, string? sid = null, string? jti = null)

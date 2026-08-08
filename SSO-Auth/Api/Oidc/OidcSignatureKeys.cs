@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Security.Cryptography;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api.Crypto;
@@ -136,6 +137,57 @@ internal static class OidcSignatureKeys
         }
 
         return IsAcceptableKeyId(keyId);
+    }
+
+    /// <summary>
+    /// Whether a compact-serialized JWT's header <c>alg</c> is one this plugin verifies, read from the same
+    /// <see cref="AllowedSignatureAlgorithms"/> the validation basis enforces. The handler refuses a
+    /// disallowed algorithm on its own, so this changes NOTHING about what is accepted; what it changes is
+    /// what the refusal can be called. Measured rather than assumed: <c>alg: none</c>, a case-variant
+    /// spelling and an HS256 token keyed with the advertised public key all surface from the handler as
+    /// <c>SecurityTokenInvalidSignatureException</c>, because <c>ValidAlgorithms</c> is evaluated per key
+    /// inside signature validation - so an operator reading the audit trail cannot tell an algorithm attack
+    /// from an ordinary bad signature unless the algorithm is judged before the handler runs (#1164).
+    /// <para>
+    /// Called by the back-channel <c>logout_token</c> path only. The id_token path keeps the handler's own
+    /// refusal because <c>OidcClient</c> depends on the <c>invalid_signature</c> contract it produces, which
+    /// is why #1164 excludes that path rather than sharing this call the way the <c>kid</c> and <c>crit</c>
+    /// gates are shared.
+    /// </para>
+    /// <para>
+    /// Comparison is Ordinal, so a case variant is refused rather than folded: the allowlist entries are the
+    /// exact RFC 7518 names, and a verifier that accepted <c>rs256</c> would be accepting a spelling the
+    /// basis does not list. A token this cannot read at all is reported as allowed rather than refused, the
+    /// same contract and the same reason as <see cref="TokenHasAcceptableKeyId"/>: this gate is not the
+    /// fail-closed floor.
+    /// </para>
+    /// </summary>
+    /// <param name="token">The raw compact-serialized JWT.</param>
+    /// <returns><c>false</c> only when an <c>alg</c> was positively read and is outside the allowlist.</returns>
+    internal static bool TokenHasAllowedAlgorithm(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return true;
+        }
+
+        string? algorithm;
+        try
+        {
+            algorithm = new JsonWebToken(token).Alg;
+        }
+        catch (ArgumentException)
+        {
+            // Not a readable JWT. The handler rejects it on its own terms; see the remark above.
+            return true;
+        }
+        catch (FormatException)
+        {
+            // A later segment that will not base64url-decode, the shape TokenHasAcceptableKeyId documents.
+            return true;
+        }
+
+        return string.IsNullOrEmpty(algorithm) || AllowedSignatureAlgorithms.Contains(algorithm, StringComparer.Ordinal);
     }
 
     /// <summary>
