@@ -48,6 +48,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **A role claim the plugin could not read now says so in the log (#1149).** A
+  mistyped role-claim path and a provider that genuinely sends no roles used to
+  look identical from outside: both ended with an empty role set and no entry,
+  and under a configured role allow-list both ended with a denied login and
+  nothing to explain it. An OpenID login whose role claim could not be read now
+  leaves one `[SSO Audit]` warning naming the provider and a fixed reason code -
+  the claim value did not parse as JSON, the configured path did not resolve, or
+  the node it reached was not the configured shape. A login that carried no role
+  claim, or one whose claim resolved to an empty list, leaves nothing, so the
+  entry stays a signal rather than appearing on every sign-in. The claim value is
+  never part of the entry: a role claim can carry group memberships and other
+  personal data, so the provider name and the reason code are all it records.
+
 - **Test connection now says when a provider's document was refused for its
   shape (#1064).** An OpenID document that a provider serves perfectly well can
   still be rejected before it is parsed, because it names the same JSON member

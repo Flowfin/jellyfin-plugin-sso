@@ -6,17 +6,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
 /// Derives the per-login authorize-state values (username, login validity, admin, Live TV, folder
-/// access, avatar) from a verified OpenID login's claims and the provider configuration. Pure: it
-/// reads only (claims, config) and returns the derived values, which the OID callback assigns onto
-/// the fresh authorize state. Mirrors, one-for-one, the derivation that used to live inline in the
+/// access, avatar) from a verified OpenID login's claims and the provider configuration. It reads only
+/// (claims, config) and returns the derived values, which the OID callback assigns onto the fresh
+/// authorize state; its one side effect is the audit entry a REFUSED role claim leaves (#1149), emitted
+/// at the point the walk refused it because a gate downstream can only report that something went wrong
+/// somewhere. Passing no logger asks the same question with no side effect at all.
+/// Mirrors, one-for-one, the derivation that used to live inline in the
 /// callback - including its quirks (username is the last matching claim; the "sub" claim is a
 /// fallback only when no allow-list made the login valid; a null <c>Roles</c> array in that fallback
 /// still throws, an admin misconfiguration that fails closed).
@@ -42,14 +47,19 @@ internal static class OidcAuthorizeStateBuilder
     /// (<c>iss</c>, <c>aud</c>, <c>exp</c>, …) out of the redeemed principal, so the claim list here never
     /// carries <c>iss</c>. Null when the token carried none; the canonical link then stays un-stamped.
     /// </param>
+    /// <param name="logger">
+    /// The logger a refused role claim is audited on (#1149), or null to audit nothing. Defaulted so the
+    /// property and unit tests that ask this builder a pure question keep calling it with two arguments.
+    /// </param>
+    /// <param name="provider">The provider name the audit entry names; ignored when no logger is supplied.</param>
     /// <returns>The derived authorize-state values.</returns>
-    internal static OidcAuthorizeState Build(IEnumerable<Claim> claims, OidConfig config, string? issuer = null)
+    internal static OidcAuthorizeState Build(IEnumerable<Claim> claims, OidConfig config, string? issuer = null, ILogger? logger = null, string? provider = null)
     {
         // Materialize so the claims can be enumerated more than once (avatar format, role claim, sub fallback).
         var claimList = claims as IReadOnlyList<Claim> ?? claims.ToList();
 
         var avatarUrl = ResolveAvatarUrl(claimList, config);
-        var (username, valid, roles) = ScanClaims(claimList, config);
+        var (username, valid, roles) = ScanClaims(claimList, config, logger, provider);
 
         // The stable subject identifier used to key the account link (#155): the "sub" claim, which
         // OIDC Core requires and (post-#134) the id_token validator has verified. Unlike the username
@@ -194,9 +204,16 @@ internal static class OidcAuthorizeStateBuilder
     // Single pass over the claims: resolves the username (the LAST matching preferred-username /
     // DefaultUsernameClaim claim wins), decides validity when no allow-list is configured, and
     // collects the roles carried by every claim on the configured role-claim path.
-    private static (string? Username, bool Valid, List<string> Roles) ScanClaims(IReadOnlyList<Claim> claims, OidConfig config)
+    private static (string? Username, bool Valid, List<string> Roles) ScanClaims(IReadOnlyList<Claim> claims, OidConfig config, ILogger? logger, string? provider)
     {
         var roleClaimSegments = SplitRoleClaimPath(config);
+
+        // The refusal reasons already audited on THIS login. The entry is emitted at the event source, in the
+        // loop, because a uniform gate downstream can only say that something went wrong somewhere (#737).
+        // Emitting per claim would let a provider that repeats its role claim write one entry per copy, so
+        // each distinct reason is recorded once: the trail keeps every DIFFERENT thing that went wrong and
+        // the flood is bounded by the size of the outcome set rather than by what the provider sent.
+        var audited = new HashSet<OidcRoleExtractor.Outcome>();
 
         // Depends only on the configuration, so it is resolved once, not per claim.
         var usernameClaimType = config.DefaultUsernameClaim?.Trim() ?? "preferred_username";
@@ -217,13 +234,23 @@ internal static class OidcAuthorizeStateBuilder
 
             if (roleClaimSegments.Length > 0 && string.Equals(claim.Type, roleClaimSegments[0], StringComparison.Ordinal))
             {
-                // The walk now says WHY it produced what it produced (#1147). This step reads only the roles
-                // and discards the reason deliberately: reporting it is #1149's step, and folding the two
-                // together would put a behaviour change behind a pure classification.
-                //
                 // Each copy is kept SEPARATE rather than appended to one list, because how several copies
                 // combine is a decision, and appending made it silently (#1040).
-                copies.Add(OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap).Roles);
+                var extracted = OidcRoleExtractor.ExtractRoles(roleClaimSegments, claim.Value, config.RoleClaimIsObjectMap);
+                copies.Add(extracted.Roles);
+
+                // The walk says WHY it produced what it produced (#1147); this is where that reason reaches an
+                // operator (#1149). Only a refusal is recorded: Resolved covers an empty terminal array and an
+                // empty object map, which are a provider legitimately sending no roles, and auditing those
+                // would put an entry on ordinary logins and turn the trail into noise.
+                //
+                // The reason code is the outcome's own name, never anything derived from the claim. The claim
+                // value is not passed to the audit at all - it can carry group DNs and e-mail addresses, and a
+                // value that reached a log entry would be there for as long as the log is kept.
+                if (logger is not null && extracted.Outcome != OidcRoleExtractor.Outcome.Resolved && audited.Add(extracted.Outcome))
+                {
+                    SsoAudit.RoleClaimRefused(logger, provider ?? string.Empty, extracted.Outcome.ToString());
+                }
             }
         }
 
