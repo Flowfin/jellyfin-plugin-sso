@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
+using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
@@ -298,11 +299,129 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
     }
 
+    [Fact]
+    public async Task ADiscoveryReadThatFailsOnceIsRetried_AndTheRevocationStillHappens()
+    {
+        // #1183. The IdP has ordered this revocation, so a single dropped or slow discovery response must
+        // not turn it into a no-op. The provider is reachable on the second attempt and the sessions the
+        // IdP ended are ended here too - which is the whole difference between this path and the login
+        // challenge, where the same refusal creates no session and is the safe direction.
+        var discoveryAttempts = 0;
+        var harness = new SsoControllerHarness(
+            ConfiguredWithSession,
+            httpResponder: request =>
+            {
+                if (request.RequestUri!.AbsoluteUri == _fixture.DiscoveryUrl && ++discoveryAttempts == 1)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.GatewayTimeout);
+                }
+
+                return Responder(request);
+            });
+
+        var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        Assert.IsType<OkResult>(result);
+        Assert.Equal(2, discoveryAttempts);
+        await harness.SessionManager.Received(1).RevokeUserTokens(UserA, null);
+        Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+    }
+
+    [Fact]
+    public async Task EveryDiscoveryAttemptFailing_StillRefuses_AndStopsAtTheBudgetedCount()
+    {
+        // The other half of the same change, and the one that keeps it from being a relaxation: when the
+        // budget is exhausted nothing is granted. Still the uniform 400, still no revoke, still the
+        // ProviderUnreachable reason - acting on a logout_token whose signing keys were never obtained
+        // would be a forgery oracle for mass session termination.
+        //
+        // The count is asserted too. A retry with no ceiling is a way to hold an anonymous endpoint open,
+        // and "attempts times timeout" left implicit is how that ceiling goes missing.
+        var discoveryAttempts = 0;
+        var harness = new SsoControllerHarness(
+            ConfiguredWithSession,
+            httpResponder: request =>
+            {
+                if (request.RequestUri!.AbsoluteUri == _fixture.DiscoveryUrl)
+                {
+                    discoveryAttempts++;
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.GatewayTimeout);
+            });
+
+        var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        AssertUniform400(result);
+        Assert.Equal(OidcLoginService.LogoutDiscoveryAttempts, discoveryAttempts);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+        Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+        Assert.Contains(
+            harness.ControllerLog.Entries,
+            e => e.Message.Contains(OidcLogoutTokenValidator.RejectReason.ProviderUnreachable.ToString(), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AMalformedEndpoint_IsNotRetried()
+    {
+        // A configured endpoint that is not a usable URL is a CONFIGURATION fault, not a transient one:
+        // repeating it produces the same answer and spends the budget for nothing. It fails before any
+        // request leaves the process, so the assertion is that NOTHING was fetched - a retry wrapped one
+        // level too high would show here as two attempts at a URL that can never work.
+        var requests = 0;
+        var harness = new SsoControllerHarness(
+            c =>
+            {
+                c.EnableSingleLogout = true;
+                c.OidConfigs["kc"] = new OidConfig
+                {
+                    Enabled = true,
+                    OidEndpoint = "not-a-usable-url",
+                    OidClientId = "jf",
+                    EnableBackChannelLogout = true,
+                };
+                c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
+            },
+            httpResponder: _ =>
+            {
+                requests++;
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+        var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        AssertUniform400(result);
+        Assert.Equal(0, requests);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public void TheLogoutDiscoveryBudgetIsWhatItsPartsAddUpTo()
+    {
+        // The stated worst case has to keep matching what the parts actually produce. Each attempt is
+        // bounded by the reader's own fetch timeout and the pauses sit between them, so raising the attempt
+        // count, the delay or that timeout without re-choosing the budget fails here rather than quietly
+        // widening how long one anonymous, rate-limited request can hold the endpoint.
+        var parts = (OidcDiscoveryReader.FetchTimeout * OidcLoginService.LogoutDiscoveryAttempts)
+            + (OidcLoginService.LogoutDiscoveryRetryDelay * (OidcLoginService.LogoutDiscoveryAttempts - 1));
+
+        Assert.Equal(OidcLoginService.LogoutDiscoveryBudget, parts);
+    }
+
     private static void AssertUniform400(ActionResult result)
     {
         var content = Assert.IsType<ContentResult>(result);
         Assert.Equal(400, content.StatusCode);
         Assert.Equal("Logout token could not be processed", content.Content);
+    }
+
+    // The single-logout feature on, this provider opted in, and one matching session to revoke - the state
+    // the retry rows differ from each other only by their responder against.
+    private void ConfiguredWithSession(PluginConfiguration config)
+    {
+        config.EnableSingleLogout = true;
+        config.OidConfigs["kc"] = Provider(backChannel: true);
+        config.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
     }
 
     private OidConfig Provider(bool backChannel) => new OidConfig

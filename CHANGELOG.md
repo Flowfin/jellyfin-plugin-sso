@@ -70,6 +70,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A single dropped discovery response no longer cancels a sign-out the
+  identity provider ordered (#1183).** On an inbound back-channel logout the
+  plugin reads the provider's discovery document to obtain the keys the logout
+  token is verified against. That read used to be attempted once, and any
+  failure left the sessions the provider had just ended still running, with only
+  a log entry to say so. A transient failure is now retried once, within a
+  worst case of 21 seconds for the whole request, and only on this path: the
+  login redirect and the admin Test-connection button still make exactly one
+  attempt, because a failure there creates no session in the first place.
+  Nothing is accepted that was not accepted before - when both attempts fail the
+  request is still refused, still with the same answer and the same recorded
+  reason, and a logout token whose signing keys were never obtained is still
+  never acted on. A provider endpoint that is not a usable URL is a
+  configuration mistake rather than a transient fault and is not retried.
+
 - **An identity provider can no longer write unbounded log through a failed
   discovery read (#1194).** When a discovery or JWKS fetch failed, the
   fail-closed warning quoted the identity library's error text whole, and that

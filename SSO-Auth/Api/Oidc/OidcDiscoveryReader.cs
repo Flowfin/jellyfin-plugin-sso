@@ -53,13 +53,22 @@ internal static class OidcDiscoveryReader
     /// <summary>Marks an error text this reader cut, so a truncated entry is not read as the whole error.</summary>
     private const string ErrorTruncationMarker = "[truncated]";
 
-    // The discovery/JWKS fetch is bounded so a slow or hanging authorization server cannot stall the
-    // anonymous challenge endpoint. This is now the login-critical discovery (its result is fed to
-    // PrepareLoginAsync), so the bound is tighter than the platform-default ~100s the library's own
-    // in-PrepareLoginAsync discovery ran under before #450 - a deliberate anonymous-endpoint DoS-hardening
-    // trade-off: a pathologically slow IdP (a 10s+ cold start) is refused fail-closed and self-heals on the
-    // next challenge, rather than tying up the endpoint. It keeps the 10s the pre-#450 probe already applied.
-    private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// The bound on ONE discovery/JWKS fetch, so a slow or hanging authorization server cannot stall the
+    /// anonymous challenge endpoint. This is the login-critical discovery (its result is fed to
+    /// PrepareLoginAsync), so the bound is tighter than the platform-default ~100s the library's own
+    /// in-PrepareLoginAsync discovery ran under before #450 - a deliberate anonymous-endpoint DoS-hardening
+    /// trade-off: a pathologically slow IdP (a 10s+ cold start) is refused fail-closed and self-heals on the
+    /// next challenge, rather than tying up the endpoint. It keeps the 10s the pre-#450 probe already
+    /// applied.
+    /// <para>
+    /// Per ATTEMPT rather than per caller. A caller that reads more than once - the back-channel logout
+    /// path, which retries a transient failure rather than leaving an IdP-ordered revocation undone
+    /// (#1183) - multiplies this, and its own total budget is stated as a constant derived from it rather
+    /// than left implicit.
+    /// </para>
+    /// </summary>
+    internal static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Reads the discovery document named by <paramref name="options"/> (its <c>Authority</c> and
