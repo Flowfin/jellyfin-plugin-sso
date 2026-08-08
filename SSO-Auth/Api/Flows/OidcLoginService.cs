@@ -52,6 +52,32 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 /// </remarks>
 internal sealed class OidcLoginService
 {
+    /// <summary>
+    /// How many discovery reads one inbound back-channel logout may make (#1183). Two, not more: the
+    /// transient this exists for is a single dropped or slow response, and every further attempt is spent
+    /// on an ANONYMOUS endpoint the IdP drives, so the cost of a provider that is simply down is what
+    /// bounds the count rather than the chance of eventually succeeding.
+    /// </summary>
+    internal const int LogoutDiscoveryAttempts = 2;
+
+    /// <summary>
+    /// The pause between those attempts. Long enough that a retry is not simply the same failing packet
+    /// resent, short enough to stay inside the budget below.
+    /// </summary>
+    internal static readonly TimeSpan LogoutDiscoveryRetryDelay = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The worst-case wall clock one inbound back-channel logout may spend reading discovery. Stated as a
+    /// constant rather than left as "attempts times timeout" so the ceiling on an anonymous, rate-limited
+    /// endpoint (<c>SsoRateLimitClass.Logout</c>) is a number somebody chose and a test can hold, instead
+    /// of a number that moves whenever one of its factors does.
+    /// <para>
+    /// <c>TheLogoutDiscoveryBudgetIsWhatItsPartsAddUpTo</c> is what keeps this honest: it fails if the
+    /// attempt count, the delay or the per-attempt fetch timeout moves without this being re-chosen.
+    /// </para>
+    /// </summary>
+    internal static readonly TimeSpan LogoutDiscoveryBudget = TimeSpan.FromSeconds(21);
+
     // The in-flight OpenID authorize-state store (cap, lifetime, throttled sweep and capacity signal all
     // live inside; see OidcStateStore). One process-wide instance, like the SAML caches the controller keeps.
     private static readonly OidcStateStore StateStore = new();
@@ -693,7 +719,7 @@ internal sealed class OidcLoginService
         // exactly as before.
         options.HttpClientFactory = _ => SsoHttp.CreateClient(_httpClientFactory, config.AllowPrivateNetworkAddresses);
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+        var discovery = await ReadDiscoveryForLogoutAsync(options, provider, config).ConfigureAwait(false);
         if (!discovery.Available)
         {
             return new OidcLogoutTokenValidator.Result(false, null, null, OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);
@@ -705,6 +731,39 @@ internal sealed class OidcLoginService
         // keys that come with it, so nothing here holds a TokenValidationParameters that could be weakened
         // between building it and verifying against it (#1176).
         return await new OidcLogoutTokenValidator().ValidateAsync(logoutToken, options, DateTime.UtcNow).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads discovery for an inbound back-channel logout, retrying a failed read inside
+    /// <see cref="LogoutDiscoveryBudget"/> before giving up (#1183).
+    /// <para>
+    /// The same refusal means opposite things on the two paths that reach
+    /// <see cref="OidcDiscoveryReader.ReadAsync"/>. On the login challenge, an unreadable discovery
+    /// document means no session is created, which is the safe direction and is why that path keeps its
+    /// single attempt. Here the provider has already ORDERED a revocation, so refusing leaves alive the
+    /// sessions the IdP has ended - one dropped response turns a termination into a no-op, and an attacker
+    /// who can disrupt the server-to-IdP path can produce that on purpose.
+    /// </para>
+    /// <para>
+    /// The retry relaxes no validation. When the budget is exhausted the read is still unavailable, the
+    /// caller still refuses, and the reason code is unchanged; acting on a <c>logout_token</c> whose
+    /// signing keys were never obtained would be a forgery oracle for mass session termination. What the
+    /// retry buys is that a transient failure stops being indistinguishable from a provider that cannot be
+    /// verified at all.
+    /// </para>
+    /// </summary>
+    private async Task<OidcDiscoveryResult> ReadDiscoveryForLogoutAsync(OidcClientOptions options, string provider, OidConfig config)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+            if (discovery.Available || attempt >= LogoutDiscoveryAttempts)
+            {
+                return discovery;
+            }
+
+            await Task.Delay(LogoutDiscoveryRetryDelay).ConfigureAwait(false);
+        }
     }
 
     private OidcClientOptions BuildOidcOptions(OidConfig config, string redirectUri, string scope)

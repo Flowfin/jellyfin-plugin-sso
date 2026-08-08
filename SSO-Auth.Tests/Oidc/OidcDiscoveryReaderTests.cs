@@ -132,6 +132,15 @@ public class OidcDiscoveryReaderTests
 
         Assert.False(result.Available);
         Assert.Null(result.ProviderInformation);
+
+        // ONE attempt, and no more. #1183 gives the back-channel logout path a retry because a refusal
+        // there leaves alive the sessions the IdP has already ended; the login challenge and the admin
+        // Test-connection probe get no such thing, because refusing THERE creates no session and a second
+        // attempt would only widen what one anonymous challenge costs. Both callers are single-attempt by
+        // virtue of this method being single-attempt, so it is asserted here rather than twice downstream:
+        // a retry moved inside ReadAsync would satisfy the logout tests and silently double the anonymous
+        // challenge endpoint's worst case.
+        Assert.Equal(1, http.DiscoveryRequests);
     }
 
     [Fact]
