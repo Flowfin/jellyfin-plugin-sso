@@ -91,7 +91,14 @@ internal static class OidcDiscoveryReader
                     "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
                     provider?.ReplaceLineEndings(string.Empty),
                     discovery.Error?.ReplaceLineEndings(string.Empty));
-                return OidcDiscoveryResult.Unavailable;
+
+                // The screen's own record of what it refused, never a re-reading of the library's error
+                // text, so the reason the admin probe reports (#1064) cannot drift from the reason logged
+                // above. It is Unnamed when the read failed for any reason the screen did not raise - an
+                // unreachable endpoint, a policy rejection, the outbound size bound - and the caller then
+                // reports the generic cause rather than a specific wrong one. Nothing on the login path
+                // branches on it: that path fails closed on `Available` alone.
+                return OidcDiscoveryResult.Refused(screen.Refusal);
             }
 
             // Both facts come from the raw body of THIS response (the same bytes the metadata below is

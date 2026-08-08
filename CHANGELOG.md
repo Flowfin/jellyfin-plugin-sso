@@ -48,6 +48,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **Test connection now says when a provider's document was refused for its
+  shape (#1064).** An OpenID document that a provider serves perfectly well can
+  still be rejected before it is parsed, because it names the same JSON member
+  twice or because its body cannot be inspected as JSON at all. Test connection
+  reported both of those under the one message it had, which asks the
+  administrator to check that the endpoint is reachable, serves
+  `/.well-known/openid-configuration` and is served over HTTPS - all of which
+  were already true, so the diagnostic answered confidently and pointed
+  somewhere else. The two refusals now have their own messages, worded exactly
+  as the matching server-log entry, so an administrator reading the panel and
+  the log sees one wording rather than two. Every other read failure keeps the
+  message it had. Which member repeated stays in the server log and is not
+  echoed into the admin panel.
+
 - **Renamed to "Community SSO for Jellyfin".** The plugin's display name (the
   catalog entry, the dashboard plugin name, and the documentation) is now
   **Community SSO for Jellyfin**. The plugin GUID, the assembly, and the

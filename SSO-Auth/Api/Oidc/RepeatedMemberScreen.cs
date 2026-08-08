@@ -43,6 +43,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     private readonly HttpClient _client;
     private readonly string? _provider;
     private readonly ILogger _logger;
+    private OidcDiscoveryRefusal _refusal;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RepeatedMemberScreen"/> class.
@@ -56,6 +57,18 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         _provider = provider;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Gets the refusal this screen made, or <see cref="OidcDiscoveryRefusal.Unnamed"/> if it refused nothing
+    /// (#1064). The reader hands this to its caller so the admin probe can say WHY a read failed instead of
+    /// naming reachability at a document that arrived fine and was rejected. It is the screen's own record
+    /// rather than a re-reading of the library's error text, so the two cannot drift apart.
+    /// <para>
+    /// A read fetches two documents through one screen, so a refusal on either leg is reported; the last one
+    /// wins, and there is no second leg after a refusal because the first one ends the read.
+    /// </para>
+    /// </summary>
+    internal OidcDiscoveryRefusal Refusal => _refusal;
 
     /// <summary>
     /// Forwards the request and screens a successful response's body before it reaches the library.
@@ -100,7 +113,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             // the day the read is no longer pre-buffered, and
             // ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm goes red on
             // exactly that day, so keeping them stays a checkable claim rather than a decorative one.
-            return Refuse(request, response, UninspectableReason, cause: e);
+            return Refuse(request, response, OidcDiscoveryRefusal.Uninspectable, cause: e);
         }
 
         // The walk still reports WHICH member repeated; this unit deliberately does not log it (#1068).
@@ -110,7 +123,11 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             return response;
         }
 
-        return Refuse(request, response, verdict == StrictJson.Verdict.Repeated ? RefusalReason : UninspectableReason, cause: null);
+        return Refuse(
+            request,
+            response,
+            verdict == StrictJson.Verdict.Repeated ? OidcDiscoveryRefusal.RepeatedMember : OidcDiscoveryRefusal.Uninspectable,
+            cause: null);
     }
 
     // Records why the response is being withheld and returns the constant-reason refusal in its place.
@@ -126,8 +143,13 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     // Only the exception TYPE is logged, never its message: the message quotes the provider's own
     // Content-Type, so it is one more untrusted string, while the type name is runtime-authored and
     // distinguishes the decode failures an operator has to tell apart.
-    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, string reason, Exception? cause)
+    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, OidcDiscoveryRefusal refusal, Exception? cause)
     {
+        // One mapping from the refusal to the words an operator reads, so the log entry and the admin probe
+        // that reports the same refusal (#1064) cannot be reworded apart.
+        var reason = refusal == OidcDiscoveryRefusal.RepeatedMember ? RefusalReason : UninspectableReason;
+        _refusal = refusal;
+
         _logger.LogWarning(
             "Refused the OpenID {Document} for provider {Provider}: {Reason}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
             DocumentKind(request),
