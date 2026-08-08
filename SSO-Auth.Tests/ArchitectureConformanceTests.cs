@@ -3062,22 +3062,13 @@ public class ArchitectureConformanceTests
 
             var source = File.ReadAllText(src);
 
-            // Support types (no [Fact]/[Theory]) are not scheduled by the runner, so they cannot race
-            // anything; the harness itself opens six doors and would otherwise be a permanent offender.
-            if (!SourceCallsInCode(source, "[Fact]") && !SourceCallsInCode(source, "[Theory]"))
-            {
-                continue;
-            }
-
-            var serialized = SourceCallsInCode(source, "[Collection(\"SSOController\")]");
-            foreach (var door in doors.Where(door => SourceCallsInCode(source, door)))
+            foreach (var door in DoorsNamedByTestBearingSource(source, doors))
             {
                 users[door].Add(Path.GetFileName(src));
-                if (!serialized)
-                {
-                    offenders.Add(Path.GetFileName(src) + " opens " + door);
-                }
             }
+
+            offenders.AddRange(DoorsOpenedUnserialized(source, doors)
+                .Select(door => Path.GetFileName(src) + " opens " + door));
         }
 
         Assert.True(
@@ -3107,6 +3098,74 @@ public class ArchitectureConformanceTests
                 $"'{opener}' no longer calls '{door}', so the declared indirection is gone; the door needs a test user of its own or the hook needs removing.");
         }
     }
+
+    /// <summary>
+    /// The per-file decision of the rule above, fed synthetic source: one must-catch fixture and three
+    /// must-not-catch twins, each a single edit away from it and each falsifying a DIFFERENT conjunct of
+    /// the decision. Without the pair the rule is only ever observed passing on a clean tree, which is
+    /// indistinguishable from a scan that has gone blind (#1173).
+    /// <para>
+    /// Which twin moves under which mutation is not symmetric, and it follows from what the decision does.
+    /// It reports a file that is test-bearing, names a door, and is NOT serialized, so deleting the
+    /// collection check can only make it report MORE files: the offender was reported before that deletion
+    /// and still is, while the SERIALIZED twin goes from silent to reported. A mutation aimed at the
+    /// offender row would therefore change nothing observable and read as if the check had been proved.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void NonParallelRule_PerFileDecision_ReportsTheOffenderAndSparesEachTwin()
+    {
+        var doors = ProcessWideDoors();
+        const string Door = "OidcLoginService.ResetOidStateForTests";
+
+        // Sentinel: these fixtures say nothing if that name is no longer a derived door. The pair would go
+        // quiet for a reason unrelated to the conjuncts it exists to falsify, which is the failure a
+        // fixture-fed rule is most able to hide.
+        Assert.Contains(Door, doors, StringComparer.Ordinal);
+
+        static string Fixture(string attributes, string body) => string.Join(
+            "\n",
+            attributes,
+            "public sealed class DoorProbe",
+            "{",
+            "    public void Reset()",
+            "    {",
+            body,
+            "    }",
+            "}");
+
+        var call = "        " + Door + "();";
+
+        // Must-catch: test-bearing, names the door in code, no serializing attribute.
+        Assert.Equal(new[] { Door }, DoorsOpenedUnserialized(Fixture("[Fact]", call), doors));
+
+        // Twin 1, falsifying the code-line reader: the door named only in a comment. A whole-file text
+        // search reports this file, and removing a call while documenting the removal in a comment that
+        // names it is the edit that reads as diligence.
+        Assert.Empty(DoorsOpenedUnserialized(Fixture("[Fact]", "        // " + Door + "();"), doors));
+
+        // Twin 2, falsifying the collection check: the serializing attribute present, nothing else changed.
+        Assert.Empty(DoorsOpenedUnserialized(Fixture("[Collection(\"SSOController\")]\n[Fact]", call), doors));
+
+        // Twin 3, falsifying the test-bearing check: no [Fact]/[Theory] at all. This is what keeps the
+        // harness support type off the offender list although it opens six doors.
+        Assert.Empty(DoorsOpenedUnserialized(Fixture(string.Empty, call), doors));
+    }
+
+    // Every derived door a source names in CODE, or nothing at all when the source declares no test. A
+    // support type is never scheduled by the runner, so it cannot race anything; the harness itself opens
+    // six doors and would otherwise be a permanent offender.
+    private static IReadOnlyList<string> DoorsNamedByTestBearingSource(string source, IEnumerable<string> doors) =>
+        SourceCallsInCode(source, "[Fact]") || SourceCallsInCode(source, "[Theory]")
+            ? doors.Where(door => SourceCallsInCode(source, door)).ToList()
+            : Array.Empty<string>();
+
+    // The rule's whole per-file decision: the doors a source opens without carrying the serializing
+    // collection attribute. Takes source rather than a path so the pair above can be a string (#1173).
+    private static IReadOnlyList<string> DoorsOpenedUnserialized(string source, IEnumerable<string> doors) =>
+        SourceCallsInCode(source, "[Collection(\"SSOController\")]")
+            ? Array.Empty<string>()
+            : DoorsNamedByTestBearingSource(source, doors);
 
     // Every process-wide door a test can reach: the test-only hooks the production tree declares, keyed
     // Type.Method exactly as a call site spells them, plus the harness construction. Derived rather than
