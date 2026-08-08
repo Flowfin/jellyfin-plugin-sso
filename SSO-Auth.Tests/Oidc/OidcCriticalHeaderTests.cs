@@ -29,6 +29,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// logout endpoint does not is the drift <see cref="OidcSignatureKeys"/> exists to prevent.
 /// </para>
 /// </summary>
+[Collection("SSOController")]
 public sealed class OidcCriticalHeaderTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";
