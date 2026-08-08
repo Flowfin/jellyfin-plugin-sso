@@ -35,6 +35,24 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// </summary>
 internal static class OidcDiscoveryReader
 {
+    /// <summary>
+    /// How much of the library's error text the fail-closed warning may carry (#1194). The text quotes the
+    /// URL the fetch was connecting to, and on the JWKS leg that URL is PROVIDER-AUTHORED - the discovery
+    /// document named it in <c>jwks_uri</c>. Measured: a document advertising a 200 KB <c>jwks_uri</c> put a
+    /// 205,042-character entry in the log, driven by one anonymous challenge, and the response cap
+    /// (<see cref="Net.ProviderResponseSizeLimit.MaxProviderResponseBytes"/>, 1 MB) is the only thing that
+    /// bounded it at all.
+    ///
+    /// 512 is chosen to sit well above every error text a working deployment produces - the longest is
+    /// "Error connecting to " plus an endpoint URL plus the transport's reason - and far below the point
+    /// where repeating the request fills a disk. An operator who needs the whole string has the exception
+    /// itself on the catch-all arm below.
+    /// </summary>
+    private const int MaxLoggedProviderErrorChars = 512;
+
+    /// <summary>Marks an error text this reader cut, so a truncated entry is not read as the whole error.</summary>
+    private const string ErrorTruncationMarker = "[truncated]";
+
     // The discovery/JWKS fetch is bounded so a slow or hanging authorization server cannot stall the
     // anonymous challenge endpoint. This is now the login-critical discovery (its result is fed to
     // PrepareLoginAsync), so the bound is tighter than the platform-default ~100s the library's own
@@ -87,17 +105,27 @@ internal static class OidcDiscoveryReader
                 // The provider name and the library error are stripped of line endings inline at the log
                 // call so an admin-supplied value or a reflected server string cannot forge or split the
                 // entry (the log-forging sanitizer never crosses a helper boundary).
+                //
+                // The error is BOUNDED here too, for the same reason it is stripped here: it is not the
+                // plugin's string. It quotes the URL the library was connecting to, which on the JWKS leg
+                // the provider chose, so an unbounded entry lets one anonymous challenge write as much log
+                // as the response cap allows. The truncation is inline for the same reason the strip is -
+                // moving either into a helper takes the sanitizer out of the call the analyzer reads.
+                var error = discovery.Error ?? string.Empty;
                 logger.LogWarning(
                     "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
                     provider?.ReplaceLineEndings(string.Empty),
-                    discovery.Error?.ReplaceLineEndings(string.Empty));
+                    (error.Length > MaxLoggedProviderErrorChars
+                        ? string.Concat(error.AsSpan(0, MaxLoggedProviderErrorChars), ErrorTruncationMarker)
+                        : error).ReplaceLineEndings(string.Empty));
 
                 // The screen's own record of what it refused, never a re-reading of the library's error
                 // text, so the reason the admin probe reports (#1064) cannot drift from the reason logged
                 // above. It is Unnamed when the read failed for any reason the screen did not raise - an
                 // unreachable endpoint, a policy rejection, the outbound size bound - and the caller then
                 // reports the generic cause rather than a specific wrong one. Nothing on the login path
-                // branches on it: that path fails closed on `Available` alone.
+                // branches on it: that path fails closed on `Available` alone. The bound above is on the
+                // TEXT this entry carries, and none of it travels on that record: the reason is an enum.
                 return OidcDiscoveryResult.Refused(screen.Refusal);
             }
 
