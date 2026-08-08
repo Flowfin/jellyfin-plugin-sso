@@ -200,6 +200,49 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     }
 
     [Fact]
+    public async Task RepeatedAudience_CollapsesToTheLastOccurrence()
+    {
+        // #1193: a payload naming "aud" twice as a scalar does not present two audiences to the token
+        // library - the last occurrence wins and Audiences carries exactly one value. Because
+        // CheckAudienceRestriction fires on Audiences.Count() > 1, the OIDC Core 3.1.3.7 rules 3-4
+        // rejection never engages on a token minted for two parties in that form. This pin records the
+        // behaviour rather than guarding it (whether a guard is warranted is decided elsewhere), so a
+        // change in the library surfaces here instead of at a login.
+        using var raw = new OidcTokenFixture(Issuer, ClientId);
+        var options = Options(jwks: raw.Jwks());
+        var now = DateTimeOffset.UtcNow;
+        var times = $"\"iat\":{now.AddMinutes(-15).ToUnixTimeSeconds()},"
+            + $"\"nbf\":{now.AddMinutes(-15).ToUnixTimeSeconds()},"
+            + $"\"exp\":{now.AddMinutes(5).ToUnixTimeSeconds()}";
+
+        var repeated = raw.RawPayloadIdToken(
+            $"{{\"iss\":\"{Issuer}\",\"aud\":\"other-api\",\"aud\":\"{ClientId}\",\"sub\":\"user-1\",{times}}}");
+
+        // The observable, with the surviving value named: asserting only the count would stay green if a
+        // future reader kept "other-api" instead, and first-versus-last is the difference between a token
+        // this client accepts and one it rejects outright.
+        Assert.Equal(ClientId, Assert.Single(new JsonWebToken(repeated).Audiences));
+
+        // The consequence: two audiences in the bytes, no azp, and the token is accepted.
+        var result = await _validator.ValidateAsync(repeated, options, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsError, result.Error);
+
+        // The contrast beside it, one edit away: the same two audiences expressed as a JSON array still
+        // reach the rule as two, and are rejected. The pair is what shows the rule is live and that only
+        // the repeated-member form evades it.
+        var array = raw.RawPayloadIdToken(
+            $"{{\"iss\":\"{Issuer}\",\"aud\":[\"other-api\",\"{ClientId}\"],\"sub\":\"user-1\",{times}}}");
+
+        Assert.Equal(2, new JsonWebToken(array).Audiences.Count());
+
+        var arrayResult = await _validator.ValidateAsync(array, options, TestContext.Current.CancellationToken);
+
+        Assert.True(arrayResult.IsError);
+        Assert.Equal("Identity token validation failed: multiple audiences without azp", arrayResult.Error);
+    }
+
+    [Fact]
     public async Task NullEntryInJwks_IsSkipped_GoodKeyStillValidates()
     {
         // A JWKS carrying a literal null entry must not 500 the login (skip-on-malformed contract).
