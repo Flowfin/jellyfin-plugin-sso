@@ -35,6 +35,9 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     private static readonly TimeSpan Skew = TimeSpan.FromMinutes(5);
 
     private readonly RSA _rsa = RSA.Create(2048);
+    // A SECOND key, so a set can carry an entry whose material is not the one that signed the token. Without
+    // it, every mixed-set row would verify through whichever entry survived and prove nothing about which.
+    private readonly RSA _other = RSA.Create(2048);
     private readonly OidcIdTokenValidator _idTokenValidator = new();
     private readonly OidcLogoutTokenValidator _logoutValidator = new();
     private readonly DateTime _now = DateTime.UtcNow;
@@ -75,6 +78,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     public void Dispose()
     {
         _rsa.Dispose();
+        _other.Dispose();
         OidcLogoutTokenValidator.ResetReplaysForTests();
     }
 
@@ -149,7 +153,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     {
         var token = CreateToken(keyId: keyId, claims: LogoutClaims());
 
-        var result = await _logoutValidator.ValidateAsync(token, Parameters(), Skew, _now);
+        var result = await _logoutValidator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.UnacceptableKeyId, result.ReasonCode);
@@ -176,10 +180,139 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
     {
         var token = CreateToken(keyId: keyId, claims: LogoutClaims());
 
-        var result = await _logoutValidator.ValidateAsync(token, Parameters(keyId), Skew, _now);
+        var result = await _logoutValidator.ValidateAsync(token, Options(keyId), _now);
 
         Assert.True(result.IsValid, result.ReasonCode);
         Assert.Equal("user-1", result.Subject);
+    }
+
+    /// <summary>
+    /// The other half of the same question (#1029): a <c>kid</c> the PROVIDER advertises in its JWKS,
+    /// outside the same allowlist. These are the shapes that turn up in the field - a standard-base64
+    /// thumbprint rather than a base64url one is the common case, because the two alphabets differ in
+    /// exactly the characters the allowlist excludes.
+    /// </summary>
+    public static TheoryData<string> OutOfAllowlistAdvertisedKeyIds() => new()
+    {
+        "ab+cd/ef=",              // standard base64 rather than base64url: + / =
+        "signing key 2026",       // spaces
+        "kid:2026:rotate",        // colons, the shape of a namespaced identifier
+    };
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public void AdvertisedKeyOutsideTheAllowlist_IsKept(string keyId)
+    {
+        // THE DECISION, pinned: the allowlist screens the needle, never the haystack. An advertised key is
+        // skipped only when it is unusable AS A KEY - not a signing key, under the RSA floor, un-decodable
+        // material - and the spelling of its kid is none of those. Skipping it would refuse a
+        // well-behaved provider over an alphabet choice and take its signature verification down with it,
+        // which is a real outage traded for nothing: the header screen already stops a hostile kid from
+        // reaching the lookup, and this value is what the lookup is searched THROUGH.
+        Assert.False(OidcSignatureKeys.IsAcceptableKeyId(keyId), "row is not actually outside the allowlist");
+
+        var ephemeral = new List<IDisposable>();
+        try
+        {
+            var keys = OidcSignatureKeys.Convert(new Duende.IdentityModel.Jwk.JsonWebKeySet(Jwks(keyId)), ephemeral);
+
+            var key = Assert.Single(keys);
+            Assert.Equal(keyId, key.KeyId);
+        }
+        finally
+        {
+            foreach (var disposable in ephemeral)
+            {
+                disposable.Dispose();
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task TokenWithoutAKid_StillValidatesAgainstSuchAKey(string keyId)
+    {
+        // "Kept" is not the same as "usable", so the decision is pinned end to end as well: the provider
+        // advertises only this key, the token names no key, and the signature still verifies. Without this
+        // row, a change that kept the key but made it unreachable would leave the row above green.
+        var token = CreateTokenWithoutKid();
+        Assert.True(string.IsNullOrEmpty(new JsonWebToken(token).Kid), "the token was supposed to carry no kid");
+
+        var result = await _idTokenValidator.ValidateAsync(token, Options(keyId), TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsError, result.Error);
+        Assert.Equal("RS256", result.SignatureAlgorithm);
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task TokenNamingSuchAKeyByKid_IsStillRefused(string keyId)
+    {
+        // And the cost of the decision, stated rather than left to be discovered: such a key can be reached
+        // by trying every advertised key, but never BY NAME, because naming it means putting the same
+        // characters in the token header where the screen refuses them. A provider that advertises one of
+        // these AND mints tokens carrying it therefore does not log anyone in - which is a configuration
+        // this repository cannot verify against a live IdP, so it is recorded here rather than claimed to
+        // be impossible.
+        var result = await _idTokenValidator.ValidateAsync(
+            CreateToken(keyId: keyId), Options(keyId), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Contains("unacceptable kid", result.Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task OneOddKeyInTheSet_DoesNotTakeDownTheGoodOne(string oddKeyId)
+    {
+        // The availability half of the decision, and the reason the answer is skip-nothing rather than
+        // refuse-the-set (#1168). The provider advertises two keys: one whose kid is outside the allowlist,
+        // one ordinary. The token is signed by the ordinary key and names it. If the odd entry were refused
+        // AS A SET, this login would be gone; if it were skipped, this login would survive - and the rows
+        // above cannot tell those two apart, because they use a set of one.
+        //
+        // The two entries carry DIFFERENT key material, so the signature can only verify through the good
+        // entry. A mixed set built from one modulus would pass even if the good entry had been dropped.
+        var result = await _idTokenValidator.ValidateAsync(
+            CreateToken(), OptionsFor(MixedJwks(oddKeyId)), TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsError, result.Error);
+        Assert.Equal("RS256", result.SignatureAlgorithm);
+    }
+
+    [Theory]
+    [MemberData(nameof(OutOfAllowlistAdvertisedKeyIds))]
+    public async Task ASetWhoseEveryKeyIsOdd_AndNoneIsTheSigner_FailsClosedWithoutThrowing(string oddKeyId)
+    {
+        // The other end of the same contract: keeping an odd-kid key is not a way into anything. Every
+        // advertised key here is outside the allowlist AND none of them is the key that signed the token,
+        // so verification has nothing to succeed with. The requirement is that it FAILS - fail-closed,
+        // through the ordinary no-usable-key path - rather than throwing, which on the callback becomes a
+        // 500 on an anonymous endpoint instead of a rejection.
+        var jwks = "{\"keys\":[" + KeyEntry(oddKeyId, _other) + "," + KeyEntry(oddKeyId + "-2", _other) + "]}";
+
+        var result = await _idTokenValidator.ValidateAsync(
+            CreateToken(), OptionsFor(jwks), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.False(string.IsNullOrEmpty(result.Error));
+    }
+
+    [Fact]
+    public async Task AnAdvertisedKeyWithNoKidAtAll_KeepsWorking()
+    {
+        // A single-key set that names no kid is the ordinary small-provider shape, and it must be untouched
+        // by anything the allowlist does. Both directions: the token names no key, and the token names one
+        // the set does not carry - in each case the only usable key is the one advertised without a name.
+        var jwks = "{\"keys\":[{\"kty\":\"RSA\",\"use\":\"sig\"," + Material(_rsa) + "}]}";
+
+        var withoutKid = await _idTokenValidator.ValidateAsync(
+            CreateTokenWithoutKid(), OptionsFor(jwks), TestContext.Current.CancellationToken);
+        Assert.False(withoutKid.IsError, withoutKid.Error);
+
+        var withKid = await _idTokenValidator.ValidateAsync(
+            CreateToken(), OptionsFor(jwks), TestContext.Current.CancellationToken);
+        Assert.False(withKid.IsError, withKid.Error);
     }
 
     [Fact]
@@ -191,7 +324,7 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
         Assert.False(idResult.IsError, idResult.Error);
 
         var logoutResult = await _logoutValidator.ValidateAsync(
-            CreateToken(claims: LogoutClaims()), Parameters(), Skew, _now);
+            CreateToken(claims: LogoutClaims()), Options(), _now);
         Assert.True(logoutResult.IsValid, logoutResult.ReasonCode);
     }
 
@@ -204,24 +337,51 @@ public sealed class OidcSignatureKeysKidTests : IDisposable
         ["events"] = new Dictionary<string, object> { [LogoutEvent] = new Dictionary<string, object>() },
     };
 
-    private OidcClientOptions Options(string keyId = KeyId) => new()
+    private OidcClientOptions Options(string keyId = KeyId) => OptionsFor(Jwks(keyId));
+
+    private OidcClientOptions OptionsFor(string jwks) => new()
     {
         ClientId = ClientId,
+        ClockSkew = Skew,
         ProviderInformation = new ProviderInformation
         {
             IssuerName = Issuer,
-            KeySet = new Duende.IdentityModel.Jwk.JsonWebKeySet(Jwks(keyId)),
+            KeySet = new Duende.IdentityModel.Jwk.JsonWebKeySet(jwks),
         },
     };
 
-    private TokenValidationParameters Parameters(string keyId = KeyId) =>
-        OidcSignatureKeys.BuildValidationParameters(Options(keyId), new List<IDisposable>(), requireExpiration: false);
+    private string Jwks(string keyId) => "{\"keys\":[" + KeyEntry(keyId, _rsa) + "]}";
 
-    private string Jwks(string keyId)
+    // Two advertised keys: the odd-kid one FIRST, so a walk that aborted on it would never reach the good
+    // one, and the good one second carrying the material that actually signed the token.
+    private string MixedJwks(string oddKeyId) =>
+        "{\"keys\":[" + KeyEntry(oddKeyId, _other) + "," + KeyEntry(KeyId, _rsa) + "]}";
+
+    private static string KeyEntry(string keyId, RSA rsa) =>
+        "{\"kty\":\"RSA\",\"use\":\"sig\",\"kid\":\"" + keyId + "\"," + Material(rsa) + "}";
+
+    private static string Material(RSA rsa)
     {
-        var p = _rsa.ExportParameters(false);
-        return "{\"keys\":[{\"kty\":\"RSA\",\"use\":\"sig\",\"kid\":\"" + keyId + "\","
-            + "\"n\":\"" + Base64UrlEncoder.Encode(p.Modulus) + "\",\"e\":\"" + Base64UrlEncoder.Encode(p.Exponent) + "\"}]}";
+        var p = rsa.ExportParameters(false);
+        return "\"n\":\"" + Base64UrlEncoder.Encode(p.Modulus) + "\",\"e\":\"" + Base64UrlEncoder.Encode(p.Exponent) + "\"";
+    }
+
+    // A token signed by the same RSA key but carrying no kid header, so key resolution has to fall back to
+    // trying every advertised key. The signing credentials get no KeyId, which is what leaves the header
+    // member out; the caller asserts the absence rather than trusting it.
+    private string CreateTokenWithoutKid()
+    {
+        var now = DateTime.UtcNow;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = ClientId,
+            IssuedAt = now - TimeSpan.FromMinutes(1),
+            NotBefore = now - TimeSpan.FromMinutes(1),
+            Expires = now + TimeSpan.FromMinutes(5),
+            Claims = new Dictionary<string, object> { ["sub"] = "user-1" },
+            SigningCredentials = new SigningCredentials(new RsaSecurityKey(_rsa), SecurityAlgorithms.RsaSha256),
+        });
     }
 
     private string CreateToken(string keyId = KeyId, IDictionary<string, object>? claims = null)

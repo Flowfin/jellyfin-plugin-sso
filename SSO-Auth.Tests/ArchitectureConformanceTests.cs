@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jellyfin.Plugin.SSO_Auth.Api.Routing;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
@@ -2167,11 +2168,31 @@ public class ArchitectureConformanceTests
         // same compile-time-anchored source root the source-scan rules use; the plugin build output lives under
         // it in CI (which builds and tests the one checkout).
         var depsPath = Path.Combine(RepoRoot(), "SSO-Auth", "bin", configuration, targetFramework, "SSO-Auth.deps.json");
-        Assert.True(
-            File.Exists(depsPath),
-            $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed - build SSO-Auth for this target before the test runs (#608).");
 
-        var publishClosure = PublishClosureAssemblies(depsPath);
+        // #1072. That input is the build output of ANOTHER project, and any build of the plugin rewrites it, so
+        // the row's answer depended on what else was running. Both directions were open, and only one of them
+        // was visible: a read that lands mid-write sees a partial or momentarily absent file and reds a correct
+        // tree, and a read that lands on the PREVIOUS build's file compares the ship-list against a closure the
+        // dependency graph has already moved past, and passes. The two checks below close one direction each.
+        // A retry alone would have closed only the first and left the silent one, which is why there is not one.
+        var settledDeps = ReadSettledText(() => SampleArtifact(depsPath), () => Thread.Sleep(ArtifactSettlePauseMs), ArtifactSettleAttempts);
+        Assert.True(
+            settledDeps is not null,
+            File.Exists(depsPath)
+                ? $"SSO-Auth.deps.json at {depsPath} never held still across {ArtifactSettleAttempts} samples, so a build was writing it while this row read it (#1072). The comparison was not made - re-run the suite without a concurrent build of SSO-Auth."
+                : $"SSO-Auth.deps.json for {configuration}/{targetFramework} was not found at {depsPath}; the plugin build output carrying the publish closure is missing, so the ship-list cannot be computed - build SSO-Auth for this target before the test runs (#608).");
+
+        // The closure's content is a function of the declared dependency set and nothing else, and that set
+        // reaches the build through obj/project.assets.json. An artifact older than the restore graph therefore
+        // predates the dependencies it claims to describe, whatever its bytes parse to. MSBuild takes the assets
+        // file as an input of the target that writes deps.json, so any build refreshes the artifact past it, and
+        // this can only be red when no build has run since the graph moved.
+        var restoreGraphPath = Path.Combine(RepoRoot(), "SSO-Auth", "obj", "project.assets.json");
+        Assert.False(
+            ArtifactPredatesRestoreGraph(depsPath, restoreGraphPath),
+            $"SSO-Auth.deps.json at {depsPath} is older than the restore graph at {restoreGraphPath}, so the publish closure it carries predates the current dependency declaration and the ship-list would be compared against a set that no longer holds (#1072). Build SSO-Auth for {configuration}/{targetFramework} before the test runs.");
+
+        var publishClosure = PublishClosureAssemblies(settledDeps!);
 
         // Liveness against a vacuous closure: the plugin's own assembly must be in it, proving the deps.json parse
         // found the real runtime set rather than an empty one that would make the set-equality below trivially true.
@@ -2205,6 +2226,137 @@ public class ArchitectureConformanceTests
             + "Reconcile the build yaml with `dotnet publish -f " + targetFramework + "`, or extend HostProvidedAssemblyPrefixes if a genuinely new host-provided family appeared.");
     }
 
+    [Fact]
+    public void SettledRead_ReturnsTheTextWhenNoWriterMovedAcrossTwoSamples()
+    {
+        // The ordinary case, and the positive control for every refusal below: a file nobody is writing is read
+        // on the first pair of samples, so the guard costs the row nothing when it is not needed (#1072).
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var settled = SamplerOf(("{\"targets\":{}}", written, 14), ("{\"targets\":{}}", written, 14));
+
+        Assert.Equal("{\"targets\":{}}", ReadSettledText(settled, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_ReturnsTheTextOnceTheWriterStopsInsideTheBudget()
+    {
+        // A build that finishes while the row is sampling. The whole point of sampling more than twice is that
+        // this case ends in the comparison being made, not in a red the operator has to interpret.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var settles = SamplerOf(
+            ("{\"targ", written, 6),
+            ("{\"targets\":{}}", written.AddSeconds(1), 14),
+            ("{\"targets\":{}}", written.AddSeconds(1), 14));
+
+        Assert.Equal("{\"targets\":{}}", ReadSettledText(settles, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesWhileAWriterKeepsMoving()
+    {
+        // The failure the issue reproduces with two concurrent builds. It has to end as null, and the caller
+        // has to say the comparison was NOT MADE - a row that quietly used the last sample would be reading
+        // whatever byte count the writer happened to have flushed.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var moves = 0;
+        (string Text, DateTime WrittenUtc, long Length)? NeverSettles() =>
+            ("{\"targets\":{}}", written.AddSeconds(moves), 14 + moves++);
+
+        Assert.Null(ReadSettledText(NeverSettles, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesAnArtifactNoSampleEverSaw()
+    {
+        // Two absences in a row are equal to each other, so an unguarded sample comparison would call a missing
+        // file settled and hand the parser an empty string. Nothing was read, so nothing is returned.
+        Assert.Null(ReadSettledText(() => null, NoPause, ArtifactSettleAttempts));
+    }
+
+    [Fact]
+    public void SettledRead_RefusesTwoDifferentBodiesUnderOneStampAndLength()
+    {
+        // The near-miss worth spending the fixture on: a rewrite that lands inside the filesystem's timestamp
+        // granularity and happens to keep the length. Comparing only the stat would accept the pair. The bytes
+        // are part of the sample for this reason and no other. The budget is two here on purpose: the fixture
+        // is about what one PAIR of samples decides, and a longer run would legitimately settle on the second
+        // body once the writer stopped.
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var indistinguishableStats = SamplerOf(
+            ("{\"targets\":{\"a\":{}}}", written, 20),
+            ("{\"targets\":{\"b\":{}}}", written, 20));
+
+        Assert.Null(ReadSettledText(indistinguishableStats, NoPause, 2));
+    }
+
+    [Theory]
+    [InlineData(5, false)] // written after the graph, which is what a build leaves behind
+    [InlineData(0, false)] // the same second: equal is not older, and a rebuild may not move a coarse stamp
+    [InlineData(-5, true)] // the stale read the row used to pass on
+    public void ArtifactPredatesRestoreGraph_JudgesByTheGraphsTimestamp(int artifactOffsetSeconds, bool expected)
+    {
+        // Fixtures for the staleness predicate itself. This is the direction that produced no red at all, so
+        // the assertion in the row above is the only thing standing between a moved dependency graph and a
+        // ship-list compared against a closure that no longer describes it (#1072).
+        var root = Path.Combine(Path.GetTempPath(), "sso-deps-stale-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var artifact = Path.Combine(root, "SSO-Auth.deps.json");
+            var graph = Path.Combine(root, "project.assets.json");
+            File.WriteAllText(artifact, "{}");
+            File.WriteAllText(graph, "{}");
+
+            var graphWrittenUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(graph, graphWrittenUtc);
+            File.SetLastWriteTimeUtc(artifact, graphWrittenUtc.AddSeconds(artifactOffsetSeconds));
+
+            Assert.Equal(expected, ArtifactPredatesRestoreGraph(artifact, graph));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArtifactPredatesRestoreGraph_AnswersFalseWhenEitherFileIsAbsent()
+    {
+        // A checkout that has not restored, and a target that has not been built, are both states this
+        // predicate cannot speak about. It says false rather than inventing a staleness verdict out of a
+        // missing file; the absent artifact is reported by the settled read, which is where that belongs.
+        var root = Path.Combine(Path.GetTempPath(), "sso-deps-absent-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var artifact = Path.Combine(root, "SSO-Auth.deps.json");
+            var graph = Path.Combine(root, "project.assets.json");
+            File.WriteAllText(artifact, "{}");
+
+            Assert.False(ArtifactPredatesRestoreGraph(artifact, graph));
+            Assert.False(ArtifactPredatesRestoreGraph(graph, artifact));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // The fixtures below drive the settle loop through every branch, so they must not also spend the real
+    // caller's wall time doing it: thirty seconds of sleeping would be paid on every green run of the suite.
+    private static void NoPause()
+    {
+    }
+
+    // Replays a fixed sequence of samples and then holds on the last one, so a fixture states exactly what the
+    // filesystem did and nothing about how often the reader looked.
+    private static Func<(string Text, DateTime WrittenUtc, long Length)?> SamplerOf(
+        params (string Text, DateTime WrittenUtc, long Length)?[] samples)
+    {
+        var taken = 0;
+        return () => samples[Math.Min(taken++, samples.Length - 1)];
+    }
+
     // The assembly-name families the Jellyfin host provides at runtime and therefore must NOT ship in the plugin
     // zip, even though `dotnet publish` copies them into the plugin's own publish output (they are not part of the
     // .NET/ASP.NET Core shared framework, so publish does not strip them the way it strips the framework). Matched
@@ -2235,9 +2387,12 @@ public class ArchitectureConformanceTests
     // `dotnet publish` copies for that framework (#608). A framework-dependent build has one target (the runtime
     // target); read every library's `runtime` map and take each entry's leaf filename, because deps.json keys
     // runtime items by their in-package path (e.g. "lib/net8.0/Duende.IdentityModel.dll"), not the bare name.
-    private static HashSet<string> PublishClosureAssemblies(string depsJsonPath)
+    // Takes the TEXT rather than the path, because whether that text was read off a file nobody was writing is
+    // a separate question with its own answer (ReadSettledText, #1072) and the parse must not re-open the file
+    // and get a different one.
+    private static HashSet<string> PublishClosureAssemblies(string depsJson)
     {
-        using var doc = JsonDocument.Parse(File.ReadAllText(depsJsonPath));
+        using var doc = JsonDocument.Parse(depsJson);
         var targets = doc.RootElement.GetProperty("targets");
 
         var result = new HashSet<string>(StringComparer.Ordinal);
@@ -2263,6 +2418,74 @@ public class ArchitectureConformanceTests
 
         return result;
     }
+
+    // The budget for waiting out a build that is writing the artifact this row reads. A tree nobody is
+    // building settles on the first pair of samples and pays none of it, because the pause is taken only after
+    // two samples disagreed. What the budget has to outlast is one full rebuild of the plugin project, which
+    // deletes the artifact and writes it back seconds later, so it is measured in wall time rather than in
+    // reads: 150 samples 200ms apart is thirty seconds, comfortably past a --no-incremental build of SSO-Auth
+    // on this machine (measured at 4 to 20 seconds) and still bounded, so a genuinely stuck run ends in a
+    // failure that says what happened instead of hanging (#1072).
+    private const int ArtifactSettleAttempts = 150;
+    private const int ArtifactSettlePauseMs = 200;
+
+    // A build artifact, together with the identity of the write that produced the bytes: the stat is taken
+    // AFTER the read, so a sample that agrees with its predecessor is one no writer moved across. Absent or
+    // exclusively locked reads back as no sample at all rather than as an empty file, which is the shape a
+    // concurrent build passes through and must not be mistaken for a real closure (#1072).
+    private static (string Text, DateTime WrittenUtc, long Length)? SampleArtifact(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var text = File.ReadAllText(path);
+            var info = new FileInfo(path);
+            return info.Exists ? (text, info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    // The text of an artifact nobody was writing, or null when no two consecutive samples agreed inside the
+    // budget. Sampling twice is what separates "the file says this" from "the file said this at the instant I
+    // looked": a partial read differs from the settled one in its bytes, and a completed rewrite differs in its
+    // stamp or length, so both are caught by comparing whole samples rather than any one field. The pause is a
+    // parameter so the fixtures below can exercise every branch without spending the wall time the real caller
+    // needs, and it is taken only between disagreeing samples.
+    private static string? ReadSettledText(
+        Func<(string Text, DateTime WrittenUtc, long Length)?> sample,
+        Action pause,
+        int attempts)
+    {
+        var previous = sample();
+        for (var taken = 1; taken < attempts; taken++)
+        {
+            var current = sample();
+            if (previous is { } settled && current == previous)
+            {
+                return settled.Text;
+            }
+
+            previous = current;
+            pause();
+        }
+
+        return null;
+    }
+
+    // Whether a derived build artifact predates the restore graph it is derived from. An absent graph answers
+    // false: the question cannot be decided, and inventing a red from a missing file would make the row fail on
+    // a checkout that has not restored yet rather than on the condition it is about (#1072).
+    private static bool ArtifactPredatesRestoreGraph(string artifactPath, string restoreGraphPath) =>
+        File.Exists(artifactPath)
+        && File.Exists(restoreGraphPath)
+        && File.GetLastWriteTimeUtc(artifactPath) < File.GetLastWriteTimeUtc(restoreGraphPath);
 
     // The `.dll` names under the build yaml's `artifacts:` list. Minimal hand-parse (the test project takes no YAML
     // dependency): once at the `artifacts:` key, collect the `- "X.dll"` list items, skip the interleaved comments,
@@ -2619,6 +2842,160 @@ public class ArchitectureConformanceTests
         return results;
     }
 
+    // The entry points that REGISTER the provider name they are handed: the name becomes a new key in the
+    // persisted provider map, which is the moment the callback-URL bytes handed to an identity provider are
+    // fixed. Each must reach ProviderNameValidator.IsInvalid (#1160). The two Add routes carry the name in a
+    // route segment; Config/Import carries it inside the document body, so it is listed here too and its
+    // gate is reached through the config tier rather than through the controller's own wrapper.
+    private static readonly string[] ProviderNameRegistrationRoutes =
+    {
+        "OID/Add/{provider}", "SAML/Add/{provider}", "Config/Import",
+    };
+
+    // The provider-named entry points that deliberately do NOT validate the name, with the reason each is
+    // safe. All but the last LOOK a name UP and fail closed when it resolves to no provider, and that
+    // exemption is argued in ProviderNameValidator's own summary - the bytes built from an already
+    // registered name are exactly what its identity provider has registered, so revalidating at login would
+    // strand a deployment whose name predates the rule (#336, #360). Kept as an exact-path allowlist so a
+    // NEW provider-named endpoint cannot be silently exempted: it must be put in one of the two lists, which
+    // is the classification decision this rule exists to force.
+    private static readonly string[] ProviderNameExemptRoutes =
+    {
+        "OID/p/{provider}", "OID/start/{provider}", // OpenID challenge: resolves a stored provider
+        "SAML/p/{provider}", "SAML/post/{provider}", "SAML/start/{provider}", // SAML challenge: resolves a stored provider
+        "OID/r/{provider}", "OID/redirect/{provider}", "OID/Auth/{provider}", "SAML/Auth/{provider}", // callback/auth: the IdP is answering with a name it was already given
+        "OID/logout/{provider}", "SAML/logout/{provider}", "SAML/Logout/{provider}", "OID/backchannel-logout/{provider}", // logout: resolves a stored provider
+        "OID/Del/{provider}", "SAML/Del/{provider}", // removal: an already-stored name, or a no-op
+        "OID/Test/{provider}", "SAML/Test/{provider}", // admin probe of a STORED provider, 404 on a miss
+        "SAML/metadata/{provider}", // SP metadata built for a stored provider
+        "{mode}/Link/{provider}/{jellyfinUserId}", "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}", // link write against a stored, enabled provider
+
+        // Not an SSO provider name at all: Unregister's body parameter happens to be called `provider` and
+        // carries a JELLYFIN AuthenticationProviderId, written to the user record so the account falls back
+        // to another auth provider. It never becomes a key in the OpenID/SAML provider maps and never
+        // reaches a callback URL, so the round-trip predicate has nothing to say about it. The name
+        // collision is the reason this surface is derived from the inventory rather than hand-listed.
+        "Unregister/{username}",
+    };
+
+    [Fact]
+    public void EveryProviderNamedEntryPoint_IsClassified_AsRegisteringOrDeclaredExempt()
+    {
+        // #1160. ProviderNameValidator gates NEWLY registered names only, and today that is one call site
+        // against a provider name that reaches roughly two dozen entry points - so "gated" versus "exempt"
+        // is a fact of the code with nothing asserting it was intended. This partitions the surface: a new
+        // endpoint taking a provider name is in neither list and fails here, which is the case a fixed
+        // battery of endpoint tests misses. The surface comes from the reflected inventory (#1159) rather
+        // than a literal list, because the endpoint somebody forgot to list is the endpoint that skipped the
+        // validator.
+        var providerNamed = EntryPointInventory.OfThePlugin()
+            .Where(e => e.Parameters.Any(p => string.Equals(p.Name, "provider", StringComparison.Ordinal)))
+            .Select(e => e.Template)
+            .ToList();
+
+        // Config/Import takes the names inside its document rather than as an action parameter, so the
+        // parameter walk cannot see it; it is named here for the same reason it is in the gated list.
+        var surface = providerNamed.Append("Config/Import").ToList();
+
+        Assert.True(
+            providerNamed.Count >= 15,
+            $"The provider-named entry-point walk found only {providerNamed.Count} routes; it has stopped seeing the real controllers and this rule would now pass over a surface too small to mean anything (#1159, #1160).");
+
+        var classified = ProviderNameRegistrationRoutes.Concat(ProviderNameExemptRoutes).ToHashSet(StringComparer.Ordinal);
+
+        var unclassified = surface.Where(r => !classified.Contains(r)).Distinct(StringComparer.Ordinal).ToList();
+        Assert.True(
+            unclassified.Count == 0,
+            "These entry points take a provider name and are in neither ProviderNameRegistrationRoutes nor ProviderNameExemptRoutes - classify each (does it register the name, or look it up?): " + string.Join(", ", unclassified));
+
+        var surfaceSet = surface.ToHashSet(StringComparer.Ordinal);
+        var stale = classified.Where(r => !surfaceSet.Contains(r)).ToList();
+        Assert.True(
+            stale.Count == 0,
+            "These routes are listed in a provider-name classification list but no entry point takes a provider name on them any more - remove them: " + string.Join(", ", stale));
+    }
+
+    [Fact]
+    public void EveryProviderNameRegistrationRoute_ReachesTheSharedNamePredicate()
+    {
+        // The other half of #1160: classification alone would let a route sit in the gated list without the
+        // guard. Deleting the RejectInvalidNewProviderName call from OID/Add fails here, and so does gutting
+        // either throwing wrapper down to something that no longer consults the shared predicate.
+        var predicate = ProviderNamePredicateToken();
+        var actions = ControllerActionBlocks();
+
+        foreach (var route in ProviderNameRegistrationRoutes)
+        {
+            var block = actions.FirstOrDefault(a => a.Routes.Contains(route, StringComparer.Ordinal));
+            Assert.True(block.Routes is not null, $"ProviderNameRegistrationRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#1160).");
+        }
+
+        // Derived from the list rather than named again here: a fourth registration route added to the list
+        // would otherwise be checked only for existing, which is the same forgotten-step this rule is about.
+        // A registration route carrying the name in a route SEGMENT gates it at the controller; the ones that
+        // carry it inside a body reach the config tier's gate instead and are covered by the rule below.
+        foreach (var route in ProviderNameRegistrationRoutes.Where(r => r.Contains("{provider}", StringComparison.Ordinal)))
+        {
+            var block = actions.First(a => a.Routes.Contains(route, StringComparer.Ordinal));
+            Assert.True(
+                block.Body.Contains("RejectInvalidNewProviderName(", StringComparison.Ordinal),
+                $"The '{route}' action must call RejectInvalidNewProviderName - it registers a NEW provider name, and the name it stores becomes part of the callback URL its identity provider is given (#336, #360, #1160).");
+        }
+
+        // The Add wrapper, and the config tier's parallel wrapper, both delegate to the one predicate. The
+        // guard line is asserted verbatim because it also carries the new-name condition: a wrapper that
+        // called the predicate unconditionally would strand every existing deployment behind a rename, which
+        // is the failure the exemption above exists to avoid.
+        var controllerSource = string.Join("\n", ControllerSourceFiles().Select(File.ReadAllText));
+        Assert.Contains($"if (!providerExists && {predicate}provider))", controllerSource, StringComparison.Ordinal);
+
+        var validatorSource = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Config", "ProviderConfigValidator.cs"));
+        Assert.Contains($"if (isNew && {predicate}provider))", validatorSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheNonRouteRegistrationPaths_ReachTheGate_AndTheMetadataProbeRegistersNothing()
+    {
+        // Config/Import persists provider names that never appear in a route segment, so its gate is the
+        // config tier's whole-document Validate rather than the controller's per-name wrapper. Both hops are
+        // asserted, because the action calling Apply proves nothing if Apply stopped validating.
+        var actions = ControllerActionBlocks();
+
+        var import = actions.First(a => a.Routes.Contains("Config/Import", StringComparer.Ordinal));
+        Assert.Contains("ConfigImport.Apply(", import.Body, StringComparison.Ordinal);
+
+        var applySource = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Config", "ConfigImport.cs"));
+        Assert.Contains("ProviderConfigValidator.Validate(", applySource, StringComparison.Ordinal);
+
+        // SAML/ImportMetadata is the near neighbour that looks like a registration route and is not: it
+        // parses metadata and RETURNS the values for an administrator to review, applying nothing. That is
+        // the whole reason it needs no name gate, so it is asserted rather than assumed - the day it starts
+        // persisting, this fails and the endpoint has to be classified.
+        var importMetadata = actions.First(a => a.Routes.Contains("SAML/ImportMetadata", StringComparer.Ordinal));
+        Assert.DoesNotContain("MutateConfiguration(", importMetadata.Body, StringComparison.Ordinal);
+    }
+
+    // The token the two source scans above look for, built from the real type and method rather than typed
+    // out as a string. A rename therefore breaks this line (or fails the assertion below) instead of quietly
+    // turning both scans into a search for a token nothing contains any more - a scan that matches nothing
+    // passes, which is the shape #1160 asks to be pinned against.
+    private static string ProviderNamePredicateToken()
+    {
+        var method = typeof(ProviderNameValidator).GetMethod(
+            nameof(ProviderNameValidator.IsInvalid),
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+
+        Assert.True(method is not null, "ProviderNameValidator.IsInvalid was renamed or removed; the provider-name gate rules scan for it by name (#1160).");
+        Assert.Equal(typeof(bool), method!.ReturnType);
+        Assert.Equal(typeof(string), Assert.Single(method.GetParameters()).ParameterType);
+
+        // And it still decides: a predicate renamed back into place but gutted would satisfy every scan above.
+        Assert.True((bool)method.Invoke(null, ["a/b"])!, "the pinned predicate no longer rejects a slash, which is the character that dead-ends the IdP redirect on a path no route matches (#336).");
+        Assert.False((bool)method.Invoke(null, ["keycloak"])!, "the pinned predicate now rejects an ordinary name, which would strand every registration (#336).");
+
+        return $"{nameof(ProviderNameValidator)}.{method.Name}(";
+    }
+
     [Fact]
     public void EveryHarnessUsingTestClass_IsInTheNonParallelControllerCollection()
     {
@@ -2627,7 +3004,9 @@ public class ArchitectureConformanceTests
         // other (the exact intermittent 429→400 failure that motivated this rule, #928 U4). The
         // "SSOController" collection (DisableParallelization) is the existing convention; this makes it
         // self-enforcing: a NEW test class that constructs the harness without joining the collection is
-        // a red build naming the file, not a flaky suite three weeks later.
+        // a red build naming the file, not a flaky suite three weeks later. The scan reads each file's own
+        // code lines, which is sound only because a test class cannot inherit its setup from elsewhere -
+        // <see cref="NoTestClass_DeclaresABaseClass"/> is what holds that (#1172).
         var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
         var offenders = new List<string>();
         foreach (var src in Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories))
@@ -2659,6 +3038,56 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void NoTestClass_DeclaresABaseClass()
+    {
+        // #1172: the harness rule above reads each file's own code lines. That is sound only while a test
+        // class cannot inherit its setup: `sealed class FooTests : SomeTestBase` where the base constructs
+        // the harness or clears a static matches no literal in FooTests.cs, so the file would be scanned
+        // clean and run in parallel with a class clearing the same statics. This rule closes that route by
+        // construction rather than by scanning for spellings of it - a test-bearing type inherits nothing
+        // but object, so whatever a test class does is in the file that declares it. Interfaces are not
+        // base types in the CLR, so IDisposable, IClassFixture<T> and IAsyncLifetime are unaffected. It
+        // also puts the Coding-Standards wiki rule "there are no test base classes" behind a build gate.
+        var testBearing = typeof(ArchitectureConformanceTests).Assembly.GetTypes()
+            .Where(t => !IsCompilerGenerated(t))
+            .Where(t => t
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Any(m => m.GetCustomAttributes(typeof(FactAttribute), inherit: true).Length > 0))
+            .ToList();
+
+        var offenders = testBearing
+            .Where(t => t.BaseType is not null && t.BaseType != typeof(object))
+            .Select(t => $"{TestSourceFileDeclaring(t)}: {SimpleName(t)} : {SimpleName(t.BaseType!)}")
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "A test class must not derive from a base class - the file-local test scans (harness collection, statics) would not see what the base does. Implement an interface, or put the shared code in a fixture the class holds. Offenders: " + string.Join(", ", offenders));
+
+        // Liveness floor: the scan must actually reach the test classes. A reflection that stopped finding
+        // [Fact]/[Theory] carriers would report zero offenders forever.
+        Assert.True(
+            testBearing.Count >= 120,
+            $"The test-class reflection found only {testBearing.Count} types carrying [Fact]/[Theory] - the scan has been blinded (attribute renamed, tests moved out of this assembly); update this rule.");
+    }
+
+    // The test source file declaring a type, so an offender is reported as a file a reader can open rather
+    // than as a type name they then have to find. Test-side counterpart of SourceFilesDeclaring, which
+    // scans the plugin project.
+    private static string TestSourceFileDeclaring(Type type)
+    {
+        var declaration = new Regex(
+            $@"\b(?:{string.Join("|", TypeDeclarationKeywords)})\s+{Regex.Escape(SimpleName(type))}\b");
+
+        return Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => declaration.IsMatch(File.ReadAllText(path)))
+            .Select(Path.GetFileName)
+            .FirstOrDefault() ?? SimpleName(type) + " (declaring file not found)";
+    }
+
+    [Fact]
     public void EverySourceFile_CarriesTheSpdxHeader()
     {
         // #747: every C# source file opens with the SPDX copyright + licence header, so the licence of any
@@ -2670,23 +3099,35 @@ public class ArchitectureConformanceTests
         // namespace, which SPDX/REUSE tooling expects).
         const string CopyrightLine = "// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors";
         const string LicenceLine = "// SPDX-License-Identifier: GPL-3.0-only";
-        var offenders = new List<string>();
-        foreach (var root in new[] { "SSO-Auth", "SSO-Auth.Tests", "SSO-Auth.Fuzz" })
-        {
-            foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), root), "*.cs", SearchOption.AllDirectories))
-            {
-                if (IsBuildOutput(src))
-                {
-                    continue;
-                }
+        var roots = ProjectRoots();
+        var sources = roots
+            .SelectMany(root => Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+            .Where(src => !IsBuildOutput(src))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                var firstLines = File.ReadLines(src).Take(2).ToList();
-                if (firstLines.Count < 2
-                    || firstLines[0].Trim() != CopyrightLine
-                    || firstLines[1].Trim() != LicenceLine)
-                {
-                    offenders.Add(Path.GetFileName(src));
-                }
+        // The liveness floor. A derived root set can silently become empty - a rename, a project moved, a
+        // repository root resolved one directory too high - and an empty scan reports no offenders, which
+        // reads exactly like a tree where every file carries its header. Both halves are floored, and both
+        // sit well under the real counts so an ordinary project or file being added or removed never moves
+        // them; this must fail when the DERIVATION breaks, not when the tree changes shape. Two is the floor
+        // rather than today's count because the non-shipping projects are the ones that come and go, while
+        // the plugin and this test project cannot both leave without taking this rule with them.
+        Assert.True(
+            roots.Count >= 2,
+            $"The SPDX root derivation found only {roots.Count} project directories; it has stopped seeing the tree, and this rule would now pass over the projects it no longer walks (#1270).");
+        Assert.True(
+            sources.Count >= 100,
+            $"The SPDX scan found only {sources.Count} C# files under the derived roots; the walk has broken and a missing header would no longer be seen (#1270).");
+
+        var offenders = new List<string>();
+        foreach (var src in sources)
+        {
+            var firstLines = File.ReadLines(src).Take(2).ToList();
+            if (firstLines.Count < 2
+                || firstLines[0].Trim() != CopyrightLine
+                || firstLines[1].Trim() != LicenceLine)
+            {
+                offenders.Add(Path.GetFileName(src));
             }
         }
 
@@ -2694,6 +3135,19 @@ public class ArchitectureConformanceTests
             offenders.Count == 0,
             "Every C# source file must open with the SPDX copyright + GPL-3.0-only header (#747). Missing or incorrect in: " + string.Join(", ", offenders));
     }
+
+    // Every directory in the tree that owns a C# project, derived from the project files themselves rather
+    // than listed (#1270). A literal list is the defect and not the fix: adding a root is a step somebody
+    // has to remember, and the project that lands while nobody remembers is the one carrying the unheaded
+    // file. Deriving it means a new project of the same shape - non-shipping, outside the solution, ordinary
+    // C# source - is covered on the day it lands, without this rule being edited.
+    private static IReadOnlyList<string> ProjectRoots() =>
+        Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(project => !IsBuildOutput(project))
+            .Select(project => Path.GetDirectoryName(project)!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(root => root, StringComparer.Ordinal)
+            .ToList();
 
     [Fact]
     public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
@@ -3025,6 +3479,29 @@ public class ArchitectureConformanceTests
         Assert.True(source.Contains("SamlSignatureReference.TryGetSameDocumentId(", StringComparison.Ordinal));
     }
 
+    // The two comment exclusions in this file, asked the same question about the same line. The argument-level
+    // scan (CallsTo, through IsOnACommentLine) reads the text ahead of a call; the line scan (CodeLinesOf)
+    // reads whole lines; only a shared form list makes them agree, and they did NOT agree about a line opening
+    // with /* until this row existed (#1214). Remove any form from OpensAComment and a row here goes red.
+    //
+    // The last row is the residual both of them carry: a comment opened part-way along a line hides nothing
+    // from either scan. That is the honest state, not an oversight this row waves through - it is pinned so
+    // that closing it later has to be a deliberate edit with a failing test in front of it.
+    [Theory]
+    [InlineData("document.Load(reader);", true)]
+    [InlineData("        document.Load(reader);", true)]
+    [InlineData("// document.Load(reader);", false)]
+    [InlineData("        // document.Load(reader);", false)]
+    [InlineData("/* document.Load(reader); */", false)]
+    [InlineData("        /* document.Load(reader); */", false)]
+    [InlineData("     * document.Load(reader); - the spelling before the hardened reader", false)]
+    [InlineData("var settings = Harden(); // document.Load(reader);", true)]
+    public void CommentExclusion_ReadsTheSameFormsForALineAndForACallSite(string line, bool isCode)
+    {
+        Assert.Equal(isCode, CallsTo(line, "Load").Any());
+        Assert.Equal(isCode, CodeLinesOf(line).Any(l => l.Text.Contains("Load(", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public void SamlSignaturePath_ResolvesElementsNamespaceAware()
     {
@@ -3153,17 +3630,27 @@ public class ArchitectureConformanceTests
         return files;
     }
 
+    // Whether trimmed text opens a comment: a line comment, a block-comment opener, or the continuation line
+    // of a block or XML-doc comment. THE ONLY COPY of the form list - a fourth form added to one of two
+    // copies is how a rule silently stops covering the spelling it was written for, and the two consumers
+    // below had already drifted apart on the block-comment opener (#1214).
+    //
+    // It reads the FIRST characters of what it is given and nothing else, so a comment opened part-way along
+    // a line ("Load(x); // moved") is not a comment to either consumer, and a block comment is only seen on
+    // the lines that begin one. That limit is shared by both, which is the property the fixture pins.
+    private static bool OpensAComment(string trimmedText) =>
+        trimmedText.StartsWith("//", StringComparison.Ordinal)
+        || trimmedText.StartsWith("/*", StringComparison.Ordinal)
+        || trimmedText.StartsWith("*", StringComparison.Ordinal);
+
     // A source text's numbered CODE lines: comment and XML-doc lines are excluded, because prose can name a
-    // banned type or quote a piece of markup without any call site reaching for it. THE ONLY COPY of that
-    // exclusion - a fourth comment form added to one of two copies is how a rule silently stops covering the
-    // spelling it was written for. On CRLF input the trailing \r survives the split and is removed by the
-    // Trim, so a line's text does not depend on the checkout's line endings.
+    // banned type or quote a piece of markup without any call site reaching for it. On CRLF input the
+    // trailing \r survives the split and is removed by the Trim, so a line's text does not depend on the
+    // checkout's line endings.
     private static IEnumerable<(int Number, string Text)> CodeLinesOf(string source) =>
         source.Split('\n')
             .Select((line, index) => (Number: index + 1, Text: line.Trim()))
-            .Where(l => !l.Text.StartsWith("//", StringComparison.Ordinal)
-                && !l.Text.StartsWith("/*", StringComparison.Ordinal)
-                && !l.Text.StartsWith("*", StringComparison.Ordinal));
+            .Where(l => !OpensAComment(l.Text));
 
     // A file's numbered CODE lines, by the rule above and no second opinion. A file that ends in a newline
     // yields one extra entry past its last line, whose text is empty; every predicate above searches for a
@@ -3351,12 +3838,14 @@ public class ArchitectureConformanceTests
     }
 
     // Whether the call at index sits on a line whose code has already been commented out - the argument-level
-    // scan reads the whole file, so it needs the same comment exclusion CodeLines applies.
+    // scan reads the whole file, so it needs the same comment exclusion CodeLines applies. The two cannot be
+    // the same function: this one judges the text AHEAD OF a call index, which is what lets it decide about a
+    // call sitting part-way along a line, where CodeLinesOf judges a whole trimmed line. They share the form
+    // list instead, so the parity this comment claims is a call and not a coincidence.
     private static bool IsOnACommentLine(string source, int index)
     {
         var lineStart = source.LastIndexOf('\n', Math.Min(index, source.Length - 1)) + 1;
-        var prefix = source[lineStart..index].TrimStart();
-        return prefix.StartsWith("//", StringComparison.Ordinal) || prefix.StartsWith("*", StringComparison.Ordinal);
+        return OpensAComment(source[lineStart..index].TrimStart());
     }
 
     // obj/bin hold generated and compiled output; the source scans read hand-written source only.

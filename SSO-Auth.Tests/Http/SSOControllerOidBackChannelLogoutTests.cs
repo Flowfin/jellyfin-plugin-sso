@@ -10,6 +10,7 @@ using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -166,6 +167,65 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         AssertUniform400(result);
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
         Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+
+        // The recorded REASON, not only the absent revoke: the parent asks that a discovery failure leave the
+        // session state unchanged AND record why, and until #1184 only the first half was pinned. The entry an
+        // operator alerts on is the one saying a termination the IdP ordered did not happen, at Error - not
+        // the warning a refused forgery shares.
+        var entry = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("could NOT be performed", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Contains(OidcLogoutTokenValidator.RejectReason.ProviderUnreachable, entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUnreachableProviderAndAForgedToken_AreAuditedApart_BehindOneIdentical400()
+    {
+        // The two classes the audit trail has to keep apart, driven through the SAME endpoint in one test so
+        // the comparison is between records rather than between descriptions. A forged token is the system
+        // working and nothing was meant to end; an unreachable provider means the IdP ordered a termination
+        // that did not happen, and an attacker who can disrupt the server-to-IdP path can produce it on
+        // purpose. Filing both as one warning left the second buried in the first.
+        using var attacker = new OidcTokenFixture(Authority, "jf");
+
+        // Signed by a key the served JWKS does not carry, so only the signature differs from a real one.
+        var forged = Harness(Configured);
+        var forgedResult = await forged.Controller.OidBackChannelLogout("kc", attacker.LogoutToken("sub-1", "sess-9"));
+
+        // The same endpoint and a genuine token, with the provider unreachable (no responder).
+        var unreachable = Harness(Configured, withResponder: false);
+        var unreachableResult = await unreachable.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        void Configured(PluginConfiguration c)
+        {
+            c.EnableSingleLogout = true;
+            c.OidConfigs["kc"] = Provider(backChannel: true);
+            c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
+        }
+
+        // Filterable apart by event AND by severity.
+        var forgedEntry = Assert.Single(forged.ControllerLog.Entries, e => e.Message.Contains("REJECTED", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, forgedEntry.Level);
+        Assert.DoesNotContain("could NOT be performed", forgedEntry.Message, StringComparison.Ordinal);
+
+        var unreachableEntry = Assert.Single(unreachable.ControllerLog.Entries, e => e.Message.Contains("could NOT be performed", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Error, unreachableEntry.Level);
+        Assert.DoesNotContain("REJECTED", unreachableEntry.Message, StringComparison.Ordinal);
+
+        // Neither is filed under SAML any more, which is what an operator's OpenID filter used to miss.
+        Assert.DoesNotContain("SAML", forgedEntry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("SAML", unreachableEntry.Message, StringComparison.Ordinal);
+
+        // And the wire answer stays one uniform 400 for both, so the trail gained a distinction the caller
+        // did not: nothing here became a branch oracle for an anonymous poster.
+        AssertUniform400(forgedResult);
+        AssertUniform400(unreachableResult);
+        var forged400 = Assert.IsType<ContentResult>(forgedResult);
+        var unreachable400 = Assert.IsType<ContentResult>(unreachableResult);
+        Assert.Equal(forged400.StatusCode, unreachable400.StatusCode);
+        Assert.Equal(forged400.Content, unreachable400.Content);
+        Assert.Equal(forged400.ContentType, unreachable400.ContentType);
+        await forged.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
+        await unreachable.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string>());
     }
 
     [Fact]

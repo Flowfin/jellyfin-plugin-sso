@@ -42,6 +42,10 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // This is the tier every caller gets by default, including the SAML metadata importer.
         serviceCollection.AddHttpClient(SsoHttp.OutboundClientName)
             .ConfigurePrimaryHttpMessageHandler(() => SsoHttp.CreateHardenedHandler())
+            // One byte bound for every server-to-provider response, applied here rather than per call site
+            // because three of the four fetches it covers happen inside the identity library, over this very
+            // client, with no plugin call site to guard (#1169).
+            .AddHttpMessageHandler(() => new ProviderResponseSizeLimit())
             // The hardened handler manages its own connection freshness via PooledConnectionLifetime, so the
             // factory need not also rotate (and rebuild) the handler on its default 2-minute cadence - the
             // documented pattern when you own PooledConnectionLifetime. Keeps one long-lived hardened handler
@@ -57,6 +61,9 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // logins, so a relaxation that was not part of the client's identity could leak to another provider.
         serviceCollection.AddHttpClient(SsoHttp.PrivateOutboundClientName)
             .ConfigurePrimaryHttpMessageHandler(() => SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted))
+            // The same bound as the strict tier. Opting a provider in to the administrator's own network says
+            // where it may live, never how much it may send.
+            .AddHttpMessageHandler(() => new ProviderResponseSizeLimit())
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
     }
 }

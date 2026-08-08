@@ -238,7 +238,7 @@ public class ConfigXmlLifecycleTests
         // encrypted config is written back to XML and read again, and the original plaintext is recovered via
         // SecretStore.Reveal. NOTE: this exercises secret-at-rest migration - a security-surface change of
         // this shape belongs to the /security-review gate.
-        var keyPath = Path.Combine(Path.GetTempPath(), "sso-cfgxml-" + Guid.NewGuid().ToString("N") + ".key");
+        var keyPath = SuiteTempFiles.Path("sso-cfgxml");
         try
         {
             var legacy = new PluginConfiguration();

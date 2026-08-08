@@ -114,6 +114,17 @@ internal sealed class OidcIdTokenValidator : IIdentityTokenValidator
     // too - after a rotation an IdP may reuse a kid with new material, and the refresh either repairs
     // the validation or the retry fails closed. Everything else reports only the exception type:
     // IdentityModel exception messages can embed token claim values, which must not reach the logs.
+    //
+    // This return value therefore does NOT get per-shape reason codes the way the back-channel logout
+    // path does (#1166, decided; the codes there are RejectReason in OidcLogoutTokenValidator.cs, and
+    // #1039 tracks splitting them further). The string is consumed by the library, not only read by an
+    // operator, so the two signature exceptions above must keep collapsing to one value: split them and
+    // the JWKS refresh stops firing for the key-found-but-signature-bad shape, turning a signing-key
+    // rotation into a hard login failure instead of a self-healing retry. That is an availability
+    // regression bought for a diagnostic, which is the wrong trade on a login path. The shapes that do
+    // not participate in the refresh already differ from each other by exception type name above, and
+    // that is diagnostic text rather than a stable code - anything wanting a stable operator-facing code
+    // for the id_token path needs its own audit surface and must not reuse this string.
     private static string MapError(Exception? exception) => exception switch
     {
         SecurityTokenSignatureKeyNotFoundException => "invalid_signature",

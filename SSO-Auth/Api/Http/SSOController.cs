@@ -304,7 +304,22 @@ public class SSOController : ControllerBase
         var result = await _oidc.ValidateBackChannelLogoutAsync(config, provider, logoutToken).ConfigureAwait(false);
         if (!result.IsValid)
         {
-            SsoAudit.LogoutRejected(_logger, provider, result.ReasonCode);
+            // Two refusals of opposite kinds leave this one branch, so they are recorded as two events rather
+            // than as one line an operator has to read a reason code out of (#1184). A forged, replayed or
+            // malformed token is the system working and nothing was meant to be terminated; a provider the
+            // plugin could not reach means the IdP ordered a termination that did not happen, and the session
+            // it named is still running. The choice is made HERE, at the event source, rather than inside a
+            // shared audit gate that would have to re-derive it (#737). The response is the same uniform 400
+            // either way - the distinction is for the trail, never for the caller.
+            if (string.Equals(result.ReasonCode, OidcLogoutTokenValidator.RejectReason.ProviderUnreachable, StringComparison.Ordinal))
+            {
+                SsoAudit.BackChannelLogoutNotPerformed(_logger, provider, result.ReasonCode);
+            }
+            else
+            {
+                SsoAudit.BackChannelLogoutRejected(_logger, provider, result.ReasonCode);
+            }
+
             return UniformBackChannelLogoutRejection();
         }
 
@@ -338,7 +353,9 @@ public class SSOController : ControllerBase
         // only the trusted IdP (which already knows its own subjects) can tell it from a 200, which is fine.
         if (matches.Count == 0)
         {
-            SsoAudit.LogoutRejected(_logger, provider, "no_matching_session");
+            // Benign, so it stays in the rejection class: the token was good and there was simply nothing of
+            // this provider's to end - not a termination that was ordered and skipped.
+            SsoAudit.BackChannelLogoutRejected(_logger, provider, "no_matching_session");
             return UniformBackChannelLogoutRejection();
         }
 
@@ -373,7 +390,9 @@ public class SSOController : ControllerBase
 
         if (succeeded.Count == 0)
         {
-            SsoAudit.LogoutRejected(_logger, provider, "revoke_failed");
+            // A validated token matched sessions and every revoke threw: the clearest instance of the class -
+            // the IdP ordered a termination, the plugin agreed it was legitimate, and nothing was terminated.
+            SsoAudit.BackChannelLogoutNotPerformed(_logger, provider, "revoke_failed");
             return UniformBackChannelLogoutRejection();
         }
 

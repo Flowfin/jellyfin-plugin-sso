@@ -4,9 +4,16 @@ This project is the coverage-guided fuzz harness prototype for the plugin's logi
 written evaluation behind [Scorecard alert #36 (Fuzzing)](https://github.com/iderex/jellyfin-plugin-sso/issues/402).
 It is the concrete harness the weekly scheduled job (#174) runs.
 
-It is **out of band**: not part of `SSO-Auth.sln`, so a normal `dotnet build` / `dotnet test` and every
-per-PR CI job never restore SharpFuzz or build it. It is compiled and driven only by the scheduled Linux
-fuzzing job, exactly as the acceptance criteria require ("scheduled, non-blocking").
+It is **out of band**: not part of `SSO-Auth.sln`, so a normal `dotnet build` / `dotnet test` never
+restores SharpFuzz or builds it. The _fuzzing_ is driven only by the scheduled Linux job, exactly as the
+acceptance criteria require ("scheduled, non-blocking"). Since #1132 the gating `build` job does compile
+the harness by path, so a module rename that breaks it reds the PR rather than the weekly run.
+
+Since #1134 that job also **replays every committed seed** through its target in smoke mode, which asks a
+different question from compiling: a plugin change can leave the harness building perfectly while making a
+known-hostile input throw an exception the fail-closed filters do not name. The target list comes from the
+corpus directories, so a new target is replayed by the fact of having a corpus. An empty corpus directory,
+or no corpus at all, fails the step rather than passing quietly. The coverage-guided run stays non-gating.
 
 ## The attack surface we target
 
@@ -14,11 +21,12 @@ The login endpoints are anonymous and hand attacker-controlled bytes straight in
 signature or claim is trusted. Those byte-level entry points are the classic fuzzing sweet spot, and they
 are what the harness drives (selected per run by the `SSO_FUZZ_TARGET` environment variable):
 
-| Target (`SSO_FUZZ_TARGET`) | Entry point                                                                             | Untrusted input                                                                                      |
-| -------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `saml` (default)           | `SamlResponseLoader.TryParse` → `SamlResponse` ctor + `IsValid` + every claim getter    | The Base64 `SAMLResponse` form field (Base64 decode → hardened XML DOM load → signature/claim reads) |
-| `discovery`                | `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
-| `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                          | The raw id_token JWT string                                                                          |
+| Target (`SSO_FUZZ_TARGET`) | Entry point                                                                                                   | Untrusted input                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `saml` (default)           | `SamlResponseLoader.TryParse` → `SamlResponse` ctor + `IsValid` + every claim getter                          | The Base64 `SAMLResponse` form field (Base64 decode → hardened XML DOM load → signature/claim reads) |
+| `discovery`                | `StrictJson.Inspect`, `PkceDiscovery.SupportsS256` and `OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer` | The raw OpenID discovery JSON fetched at challenge                                                   |
+| `idtoken`                  | `OidcResponseIssuer.IdTokenIssuer` (`new JsonWebToken(token)`)                                                | The raw id_token JWT string                                                                          |
+| `jwks`                     | `OidcSignatureKeys.Convert` (after the library's `new JsonWebKeySet(json)`)                                   | The raw JWKS the challenge fetches from `jwks_uri`                                                   |
 
 The property under test is uniform: on **any** input the entry point must terminate with a fail-closed
 result (`false` / `null` / a rejection) **or** one of the exceptions it explicitly maps - it must never
@@ -66,8 +74,9 @@ value is the fuzzing itself, which the scheduled job delivers regardless of whet
 - **Actual fuzzing is Linux-only.** The `sharpfuzz` instrumentation CLI and the libFuzzer runtime are
   Linux-oriented; a coverage-guided run on Windows is impractical. So the _run_ lives in CI, never on the
   maintainer's machine. This is expected and is why #174 is a scheduled Linux job.
-- Because the project is not in the solution, the per-PR CI never builds it. The weekly job is what keeps
-  it compiling and running; that is an accepted trade-off for a non-shipping prototype.
+- The project is not in the solution, so nothing that works from the solution builds it. Since #1132 the
+  gating `build` job compiles it by path on every PR, which is what keeps it from bitrotting; the weekly
+  job is what keeps it _running_.
 
 ## Value assessment vs. the existing gate
 
@@ -93,7 +102,7 @@ dotnet tool install --global SharpFuzz.CommandLine
 sharpfuzz SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll
 
 # 3. Fuzz one target, seeded from its corpus (libFuzzer flags after --).
-export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken
+export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll \
     SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET -max_total_time=300
 ```
@@ -110,16 +119,42 @@ runs and that every seed is handled fail-closed, so the harness can be validated
 CI sanity check. This is how the prototype was validated at delivery (all three targets, exit 0):
 
 ```sh
-export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken
+export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks
 dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
 ```
+
+### Differential mode (any platform, no libFuzzer)
+
+Both modes above only ever ask whether the target _survives_ an input. Neither can see a **wrong answer**,
+and on the repeated-member walk that is the failure that matters: a walk quietly returning `Clean` for
+every document never throws, so it passes libFuzzer and smoke alike while approving documents that mean
+two things.
+
+`SSO_FUZZ_DIFFERENTIAL=1` runs the walk that ships against a **second parser family** - Newtonsoft's
+`JsonTextReader`, already in the dependency graph - over the committed corpus plus generated
+discovery-shaped documents, and reports every case where the two answer differently about whether an
+object scope names a member twice:
+
+```sh
+SSO_FUZZ_DIFFERENTIAL=1 SSO_FUZZ_CASES=50000 SSO_FUZZ_SEED=1188 \
+    dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/discovery
+```
+
+Exit 0 is a clean, non-vacuous run; exit 1 is a divergence, which is a **finding** and is filed with the
+document that produced it rather than patched inside the driver; exit 3 is a vacuous run - the two readers
+never agreed in both directions, so a zero divergence count would have established nothing.
+
+The generated documents are deliberately narrow: a seven-name member pool, two of whose entries spell an
+earlier name with a `\u` escape, and a root that is an object nine times in ten. A wide pool spends the
+run proving that documents without repeats have no repeats.
 
 ## The seed corpus
 
 `corpus/<target>/` holds representative seeds so the fuzzer starts from meaningful coverage rather than
 random noise: a well-formed and several malformed shapes per target (a minimal signed-shaped SAML
 response, a DOCTYPE body, non-Base64; a full and a minimal discovery document plus a type-confused one; a
-`none`-alg JWT and a non-JWT). libFuzzer expands the corpus from these as it explores.
+`none`-alg JWT and a non-JWT; a genuine two-key RSA key set). libFuzzer expands the corpus from these as
+it explores.
 
 One class is seeded deliberately rather than left to the mutator: a **repeated property name**, where a
 document parses cleanly and the reader silently keeps one occurrence. The mutator is unlikely to invent
@@ -128,7 +163,19 @@ as `none`, and which occurrence wins is a decision each reader makes without say
 it (#1153): `discovery/repeated-issuer.json` repeats `issuer` beside a real
 `code_challenge_methods_supported` array so the mutator has grammar on both sides of the repeat;
 `idtoken/repeated-alg-header.jwt` repeats `alg` in the JWT header; `idtoken/repeated-aud-payload.jwt`
-repeats `aud` in the payload, collapsing two audiences to one.
+repeats `aud` in the payload, collapsing two audiences to one. `jwks/repeated-kid.json` (#1156) is the
+same class on the key set: its second entry names `kid` twice, once as the first entry's name and once as
+its own, so the set advertises two keys under one name until the last occurrence wins and it advertises
+two under two. Measured against `jwks/two-rsa-keys.json`, both documents convert to the same two usable
+keys under the same two ids, so the repeat leaves no trace downstream - which is the point. The seed is
+grammar for the mutator, not a claim that the plugin misreads it.
+
+`discovery/lone-surrogate-name.json` (#1188) is the other class the mutator will not invent: a member
+name carrying an **unpaired surrogate escape**. Thirteen ASCII bytes that both parser families read
+without complaint, and the input on which `System.Text.Json`'s `GetString` raises
+`InvalidOperationException` rather than `JsonException` - so a walk catching only the latter takes the
+throw on the anonymous discovery read. It is committed as a seed so the arm stays replayed by the smoke
+gate rather than resting on a unit test alone.
 
 ## Scorecard alert #36 and #174
 

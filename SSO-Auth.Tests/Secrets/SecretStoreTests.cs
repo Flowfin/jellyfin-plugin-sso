@@ -18,7 +18,7 @@ public class SecretStoreTests
 {
     private static void WithTempKeyPath(Action<string> test)
     {
-        var path = Path.Combine(Path.GetTempPath(), "sso-key-test-" + Guid.NewGuid().ToString("N") + ".key");
+        var path = SuiteTempFiles.Path("sso-key-test");
         try
         {
             test(path);

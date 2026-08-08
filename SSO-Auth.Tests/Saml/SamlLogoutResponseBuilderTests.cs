@@ -153,8 +153,8 @@ public class SamlLogoutResponseBuilderTests
     // Reconstructs the signed octet string (SAMLResponse, then RelayState when present, then SigAlg) from the URL.
     private static string SignedQuery(string url, string? relayState)
     {
-        var samlResponse = QueryValue(url, "SAMLResponse");
-        var sigAlg = QueryValue(url, "SigAlg");
+        var samlResponse = UrlEncodedQuery.Require(url, "SAMLResponse");
+        var sigAlg = UrlEncodedQuery.Require(url, "SigAlg");
         var query = "SAMLResponse=" + Uri.EscapeDataString(samlResponse);
         if (!string.IsNullOrEmpty(relayState))
         {
@@ -164,19 +164,5 @@ public class SamlLogoutResponseBuilderTests
         return query + "&SigAlg=" + Uri.EscapeDataString(sigAlg);
     }
 
-    private static byte[] Signature(string url) => Convert.FromBase64String(QueryValue(url, "Signature"));
-
-    private static string QueryValue(string url, string name)
-    {
-        foreach (var pair in url[(url.IndexOf('?') + 1)..].Split('&'))
-        {
-            var eq = pair.IndexOf('=');
-            if (eq > 0 && pair[..eq] == name)
-            {
-                return Uri.UnescapeDataString(pair[(eq + 1)..]);
-            }
-        }
-
-        throw new InvalidOperationException($"Query parameter '{name}' not found in {url}.");
-    }
+    private static byte[] Signature(string url) => Convert.FromBase64String(UrlEncodedQuery.Require(url, "Signature"));
 }

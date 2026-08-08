@@ -47,6 +47,12 @@ jobs:
         cache-dependency-path: '**/packages.lock.json'
     - name: Jellyfin compatibility metadata check
       run: bash scripts/check-jellyfin-compat.sh
+    - name: VEX document check
+      # The published VEX statements are only useful if they parse and carry machine-readable
+      # dispositions, so a malformed edit fails here rather than at the release leg that ships the
+      # document (#1092). Structural only: the product-against-SBOM leg of the same checker takes the
+      # SBOM as a second argument, and no SBOM exists at this point in the job.
+      run: python3 scripts/check-vex.py security/vex/openvex.json
     - name: Restore dependencies
       # --locked-mode fails the restore if the committed packages.lock.json files would change,
       # so a drifted or tampered dependency graph cannot build in CI.
@@ -61,6 +67,68 @@ jobs:
         fi
     - name: Build
       run: dotnet build --no-restore --warnaserror
+    # The fuzz harness is deliberately absent from SSO-Auth.sln, so the restore and
+    # build above never see it and a module rename in the plugin could break it
+    # unnoticed until the weekly fuzzing run days later (#1132, #1008). Compiling it
+    # inside the job the "Protect main" ruleset gates on makes that break red on the
+    # PR that causes it.
+    #
+    # It stays OUT of the solution and is built by path on purpose: joining the
+    # solution would also pull it into `dotnet test`, the coverage gate and the
+    # vulnerable-dependency scan above, all of which are meant to see the shipping
+    # project set and nothing else.
+    #
+    # This compiles the harness; it does not fuzz. No clang, no `sharpfuzz` CLI and
+    # no libFuzzer runtime is needed for that, and the libFuzzer run itself stays
+    # non-gating in fuzz.yml, which gains no push or pull_request trigger.
+    - name: Restore the fuzz harness (locked)
+      # Same --locked-mode reasoning as the solution restore above: the harness has
+      # its own committed packages.lock.json and a drifted graph must not build.
+      run: dotnet restore SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj --locked-mode
+    - name: Build the fuzz harness (Release)
+      run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror
+    # Replaying the committed seeds is a BEHAVIOURAL gate, and it is a different
+    # question from the compilation above: a plugin change can leave the harness
+    # building perfectly while making a known-hostile input throw an exception the
+    # fail-closed filters do not name, which on the real callback is an
+    # unauthenticated 500. Smoke mode needs no clang, no `sharpfuzz` CLI and no
+    # libFuzzer runtime, so this costs seconds; the coverage-guided run stays
+    # non-gating in fuzz.yml, which still has no push or pull_request trigger.
+    #
+    # The target list is DERIVED from the corpus directories rather than written
+    # here, so a target added to the harness is replayed by the fact of having a
+    # corpus and cannot be silently uncovered by a list nobody updated.
+    #
+    # Both empty answers are failures. RunSmoke exits 2 for a missing directory but
+    # 0 for a directory that happens to hold nothing, so a corpus that stopped
+    # being checked out, or a glob that stopped matching, would otherwise read as a
+    # clean pass. The seed count is counted here and required to be non-zero, and
+    # the whole loop is required to have found at least one target.
+    - name: Replay the fuzz seed corpus
+      run: |
+        set -o pipefail
+        # nullglob so a corpus that vanished leaves the loop with nothing to do and
+        # is caught by the counter below, rather than by `find` failing on a literal
+        # unexpanded glob - both fail the step, but only one of them says why.
+        shopt -s nullglob
+        targets=0
+        for dir in SSO-Auth.Fuzz/corpus/*/; do
+          target="$(basename "$dir")"
+          seeds="$(find "$dir" -type f | wc -l)"
+          if [ "$seeds" -eq 0 ]; then
+            echo "::error::The fuzz corpus for target '${target}' is empty, so replaying it proves nothing."
+            exit 1
+          fi
+          echo "Replaying ${seeds} seed(s) through target '${target}'."
+          SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET="${target}" \
+            dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll "${dir}"
+          targets=$((targets + 1))
+        done
+        if [ "$targets" -eq 0 ]; then
+          echo "::error::No fuzz corpus directories were found under SSO-Auth.Fuzz/corpus/."
+          exit 1
+        fi
+        echo "Replayed ${targets} target(s) with no unmapped exception."
     - name: Test
       run: dotnet test --no-build --verbosity normal
     # Line coverage for the RC coverage gate (#718). A second, instrumented run

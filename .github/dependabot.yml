@@ -5,10 +5,16 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    # Wait 7 days before proposing a new version so a release compromised between
-    # publish and adoption is caught before it enters a PR (recent supply-chain
-    # attacks were live for hours-to-days). Security updates are exempt - they are
-    # still proposed immediately.
+    # Hold a newly published version for 7 days before it may enter a pull
+    # request, so a release compromised between publish and adoption has time to
+    # surface in the advisory feeds first. GitHub's own words on the carve-out:
+    # the cooldown "does not apply to security updates".
+    #
+    # No tier key here, deliberately. NuGet does support semver-*-days, but
+    # shortening the patch tier would speed up only the non-security bumps, and
+    # the patch tier is exactly where a registry compromise publishes. GitHub
+    # has also made 3 days the platform-wide default, so a 3-day patch tier
+    # would buy no margin over configuring nothing at all.
     cooldown:
       default-days: 7
 
@@ -17,7 +23,41 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    # Same cooldown for action bumps - the tj-actions / Trivy-action incidents were
-    # exactly compromised-tag adoptions a delay would have caught.
+    # init und analyze sind EINE Sache und muessen zusammen wandern.
+    #
+    # Dependabot fuehrt github/codeql-action/init und .../analyze als zwei
+    # Abhaengigkeiten und hat sie am 06.08. in zwei getrennten PRs auf 4.37.4
+    # gehoben. Jeder dieser PRs traegt nur eine der beiden Stufen, und die
+    # Action bricht dann ab:
+    #
+    #     Loaded a configuration file for version '4.37.3',
+    #     but running version '4.37.4'
+    #
+    # Beide PRs mussten also scheitern, jeder fuer sich, und keiner der beiden
+    # war reparierbar - ein gruener Lauf war nur mit beiden Aenderungen im
+    # selben Baum moeglich. Diese Gruppe sorgt dafuer, dass es einer bleibt.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
+    # What this hold reaches: a freshly published malicious version of an action,
+    # which then waits 7 days before it can be proposed here. Same carve-out as
+    # above, in GitHub's words - the cooldown "does not apply to security
+    # updates".
+    #
+    # What it does NOT reach, and no comment here should claim otherwise: a
+    # re-pointed tag, where an existing tag is moved onto a malicious commit. The
+    # release keeps its original publication date, so there is no new
+    # publication for a date-based hold to delay. What defends this repository
+    # against that class is SHA-pinning every `uses:` plus zizmor's unpinned-uses
+    # audit in .github/workflows/zizmor.yml: a SHA pin keeps resolving to the old
+    # commit after the tag moves, and the audit fails the build on a ref that is
+    # not a SHA.
+    #
+    # No tier keys here because GitHub's cooldown support table does not list
+    # github-actions for semver-major-days / semver-minor-days /
+    # semver-patch-days. That is the reason, and it is not a statement about how
+    # action tags are versioned: Helm and Terraform are semver and are absent
+    # from the same table, while Maven is not semver and is present.
     cooldown:
       default-days: 7

@@ -47,7 +47,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         var token = CreateToken(claims: Claims(sub: "user-1", sid: "sess-9"));
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.True(result.IsValid);
         Assert.Equal("user-1", result.Subject);
@@ -58,7 +58,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task SubOnly_Succeeds_SidNull()
     {
-        var result = await _validator.ValidateAsync(CreateToken(claims: Claims(sub: "user-1")), Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(CreateToken(claims: Claims(sub: "user-1")), Options(), _now);
 
         Assert.True(result.IsValid);
         Assert.Equal("user-1", result.Subject);
@@ -68,7 +68,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task SidOnly_Succeeds_SubNull()
     {
-        var result = await _validator.ValidateAsync(CreateToken(claims: Claims(sid: "sess-9")), Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(CreateToken(claims: Claims(sid: "sess-9")), Options(), _now);
 
         Assert.True(result.IsValid);
         Assert.Null(result.Subject);
@@ -81,7 +81,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     public async Task AbsentToken_IsMalformed(string? token)
     {
         // Nothing was sent - a distinct fail-closed code from a bad token that reached the JWT handler.
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Malformed, result.ReasonCode);
@@ -95,7 +95,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         // A non-empty non-JWT reaches the handler and fails signature/parse validation - still fail-closed,
         // reported as Invalid (the handler catches it, it never throws a 500).
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -107,7 +107,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         using var attacker = RSA.Create(2048);
         var forged = new JsonWebTokenHandler().CreateToken(Descriptor(Claims(sub: "user-1"), signingKey: attacker));
 
-        var result = await _validator.ValidateAsync(forged, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(forged, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -118,7 +118,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         var token = CreateToken(claims: Claims(sub: "user-1"), issuer: "https://evil.example.test");
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -129,7 +129,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         var token = CreateToken(claims: Claims(sub: "user-1"), audience: "another-client");
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -141,7 +141,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         // 10 minutes past exp is beyond the default 5-minute clock skew.
         var token = CreateToken(claims: Claims(sub: "user-1"), lifetime: TimeSpan.FromMinutes(-10));
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -152,7 +152,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         var token = CreateToken(claims: new Dictionary<string, object> { ["sub"] = "user-1", ["jti"] = Guid.NewGuid().ToString() });
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.NotALogoutToken, result.ReasonCode);
@@ -166,7 +166,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         claims["events"] = new Dictionary<string, object> { ["http://schemas.openid.net/event/some-other"] = new Dictionary<string, object>() };
         var token = CreateToken(claims: claims);
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.NotALogoutToken, result.ReasonCode);
@@ -180,7 +180,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         claims["nonce"] = "abc123";
         var token = CreateToken(claims: claims);
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.ProhibitedNonce, result.ReasonCode);
@@ -189,7 +189,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     [Fact]
     public async Task NeitherSubNorSid_IsRejected()
     {
-        var result = await _validator.ValidateAsync(CreateToken(claims: Claims()), Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(CreateToken(claims: Claims()), Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.NoSubjectOrSid, result.ReasonCode);
@@ -200,8 +200,8 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
     {
         var token = CreateToken(claims: Claims(sub: "user-1", jti: "fixed-jti"));
 
-        var first = await _validator.ValidateAsync(token, Params(), Skew, _now);
-        var second = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var first = await _validator.ValidateAsync(token, Options(), _now);
+        var second = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.True(first.IsValid);
         Assert.False(second.IsValid);
@@ -214,8 +214,8 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         // A token with no jti still gets one-time-use via its signature - a byte-identical resend collides.
         var token = CreateToken(claims: Claims(sub: "user-1"));
 
-        Assert.True((await _validator.ValidateAsync(token, Params(), Skew, _now)).IsValid);
-        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Replay, (await _validator.ValidateAsync(token, Params(), Skew, _now)).ReasonCode);
+        Assert.True((await _validator.ValidateAsync(token, Options(), _now)).IsValid);
+        Assert.Equal(OidcLogoutTokenValidator.RejectReason.Replay, (await _validator.ValidateAsync(token, Options(), _now)).ReasonCode);
     }
 
     [Fact]
@@ -224,8 +224,8 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         // Fixed codes only - a rejection is never a subject oracle (T-I1).
         var token = CreateToken(claims: Claims(sub: "secret-subject", sid: "secret-session"));
         // Force a replay rejection carrying no subject text.
-        await _validator.ValidateAsync(token, Params(), Skew, _now);
-        var replay = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        await _validator.ValidateAsync(token, Options(), _now);
+        var replay = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.DoesNotContain("secret-subject", replay.ReasonCode, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-session", replay.ReasonCode, StringComparison.Ordinal);
@@ -245,7 +245,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
             SigningCredentials = new SigningCredentials(new RsaSecurityKey(_rsa) { KeyId = KeyId }, SecurityAlgorithms.RsaSha256),
         });
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.True(result.IsValid);
         Assert.Equal("user-1", result.Subject);
@@ -258,7 +258,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         // refused even though this client is the audience.
         var claims = Claims(sub: "user-1");
         claims["azp"] = "another-client";
-        var result = await _validator.ValidateAsync(CreateToken(claims: claims), Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(CreateToken(claims: claims), Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -279,7 +279,7 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
             SigningCredentials = new SigningCredentials(new RsaSecurityKey(_rsa) { KeyId = KeyId }, SecurityAlgorithms.RsaSha256),
         });
 
-        var result = await _validator.ValidateAsync(token, Params(), Skew, _now);
+        var result = await _validator.ValidateAsync(token, Options(), _now);
 
         Assert.False(result.IsValid);
         Assert.Equal(OidcLogoutTokenValidator.RejectReason.Invalid, result.ReasonCode);
@@ -305,25 +305,27 @@ public sealed class OidcLogoutTokenValidatorTests : IDisposable
         return claims;
     }
 
-    private TokenValidationParameters Params()
+    // What the endpoint hands the validator: the provider's options, from which the validator derives its
+    // own basis (#1176). The requireExpiration:false posture (OIDC Back-Channel Logout §2.4 does not mandate
+    // exp) is the validator's own and no longer something a caller - or a test - can choose, which is the
+    // point of the change: these tests cannot validate under a posture the endpoint does not use.
+    private OidcClientOptions Options()
     {
         var p = _rsa.ExportParameters(false);
         var jwks = $$"""
             {"keys":[{"kty":"RSA","use":"sig","kid":"{{KeyId}}",
               "n":"{{Base64UrlEncoder.Encode(p.Modulus)}}","e":"{{Base64UrlEncoder.Encode(p.Exponent)}}"}]}
             """;
-        var options = new OidcClientOptions
+        return new OidcClientOptions
         {
             ClientId = ClientId,
+            ClockSkew = Skew,
             ProviderInformation = new ProviderInformation
             {
                 IssuerName = Issuer,
                 KeySet = new Duende.IdentityModel.Jwk.JsonWebKeySet(jwks),
             },
         };
-        // The back-channel path builds with requireExpiration:false (OIDC Back-Channel Logout §2.4 does not
-        // mandate exp), so the tests validate under the same posture the endpoint uses.
-        return OidcSignatureKeys.BuildValidationParameters(options, new List<IDisposable>(), requireExpiration: false);
     }
 
     private string CreateToken(IDictionary<string, object> claims, string issuer = Issuer, string audience = ClientId, TimeSpan? lifetime = null)

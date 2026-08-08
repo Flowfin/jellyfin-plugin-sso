@@ -280,6 +280,55 @@ internal static class SsoAudit
             reasonCode);
     }
 
+    /// <summary>
+    /// Records an inbound OpenID <c>logout_token</c> being rejected fail-closed (#962). Separate from
+    /// <see cref="LogoutRejected"/>, which is worded for the SAML <c>LogoutRequest</c> sites it is shared by:
+    /// an operator filtering their log for OpenID logout failures used to find every one of them filed under
+    /// "SAML" (#1184). This is the benign class - a forged, replayed or malformed token is the system working,
+    /// and nothing was supposed to be terminated. The reason is a FIXED code, never token-derived, and the
+    /// caller still answers the one uniform 400, so nothing here becomes a branch oracle.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="provider">The OpenID provider the token arrived for.</param>
+    /// <param name="reasonCode">The fixed rejection reason code (not token-derived).</param>
+    internal static void BackChannelLogoutRejected(ILogger logger, string provider, string reasonCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] OpenID back-channel logout REJECTED for provider '{Provider}' ({ReasonCode}). No session was terminated.",
+            provider?.ReplaceLineEndings(string.Empty),
+            reasonCode);
+    }
+
+    /// <summary>
+    /// Records a back-channel logout the plugin could NOT perform (#1184) - the inverse of
+    /// <see cref="BackChannelLogoutRejected"/> and the reason the two are separate events. Here the identity
+    /// provider ordered a termination and the plugin declined it, so an authenticated session is still running
+    /// after the IdP signed the user out. That is the entry an operator alerts on, and it is reachable
+    /// deliberately: an attacker who can disrupt the server-to-IdP path can produce it. Recorded at
+    /// <see cref="LogLevel.Error"/> so it separates from the rejection noise by severity as well as by text.
+    /// The wire response is unchanged - the same uniform 400 - so the distinction stays in the audit trail.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="provider">The OpenID provider the termination was ordered for.</param>
+    /// <param name="reasonCode">The fixed reason code (not token-derived).</param>
+    internal static void BackChannelLogoutNotPerformed(ILogger logger, string provider, string reasonCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] OpenID back-channel logout could NOT be performed for provider '{Provider}' ({ReasonCode}). The identity provider ordered a termination and no session was terminated, so a signed-out session may still be running.",
+            provider?.ReplaceLineEndings(string.Empty),
+            reasonCode);
+    }
+
     /// <summary>Records a provider being saved with one or more default-on security checks disabled (#140, #672).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>

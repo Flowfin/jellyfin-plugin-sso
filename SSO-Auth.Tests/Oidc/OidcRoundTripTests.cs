@@ -126,9 +126,9 @@ public class OidcRoundTripTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
 
-        Assert.Equal("phr mfa", QueryValue(challenge.Url, "acr_values"));
-        Assert.Equal("login", QueryValue(challenge.Url, "prompt"));
-        Assert.Equal("0", QueryValue(challenge.Url, "max_age"));
+        Assert.Equal("phr mfa", UrlEncodedQuery.Require(challenge.Url, "acr_values"));
+        Assert.Equal("login", UrlEncodedQuery.Require(challenge.Url, "prompt"));
+        Assert.Equal("0", UrlEncodedQuery.Require(challenge.Url, "max_age"));
     }
 
     [Fact]
@@ -141,9 +141,12 @@ public class OidcRoundTripTests
         harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
 
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "acr_values"));
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "prompt"));
-        Assert.Equal(string.Empty, QueryValue(challenge.Url, "max_age"));
+        // Omitted means the name is absent from the query, not present with an empty value: the builder adds
+        // each pair only when its setting is set (OidcFrontChannelParameters), and the copy this file used to
+        // carry could not tell those two apart.
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "acr_values"));
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "prompt"));
+        Assert.Null(UrlEncodedQuery.Find(challenge.Url, "max_age"));
     }
 
     [Fact]
@@ -360,6 +363,40 @@ public class OidcRoundTripTests
     }
 
     [Fact]
+    public async Task Challenge_SendsNoNonce_AndBindsTheCodeWithPkceS256()
+    {
+        // The recorded answer to #1157, held by a test rather than by a sentence, because the two halves
+        // only mean something together.
+        //
+        // This plugin's code flow sends NO authentication-request nonce. Every nonce in the source is a
+        // different thing - the CSP nonce on the interstitial page, the AES-GCM nonce in the secret
+        // envelope, and the logout_token's PROHIBITION under OIDC Back-Channel Logout 2.4 - and none of
+        // them is this one. The authorize request is built by the pinned Duende.IdentityModel.OidcClient,
+        // so what it emits is a property of that package rather than of this repository, and this row
+        // measures it on the real challenge leg instead of quoting a plan comment about the version.
+        //
+        // OIDC Core 1.0 3.1.3.7 rule 11 requires nonce validation only when a nonce was sent, so with none
+        // sent, "missing nonce", "echoed-but-unbound nonce" and "nonce from another request" are assertions
+        // with no subject. What binds the code to this browser instead is PKCE S256 (RFC 9700 2.1.1), which
+        // is the second half asserted here: the pair is the guard, and a row asserting only the absence
+        // would be satisfied by a challenge that bound the code with nothing at all.
+        //
+        // WHAT MAKES THIS WORTH ITS LINE is the day it fails. A nonce appearing on the authorize request
+        // with no validator on the callback is the roadiz shape (CVE-2026-42206): generated, never checked,
+        // and worse than absent because it reads as a control. This row goes red on that day, and its
+        // failure is the signal to build the negatives rather than to relax the assertion.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var harness = BuildHarness(fixture, request => ServeIdp(fixture, request, fixture.IdToken("sub-1", "alice")));
+
+        var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
+
+        Assert.StartsWith(Authority + "/authorize", challenge.Url, StringComparison.Ordinal);
+        Assert.DoesNotContain("nonce", challenge.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("code_challenge=", challenge.Url, StringComparison.Ordinal);
+        Assert.Contains("code_challenge_method=S256", challenge.Url, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ParEnabledButNotAdvertised_ChallengeUsesThePlainRedirect()
     {
         // The compatibility half of the production default: a provider that advertises no PAR endpoint
@@ -430,7 +467,8 @@ public class OidcRoundTripTests
         var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
         Assert.StartsWith(Authority + "/authorize", challenge.Url);
 
-        var state = QueryValue(challenge.Url, "state");
+        // An absent state reads back as empty here, so the assertion below reports it rather than a throw.
+        var state = UrlEncodedQuery.Find(challenge.Url, "state") ?? string.Empty;
         Assert.False(string.IsNullOrEmpty(state));
         var binding = BindingCookie(harness.Controller.Response);
         Assert.False(string.IsNullOrEmpty(binding));
@@ -455,21 +493,6 @@ public class OidcRoundTripTests
         AppName = "Jellyfin Web",
         AppVersion = "1.0",
     };
-
-    // Reads a single query-parameter value out of the challenge's authorization redirect URL.
-    private static string QueryValue(string url, string key)
-    {
-        foreach (var pair in new Uri(url).Query.TrimStart('?').Split('&'))
-        {
-            var kv = pair.Split('=', 2);
-            if (kv.Length == 2 && kv[0] == key)
-            {
-                return Uri.UnescapeDataString(kv[1]);
-            }
-        }
-
-        return string.Empty;
-    }
 
     // Extracts the browser-binding cookie value the challenge wrote to the response's Set-Cookie header.
     private static string BindingCookie(HttpResponse response)

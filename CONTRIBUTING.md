@@ -23,6 +23,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Suggesting Enhancements](#suggesting-enhancements)
   - [Your First Code Contribution](#your-first-code-contribution)
   - [Improving The Documentation](#improving-the-documentation)
+  - [Translating the UI](#translating-the-ui)
 - [Styleguides](#styleguides)
   - [Commit Messages](#commit-messages)
   - [Sign Your Work (DCO)](#sign-your-work-dco)
@@ -151,8 +152,20 @@ Any code editor or IDE with .NET support will work out of the box with this prog
 dotnet restore                               # once on a fresh clone; the --no-restore flags below assume it
 dotnet build --no-restore --warnaserror      # warnings are errors, exactly as in CI
 dotnet test --no-build --verbosity normal    # the xUnit project SSO-Auth.Tests must stay green
+bash scripts/check-lockfiles.sh              # after building: no pinned lockfile may be left modified
 npx prettier --check --end-of-line auto "**/*.{js,html,md,css,scss}"   # for any .js/.html/.md/.css change
 ```
+
+`scripts/check-lockfiles.sh` is the last step because a restore rewrites a
+`packages.lock.json` whenever it resolves a version other than the pinned one,
+and nothing local says so. The usual cause is passing an explicit
+`-p:JellyfinVersion` to an ordinary build: the defaults in
+`SSO-Auth/SSO-Auth.csproj` are conditioned on that property being empty, so any
+value defeats them and the pins are rewritten under you. Left uncommitted it
+resurfaces later as an NU1004 restore failure in CI, which restores in
+`--locked-mode`. The script reports the drifted files and the command that
+restores them; it never reverts or commits anything itself, because the rewritten
+pins are the evidence for what caused the drift.
 
 `--end-of-line auto` is not optional on Windows. Prettier's default is `lf`,
 CI checks out on Linux, and a Windows checkout under `core.autocrlf=true` is
@@ -168,6 +181,31 @@ you need both runtimes' SDKs installed - exactly what CI installs).
 
 CI restores in a separate step, so its build/test use `--no-restore`/`--no-build`; on a fresh local clone run `dotnet restore` once first (or drop `--no-restore` on the first build) or the build fails before any package is fetched.
 
+**The suite needs no administrator rights, on Windows included** (#1227), and a
+change that makes it need them is a defect rather than a step to document. What
+used to break that on Windows was a consent dialog: four tests in
+`SSO-Auth.Tests/Net/SsoHttpTests.cs` reproduce the "IdP on the admin's own LAN"
+case at the socket layer, so they bind a listener to this machine's own
+interface address instead of loopback, and that bind is what Windows Defender
+Firewall asks about. The dialog is answered by an administrator, and its subject
+is the executable's full path rather than the project, so answering it settles
+nothing beyond that one path - every new build directory is asked again. The
+four skip on Windows instead, each printing why, and the Linux legs carry the
+coverage with no opt-in. Run them on Windows deliberately, and expect the
+dialog, with:
+
+```sh
+SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net9.0/SSO-Auth.Tests.exe
+```
+
+Nothing else in the three test-side projects listens off loopback, writes a
+certificate into a store, or shells out to a tool that needs elevation. Before
+adding something that does, check what is there now:
+
+```sh
+git grep -rniE "\.Bind\(|HttpListener|netsh|sc\.exe|runas|X509Store|dev-certs" -- SSO-Auth.Tests SSO-Auth.Tests.Stryker SSO-Auth.Fuzz
+```
+
 **Developing the admin UI.** The settings page and the account-linking page are **embedded resources**, not files served from disk: `configPage.html`, `config.js`, and the `linking.*` assets are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). So the edit loop is **rebuild → redeploy the DLL → restart Jellyfin**: `dotnet publish -c Release`, copy the output into your Jellyfin `config/plugins/sso/`, and restart the server; there is no live reload. Jellyfin's logs (the plugin logs through them) live under the server's `config/log/` directory. One gotcha while iterating: the `/SSOViews` assets are served with an ETag derived from the assembly `FileVersion`, so a browser will `304`-serve the **previous** build of `linking.js`/`linking.css` until the version changes - disable the browser cache (DevTools → Network → "Disable cache") during a UI edit session, or you will be testing stale assets.
 
 **Branching and pull requests.** `main` is the released line and is PR-only. Branch every change - even a one-liner - off `main` for fixes and security work, or off the feature branch for features, using a short kebab-case name with a `fix/`, `harden/`, `feature/`, `chore/`, or `refactor/` prefix. Reference the issue your change addresses (`Closes #N`) and fill in the [pull request template](.github/pull_request_template.md).
@@ -178,13 +216,33 @@ This is a security-sensitive login path: before opening a pull request, understa
 
 We are always open to better docs! The main place documentation could be improved is the [provider setup](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup) documentation. This file keeps track of configurations that are known to work with common SSO providers.
 
+### Translating the UI
+
+The plugin serves two pages of its own, the interstitial login page and the browser error page, and their text comes from per-language JSON catalogs rather than from the C# source. Translating one needs no build and no C# at all.
+
+Supported languages today are English alone, shipped as `SSO-Auth/Localization/en.json`. English is also the invariant fallback: every key exists there, and a lookup walks the requested culture, then its base language, then English, then the key itself, so a string that is missing from a catalog falls back rather than rendering blank.
+
+**To add a language**, copy `en.json` to `SSO-Auth/Localization/<bcp47>.json` (`de.json`, `pt-BR.json`), translate the values, and keep the key set exactly as English has it. Nothing else needs editing: the project file globs `Localization\*.json` into the assembly as embedded resources.
+
+**To fix a translation**, change the value and never the key. Keys are internal identifiers that the served pages reference by name, and no user-supplied or provider-supplied value is ever used as one.
+
+**Keep every `{name}` placeholder** in the value you translate. `SSO-Auth/Web/i18n.js` substitutes them from the parameters the page passes, so a placeholder dropped from a translated string takes its substituted text with it. The reverse is safe: a parameter that is absent at runtime leaves the placeholder standing verbatim rather than blanking the line.
+
+**Some text is deliberately not translated.** Server logs and the audit trail are operator-facing and stay in English; the catalogs are read only by the served pages, so nothing on those paths reaches a translator. Error text that an identity provider interpolated into a message is passed through as it arrived rather than translated, HTML-encoded on the way out.
+
+The standing guard is `SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs`, and it runs in CI on every pull request. A catalog that is not a flat string-to-string map, that carries a blank value, or whose key set diverges from English in either direction (a missing key or an orphan one) fails the build. So an incomplete catalog is caught before it ships rather than discovered by whoever speaks that language.
+
 ## Styleguides
 
 ### Commit Messages
 
 Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
-If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution.
+A commit message may only use printable ASCII plus a short, named set of extra characters: tab, the em and en dash, the ellipsis, the section sign, the rightwards arrow, the greater-than-or-equal sign, and the German letters `ÄÖÜäöüß`. Anything else fails the gate, naming the commit, the code point and the line. The set is an allowlist rather than a list of forbidden characters, because that is the only shape that also refuses a script nobody has thought of yet - the reasoning is Unicode Technical Standard #55 and the Trojan Source work (CVE-2021-42574). Widening it is a deliberate edit of the table in `.github/workflows/pr-hygiene.yml`, where the table also records which characters were measured in the existing history and which one was refused.
+
+The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
+
+If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution. The character check still reports what it finds on your PR, as a note rather than a failure, because a message nobody can read is a problem whoever wrote it.
 
 ### Sign Your Work (DCO)
 

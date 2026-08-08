@@ -4,7 +4,6 @@
 using System;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -59,23 +58,19 @@ internal static class OidcResponseIssuer
     /// </summary>
     /// <param name="discoveryJson">The raw OpenID discovery document JSON.</param>
     /// <returns><c>true</c> only when the parameter is explicitly advertised as <c>true</c>.</returns>
-    internal static bool DiscoveryAdvertisesResponseIssuer(string? discoveryJson)
-    {
-        if (string.IsNullOrWhiteSpace(discoveryJson))
-        {
-            return false;
-        }
+    internal static bool DiscoveryAdvertisesResponseIssuer(string? discoveryJson) =>
+        DiscoveryAdvertisesResponseIssuer(DiscoveryJson.TryParse(discoveryJson));
 
-        try
-        {
-            return JObject.Parse(discoveryJson)["authorization_response_iss_parameter_supported"] is JValue { Type: JTokenType.Boolean } value
-                && value.Value<bool>();
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
+    /// <summary>
+    /// The same flag read off an already-parsed document, so the challenge reads both of its discovery facts
+    /// out of one parse (#1170). Stays tolerant (<c>false</c>) on a null root, exactly as the raw-JSON entry
+    /// point is on absent, blank or malformed input.
+    /// </summary>
+    /// <param name="discovery">The parsed discovery document, or <see langword="null"/> when it could not be parsed.</param>
+    /// <returns><c>true</c> only when the parameter is explicitly advertised as <c>true</c>.</returns>
+    internal static bool DiscoveryAdvertisesResponseIssuer(JObject? discovery) =>
+        discovery?["authorization_response_iss_parameter_supported"] is JValue { Type: JTokenType.Boolean } value
+            && value.Value<bool>();
 
     /// <summary>
     /// The validated id_token's issuer (its <c>iss</c> claim), or null when the token is absent/degenerate.
@@ -107,6 +102,13 @@ internal static class OidcResponseIssuer
         }
         catch (SecurityTokenException)
         {
+            return null;
+        }
+        catch (FormatException)
+        {
+            // A token with more than three segments gets far enough for the library to base64url-decode a
+            // LATER segment, and that decode raises FormatException rather than the malformed-token
+            // ArgumentException above. Unreadable by another name, so it reads as absent like the rest.
             return null;
         }
     }

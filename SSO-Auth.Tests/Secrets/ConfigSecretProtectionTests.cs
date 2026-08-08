@@ -18,7 +18,7 @@ public class ConfigSecretProtectionTests
 {
     private static void WithStore(Action<SecretStore> test)
     {
-        var path = Path.Combine(Path.GetTempPath(), "sso-cfgsec-" + Guid.NewGuid().ToString("N") + ".key");
+        var path = SuiteTempFiles.Path("sso-cfgsec");
         try
         {
             test(new SecretStore(path));
@@ -139,7 +139,7 @@ public class ConfigSecretProtectionTests
     [Fact]
     public void HasAnyEnvelope_ALogoutIdTokenEnvelopeAlone_IsDetected_SoAMissingKeyFailsClosed()
     {
-        var path = Path.Combine(Path.GetTempPath(), "sso-cfgsec-" + Guid.NewGuid().ToString("N") + ".key");
+        var path = SuiteTempFiles.Path("sso-cfgsec");
         try
         {
             // An envelope living ONLY in a captured logout id_token must still be seen as "config holds an
@@ -166,7 +166,7 @@ public class ConfigSecretProtectionTests
     [Fact]
     public void HasAnyEnvelope_ARolloverEnvelopeAlone_IsDetected_SoAMissingKeyFailsClosed()
     {
-        var path = Path.Combine(Path.GetTempPath(), "sso-cfgsec-" + Guid.NewGuid().ToString("N") + ".key");
+        var path = SuiteTempFiles.Path("sso-cfgsec");
         try
         {
             // Encrypt a value so a real envelope exists, place it ONLY in the rollover field, then lose the
@@ -210,7 +210,7 @@ public class ConfigSecretProtectionTests
     [Fact]
     public void ProtectAll_ExistingEnvelopeButMissingKey_FailsClosedWithoutMinting()
     {
-        var path = Path.Combine(Path.GetTempPath(), "sso-cfgsec-" + Guid.NewGuid().ToString("N") + ".key");
+        var path = SuiteTempFiles.Path("sso-cfgsec");
         try
         {
             // Encrypt one secret so a real envelope exists, then lose the key file (restored config, lost key).

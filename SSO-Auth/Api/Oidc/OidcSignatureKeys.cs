@@ -125,6 +125,15 @@ internal static class OidcSignatureKeys
             // Not a readable JWT. The handler rejects it on its own terms; see the remark above.
             return true;
         }
+        catch (FormatException)
+        {
+            // The same case arriving under another name. A token with more than three segments gets far
+            // enough for the library to base64url-decode a LATER segment, and that decode raises
+            // FormatException rather than the malformed-token ArgumentException the line above catches -
+            // so an anonymous caller could turn this gate into a 500. Unreadable is unreadable whichever
+            // exception says so; the handler still owns the refusal.
+            return true;
+        }
 
         return IsAcceptableKeyId(keyId);
     }
@@ -168,6 +177,17 @@ internal static class OidcSignatureKeys
     /// Converts the advertised JWKS into usable signing keys, skipping any key that is null, not a signing
     /// key (<c>use != "sig"</c>), under the RSA size floor (#733), or of un-decodable/invalid material - so
     /// one broken key in the set cannot take down verification against a good one. Never throws.
+    /// <para>
+    /// The <c>kid</c> the PROVIDER advertises is deliberately NOT screened against
+    /// <see cref="IsAcceptableKeyId"/>, and that is a decision rather than an omission (#1029). Every
+    /// exclusion above is a key that cannot do the job; a spelling is not one of them. The two sides of a
+    /// lookup are not symmetric: the token header is the needle and arrives from outside, the advertised
+    /// <c>kid</c> is what the haystack is searched THROUGH, and refusing a key over its alphabet - a
+    /// standard-base64 thumbprint rather than a base64url one is the ordinary case - would take a
+    /// well-behaved provider's signature verification down for nothing the header screen does not already
+    /// stop. The cost that comes with it is that such a key is reachable by trying every advertised key
+    /// but never by name, and <c>OidcSignatureKeysKidTests</c> pins both halves.
+    /// </para>
     /// </summary>
     /// <param name="keySet">The advertised JSON Web Key Set (may be null/empty).</param>
     /// <param name="ephemeralKeys">Collects disposable ECDsa handles for the caller to release.</param>
@@ -198,6 +218,13 @@ internal static class OidcSignatureKeys
     // use!="sig" is not a signing key, and un-decodable/invalid key material is caught and skipped so one
     // broken key in the set cannot take down verification signed by a good one. Returns false - never
     // throws - on every reject path so the caller drops the key without aborting the scan.
+    //
+    // The advertised kid is NOT one of the exclusions, and that is the decided contract rather than a
+    // gap (#1029, #1168): every exclusion above is a key that cannot do the job, and a spelling is not
+    // one of those. The set is also never refused whole over one entry - the odd key is kept, the good
+    // ones beside it keep working, and the token header's own kid is screened separately by
+    // IsAcceptableKeyId before any lookup. OidcSignatureKeysKidTests holds both directions of this,
+    // including what it costs: such a key is reachable by trying every advertised key, never by name.
     private static bool TryConvertSigningKey(Duende.IdentityModel.Jwk.JsonWebKey? webKey, List<IDisposable> ephemeralKeys, [NotNullWhen(true)] out SecurityKey? key)
     {
         key = null;

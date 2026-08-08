@@ -237,8 +237,10 @@ internal sealed class OidcStateStore
 
     /// <summary>
     /// Projects the store to non-secret summaries for the admin debug endpoint. The raw store holds
-    /// the authorize-state token and the PKCE code_verifier / nonce; those must never be serialized
-    /// out, even to an admin. "Valid" is now which variant the entry is: a promoted
+    /// the authorize-state token and the PKCE code_verifier; those must never be serialized
+    /// out, even to an admin. It holds no nonce, and said so here until #1157 measured it: the code flow
+    /// this plugin drives sends none, and a sentence claiming a stored secret that does not exist is the
+    /// kind a later reader builds a validation rule on top of. "Valid" is now which variant the entry is: a promoted
     /// <see cref="AuthorizeSession.Ready"/> is valid, a <see cref="AuthorizeSession.Pending"/> is not.
     /// </summary>
     /// <returns>One summary per in-flight state.</returns>

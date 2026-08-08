@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Duende.IdentityModel.Jwk;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
@@ -45,9 +47,20 @@ internal static class Program
             "saml" => FuzzSamlResponse,
             "discovery" => FuzzOidcDiscovery,
             "idtoken" => FuzzOidcIdToken,
+            "jwks" => FuzzJwks,
             _ => throw new ArgumentException(
-                $"Unknown SSO_FUZZ_TARGET '{target}'. Expected one of: saml, discovery, idtoken."),
+                $"Unknown SSO_FUZZ_TARGET '{target}'. Expected one of: saml, discovery, idtoken, jwks."),
         };
+
+        // Differential mode asks a different question from either mode below, and it is the only one that can
+        // catch a WRONG answer rather than a crash: libFuzzer and smoke both pass any input the target
+        // survives, so a repeated-member walk that quietly returned Clean for every document would look
+        // perfect to both. The driver compares the shipping walk against a second parser family instead.
+        // It needs no libFuzzer runtime, so it runs on any platform (#1188).
+        if (Environment.GetEnvironmentVariable("SSO_FUZZ_DIFFERENTIAL") == "1")
+        {
+            return DiscoveryDifferential.Run(args);
+        }
 
         // Smoke mode replays the seed corpus through the selected target once and exits, WITHOUT libFuzzer.
         // It proves the dispatch + parse wiring runs and that every seed is handled fail-closed (no unmapped
@@ -119,13 +132,20 @@ internal static class Program
         }
     }
 
-    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Both pure readers
-    // that interpret it must fail closed/tolerant on any malformed or hostile document and never throw an
+    // OpenID discovery document: the raw JSON the challenge fetches from the provider. Every pure reader
+    // that interprets it must fail closed/tolerant on any malformed or hostile document and never throw an
     // unmapped exception (they catch only JsonException today).
+    //
+    // StrictJson.Inspect is here because it now runs FIRST on this surface: since #1061 the transport screen
+    // walks the body before either reader below sees it, so a corpus seed that never reached the walk would
+    // be replaying a path production no longer takes. Its own contract is that it never throws - it maps
+    // JsonException, EncoderFallbackException and InvalidOperationException itself - so anything escaping it
+    // is a crasher on the discovery read, which is what this target exists to find (#1188).
     private static void FuzzOidcDiscovery(ReadOnlySpan<byte> data)
     {
         var json = Encoding.UTF8.GetString(data);
 
+        _ = StrictJson.Inspect(json, out _);
         _ = PkceDiscovery.SupportsS256(json);
         _ = OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(json);
     }
@@ -138,6 +158,53 @@ internal static class Program
         var token = Encoding.UTF8.GetString(data);
 
         _ = OidcResponseIssuer.IdTokenIssuer(token);
+    }
+
+    // Provider JWKS: the raw key-set JSON the challenge fetches from the provider's jwks_uri, converted
+    // into the signing keys every verified token is checked against (OidcIdTokenValidator and
+    // OidcLogoutTokenValidator both build their IssuerSigningKeys through OidcSignatureKeys.Convert).
+    // These are provider bytes read before anything is trusted, and unlike the JSON readers above the
+    // conversion touches key MATERIAL - a truncated modulus, an invalid EC point - which throws beyond
+    // the JsonException those readers filter. Convert's own contract is that it never throws: it skips
+    // the unusable key so one bad entry cannot take down verification against a good one. Anything that
+    // escapes it is the finding.
+    private static void FuzzJwks(ReadOnlySpan<byte> data)
+    {
+        var json = Encoding.UTF8.GetString(data);
+
+        JsonWebKeySet keySet;
+        try
+        {
+            keySet = new JsonWebKeySet(json);
+        }
+        catch (Exception)
+        {
+            // The library's own key-set parse, not the plugin's. On the real path it runs inside the
+            // identity library's discovery call, under OidcDiscoveryReader's catch-all, so a throw here
+            // is already fail-closed in production and is not a finding this harness should report.
+            // Measured over ten hostile bodies: System.Text.Json.JsonException for a body that is not a
+            // key set (garbage, truncated, a bare array, "keys" holding a string, a type-confused entry)
+            // and ArgumentNullException for an empty one. The catch is wider than those two because the
+            // property under test starts at Convert; a filter listing them would turn any other library
+            // throw into a crasher this harness would report as a plugin finding.
+            return;
+        }
+
+        // Convert collects disposable ECDsa handles for the caller to release, as the SAML target
+        // disposes its parsed response. Released whatever Convert does, so an iteration cannot leak a
+        // key handle into the next one.
+        var ephemeralKeys = new List<IDisposable>();
+        try
+        {
+            _ = OidcSignatureKeys.Convert(keySet, ephemeralKeys);
+        }
+        finally
+        {
+            foreach (var ephemeralKey in ephemeralKeys)
+            {
+                ephemeralKey.Dispose();
+            }
+        }
     }
 
     private static string CreateSelfSignedCertificateBase64()
