@@ -83,6 +83,44 @@ public class OidcDiscoveryReaderErrorBoundTests
         Assert.DoesNotContain("[truncated]", warning, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AnEightHundredKilobyteMemberName_ReachesNoLogEntryAtAll()
+    {
+        // The other value #1194 names, and the reason the bound above is not also applied to the screen's
+        // refusal entry: that entry carries no provider-authored text, so there is nothing there to bound.
+        // Asserted rather than assumed, because "satisfied by exclusion" stops being true the moment
+        // something starts logging the member name, and #1068 is the issue that may decide to. This row goes
+        // red on that day and makes the bound owed at that call too.
+        var name = new string('m', 800 * 1024);
+        var logger = new CapturingLogger();
+
+        var result = await ReadAsync(logger, RepeatedMember(name));
+
+        Assert.False(result.Available);
+
+        var refusal = Assert.Single(
+            logger.Entries,
+            e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
+        Assert.True(
+            refusal.Message.Length < 1024,
+            $"the refusal entry carries {refusal.Message.Length} characters against an {name.Length}-character provider-authored member name");
+        Assert.DoesNotContain(new string('m', 1024), refusal.Message, StringComparison.Ordinal);
+
+        // And no other entry carries it either, so the name is not merely absent from the entry this row
+        // reads while travelling on the one beside it.
+        Assert.DoesNotContain(
+            logger.Entries,
+            e => e.Message.Contains(new string('m', 1024), StringComparison.Ordinal));
+    }
+
+    // A discovery document naming one member twice, so the screen refuses it on the FIRST leg and the name
+    // is the only thing in it a provider chose to make large.
+    private static string RepeatedMember(string name) =>
+        "{"
+        + $"\"{name}\":\"a\","
+        + $"\"{name}\":\"b\","
+        + $"\"issuer\":\"{Authority}\"}}";
+
     // A discovery document naming the given jwks_uri. Everything else is the smallest set of members the
     // library maps, so the only thing that varies between the two tests is the provider-authored URL.
     private static string JwksUri(string jwks) =>

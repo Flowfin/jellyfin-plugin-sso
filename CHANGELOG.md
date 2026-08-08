@@ -70,6 +70,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An identity provider can no longer write unbounded log through a failed
+  discovery read (#1194).** When a discovery or JWKS fetch failed, the
+  fail-closed warning quoted the identity library's error text whole, and that
+  text names the URL the fetch was connecting to. On the JWKS leg the provider
+  chooses that URL, because its own discovery document named it in `jwks_uri`,
+  so a hostile server could put as much text in the log as it liked, once per
+  anonymous login challenge, with only the 1 MB response cap in the way.
+  Measured before the fix: a document advertising a 200 KB `jwks_uri` produced a
+  205,042-character entry from a single read. The quoted text is now cut at 512
+  characters with a `[truncated]` marker, so a cut entry cannot be mistaken for
+  a whole one, and the endpoint an operator reads the entry to find still
+  survives in every ordinary failure.
+
 - **A back-channel logout that did not happen is now its own audit entry.** When
   an identity provider orders a session termination and the plugin cannot reach
   that provider to verify the request, the termination does not happen and the

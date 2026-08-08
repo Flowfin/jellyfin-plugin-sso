@@ -26,7 +26,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// rejects CR/LF/NUL with a <see cref="FormatException"/>, so a member name spelled with an escaped line feed
 /// would make this handler throw while building its own refusal; and sanitising the name to fit would place a
 /// sanitiser one helper boundary away from the log call, which is exactly what the log-forging invariant
-/// forbids. So the reason phrase is a constant and the member name is logged here, stripped inline.
+/// forbids. So the reason phrase is a constant, and the member name reaches neither the response nor this
+/// handler's own entry: the walk reports it and the call site discards it (#1068 is where logging it is
+/// decided, and what bounding and filtering it would owe). AnEightHundredKilobyteMemberName_ReachesNoLogEntryAtAll
+/// is what holds that, so this paragraph stays a checkable claim rather than a description that drifted.
 /// </summary>
 internal sealed class RepeatedMemberScreen : HttpMessageHandler
 {
