@@ -26,7 +26,7 @@
           </div>
 
           <!--
-            About / notes — compact and collapsible so it does not push the provider workspace below the
+            About / notes, compact and collapsible so it does not push the provider workspace below the
             fold. Presentation-only: the same guidance the page always carried, moved into a native
             emby-collapse (collapsed by default) so the workspace is the first thing an admin sees.
           -->
@@ -159,11 +159,11 @@
           </details>
 
           <!--
-            Config export / import (#161). Export downloads a REDACTED, importable document — the provider
+            Config export / import (#161). Export downloads a REDACTED, importable document: the provider
             secrets and the server-managed canonical-link maps are withheld by the server, so the file carries
             no secret, encrypted envelope, or key. Import merges the document into THIS instance, keeping the
             stored secret and account links of each unchanged provider (an OpenID provider whose endpoint or
-            client id the import changes has its links/secret cleared — the #186 repoint safety measure);
+            client id the import changes has its links/secret cleared, the #186 repoint safety measure);
             because secrets are redacted, they are re-entered on the target after an import. Both endpoints
             require administrator privileges. The download is built from a Blob and the status is rendered with
             textContent (never innerHTML), so no document value reaches the DOM as markup (#221).
@@ -180,12 +180,12 @@
                   configuration (provider secrets and account links are never
                   included). Import merges an exported file into this instance,
                   keeping the stored secret and account links of each unchanged
-                  provider — but if the import gives an OpenID provider a
-                  different discovery endpoint or client id, that provider's
-                  links and secret are cleared (a repoint safety measure), so
-                  review a file before importing it over a live provider.
-                  Re-enter each provider's secret here after importing. Requires
-                  administrator privileges.
+                  provider. If the import gives an OpenID provider a different
+                  discovery endpoint or client id, that provider's links and
+                  secret are cleared (a repoint safety measure), so review a
+                  file before importing it over a live provider. Re-enter each
+                  provider's secret here after importing. Requires administrator
+                  privileges.
                 </div>
 
                 <button
@@ -218,7 +218,7 @@
           </form>
 
           <!--
-            Login-page buttons (#722) — GLOBAL setting. ManageLoginPageButtons lives on the root
+            Login-page buttons (#722): GLOBAL setting. ManageLoginPageButtons lives on the root
             PluginConfiguration, not on a provider, so it deliberately sits OUTSIDE both provider forms
             and carries NO sso-* marker class: it is saved by its own handler (config.js
             saveLoginButtons), which re-posts the whole configuration with only this flag changed, and
@@ -247,7 +247,7 @@
                   <div class="fieldDescription checkboxFieldDescription">
                     Off by default: the plugin never touches the server's login
                     branding unless you opt in here. When on, a managed "Sign in
-                    with …" block — one button per enabled provider — is spliced
+                    with …" block, one button per enabled provider, is spliced
                     into the login page's branding disclaimer and refreshed
                     whenever this plugin's configuration is saved (and at server
                     start). When off, only that managed block is removed; any
@@ -270,8 +270,8 @@
           </form>
 
           <!--
-            Single Logout (#727) — GLOBAL setting. EnableSingleLogout lives on the root PluginConfiguration,
-            not on a provider, so — like ManageLoginPageButtons above — it sits OUTSIDE both provider forms and
+            Single Logout (#727): GLOBAL setting. EnableSingleLogout lives on the root PluginConfiguration,
+            not on a provider, so, like ManageLoginPageButtons above, it sits OUTSIDE both provider forms and
             carries NO sso-* marker class: it is saved by its own handler (config.js saveSingleLogout), which
             re-posts the whole configuration with only this flag changed, and loaded by loadConfiguration. The
             per-provider return URL (PostLogoutRedirectUri) is an ordinary persisting provider-form field in
@@ -328,7 +328,7 @@
             each saved OpenID provider is a card (name + type badge + enabled/disabled pill); clicking a card
             loads it into the editor below. The hidden <select id="selectProvider"> is retained as the state
             holder the save path already reads (config.js saveProvider sets its value after a save), so the
-            serializer contract is unchanged — only the visible affordance moved from a dropdown to cards.
+            serializer contract is unchanged; only the visible affordance moved from a dropdown to cards.
           -->
           <form id="sso-load-config" class="esqConfigurationForm">
             <div class="verticalSection">
@@ -410,13 +410,13 @@
           </form>
 
           <!--
-            Provider settings form — the save contract (#365). Each input here that must persist carries a
+            Provider settings form: the save contract (#365). Each input here that must persist carries a
             behavior-marker class (sso-text / sso-line-list / sso-toggle / sso-folder-list / sso-role-map)
             AND an id spelled EXACTLY like the OidConfig property it writes to: config.js saveProvider does
             current_config[element.id] = value, and the server drops JSON members that are not OidConfig
             properties. A field with a mismatched id, a missing marker class, or placed outside this form
             renders but silently never saves. The provider-name input is the one deliberate non-persisting
-            field — it supplies the OidConfigs dictionary key, not a property — so it carries no marker
+            field (it supplies the OidConfigs dictionary key, not a property), so it carries no marker
             class. Locked in by ArchitectureConformanceTests.ProviderFormFieldIds_MatchOidConfigProperties.
 
             The editor is chunked into native emby-collapse accordion sections (Connection, User provisioning,
@@ -430,8 +430,8 @@
             <div class="sso-editor" id="sso-editor" hidden>
               <div class="sso-editor-header">
                 <!--
-                  Deliberately carries NO data-i18n marker (#913): config.js OWNS this heading — it writes
-                  the loaded provider's name here (setEditorTitle) — and the catalog is applied
+                  Deliberately carries NO data-i18n marker (#913): config.js OWNS this heading, since it writes
+                  the loaded provider's name here (setEditorTitle), and the catalog is applied
                   asynchronously. A marker would let a late applyTo() overwrite "keycloak-prod" with
                   "New provider" over an editor that actually has a provider loaded, and the Save path
                   targets the loaded provider without a name-bearing confirmation. The blank-editor
@@ -512,7 +512,7 @@
               >
                 <div class="collapseContent">
                   <!--
-                    Why this label — and every field label that wraps a required/optional hint — carries no
+                    Why this label, and every field label that wraps a required/optional hint, carries no
                     data-i18n marker (#913): the marker REPLACES an element's textContent, so a marker here
                     would delete the nested <span class="sso-required">*</span> the moment the catalog
                     resolves, silently dropping the required indicator from a rendered page (it would still
@@ -600,7 +600,7 @@
                       aria-live="polite"
                     ></div>
                     <div class="fieldDescription" id="OidRedirectUri-help">
-                      The exact redirect URI the login uses — register it
+                      The exact redirect URI the login uses. Register it
                       verbatim at your identity provider. It updates as you type
                       the provider name above. Derived from the
                       <strong>Base URL Override</strong> (in the Advanced
@@ -815,7 +815,7 @@
                       button. Leave blank to use the provider name. Only takes
                       effect while the global "Manage login buttons on the login
                       page" option is on and the button is not hidden; any text
-                      is safe — it is always rendered inert, never as markup.
+                      is safe: it is always rendered inert, never as markup.
                     </div>
                   </div>
 
@@ -1051,7 +1051,7 @@
                         "&lt;domain&gt;"}}</code
                       >
                       under <code>urn:zitadel:iam:org:project:roles</code>. Only
-                      the names are read — never the values, never nested
+                      the names are read, never the values, never nested
                       objects. Off by default; leave it off for a provider that
                       returns a list (Keycloak, Authelia, authentik).
                     </div>
@@ -1089,8 +1089,8 @@
                       If a user has any of these roles, then the user is
                       authenticated. This validates the OpenID response against
                       the claim set in <strong>"RoleClaim"</strong>. (If your
-                      provider — Zitadel does this — carries the roles as object
-                      keys, also tick "Role claim is an object map" beside the
+                      provider carries the roles as object keys, as Zitadel
+                      does, also tick "Role claim is an object map" beside the
                       Role Claim field.)
                       <br />
                       Leave blank to disable role checking.
@@ -1499,8 +1499,8 @@
                       from the request Host header; behind a reverse proxy that
                       is only safe if Jellyfin's Known Proxies is set and the
                       proxy sends a trusted X-Forwarded-Host (not a
-                      client-supplied one) — setting this override is the robust
-                      fix. This is the base URL, not the redirect URI — register
+                      client-supplied one). Setting this override is the robust
+                      fix. This is the base URL, not the redirect URI; register
                       <code
                         >&lt;this
                         URL&gt;/sso/OID/redirect/&lt;ProviderName&gt;</code
@@ -1562,7 +1562,7 @@
                       />
                       <div class="fieldDescription">
                         Space-separated acr_values sent on the authorization
-                        request (OIDC Core §3.1.2.1), most-preferred first — the
+                        request (OIDC Core §3.1.2.1), most-preferred first: the
                         requested authentication-context references (e.g. an MFA
                         reference your IdP advertises). Leave blank to send
                         nothing (unchanged request). Also the allow-list Require
@@ -1597,7 +1597,7 @@
                         class="sso-text"
                       />
                       <div class="fieldDescription">
-                        OIDC max_age — the maximum time (seconds) since the
+                        OIDC max_age: the maximum time (seconds) since the
                         user's last active authentication; <code>0</code> forces
                         re-authentication. Leave blank to omit it.
                       </div>
@@ -1617,7 +1617,7 @@
                       </label>
                       <div class="fieldDescription checkboxFieldDescription">
                         Refuse any login whose verified id_token does not return
-                        an acr within Acr Values above — a fail-closed step-up /
+                        an acr within Acr Values above: a fail-closed step-up /
                         forced-MFA gate. Off by default. Requires Acr Values to
                         be set (the save is rejected otherwise, so a mis-set
                         cannot lock out a userbase). The break-glass password
@@ -1688,8 +1688,8 @@
                         account by enabling it in the Jellyfin dashboard
                         (Administration → Users). Off by default (new accounts
                         are created enabled). This never disables an existing or
-                        adopted account — only a brand-new one — and each
-                        deferred provisioning is recorded as an audit event.
+                        adopted account, only a brand-new one, and each deferred
+                        provisioning is recorded as an audit event.
                       </div>
                     </div>
 
@@ -1740,8 +1740,8 @@
                       <div class="fieldDescription checkboxFieldDescription">
                         ⚠ Sensitive: requires every OpenID login for this
                         provider to carry a provider-verified email
-                        (email_verified == true) — whether it adopts, creates,
-                        or signs in to an already-linked account — not only the
+                        (email_verified == true), whether it adopts, creates, or
+                        signs in to an already-linked account, not only the
                         adoption moment above. A login whose email_verified is
                         not exactly true (absent, false, or unparseable) is
                         refused. Needs the email scope so the provider actually
@@ -1927,7 +1927,7 @@
                 Test-connection (#163). No sso-* marker class: this button and the result container are
                 not persisting provider fields, so listArgumentsByType/saveProvider must not pick them up
                 and the ProviderFormFieldIds_MatchOidConfigProperties contract does not apply to them. The
-                test validates the SAVED provider — it reads the stored config server-side — so save first.
+                test validates the SAVED provider, reading the stored config server-side, so save first.
               -->
               <div class="sso-test-block">
                 <button
@@ -1967,7 +1967,7 @@
           </form>
 
           <!--
-            SAML provider workspace (#725) — a second, independent workspace parallel to the OpenID one above.
+            SAML provider workspace (#725): a second, independent workspace parallel to the OpenID one above.
             To keep every element id unique in the document (an HTML requirement) while still driving the save
             contract off the id, every SAML persisting field carries a "saml-" PREFIXED id AND the marker class:
             config.js's SAML save path writes current_config[id.slice("saml-".length)] = value, so the property
@@ -2072,7 +2072,7 @@
               </p>
 
               <!--
-                Start from a template (#726) — the SAML counterpart of the OpenID picker above.
+                Start from a template (#726): the SAML counterpart of the OpenID picker above.
                 Non-persisting (no marker class); options populated from SAML_PRESETS in config.js.
                 Pre-fills only the non-secret endpoint placeholder; never a signing key, never auto-saves.
               -->
@@ -2224,7 +2224,7 @@
                       hidden
                     ></div>
                     <div class="fieldDescription">
-                      The identity provider's Single Sign-On URL — where the
+                      The identity provider's Single Sign-On URL, where the
                       browser is redirected to authenticate.
                     </div>
                   </div>
@@ -2249,7 +2249,7 @@
                       hidden
                     ></div>
                     <div class="fieldDescription">
-                      The identity provider's Single-Logout (SLO) URL — a
+                      The identity provider's Single-Logout (SLO) URL, a
                       distinct endpoint from the SSO endpoint above, where the
                       browser is redirected with a signed SP-initiated
                       LogoutRequest. Must be an absolute https URL. Leave blank
@@ -2283,7 +2283,7 @@
                       hidden
                     ></div>
                     <div class="fieldDescription">
-                      This service provider's entity id — the value the plugin
+                      This service provider's entity id: the value the plugin
                       sends as the AuthnRequest issuer and expects as the
                       audience. You choose it and register it at the IdP; it is
                       also the SP entityID shown below.
@@ -2313,7 +2313,7 @@
                     ></div>
                     <div class="fieldDescription">
                       The identity provider's PUBLIC signing certificate as
-                      Base64 (DER) — the value between the PEM
+                      Base64 (DER): the value between the PEM
                       <code>BEGIN/END CERTIFICATE</code> lines, or the whole
                       PEM. Used to verify the SAML response signature.
                     </div>
@@ -2385,7 +2385,7 @@
                       aria-live="polite"
                     ></div>
                     <div class="fieldDescription">
-                      This service provider's metadata document — many IdPs can
+                      This service provider's metadata document. Many IdPs can
                       import it by URL instead of hand-configuring the ACS and
                       entityID. The SP entityID it advertises is the SAML Client
                       ID above.
@@ -2447,7 +2447,7 @@
                       button. Leave blank to use the provider name. Only takes
                       effect while the global "Manage login buttons on the login
                       page" option is on and the button is not hidden; any text
-                      is safe — it is always rendered inert, never as markup.
+                      is safe: it is always rendered inert, never as markup.
                     </div>
                   </div>
                 </div>

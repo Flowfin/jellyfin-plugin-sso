@@ -1,5 +1,5 @@
 // The shared localization module (#913), set once its dynamic import resolves in localize() below.
-// Until then — and permanently if the load fails — tr() returns the caller's built-in English, so the
+// Until then, and permanently if the load fails, tr() returns the caller's built-in English, so the
 // page never renders a bare catalog key.
 let i18n = null;
 
@@ -9,18 +9,18 @@ function tr(key, englishDefault, params) {
   return i18n ? i18n.t(key, params, englishDefault) : englishDefault;
 }
 
-// Provider templates (#726) — the single source of truth for the "Start from a template" pickers.
+// Provider templates (#726): the single source of truth for the "Start from a template" pickers.
 // Applying a preset writes ONLY into existing marker-classed fields by their id (OpenID: the property
 // name; SAML: "saml-" + the property name) and pre-checks ONLY the compatibility toggles a given IdP
 // genuinely needs. Presets are plain data so they are trivial to extend and to lock in with a fitness
 // test (ProviderPresets_* in ArchitectureConformanceTests): every `fields` key / `toggles` entry must be
 // a real config property, no preset may fill a secret, and toggles may only pre-check a known
-// compatibility toggle. `fields` values are non-secret placeholders — endpoints use an example host and
+// compatibility toggle. `fields` values are non-secret placeholders: endpoints use an example host and
 // UPPERCASE tokens the admin replaces (realm/tenant/domain), never a hard-coded production host, so they
-// never go stale. OidScopes holds the ADDITIONAL scopes only (one per line) — the server always prepends
+// never go stale. OidScopes holds the ADDITIONAL scopes only (one per line); the server always prepends
 // "openid profile", so a preset lists just what a provider needs on top (e.g. "email", or "email\ngroups"
 // where roles ride a groups scope), never "openid"/"profile" again. Every OpenID preset sets the SAME four
-// fields (blank where a provider has none), so switching templates is idempotent — no stale value survives;
+// fields (blank where a provider has none), so switching templates is idempotent, and no stale value survives;
 // ProviderPresets_OidcPresetsShareTheSameFieldKeySet locks that shared-key-set invariant in.
 const OIDC_PRESETS = {
   keycloak: {
@@ -60,7 +60,7 @@ const OIDC_PRESETS = {
   },
   zitadel: {
     label: "Zitadel",
-    note: "Zitadel project application. Its roles arrive as an OBJECT whose keys are the role names, so 'Role claim is an object map' is pre-checked — without it no role can ever match. The project must have 'Assert Roles on Authentication' on, and the application 'User roles inside ID Token', or the role claim is absent entirely. Replace YOUR_INSTANCE in the endpoint.",
+    note: "Zitadel project application. Its roles arrive as an OBJECT whose keys are the role names, so 'Role claim is an object map' is pre-checked; without it no role can ever match. The project must have 'Assert Roles on Authentication' on, and the application 'User roles inside ID Token', or the role claim is absent entirely. Replace YOUR_INSTANCE in the endpoint.",
     fields: {
       OidEndpoint:
         "https://YOUR_INSTANCE.zitadel.cloud/.well-known/openid-configuration",
@@ -84,7 +84,7 @@ const OIDC_PRESETS = {
   },
   google: {
     label: "Google",
-    note: "Google issues no group or role claim, so Roles is left blank — grant access with folder/role mapping or leave it open. Endpoint validation is relaxed because Google's discovery document does not list every endpoint the strict check expects.",
+    note: "Google issues no group or role claim, so Roles is left blank: grant access with folder/role mapping or leave it open. Endpoint validation is relaxed because Google's discovery document does not list every endpoint the strict check expects.",
     fields: {
       OidEndpoint:
         "https://accounts.google.com/.well-known/openid-configuration",
@@ -96,7 +96,7 @@ const OIDC_PRESETS = {
   },
   auth0: {
     label: "Auth0",
-    note: "Auth0 application. Roles require a custom claim added by an Auth0 Action/Rule under a namespace you choose — set RoleClaim to that namespaced claim (e.g. https://your-app/roles). Replace YOUR_TENANT in the endpoint.",
+    note: "Auth0 application. Roles require a custom claim added by an Auth0 Action/Rule under a namespace you choose. Set RoleClaim to that namespaced claim (e.g. https://your-app/roles). Replace YOUR_TENANT in the endpoint.",
     fields: {
       OidEndpoint:
         "https://YOUR_TENANT.us.auth0.com/.well-known/openid-configuration",
@@ -155,7 +155,7 @@ const SAML_PRESETS = {
 
 // The compatibility/insecure toggles a preset is ALLOWED to pre-check. A preset never pre-checks a
 // fail-closed HARDENING toggle (RequirePkce, RequireVerifiedEmail*, RequireAcr, SAML ValidateRecipient/
-// ValidateInResponseTo/SignAuthnRequests) — enabling those is a deliberate admin decision, and silently
+// ValidateInResponseTo/SignAuthnRequests), because enabling those is a deliberate admin decision, and silently
 // turning them on could lock out a not-yet-ready IdP. This set is also what applyOidcPreset/applySamlPreset
 // clear before applying, so switching templates never leaves a previous preset's toggle checked.
 const OIDC_PRESET_MANAGED_TOGGLES = [
@@ -165,11 +165,11 @@ const OIDC_PRESET_MANAGED_TOGGLES = [
   "DoNotValidateResponseIssuer",
   "DisableHttps",
   "DoNotLoadProfile",
-  // Not an insecure toggle — it names the SHAPE of the RoleClaim path's terminal (#934). It is here because
+  // Not an insecure toggle: it names the SHAPE of the RoleClaim path's terminal (#934). It is here because
   // every preset sets RoleClaim, so leaving a previous provider's shape flag ticked while the claim path is
   // replaced by an array-shaped one (Keycloak's realm_access.roles) would extract ZERO roles and lock the
   // whole userbase out on the next login. Clearing is correct for every shipped preset; a future
-  // object-map preset can pre-check it from its own `toggles` — the Zitadel preset above does exactly that.
+  // object-map preset can pre-check it from its own `toggles`; the Zitadel preset above does exactly that.
   "RoleClaimIsObjectMap",
 ];
 const SAML_PRESET_MANAGED_TOGGLES = ["DoNotValidateAudience"];
@@ -194,7 +194,7 @@ const ssoConfigurationPage = {
   // (RequireVerifiedEmailForAdoption, RequireVerifiedEmailForLogin, RequirePkce): those are OFF by default
   // and enabling them makes the provider MORE secure, so flagging or force-surfacing them would be
   // backwards and would cause alert fatigue on well-configured providers. Do not add an OFF-direction
-  // surfacing for them either — it would be noisy on the default.
+  // surfacing for them either: it would be noisy on the default.
   sensitiveFieldIds: ["AllowExistingAccountLink"],
   loadConfiguration: (page) => {
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
@@ -245,7 +245,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.renderProviderCards(page, providers);
   },
   // Render the provider LIST as cards (#365). Built with createElement/textContent (never innerHTML) so a
-  // provider name is inert on the page — a name like `<img onerror=...>` cannot inject markup — mirroring
+  // provider name is inert on the page (a name like `<img onerror=...>` cannot inject markup), mirroring
   // _populateFolders and the linking view (#221). Clicking a card loads that provider into the editor.
   renderProviderCards: (page, providers) => {
     const list = page.querySelector("#sso-provider-list");
@@ -284,7 +284,7 @@ const ssoConfigurationPage = {
 
       // Flag a provider that carries an active insecure / sensitive setting, so an admin sees the downgrade
       // in the list without opening the editor (the setting itself lives behind the collapsed
-      // "Security & hardening" accordion). Presentation only — the flag reads from the saved config and
+      // "Security & hardening" accordion). Presentation only: the flag reads from the saved config and
       // changes nothing.
       const flagged = ssoConfigurationPage.insecureFieldIds
         .concat(ssoConfigurationPage.sensitiveFieldIds)
@@ -313,7 +313,7 @@ const ssoConfigurationPage = {
   },
   // Load a card into the editor and reveal it. resetEditor gives a CLEAN SLATE first (the same way
   // addProvider does) so no field, toggle, or collapse state from the previously loaded provider can bleed
-  // into this one — a text/array field the target provider does not set must not keep the previous
+  // into this one: a text/array field the target provider does not set must not keep the previous
   // provider's value, or a later save would silently persist it (e.g. repoint OidEndpoint with no edit).
   // loadProvider then fills the target provider's actual values on top and re-syncs visibility at its tail.
   openProvider: (page, provider_name) => {
@@ -326,7 +326,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.loadProvider(page, provider_name);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
   },
-  // Open a blank editor for a NEW provider. Every toggle is reset OFF (fail closed) — the same security
+  // Open a blank editor for a NEW provider. Every toggle is reset OFF (fail closed), the same security
   // posture loadProvider enforces when switching providers, so a stale insecure toggle from a previous
   // edit can never be carried into a new provider and silently saved.
   addProvider: (page) => {
@@ -388,7 +388,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.renderPresetNote(page, "OidPreset-note", "");
   },
   // Return every accordion section INSIDE the editor to its authored default collapse state (the sections
-  // with data-expanded="true" open, the rest — including "Security & hardening" — collapsed). Scoped to
+  // with data-expanded="true" open, the rest, including "Security & hardening", collapsed). Scoped to
   // #sso-editor so the page-level About / Export collapses are untouched.
   resetEditorSections: (page) => {
     const editor = page.querySelector("#sso-editor");
@@ -405,7 +405,7 @@ const ssoConfigurationPage = {
   // Drive an emby-collapse to a definite expanded/collapsed state. The host component tracks its open state
   // as the boolean `expanded` PROPERTY on its `.collapseContent` element and flips it by a click of the
   // generated `.emby-collapsible-button` (its own click handler runs the slide + hide-class toggle). We read
-  // that property and click only when it differs from the target, so this is idempotent — clicking an
+  // that property and click only when it differs from the target, so this is idempotent: clicking an
   // already-open section would wrongly collapse it. Null-guarded so it degrades to a no-op (rather than
   // throwing) if the section has not been upgraded yet or the host markup changes.
   setCollapseExpanded: (section, expanded) => {
@@ -464,7 +464,7 @@ const ssoConfigurationPage = {
     // disabled or an account-adoption path is widened. The "Security & hardening" accordion is collapsed by
     // default, and the insecure toggles are additionally behind a "Show insecure options" list, so a
     // downgrade on a loaded provider would otherwise be invisible behind two collapsed layers. Expand BOTH
-    // the enclosing accordion section AND, for the insecure subset, the inner list. Expand-only — it never
+    // the enclosing accordion section AND, for the insecure subset, the inner list. Expand-only: it never
     // AUTO-HIDES a set option; resetEditor returns the section to its default when switching to a provider
     // that has none.
     const isChecked = (id) => {
@@ -559,7 +559,7 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Uses http:// — discovery would be unencrypted. Prefer an https:// endpoint.",
+        "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
       );
       return;
     }
@@ -599,12 +599,12 @@ const ssoConfigurationPage = {
       );
       return;
     }
-    // Full origin only — no path, query or fragment (this is the base URL, not the redirect URI).
+    // Full origin only: no path, query or fragment (this is the base URL, not the redirect URI).
     if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter the base URL only (no path) — e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+        "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
       );
       return;
     }
@@ -694,7 +694,7 @@ const ssoConfigurationPage = {
       const out = document.createElement("label");
       // Tag the row with the class the re-render cleanup (querySelectorAll above) removes, so a
       // second populate deterministically clears the old rows instead of relying on the
-      // emby-checkbox upgrade to add it — otherwise folder IDs could be duplicated on re-populate.
+      // emby-checkbox upgrade to add it; otherwise folder IDs could be duplicated on re-populate.
       out.classList.add("emby-checkbox-label");
 
       // createElement's `is` option upgrades the customized built-in; the attribute is set as well
@@ -799,7 +799,7 @@ const ssoConfigurationPage = {
   // The provider form's save contract, made explicit (#365): every input in #sso-new-oidc-provider
   // that should persist carries an sso-* class AND an id spelled EXACTLY like the OidConfig property it
   // writes to (saveProvider does current_config[element.id] = value). A field with the wrong id, a
-  // missing sso-* class, or placed outside this form renders fine but silently never saves — and the
+  // missing sso-* class, or placed outside this form renders fine but silently never saves, and the
   // server drops unknown JSON members too. The ArchitectureConformanceTests
   // ProviderFormFieldIds_MatchOidConfigProperties test locks this in: it fails the build if any
   // sso-*-classed field id is not a real OidConfig property.
@@ -883,7 +883,7 @@ const ssoConfigurationPage = {
           // Always set the checkbox from the loaded provider so switching providers
           // resets stale toggles. Setting it only when truthy left a previous
           // provider's checked box in place, which a later save could silently
-          // persist as true — a security downgrade for toggles like
+          // persist as true, a security downgrade for toggles like
           // DoNotValidateEndpoints / DisableHttps.
           page.querySelector("#" + id).checked = Boolean(provider[id]);
         });
@@ -904,8 +904,8 @@ const ssoConfigurationPage = {
     );
   },
   // Computes the exact redirect_uri the login uses, so the admin can register it verbatim at the IdP (#724).
-  // Mirrors the server-side build (OidcRedirectUriBuilder): the canonical base — the Base URL Override when
-  // set, else this server's address — plus the fixed /sso/OID/redirect/<provider> path. The provider name is
+  // Mirrors the server-side build (OidcRedirectUriBuilder): the canonical base (the Base URL Override when
+  // set, else this server's address) plus the fixed /sso/OID/redirect/<provider> path. The provider name is
   // appended raw (names are validated to exclude URI-reserved characters, #336), matching the server, which
   // appends the route-decoded name without re-encoding so the string equals the login's byte-for-byte.
   computeRedirectUri: (page, providerName) => {
@@ -915,7 +915,7 @@ const ssoConfigurationPage = {
     try {
       // Mirror the server's CanonicalBaseUrl (System.Uri.GetLeftPart(UriPartial.Path)) so the shown value
       // equals what the login sends: `origin` lowercases scheme + host AND elides the default port
-      // (443/80) — exactly as System.Uri does — while pathname keeps any sub-path; query/fragment are
+      // (443/80), exactly as System.Uri does, while pathname keeps any sub-path; query/fragment are
       // dropped and the trailing slash trimmed. A raw string strip alone would show a non-canonical override
       // (e.g. `https://X.COM:443`) that the login then normalizes away, causing a redirect_uri mismatch.
       const u = new URL(raw);
@@ -962,7 +962,7 @@ const ssoConfigurationPage = {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(
         () => announce("Redirect URI copied to the clipboard."),
-        () => announce("Copy failed — select the field and copy it manually."),
+        () => announce("Copy failed. Select the field and copy it manually."),
       );
       return;
     }
@@ -979,7 +979,7 @@ const ssoConfigurationPage = {
     announce(
       ok
         ? "Redirect URI copied to the clipboard."
-        : "Copy failed — select the field and copy it manually.",
+        : "Copy failed. Select the field and copy it manually.",
     );
   },
   deleteProvider: (page, provider_name) => {
@@ -1011,7 +1011,7 @@ const ssoConfigurationPage = {
           },
           // Report a genuine save failure rather than swallowing it. The delete
           // re-posts the whole configuration, so the server can now reject it for
-          // a reason unrelated to this delete — e.g. a different provider whose
+          // a reason unrelated to this delete, e.g. a different provider whose
           // reserved-character name became "new" because it was removed from the
           // live config in the meantime (#336). Without this the PUT would reject
           // silently and the provider would appear undeleted with no explanation.
@@ -1028,11 +1028,11 @@ const ssoConfigurationPage = {
   },
   // Save the GLOBAL login-page buttons opt-in (#722). ManageLoginPageButtons is a root
   // PluginConfiguration flag, so this fetches the live configuration, changes ONLY this flag, and
-  // re-posts the whole document — the provider dictionaries and every other root setting ride along
+  // re-posts the whole document: the provider dictionaries and every other root setting ride along
   // unchanged, exactly as the provider save/delete paths do. The server reacts to the saved
   // configuration itself (LoginButtonManager listens for the configuration change), so no extra
-  // endpoint call is needed: on save the managed block is injected/refreshed, or — with the flag
-  // off — only the managed region is removed and the admin's own branding is preserved.
+  // endpoint call is needed: on save the managed block is injected/refreshed, or, with the flag
+  // off, only the managed region is removed and the admin's own branding is preserved.
   saveLoginButtons: (page) => {
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
@@ -1063,7 +1063,7 @@ const ssoConfigurationPage = {
     );
   },
   // Save the GLOBAL Single Logout opt-in (#727). EnableSingleLogout is a root PluginConfiguration flag, so
-  // — exactly like saveLoginButtons — this fetches the live configuration, changes ONLY this flag, and
+  // this fetches the live configuration exactly like saveLoginButtons, changes ONLY this flag, and
   // re-posts the whole document, so the provider dictionaries and every other root setting ride along
   // unchanged. The per-provider post-logout redirect URL is saved with its provider, not here.
   saveSingleLogout: (page) => {
@@ -1166,7 +1166,7 @@ const ssoConfigurationPage = {
   },
   // Test-connection (#163). Calls the elevation-gated OID/Test endpoint for the SAVED provider and renders
   // the result. The endpoint reads the stored config server-side, fetches the discovery document over the
-  // login's hardened path, and returns only non-secret facts (issuer, endpoints, JWKS reachability) — the
+  // login's hardened path, and returns only non-secret facts (issuer, endpoints, JWKS reachability); the
   // client secret is never sent back. Everything is rendered with createElement/textContent (never
   // innerHTML) so a reflected issuer/endpoint string cannot inject markup, matching linking.js and
   // _populateFolders (#221).
@@ -1187,7 +1187,7 @@ const ssoConfigurationPage = {
     ).then(
       (result) => ssoConfigurationPage.renderTestResult(container, result),
       // A rejection is a transport/authorization failure or an unconfigured provider (404). Keep the
-      // message generic and actionable — it never reflects a server-side secret.
+      // message generic and actionable: it never reflects a server-side secret.
       () =>
         ssoConfigurationPage.renderTestMessage(
           container,
@@ -1229,7 +1229,7 @@ const ssoConfigurationPage = {
     container.appendChild(list);
   },
   // Config export (#161). Fetches the redacted export document from the elevation-gated endpoint (the
-  // server withholds every secret and account-link map) and saves it as a JSON file via a Blob download —
+  // server withholds every secret and account-link map) and saves it as a JSON file via a Blob download,
   // never navigation, so the admin's auth header is sent and no secret is placed in a URL. The filename is
   // fixed text; nothing from the document reaches the DOM as markup.
   exportConfig: (page) => {
@@ -1264,7 +1264,7 @@ const ssoConfigurationPage = {
   // Config import (#161). Reads the chosen file as text, parses it locally (a parse error is reported, never
   // applied), and POSTs it to the elevation-gated import endpoint. The server validates and merges it
   // fail-closed, keeping each unchanged provider's stored secret and links (an OpenID provider whose
-  // endpoint/client id the import changes has its links/secret cleared — the #186 repoint safety measure).
+  // endpoint/client id the import changes has its links/secret cleared, the #186 repoint safety measure).
   // On success the provider list is reloaded so the merged providers appear; the admin re-enters secrets.
   importConfig: (page, file) => {
     const container = page.querySelector("#ConfigTransferResult");
@@ -1294,7 +1294,7 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.loadConfiguration(page);
         ssoConfigurationPage.renderTransferMessage(
           container,
-          "Imported. Re-enter each provider's secret and save it — secrets are never included in an export.",
+          "Imported. Re-enter each provider's secret and save it; secrets are never included in an export.",
         );
       })
       .catch((e) => {
@@ -1324,12 +1324,12 @@ const ssoConfigurationPage = {
 
   // Localize the page's own labels (#913). Jellyfin core serves this configuration page from its own
   // URL base, so a relative import would not resolve to the plugin's assets; load the shared applier
-  // from its absolute SSOViews URL — the same module the linking page uses — rather than duplicating
+  // from its absolute SSOViews URL, the same module the linking page uses, rather than duplicating
   // it here.
   //
   // Localization is strictly best-effort and must never take the page down with it: init calls this
   // BEFORE it wires the Save/Delete/Test handlers, so an escaping error would leave a fully rendered
-  // but inert admin page. The try/catch is load-bearing and NOT redundant with the .catch below —
+  // but inert admin page. The try/catch is load-bearing and NOT redundant with the .catch below:
   // ApiClient.getUrl throws SYNCHRONOUSLY on a missing server address, while the argument is evaluated,
   // so no promise exists yet for .catch to see. Either way the markup keeps its built-in English.
   localize: (view) => {
@@ -1348,7 +1348,7 @@ const ssoConfigurationPage = {
   },
 
   // ---- Provider templates (#726) ----
-  // Fill a preset picker's options from its catalog (createElement/textContent — the labels are our own
+  // Fill a preset picker's options from its catalog (createElement/textContent; the labels are our own
   // fixed strings, but building them inertly keeps the one-DOM-construction idiom). The leading blank
   // "Choose a template" option authored in the HTML is preserved.
   populatePresetPicker: (page, selectId, presets) => {
@@ -1452,7 +1452,7 @@ const ssoConfigurationPage = {
   // SAML provider workspace (#725)
   // ----------------------------------------------------------------------------
   // A lifecycle parallel to the OpenID one above, kept entirely separate so the OpenID workspace and its
-  // JS are untouched (there is no JS runtime test harness — the adversarial review is the primary
+  // JS are untouched (there is no JS runtime test harness; the adversarial review is the primary
   // verification, so isolation is the cheapest correctness guarantee). Every SAML persisting field id is
   // its SamlConfig property spelled with a "saml-" PREFIX (ids must be unique across the whole document,
   // and the OpenID fields already own the unprefixed spellings); the property is the id minus that prefix,
@@ -1468,7 +1468,7 @@ const ssoConfigurationPage = {
   // insecureFieldIds/sensitiveFieldIds for OpenID). DoNotValidateAudience disables the AudienceRestriction
   // check; AllowExistingAccountLink widens account adoption. Property names (no prefix): the flag is read
   // from the saved config (provider[prop]) and, when checking the live checkbox, queried as "#saml-"+prop.
-  // ProvisionNewUsersDisabled is deliberately NOT flagged — it is a fail-closed hardening toggle (ON is
+  // ProvisionNewUsersDisabled is deliberately NOT flagged: it is a fail-closed hardening toggle (ON is
   // MORE secure), so surfacing it would be backwards and cause alert fatigue, exactly as for OpenID.
   samlInsecureFieldIds: ["DoNotValidateAudience"],
   samlSensitiveFieldIds: ["AllowExistingAccountLink"],
@@ -1481,7 +1481,7 @@ const ssoConfigurationPage = {
     });
     ssoConfigurationPage.renderSamlProviderCards(page, providers);
   },
-  // SAML provider cards — same inert createElement/textContent construction as renderProviderCards (#221):
+  // SAML provider cards, same inert createElement/textContent construction as renderProviderCards (#221):
   // a provider name is never interpolated as markup, so a hostile name stays inert on the page.
   renderSamlProviderCards: (page, providers) => {
     const list = page.querySelector("#saml-provider-list");
@@ -1643,7 +1643,7 @@ const ssoConfigurationPage = {
     );
 
     // Surface active insecure / sensitive settings behind the collapsed "Security & hardening" accordion
-    // (and, for the insecure subset, its inner list) — expand-only, exactly like syncDependentFields.
+    // (and, for the insecure subset, its inner list): expand-only, exactly like syncDependentFields.
     const isChecked = (id) => {
       const el = page.querySelector("#saml-" + id);
       return Boolean(el && el.checked);
@@ -1717,7 +1717,7 @@ const ssoConfigurationPage = {
           const prop = ssoConfigurationPage.samlPropOf(id);
           // The write-only signing keys (SamlSigningKeyPfx / SamlRolloverSigningKeyPfx) are serialized back
           // as null by the server (WriteOnlySecretConverter), so provider[prop] is falsy and the field stays
-          // blank — its "leave blank to keep" placeholder governs, exactly like the OpenID OidSecret.
+          // blank, and its "leave blank to keep" placeholder governs, exactly like the OpenID OidSecret.
           if (provider[prop]) {
             page.querySelector("#" + id).value = provider[prop];
           }
@@ -1745,7 +1745,7 @@ const ssoConfigurationPage = {
 
         form_elements.check_fields.forEach((id) => {
           // Always set from the loaded provider (not only when truthy) so a stale insecure toggle from a
-          // previously loaded provider is never left checked to be silently re-saved — the exact reason the
+          // previously loaded provider is never left checked to be silently re-saved, the exact reason the
           // OpenID loadProvider sets Boolean(provider[id]) unconditionally.
           const prop = ssoConfigurationPage.samlPropOf(id);
           page.querySelector("#" + id).checked = Boolean(provider[prop]);
@@ -1766,7 +1766,7 @@ const ssoConfigurationPage = {
   },
   // Canonical external base for the computed SAML URLs (mirrors the inline logic in computeRedirectUri,
   // #724): the Base URL Override when set, else this server's address, normalized the way the server's
-  // CanonicalBaseUrl (System.Uri.GetLeftPart) is — origin lowercases scheme+host and elides the default
+  // CanonicalBaseUrl (System.Uri.GetLeftPart) is: origin lowercases scheme+host and elides the default
   // port, pathname keeps any sub-path, and the trailing slash is trimmed. When the override is blank the
   // shown URL reflects the browser's server address; the scheme/port overrides are a legacy mechanism the
   // Base URL Override supersedes (its callout steers the admin there).
@@ -1824,7 +1824,7 @@ const ssoConfigurationPage = {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(
         () => announce(label + " copied to the clipboard."),
-        () => announce("Copy failed — select the field and copy it manually."),
+        () => announce("Copy failed. Select the field and copy it manually."),
       );
       return;
     }
@@ -1840,13 +1840,13 @@ const ssoConfigurationPage = {
     announce(
       ok
         ? label + " copied to the clipboard."
-        : "Copy failed — select the field and copy it manually.",
+        : "Copy failed. Select the field and copy it manually.",
     );
   },
   // Import IdP metadata (#735) from a URL (fetched server-side through the SSRF-hardened outbound client) or
   // pasted XML, and pre-fill the endpoint + signing certificate(s) for the admin to review and save. The
   // server returns the parsed values; NOTHING is applied server-side by this call. The IdP EntityId is
-  // shown for reference only — it is NOT the SP SamlClientId, which the admin chooses.
+  // shown for reference only: it is NOT the SP SamlClientId, which the admin chooses.
   importSamlMetadata: (page, source) => {
     const status = page.querySelector("#saml-metadata-status");
     const url =
@@ -1902,7 +1902,7 @@ const ssoConfigurationPage = {
           entity
             ? "Imported the endpoint and certificate. The provider's entity id is " +
                 entity +
-                " (reference only — set the SAML Client ID yourself). Review the fields and Save."
+                " (reference only; set the SAML Client ID yourself). Review the fields and Save."
             : "Imported the endpoint and certificate. Review the fields and Save.",
         );
       },
@@ -2002,7 +2002,7 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-SamlEndpoint",
-        "Uses http:// — the redirect would be unencrypted. Prefer an https:// endpoint.",
+        "Uses http://, so the redirect would be unencrypted. Prefer an https:// endpoint.",
       );
       return;
     }
@@ -2045,20 +2045,20 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-BaseUrlOverride",
-        "Enter the base URL only (no path) — e.g. https://jellyfin.example.com, not the /sso/... ACS URL.",
+        "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... ACS URL.",
       );
       return;
     }
     ssoConfigurationPage.setFieldError(page, "saml-BaseUrlOverride", "");
   },
-  // Pre-emptive certificate shape check (WARNING only, never blocks the save — the server stays the
+  // Pre-emptive certificate shape check (WARNING only, never blocks the save; the server stays the
   // authority, so a false positive cannot lock an admin out). Accepts an empty optional field, a PEM block,
   // or a bare Base64 body; only an obviously malformed value (non-Base64 characters once PEM armor and
   // whitespace are stripped) is flagged. label/id let it serve both the primary and secondary certificate.
   validateSamlCertificate: (page, id, label) => {
     const raw = page.querySelector("#" + id).value.trim();
     if (!raw) {
-      // Optional (the secondary) or required-checked elsewhere (the primary) — an empty value is not a
+      // Optional (the secondary) or required-checked elsewhere (the primary): an empty value is not a
       // SHAPE error here; requiredness for the primary is enforced by the server on save.
       ssoConfigurationPage.setFieldError(page, id, "");
       return;
@@ -2072,7 +2072,7 @@ const ssoConfigurationPage = {
         page,
         id,
         label +
-          " is not valid Base64 — paste the certificate body (the text between the PEM BEGIN/END lines) or the whole PEM block.",
+          " is not valid Base64. Paste the certificate body (the text between the PEM BEGIN/END lines) or the whole PEM block.",
       );
       return;
     }
@@ -2237,7 +2237,7 @@ export default function initSsoConfigurationPage(view) {
       () =>
         ssoConfigurationPage.renderSaveStatus(
           view,
-          "Save failed — see the details in the alert.",
+          "Save failed. See the details in the alert.",
           false,
         ),
     );
@@ -2362,7 +2362,7 @@ export default function initSsoConfigurationPage(view) {
 
   // Live-update the computed redirect URI (#724) as the provider name or the base-URL override changes, so
   // the value shown always matches what the login will send. `input` (per-keystroke) not `blur`, since the
-  // field is purely informational — reflecting immediately is the point.
+  // field is purely informational: reflecting immediately is the point.
   ["OidProviderName", "BaseUrlOverride"].forEach((id) => {
     view
       .querySelector("#" + id)
@@ -2415,7 +2415,7 @@ export default function initSsoConfigurationPage(view) {
   view.querySelector("#sso-self-service-link").href =
     ApiClient.getUrl("/SSOViews/linking");
 
-  // ---- SAML workspace bindings (#725) — the exact parallel of the OpenID bindings above ----
+  // ---- SAML workspace bindings (#725): the exact parallel of the OpenID bindings above ----
   view.querySelector("#saml-SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#saml-provider-name").value;
 
@@ -2431,7 +2431,7 @@ export default function initSsoConfigurationPage(view) {
       () =>
         ssoConfigurationPage.renderSamlSaveStatus(
           view,
-          "Save failed — see the details in the alert.",
+          "Save failed. See the details in the alert.",
           false,
         ),
     );
