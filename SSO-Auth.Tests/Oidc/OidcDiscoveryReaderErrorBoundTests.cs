@@ -25,9 +25,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// but the 1 MB response cap in the way. Measured before the bound existed: a document advertising a 200 KB
 /// <c>jwks_uri</c> produced a 205,042-character entry.
 ///
-/// The screen's own refusal entry is a different call and needs no bound - it carries no provider-authored
-/// text at all, which the same measurement showed (211 characters against an 800 KB repeated member name).
-/// That is why the bound lives here and not there.
+/// The screen's own refusal entry is a different call with its own bound, which is why the one here is not
+/// also applied there: it carries the repeated member name, cut at that call and neutralised there (#1195).
+/// The row below is this file's check that the two do not leave a gap between them.
 ///
 /// Both directions are pinned, because a ceiling-only test passes against a bound tightened to a stub, and a
 /// stub would throw away the endpoint an operator reads the entry to find. The mutation each test kills is
@@ -84,13 +84,12 @@ public class OidcDiscoveryReaderErrorBoundTests
     }
 
     [Fact]
-    public async Task AnEightHundredKilobyteMemberName_ReachesNoLogEntryAtAll()
+    public async Task AnEightHundredKilobyteMemberName_ReachesNoLogEntryUnbounded()
     {
-        // The other value #1194 names, and the reason the bound above is not also applied to the screen's
-        // refusal entry: that entry carries no provider-authored text, so there is nothing there to bound.
-        // Asserted rather than assumed, because "satisfied by exclusion" stops being true the moment
-        // something starts logging the member name, and #1068 is the issue that may decide to. This row goes
-        // red on that day and makes the bound owed at that call too.
+        // The other value #1194 names. It was satisfied by exclusion when this row was written — the screen's
+        // refusal entry carried no provider-authored text at all — and #1195 has since put the member name
+        // into that entry, with its own bound at that call. So the row now reads as what it always asserted:
+        // 800 KB of provider-chosen name reaches no entry in this read, on either call, whole.
         var name = new string('m', 800 * 1024);
         var logger = new CapturingLogger();
 
