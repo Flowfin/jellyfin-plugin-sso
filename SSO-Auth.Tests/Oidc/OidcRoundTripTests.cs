@@ -415,6 +415,47 @@ public class OidcRoundTripTests
         Assert.DoesNotContain("request_uri=", challenge.Url, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TheCallbackLegFetchesNoDiscoveryOfItsOwn()
+    {
+        // #1067, the behavioural half. The callback client is constructed with the metadata the challenge
+        // captured, which sets the library's internal use-discovery flag to false. Built WITHOUT it, the
+        // library performs its own discovery and JWKS fetch inside ProcessResponseAsync, through
+        // options.HttpClientFactory - a transport the repeated-member screen (#1061) is not on, because that
+        // screen lives inside OidcDiscoveryReader.ReadAsync. So the property is not "one fetch fewer": it is
+        // that no fetch on this leg leaves the screened path.
+        //
+        // Asserted on the wire rather than on the option, because the option is the predicate and the fetch
+        // is the property. A row reading oidcClient.Options.ProviderInformation would stay green against a
+        // library version that consulted something else.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var idToken = fixture.IdToken(subject: "sub-1", username: "alice");
+        var requested = new System.Collections.Generic.List<string>();
+        var harness = BuildHarness(fixture, request =>
+        {
+            requested.Add(request.RequestUri!.AbsoluteUri);
+            return ServeIdp(fixture, request, idToken);
+        });
+
+        var (state, binding) = await DriveChallenge(harness);
+
+        // The challenge leg legitimately reads both documents, through the screened reader. Only what the
+        // CALLBACK asks for is the subject here.
+        Assert.Contains(fixture.DiscoveryUrl, requested);
+        requested.Clear();
+
+        RepointToCallback(harness, state, binding, query: $"?code=test-code&state={state}");
+        var callback = Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state));
+
+        // The leg really ran to completion, so the absences below are absences and not a callback that
+        // failed before it could fetch anything.
+        Assert.Equal("text/html", callback.ContentType);
+        Assert.Contains(fixture.TokenUrl, requested);
+
+        Assert.DoesNotContain(fixture.DiscoveryUrl, requested);
+        Assert.DoesNotContain(fixture.JwksUrl, requested);
+    }
+
     // Builds a harness with a single enabled provider "kc" pointed at the fixture's authority, served by the
     // supplied responder. DisablePushedAuthorization keeps the challenge to a plain redirect; DoNotLoadProfile
     // makes the id_token claims the whole identity (no userinfo fetch); EnableAuthorization/AllowExistingAccountLink
