@@ -819,12 +819,18 @@ internal sealed class OidcLoginService
         // OUT / revoked during the window stays accepted until the state expires, since the callback validates
         // against the captured set - a far tighter exposure than the platform-default 24-hour JWKS cache, and
         // never wider than the state lifetime. Populated only from a validated fetch (never hand-filled), so
-        // the DiscoveryPolicy (RequireHttps / ValidateIssuerName / ValidateEndpoints) is not bypassed. The
-        // conditional is kept as-is (behaviour-preserving) though the sole caller always supplies non-null.
-        if (providerInformation is not null)
-        {
-            options.ProviderInformation = providerInformation;
-        }
+        // the DiscoveryPolicy (RequireHttps / ValidateIssuerName / ValidateEndpoints) is not bypassed.
+        //
+        // UNCONDITIONAL, and that is the security property rather than a tidy-up (#1067). This assignment is
+        // what sets _useDiscovery = false. A client constructed without it keeps discovery ENABLED, and
+        // ProcessResponseAsync then fetches the discovery document and the JWKS itself, through
+        // options.HttpClientFactory - a transport the repeated-member screen is not on, because that screen
+        // lives inside OidcDiscoveryReader.ReadAsync and not on the client the library keeps. Before that
+        // screen existed a skipped assignment cost a redundant fetch; after it, it costs a fetch that routes
+        // around a control. The guard against that is not this line, which the next construction site would
+        // not inherit: it is EveryOidcClientInTheFlowTierIsBuiltWithItsMetadataAlready, which reads the
+        // source and fails on a construction site that does not pre-assign.
+        options.ProviderInformation = providerInformation;
 
         return new OidcClient(options);
     }
