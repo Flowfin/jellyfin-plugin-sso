@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -35,7 +34,7 @@ public class CallbackClientMetadataTests
     [Fact]
     public void EveryOidcClientInTheFlowTierIsBuiltWithItsMetadataAlready()
     {
-        var flowTier = Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Flows");
+        var flowTier = Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Flows");
 
         // Sentinel first. A scan over a folder that is not there reports the same all-clear as a scan that
         // found two correct sites, and a moved repository root is how that happens.
@@ -155,7 +154,4 @@ public class CallbackClientMetadataTests
         Assert.Fail("the fixture carries no OidcClient construction site, so it tests nothing");
         return -1;
     }
-
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
 }

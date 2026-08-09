@@ -5,7 +5,6 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -197,7 +196,7 @@ public class RefusalEntryMemberNameTests
         // sanitizer this repository relies on does not propagate across a method boundary, so a helper that
         // returns a clean string leaves the analyzer reading an unsanitised value at the call - and no
         // behavioural test can tell the two apart, because both produce the same entry.
-        var source = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Oidc", "RepeatedMemberScreen.cs"));
+        var source = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Oidc", "RepeatedMemberScreen.cs"));
 
         var start = source.IndexOf("private HttpResponseMessage Refuse(", StringComparison.Ordinal);
         Assert.True(start >= 0, "the refusing method was renamed; this rule points at a method that no longer exists");
@@ -320,9 +319,6 @@ public class RefusalEntryMemberNameTests
 
         return count;
     }
-
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
 
     // Serves the fixture for the well-known document and counts every outbound request, so a row can assert
     // the JWKS leg was never reached.

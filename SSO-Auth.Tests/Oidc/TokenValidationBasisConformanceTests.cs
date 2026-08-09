@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Xunit;
 
@@ -214,7 +213,7 @@ internal sealed class Whatever
     // reads the same on either platform.
     private static IReadOnlyList<string> FilesNamingTheType()
     {
-        var root = RepoRoot();
+        var root = RepoTree.Root;
         var pluginRoot = Path.Combine(root, "SSO-Auth");
 
         return Directory.EnumerateFiles(pluginRoot, "*.cs", SearchOption.AllDirectories)
@@ -254,11 +253,5 @@ internal sealed class Whatever
         || path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
 
     private static string AbsolutePathOf(string repoRelative) =>
-        Path.Combine(RepoRoot(), repoRelative.Replace('/', Path.DirectorySeparatorChar));
-
-    // The repository root, derived from this test file's compile-time path
-    // (<root>/SSO-Auth.Tests/Oidc/<file>). CallerFilePath is baked in at build and CI builds on the same
-    // checkout it tests, so the source tree is present for the scan.
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
+        Path.Combine(RepoTree.Root, repoRelative.Replace('/', Path.DirectorySeparatorChar));
 }
