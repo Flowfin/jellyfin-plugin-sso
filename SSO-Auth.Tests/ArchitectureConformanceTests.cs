@@ -193,7 +193,7 @@ public class ArchitectureConformanceTests
     [InlineData("Http", "Audit", "Avatar", "Flows", "Linking", "Localization", "Logout", "Net", "Oidc", "Provider", "Saml", "Session", "Shared")] // the web boundary (SSOController + request helpers + the admin test-connection probe + the UI-string endpoint, #913): the composition top of the DAG - it fronts every flow, so its import list is deliberately wide (incl. the RP-initiated logout store, #727); nothing imports it back (#790/#807)
     public void ApiModule_ImportsOnlyItsAllowedApiModules(string module, params string[] allowed)
     {
-        var moduleDir = Path.Combine(RepoRoot(), "SSO-Auth", "Api", module);
+        var moduleDir = Path.Combine(RepoTree.Root, "SSO-Auth", "Api", module);
         var permitted = new HashSet<string>(allowed) { module };
         var offenders = Directory.EnumerateFiles(moduleDir, "*.cs")
             .SelectMany(file => File.ReadLines(file)
@@ -215,7 +215,7 @@ public class ArchitectureConformanceTests
         // flat "kernel" that once held the controller, the URL builders, the keystone and the served-page
         // types was a deliberate, transitional bucket; it is now empty and must stay empty, so a new type is
         // forced into a module (or a new one) at creation and can never re-accumulate a flat pile.
-        var apiRoot = Path.Combine(RepoRoot(), "SSO-Auth", "Api");
+        var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
         var flatFiles = Directory.EnumerateFiles(apiRoot, "*.cs", SearchOption.TopDirectoryOnly)
             .Select(Path.GetFileName)
             .OrderBy(name => name, StringComparer.Ordinal)
@@ -235,9 +235,11 @@ public class ArchitectureConformanceTests
         // SSOController split tests (SSOController*Tests, which sit under Http/ next to the controller source),
         // the Config, and the shared-infrastructure tests are organised in their own folders (Config, _Support,
         // …) and have no exact <Type>Tests.cs source match, so they are out of scope here. A type with no
-        // matching test file is simply skipped.
-        var apiRoot = Path.Combine(RepoRoot(), "SSO-Auth", "Api");
-        var testsRoot = Path.Combine(RepoRoot(), "SSO-Auth.Tests");
+        // matching test file is simply skipped - this rule governs WHERE a mirrored file lives, never
+        // whether one exists. Where an absence is a decision rather than an omission it is declared in
+        // TypesWithNoMirroredTestFile below, which is the half of the question this rule cannot answer.
+        var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
+        var testsRoot = Path.Combine(RepoTree.Root, "SSO-Auth.Tests");
         var testFiles = Directory.EnumerateFiles(testsRoot, "*Tests.cs", SearchOption.AllDirectories)
             .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                 && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
@@ -268,6 +270,69 @@ public class ArchitectureConformanceTests
             "Each module's tests must mirror its source folder under SSO-Auth.Tests/<Module>/ (#791): " + string.Join(" | ", offenders));
     }
 
+    // Production types that deliberately have no <Type>Tests.cs of their own, each with the files their
+    // coverage actually lives in. A declaration, not a dispensation: the rule below refuses an entry whose
+    // source is gone, an entry whose named cover files stopped naming the type, and an entry that has since
+    // grown a mirrored file - so retiring one has to move the entry rather than leave it standing.
+    private static readonly SortedDictionary<string, string[]> TypesWithNoMirroredTestFile = new(StringComparer.Ordinal)
+    {
+        // #1189, the recorded answer to a question the rule above cannot reach. The screen is a transport
+        // handler with nothing to call directly: it exists to sit between the discovery read and the identity
+        // library, so every property it has is a property of a request travelling through it. Its units are
+        // therefore named for the property each one pins rather than for the type, and a RepeatedMemberScreenTests
+        // would either duplicate them or hold the leftovers nobody could place - which is how a mirrored file
+        // ends up being the least informative place to look.
+        ["SSO-Auth/Api/Oidc/RepeatedMemberScreen.cs"] = new[]
+        {
+            "SSO-Auth.Tests/Oidc/OidcDiscoveryReaderTests.cs",
+            "SSO-Auth.Tests/Oidc/RefusalEntryMemberNameTests.cs",
+            "SSO-Auth.Tests/Oidc/DuplicateJsonKeyPostureTests.cs",
+            "SSO-Auth.Tests/Http/ProviderConnectionTesterTests.cs",
+            "SSO-Auth.Tests/Http/SSOControllerOidBackChannelLogoutTests.cs",
+        },
+    };
+
+    /// <summary>
+    /// A type with no mirrored test file is either a decision or an omission, and until #1189 a reviewer
+    /// could not tell which - <see cref="ModuleTests_MirrorTheSourceModuleFolders"/> skips such a type by
+    /// design, so silence meant both things at once. This is where the decision is written down, and it is
+    /// refusable in three directions rather than a comment: the source has to exist, the files named as its
+    /// coverage have to still name it, and a mirrored file appearing means the entry is now false and has to
+    /// go.
+    /// </summary>
+    [Fact]
+    public void EveryDeclaredlyAbsentTestFile_StillDescribesTheTree()
+    {
+        var root = RepoTree.Root;
+        var testsRoot = Path.Combine(root, "SSO-Auth.Tests");
+
+        foreach (var (source, covers) in TypesWithNoMirroredTestFile)
+        {
+            var sourcePath = Path.Combine(root, source.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(sourcePath), $"A declared absence names a source file that does not exist: {source}");
+
+            var typeName = Path.GetFileNameWithoutExtension(sourcePath);
+            var mirrored = Directory.EnumerateFiles(testsRoot, typeName + "Tests.cs", SearchOption.AllDirectories)
+                .Where(path => !IsBuildOutput(path))
+                .Select(path => Path.GetRelativePath(testsRoot, path))
+                .ToList();
+
+            Assert.True(
+                mirrored.Count == 0,
+                $"{typeName} is declared as deliberately having no mirrored test file, and now has one: {string.Join(", ", mirrored)}. Remove the declaration rather than leaving both.");
+
+            Assert.NotEmpty(covers);
+            foreach (var cover in covers)
+            {
+                var coverPath = Path.Combine(root, cover.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(coverPath), $"{typeName}'s declared coverage names a file that does not exist: {cover}");
+                Assert.True(
+                    File.ReadAllText(coverPath).Contains(typeName, StringComparison.Ordinal),
+                    $"{cover} is declared as covering {typeName} and no longer names it.");
+            }
+        }
+    }
+
     [Fact]
     public void SourceModuleNamespaces_MirrorTheirFolder()
     {
@@ -276,7 +341,7 @@ public class ArchitectureConformanceTests
         // namespace ...Helpers and no fitness function caught it until #867 moved it; this locks the invariant
         // in as an executable guard. Files directly in the flat Api/ root are out of scope - FlatApi_HoldsNoSourceFiles
         // keeps that empty.
-        var apiRoot = Path.Combine(RepoRoot(), "SSO-Auth", "Api");
+        var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
         var offenders = new List<string>();
         foreach (var src in Directory.EnumerateFiles(apiRoot, "*.cs", SearchOption.AllDirectories))
         {
@@ -321,7 +386,7 @@ public class ArchitectureConformanceTests
         // exercised by any other test, so pin both here - a revert to none, suggestion, silent, or
         // documentInternalElements=false fails this test rather than silently reopening the internal API to
         // undocumented members.
-        var editorConfig = File.ReadAllText(Path.Combine(RepoRoot(), ".editorconfig"));
+        var editorConfig = File.ReadAllText(Path.Combine(RepoTree.Root, ".editorconfig"));
         var severity = editorConfig
             .Split('\n')
             .Select(line => line.Trim())
@@ -330,7 +395,7 @@ public class ArchitectureConformanceTests
             severity is not null && (severity.EndsWith("= warning", StringComparison.Ordinal) || severity.EndsWith("= error", StringComparison.Ordinal)),
             $"SA1600 must stay enforced (warning or error) so the #864 internal-doc gate cannot be silently switched off - found: '{severity ?? "(missing)"}'.");
 
-        var styleCop = File.ReadAllText(Path.Combine(RepoRoot(), "stylecop.json"));
+        var styleCop = File.ReadAllText(Path.Combine(RepoTree.Root, "stylecop.json"));
         Assert.Contains("\"documentInternalElements\": true", styleCop, StringComparison.Ordinal);
     }
 
@@ -579,7 +644,7 @@ public class ArchitectureConformanceTests
     {
         var allowed = allowedFiles.Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var strays = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .Where(path => !allowed.Contains(Path.GetFullPath(path)))
             .Where(path => File.ReadAllText(path).Contains(invocationToken, StringComparison.Ordinal))
@@ -601,7 +666,7 @@ public class ArchitectureConformanceTests
         // three lines of ConnectToAllowedAddressAsync and no runtime test can observe it without a
         // controllable resolver, so pin it at the source - the same way this file pins the other
         // call-level invariants.
-        var source = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Net", "SsoHttp.cs"));
+        var source = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Net", "SsoHttp.cs"));
 
         // Exactly one resolution, and the host name is read only to perform it.
         Assert.Equal(1, CountOccurrences(source, "GetHostAddressesAsync"));
@@ -643,7 +708,7 @@ public class ArchitectureConformanceTests
             Path.Combine("SSO-Auth", "Api", "Http", "SamlMetadataImporter.cs"),
         })
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
+            var source = File.ReadAllText(Path.Combine(RepoTree.Root, relativePath));
 
             Assert.DoesNotContain("PrivateNetworkPermitted", source, StringComparison.Ordinal);
             Assert.DoesNotContain("PrivateOutboundClientName", source, StringComparison.Ordinal);
@@ -668,7 +733,7 @@ public class ArchitectureConformanceTests
         }.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var strays = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .Where(path => !allowed.Contains(Path.GetFileName(path)))
             .Where(path => File.ReadAllText(path).Contains("PrivateNetworkAddresses", StringComparison.Ordinal)
@@ -807,7 +872,7 @@ public class ArchitectureConformanceTests
         // earlier pre-mutation gate must not satisfy the rule) AND that no user-mutating side effect sits
         // between that final gate and AuthenticateDirect - otherwise a revocation during that work would go
         // unre-checked.
-        var minterSource = File.ReadAllLines(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Session", "SessionMinter.cs"));
+        var minterSource = File.ReadAllLines(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Session", "SessionMinter.cs"));
         var mintLine = Array.FindIndex(minterSource, l => l.Contains("AuthenticateDirect(", StringComparison.Ordinal));
         Assert.True(mintLine >= 0, "SessionMinter.MintAsync must call AuthenticateDirect to mint the session.");
 
@@ -834,7 +899,7 @@ public class ArchitectureConformanceTests
         // CanonicalLinkService (the single create seam). A source scan pins that: any future
         // SetPermission(PermissionKind.IsDisabled, ...) elsewhere (a mint path, a role mapper, a controller)
         // would reopen the "an SSO login disabled my account" surface and fails here instead of shipping.
-        var apiRoot = Path.Combine(RepoRoot(), "SSO-Auth", "Api");
+        var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
         var offenders = new List<string>();
         foreach (var src in Directory.EnumerateFiles(apiRoot, "*.cs", SearchOption.AllDirectories))
         {
@@ -867,8 +932,8 @@ public class ArchitectureConformanceTests
         //    uses) plus the fixed /sso/OID/redirect/ path - deriving from anything else would display a URI the
         //    login does not actually send;
         //  - the copy confirmation is announced through an aria-live region (not colour-only).
-        var html = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"));
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var html = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         var field = Regex.Match(html, "<input\\b[^>]*id=\"OidRedirectUri\"[^>]*>", RegexOptions.Singleline);
         Assert.True(field.Success, "The read-only #OidRedirectUri field must exist in configPage.html (#724).");
@@ -901,7 +966,7 @@ public class ArchitectureConformanceTests
         // call-site property invisible to a unit test (the gate would still pass its behavioural tests reading
         // from either source when they happen to agree), so it is pinned as a source scan: a refactor that
         // sources the acr from the merged principal reopens the gap and fails here.
-        var source = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Flows", "OidcLoginService.cs"));
+        var source = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Flows", "OidcLoginService.cs"));
 
         Assert.Contains("OidcIdTokenAcr.Read(result.IdentityToken)", source, StringComparison.Ordinal);
         Assert.DoesNotMatch(new Regex("result\\.User\\.Claims[^;]*\"acr\"", RegexOptions.Singleline), source);
@@ -1176,7 +1241,7 @@ public class ArchitectureConformanceTests
         // silent removal - so its own source must build the CSP and set the frame-options header.
         var sharedSource = string.Join(
             "\n",
-            Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Shared"), "*.cs", SearchOption.AllDirectories)
+            Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Shared"), "*.cs", SearchOption.AllDirectories)
                 .Select(File.ReadAllText));
         Assert.True(
             sharedSource.Contains("AuthPageCsp.Build", StringComparison.Ordinal) && sharedSource.Contains("X-Frame-Options", StringComparison.Ordinal),
@@ -1427,7 +1492,7 @@ public class ArchitectureConformanceTests
         // was the live case, #666). Scan the raw-served page for such placeholders, ignoring inline
         // <script> blocks where ${...} is a legitimate JS template-literal interpolation, not a
         // dashboard token.
-        var html = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "linking.html"));
+        var html = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "linking.html"));
         var withoutScripts = Regex.Replace(html, "<script.*?</script>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
         var placeholders = Regex.Matches(withoutScripts, "\\$\\{[^}]*\\}", RegexOptions.Singleline)
@@ -1458,7 +1523,7 @@ public class ArchitectureConformanceTests
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
 
         var form = OidcProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html")));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
 
         var oidConfigProperties = typeof(OidConfig)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -1546,7 +1611,7 @@ public class ArchitectureConformanceTests
         // rostered, instead of shipping outside the guard.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = OidcProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html")));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
 
         var markedIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match tag in Regex.Matches(form, "<[a-zA-Z][^>]*>", RegexOptions.Singleline))
@@ -1617,7 +1682,7 @@ public class ArchitectureConformanceTests
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
 
         var form = SamlProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html")));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
 
         var samlConfigProperties = typeof(SamlConfig)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -1702,7 +1767,7 @@ public class ArchitectureConformanceTests
         // SamlConfigs dictionary key, not a SamlConfig property) and is asserted present separately.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = SamlProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html")));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
 
         var markedProps = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match tag in Regex.Matches(form, "<[a-zA-Z][^>]*>", RegexOptions.Singleline))
@@ -1757,7 +1822,7 @@ public class ArchitectureConformanceTests
         // exists, so this pins the ordering statically: within openSamlProvider, resetSamlEditor(page) must run
         // BEFORE loadSamlProvider(page, provider_name), the same clean-slate-first order OpenProvider enforces.
         var js = File.ReadAllText(
-            Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+            Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         var open = js.IndexOf("openSamlProvider:", StringComparison.Ordinal);
         Assert.True(open >= 0, "openSamlProvider was not found in config.js.");
@@ -1784,12 +1849,12 @@ public class ArchitectureConformanceTests
         // separate save-contract test already guarantees every marked field id is a real OidConfig property,
         // so this pins the composition: every OIDC preset field/toggle targets a real persisting field, so
         // applying a preset always respects the save contract.
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
         var (fieldKeys, toggles) = ParsePresetCatalog(js, "OIDC_PRESETS");
         Assert.True(fieldKeys.Count > 0, "OIDC_PRESETS parsed to zero field keys - broken parse or empty catalog.");
 
         var markedIds = MarkedFieldIds(OidcProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"))));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"))));
 
         var missing = fieldKeys.Concat(toggles).Where(k => !markedIds.Contains(k)).ToList();
         Assert.True(
@@ -1802,12 +1867,12 @@ public class ArchitectureConformanceTests
     {
         // The SAML counterpart: a SAML preset's field/toggle key K targets the id "saml-"+K, so each must
         // exist as a marked field in #sso-new-saml-provider.
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
         var (fieldKeys, toggles) = ParsePresetCatalog(js, "SAML_PRESETS");
         Assert.True(fieldKeys.Count > 0, "SAML_PRESETS parsed to zero field keys - broken parse or empty catalog.");
 
         var markedIds = MarkedFieldIds(SamlProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"))));
+            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"))));
 
         var missing = fieldKeys.Concat(toggles).Where(k => !markedIds.Contains("saml-" + k)).ToList();
         Assert.True(
@@ -1821,7 +1886,7 @@ public class ArchitectureConformanceTests
         // A preset pre-fills only NON-secret fields (#726 acceptance). Pin it: no preset's `fields` may carry
         // a write-only secret property, so a template can never place a secret value in the form (or, worse,
         // a plausible-looking wrong one the admin trusts).
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
         var secrets = new[] { "OidSecret", "SamlSigningKeyPfx", "SamlRolloverSigningKeyPfx" };
 
         foreach (var catalog in new[] { "OIDC_PRESETS", "SAML_PRESETS" })
@@ -1842,7 +1907,7 @@ public class ArchitectureConformanceTests
         // enabling an unrelated toggle is a downgrade the admin did not choose. Pin both directions: every
         // preset toggle is in the protocol's managed-toggle allow-list, and every allow-list entry is a real
         // config property that is NOT one of the hardening toggles.
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         var oidcProps = typeof(OidConfig).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
@@ -1889,7 +1954,7 @@ public class ArchitectureConformanceTests
         // dropped RoleClaim would keep the previous provider's claim path. Every OIDC preset must therefore
         // set EXACTLY the same four fields; this locks that in so a future preset cannot silently reintroduce
         // the state-bleed (a review follow-up on #726).
-        var js = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
         var start = js.IndexOf("const OIDC_PRESETS = {", StringComparison.Ordinal);
         Assert.True(start >= 0, "OIDC_PRESETS was not found in config.js.");
         var end = js.IndexOf("};", start, StringComparison.Ordinal);
@@ -1931,7 +1996,7 @@ public class ArchitectureConformanceTests
         // must run BEFORE loadProvider(page, provider_name) - the same clean-slate-first order addProvider
         // already uses. loadProvider then fills the target's real values on top of the reset baseline.
         var js = File.ReadAllText(
-            Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+            Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         var open = js.IndexOf("openProvider:", StringComparison.Ordinal);
         Assert.True(open >= 0, "openProvider was not found in config.js.");
@@ -1963,9 +2028,9 @@ public class ArchitectureConformanceTests
         // condition shape: the expand is driven by the OR of the two sets, so a `||`->`&&` mutant - which
         // would stop a sensitive-only (AllowExistingAccountLink) provider from expanding - fails here.
         var html = File.ReadAllText(
-            Path.Combine(RepoRoot(), "SSO-Auth", "Web", "configPage.html"));
+            Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
         var js = File.ReadAllText(
-            Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+            Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         // The enclosing accordion is the emby-collapse carrying the stable id, and it is the security section.
         Assert.Matches(
@@ -2037,7 +2102,7 @@ public class ArchitectureConformanceTests
         // mutant deleting any one category's reset (which would let that category bleed) fails here. Scoped
         // to the resetEditor body so a clear living in some other method cannot satisfy the check.
         var js = File.ReadAllText(
-            Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+            Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
 
         var start = js.IndexOf("resetEditor:", StringComparison.Ordinal);
         Assert.True(start >= 0, "resetEditor was not found in config.js.");
@@ -2165,10 +2230,10 @@ public class ArchitectureConformanceTests
 #endif
 
         // SSO-Auth is a ProjectReference of this test project, so building the test for this configuration/target
-        // builds the plugin into SSO-Auth/bin/<config>/<tfm>/ with its deps.json alongside. RepoRoot() is the
+        // builds the plugin into SSO-Auth/bin/<config>/<tfm>/ with its deps.json alongside. RepoTree.Root is the
         // same compile-time-anchored source root the source-scan rules use; the plugin build output lives under
         // it in CI (which builds and tests the one checkout).
-        var depsPath = Path.Combine(RepoRoot(), "SSO-Auth", "bin", configuration, targetFramework, "SSO-Auth.deps.json");
+        var depsPath = Path.Combine(RepoTree.Root, "SSO-Auth", "bin", configuration, targetFramework, "SSO-Auth.deps.json");
 
         // #1072. That input is the build output of ANOTHER project, and any build of the plugin rewrites it, so
         // the row's answer depended on what else was running. Both directions were open, and only one of them
@@ -2188,7 +2253,7 @@ public class ArchitectureConformanceTests
         // predates the dependencies it claims to describe, whatever its bytes parse to. MSBuild takes the assets
         // file as an input of the target that writes deps.json, so any build refreshes the artifact past it, and
         // this can only be red when no build has run since the graph moved.
-        var restoreGraphPath = Path.Combine(RepoRoot(), "SSO-Auth", "obj", "project.assets.json");
+        var restoreGraphPath = Path.Combine(RepoTree.Root, "SSO-Auth", "obj", "project.assets.json");
         Assert.False(
             ArtifactPredatesRestoreGraph(depsPath, restoreGraphPath),
             $"SSO-Auth.deps.json at {depsPath} is older than the restore graph at {restoreGraphPath}, so the publish closure it carries predates the current dependency declaration and the ship-list would be compared against a set that no longer holds (#1072). Build SSO-Auth for {configuration}/{targetFramework} before the test runs.");
@@ -2211,7 +2276,7 @@ public class ArchitectureConformanceTests
 
         var shipped = publishClosure.Where(dll => !IsHostProvidedAssembly(dll)).ToHashSet(StringComparer.Ordinal);
 
-        var declared = ParseBuildYamlArtifacts(Path.Combine(RepoRoot(), buildYaml));
+        var declared = ParseBuildYamlArtifacts(Path.Combine(RepoTree.Root, buildYaml));
         Assert.True(
             declared.Count > 0,
             $"No artifacts were parsed from {buildYaml}; the `artifacts:` list is empty or the parse missed it, so the comparison would pass vacuously (#608).");
@@ -2710,7 +2775,7 @@ public class ArchitectureConformanceTests
             .ToList();
 
         return Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .Where(path => declarations.Any(d => d.IsMatch(File.ReadAllText(path))))
             .ToList();
@@ -2950,7 +3015,7 @@ public class ArchitectureConformanceTests
         var controllerSource = string.Join("\n", ControllerSourceFiles().Select(File.ReadAllText));
         Assert.Contains($"if (!providerExists && {predicate}provider))", controllerSource, StringComparison.Ordinal);
 
-        var validatorSource = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Config", "ProviderConfigValidator.cs"));
+        var validatorSource = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Config", "ProviderConfigValidator.cs"));
         Assert.Contains($"if (isNew && {predicate}provider))", validatorSource, StringComparison.Ordinal);
     }
 
@@ -2965,7 +3030,7 @@ public class ArchitectureConformanceTests
         var import = actions.First(a => a.Routes.Contains("Config/Import", StringComparer.Ordinal));
         Assert.Contains("ConfigImport.Apply(", import.Body, StringComparison.Ordinal);
 
-        var applySource = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Config", "ConfigImport.cs"));
+        var applySource = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Config", "ConfigImport.cs"));
         Assert.Contains("ProviderConfigValidator.Validate(", applySource, StringComparison.Ordinal);
 
         // SAML/ImportMetadata is the near neighbour that looks like a registration route and is not: it
@@ -3023,7 +3088,7 @@ public class ArchitectureConformanceTests
         // #1162. Two call sites hand out a redirect_uri, the challenge and the token exchange, and they must
         // produce identical bytes. Today both go through OidcRedirectUriBuilder; nothing refuses a third site
         // that concatenates the path itself, which is the edit that makes them differ.
-        var root = RepoRoot();
+        var root = RepoTree.Root;
         var offenders = Directory
             .EnumerateFiles(Path.Combine(root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
@@ -3058,7 +3123,7 @@ public class ArchitectureConformanceTests
             $@"{nameof(OidcRedirectUriBuilder)}\.(?<method>\w+)\(\s*(?<base>[A-Za-z_][\w.]*)\(");
 
         var calls = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .SelectMany(path => CodeLines(path).Select(l => (File: Path.GetFileName(path), l.Number, l.Text)))
             .Where(l => l.Text.Contains($"{nameof(OidcRedirectUriBuilder)}.", StringComparison.Ordinal))
@@ -3108,7 +3173,7 @@ public class ArchitectureConformanceTests
         // server-side path change would leave the page telling admins to register a URL the login never
         // sends, and the failure appears at the identity provider rather than in this suite. Pinned here
         // rather than deduplicated: the duplication itself is #1303.
-        var preview = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Web", "config.js"));
+        var preview = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
         Assert.Contains(
             $"return base + \"{OidcCallbackPathFragment}redirect/\" + providerName;",
             preview,
@@ -3120,7 +3185,7 @@ public class ArchitectureConformanceTests
     {
         // Must-not-catch, named by #1162: the SAML AssertionConsumerServiceURL is the sibling issue's subject
         // (#1163) and its builder must read as clean here, or the two rules would fight over one file.
-        var saml = File.ReadAllText(Path.Combine(RepoRoot(), "SSO-Auth", "Api", "Saml", "SamlAcsUrlBuilder.cs"));
+        var saml = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Saml", "SamlAcsUrlBuilder.cs"));
 
         Assert.Empty(OidcCallbackPathCompositions(saml));
         Assert.Contains("/sso/SAML/", saml, StringComparison.Ordinal);
@@ -3223,7 +3288,7 @@ public class ArchitectureConformanceTests
 
         var offenders = new List<string>();
         var users = doors.ToDictionary(door => door, _ => new List<string>(), StringComparer.Ordinal);
-        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories))
+        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories))
         {
             // Skip THIS file: it carries the scanned names inside the rule itself, not as uses.
             if (IsBuildOutput(src) || Path.GetFileName(src) == "ArchitectureConformanceTests.cs")
@@ -3347,7 +3412,7 @@ public class ArchitectureConformanceTests
         var hook = new Regex(@"\binternal\s+static\s+[^;=]*?\b(?<hook>[A-Za-z0-9_]+ForTests)\s*\(");
         var doors = new List<string> { HarnessDoor };
 
-        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories))
+        foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories))
         {
             if (IsBuildOutput(src))
             {
@@ -3383,12 +3448,12 @@ public class ArchitectureConformanceTests
     {
         if (string.Equals(opener, HarnessDoor, StringComparison.Ordinal))
         {
-            var harness = Path.Combine(RepoRoot(), "SSO-Auth.Tests", "_Support", "SsoControllerHarness.cs");
+            var harness = Path.Combine(RepoTree.Root, "SSO-Auth.Tests", "_Support", "SsoControllerHarness.cs");
             return File.Exists(harness) && CodeLines(harness).Any(l => l.Text.Contains(door + "(", StringComparison.Ordinal));
         }
 
         var hook = opener.Split('.')[^1];
-        return Directory.EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+        return Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(src => !IsBuildOutput(src))
             .Select(src => CodeLines(src).Select(l => l.Text).ToList())
             .Where(lines => lines.Any(text => text.Contains("internal static", StringComparison.Ordinal) && text.Contains(hook + "(", StringComparison.Ordinal)))
@@ -3438,7 +3503,7 @@ public class ArchitectureConformanceTests
             $@"\b(?:{string.Join("|", TypeDeclarationKeywords)})\s+{Regex.Escape(SimpleName(type))}\b");
 
         return Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth.Tests"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .Where(path => declaration.IsMatch(File.ReadAllText(path)))
             .Select(Path.GetFileName)
@@ -3500,7 +3565,7 @@ public class ArchitectureConformanceTests
     // file. Deriving it means a new project of the same shape - non-shipping, outside the solution, ordinary
     // C# source - is covered on the day it lands, without this rule being edited.
     private static IReadOnlyList<string> ProjectRoots() =>
-        Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories)
+        Directory.EnumerateFiles(RepoTree.Root, "*.csproj", SearchOption.AllDirectories)
             .Where(project => !IsBuildOutput(project))
             .Select(project => Path.GetDirectoryName(project)!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -3521,7 +3586,7 @@ public class ArchitectureConformanceTests
         // evidence for it is the IL differential recorded on the issue, not a source scan. What this rule
         // holds are the two ways the tree itself could defeat that contract.
         var pluginSources = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
@@ -3550,7 +3615,7 @@ public class ArchitectureConformanceTests
         // is therefore refused outright here rather than parsed for its condition: the plugin's build files
         // define no constants at all today, so the honest rule is that they define none, and anyone who needs
         // one comes here to say why.
-        var buildFiles = new[] { Path.Combine(RepoRoot(), "Directory.Build.props"), Path.Combine(RepoRoot(), "SSO-Auth", "SSO-Auth.csproj") }
+        var buildFiles = new[] { Path.Combine(RepoTree.Root, "Directory.Build.props"), Path.Combine(RepoTree.Root, "SSO-Auth", "SSO-Auth.csproj") }
             .Where(File.Exists)
             .ToList();
 
@@ -3784,9 +3849,9 @@ public class ArchitectureConformanceTests
         // of those names in any Config/ directory anywhere under SSO-Auth/, and an allowlist is the last place
         // to be approximate about identity.
         var offenders = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
-            .Select(path => (Path: path, Relative: Path.GetRelativePath(RepoRoot(), path)))
+            .Select(path => (Path: path, Relative: Path.GetRelativePath(RepoTree.Root, path)))
             .Where(f => !f.Relative.StartsWith(SamlModuleRelativePath + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             .Where(f => !IsXmlConfigAllowlisted(f.Relative))
             .SelectMany(f => XmlStackUsages(File.ReadAllText(f.Path), SecondXmlStackTypes.Concat(AllowedXmlStackTypes))
@@ -4033,7 +4098,7 @@ public class ArchitectureConformanceTests
     private static IReadOnlyList<string> SamlModuleSourceFiles()
     {
         var files = Directory
-            .EnumerateFiles(Path.Combine(RepoRoot(), SamlModuleRelativePath), "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(Path.Combine(RepoTree.Root, SamlModuleRelativePath), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
@@ -4381,7 +4446,7 @@ public class ArchitectureConformanceTests
         // leave this whole rule asserting a fact about a comment.
         foreach (var (read, gate) in GatedJsonReads)
         {
-            var gatePath = Path.Combine(RepoRoot(), gate.Replace('/', Path.DirectorySeparatorChar));
+            var gatePath = Path.Combine(RepoTree.Root, gate.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(gatePath), $"The gate file declared for {read} does not exist: {gate}");
             Assert.True(
                 SourceCallsInCode(File.ReadAllText(gatePath), "StrictJson.Inspect("),
@@ -4402,7 +4467,7 @@ public class ArchitectureConformanceTests
         foreach (var declared in GatedJsonReads.Keys.Concat(TrustedJsonReads.Keys).Concat(UnscreenedUntrustedReads.Keys))
         {
             Assert.True(
-                File.Exists(Path.Combine(RepoRoot(), declared.Replace('/', Path.DirectorySeparatorChar))),
+                File.Exists(Path.Combine(RepoTree.Root, declared.Replace('/', Path.DirectorySeparatorChar))),
                 $"A declared JSON read names a file that does not exist: {declared}");
         }
     }
@@ -4466,7 +4531,7 @@ internal sealed class Whatever : JsonConverter<string?>
     // name, and an allowlist keyed on the short one would admit the wrong one.
     private static IReadOnlyList<string> ParseSites()
     {
-        var root = RepoRoot();
+        var root = RepoTree.Root;
         var pluginRoot = Path.Combine(root, "SSO-Auth");
 
         return Directory.EnumerateFiles(pluginRoot, "*.cs", SearchOption.AllDirectories)
@@ -4486,9 +4551,187 @@ internal sealed class Whatever : JsonConverter<string?>
         path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
         || path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
 
-    // The repository root, derived from this test file's compile-time path (<root>/SSO-Auth.Tests/<file>).
-    // CallerFilePath is baked in at build, and CI builds on the same checkout it tests, so the source tree
-    // is present for the source-scan rule above.
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName;
+    // The repeated-member walk, whose one claim is that ONE code path reaches the same verdict on both target
+    // frameworks. Declared as a path rather than found by name so a rename has to come past this rule.
+    private const string RepeatedMemberWalk = "SSO-Auth/Api/Oidc/StrictJson.cs";
+
+    // Spellings that would move the duplicate-member decision off this walk and onto whichever
+    // System.Text.Json the HOST happens to bind - .NET 9's in the Jellyfin 10.11 line, .NET 10's in the 12.0
+    // line. Each was checked to exist rather than assumed, in the reference assemblies this repository
+    // restores against:
+    //
+    //   grep -a -c AllowDuplicateProperties <NETCore.App.Ref>/10.0.9/ref/net10.0/System.Text.Json.dll   -> 1
+    //   grep -a -c get_Strict               <NETCore.App.Ref>/10.0.9/ref/net10.0/System.Text.Json.dll   -> 1
+    //   grep -a -c DuplicatePropertyNameHandling <newtonsoft.json>/13.0.4/lib/netstandard2.0/…dll       -> 1
+    //
+    // A name nothing implements would be dead weight in a denylist, which is why a fourth candidate,
+    // JsonDuplicatePropertyHandling, is absent: the same grep answered 0 for it.
+    //
+    // The three are not equally reachable, and saying which is which is what keeps this rule from being sold
+    // as more than it is. The two System.Text.Json spellings are refused by the net9.0 compiler before this
+    // rule sees them - writing the first one into the walk fails that leg with CS1061, measured. The
+    // Newtonsoft one is netstandard2.0 and compiles on BOTH legs, so nothing but this rule refuses it, and it
+    // is the row the guard was proven against.
+    private static readonly string[] FrameworkDuplicatePolicies =
+    {
+        "AllowDuplicateProperties",
+        "JsonSerializerOptions.Strict",
+        "JsonSerializerDefaults.Strict",
+        "DuplicatePropertyNameHandling",
+    };
+
+    /// <summary>
+    /// The repeated-member walk decides duplicates itself and never delegates that decision to the host's
+    /// JSON stack (#1189, carried from the review of #1061).
+    /// <para>
+    /// The failure this refuses is not a build break. Naming .NET 10's preset outright fails the net9.0 leg
+    /// with CS0117 and the compiler is the guard for that. What compiles on BOTH legs is the same name behind
+    /// a conditional, and that is the edit worth catching: the walk would then answer one way on the Jellyfin
+    /// 10.11 line and another on the 12.0 line, while every test in this project - which loads its own
+    /// System.Text.Json, never the host's - kept reporting the verdict of whichever leg it ran on. A screen
+    /// whose answer depends on the host is the interoperability-unsafe document problem moved one layer down.
+    /// </para>
+    /// <para>
+    /// #1043 retires this rule together with the walk: once net9.0 is dropped the preset IS the intended
+    /// implementation, and a denylist standing after that would refuse the replacement it was written to
+    /// protect.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheRepeatedMemberWalk_TakesTheDuplicateDecisionItself()
+    {
+        var source = File.ReadAllText(WalkPath());
+
+        var delegated = FrameworkDuplicatePolicies
+            .Where(policy => SourceCallsInCode(source, policy))
+            .ToList();
+
+        Assert.True(
+            delegated.Count == 0,
+            $"{RepeatedMemberWalk} must reach its verdict without the host's duplicate policy (#1189); it names: " + string.Join(", ", delegated));
+    }
+
+    /// <summary>
+    /// The walk carries no conditional compilation, which is the other half of "one code path on both
+    /// targets" and the one an ordinary test cannot see - a per-target branch is invisible to a suite that
+    /// runs each target separately and passes on both.
+    /// </summary>
+    [Fact]
+    public void TheRepeatedMemberWalk_HasOneCodePathOnBothTargets()
+    {
+        var branches = File.ReadAllLines(WalkPath())
+            .Select((text, index) => (Number: index + 1, Text: text.TrimStart()))
+            .Where(l => l.Text.StartsWith("#if", StringComparison.Ordinal)
+                || l.Text.StartsWith("#else", StringComparison.Ordinal)
+                || l.Text.StartsWith("#elif", StringComparison.Ordinal))
+            .Select(l => $"line {l.Number}: {l.Text}")
+            .ToList();
+
+        Assert.True(
+            branches.Count == 0,
+            $"{RepeatedMemberWalk} must compile to one code path on both target frameworks (#1189); it branches at: " + string.Join(" | ", branches));
+    }
+
+    [Fact]
+    public void AWalkThatDelegatesTheDuplicateDecision_IsRejectedByTheScan()
+    {
+        // The must-catch half, over the predicate rather than over the tree, and deliberately the spelling
+        // that COMPILES on both legs rather than the one the net9.0 compiler already stops. A near-miss the
+        // build refuses anyway proves nothing about this rule; this one was applied to the shipped walk, built
+        // clean on net9.0, and reddened both this rule and its prose twin.
+        const string Source = @"
+internal static class StrictJson
+{
+    internal static Verdict Inspect(string json)
+    {
+        var settings = new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Replace };
+        return Verdict.Clean;
+    }
+}";
+
+        Assert.Contains(FrameworkDuplicatePolicies, policy => SourceCallsInCode(Source, policy));
+    }
+
+    [Fact]
+    public void TheWalksOwnProseAboutThePreset_IsNotFlaggedByTheScan()
+    {
+        // The must-not-catch twin, and it is not hypothetical: the shipped walk explains itself by naming
+        // the preset it converges on and the issue that will replace it with one. Both mentions are in XML
+        // documentation, and a rule built on a whole-file text search would refuse the file that satisfies
+        // it. So the scan reading CODE lines is load-bearing here rather than incidental, and the two
+        // assertions below are what say so - the raw text names the preset, the code does not.
+        var source = File.ReadAllText(WalkPath());
+
+        Assert.Contains("JsonSerializerOptions.Strict", source, StringComparison.Ordinal);
+        Assert.DoesNotContain(FrameworkDuplicatePolicies, policy => SourceCallsInCode(source, policy));
+    }
+
+    [Fact]
+    public void TheRepeatedMemberWalkScan_RefusesAVacuousPass()
+    {
+        // A scan over a file that is gone, renamed or empty reports the same all-clear as a scan that found
+        // nothing wrong, and the walk is exactly the kind of file a refactor moves.
+        var path = WalkPath();
+        Assert.True(File.Exists(path), $"The declared repeated-member walk does not exist: {RepeatedMemberWalk}");
+        Assert.NotEmpty(File.ReadAllText(path));
+    }
+
+    private static string WalkPath() =>
+        Path.Combine(RepoTree.Root, RepeatedMemberWalk.Replace('/', Path.DirectorySeparatorChar));
+
+    // The attribute the copied walk-ups were built on, spelled at run time instead of written out. A rule
+    // that searches the test tree for a literal it also contains would name its own file every run, and the
+    // repair for that - excluding this file from its own scan - would leave the hole where the sixth copy
+    // actually lived. Derived from the type rather than from a string, so a framework rename moves with it.
+    private static readonly string CallerPathMarker =
+        "[" + nameof(CallerFilePathAttribute).Replace("Attribute", string.Empty, StringComparison.Ordinal) + "]";
+
+    /// <summary>
+    /// One repository-root resolver in the test project, in <c>_Support/RepoTree.cs</c> (#1189).
+    /// <para>
+    /// Six copies of a hand-rolled walk-up existed on the day this rule landed, and the count had gone up at
+    /// every measurement rather than down, because each new source-scanning rule needs the tree and the old
+    /// helper was private to the file next to it. The copies were not interchangeable: each counted the
+    /// levels between its own file and the root by hand, one for a file at the test-project root and two for
+    /// a file in a subfolder. Move such a file between folders and it resolves a root one level off, and its
+    /// scan then covers a tree that is not the repository while reporting the same all-clear as a scan that
+    /// found nothing wrong. Nothing catches that in either direction, which is why deleting the copies is not
+    /// enough on its own and this rule stops the seventh.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryRepoRootWalkUp_GoesThroughTheSharedHelper()
+    {
+        var testsRoot = Path.Combine(RepoTree.Root, "SSO-Auth.Tests");
+        var owner = Path.Combine("_Support", "RepoTree.cs");
+
+        var resolvers = Directory.EnumerateFiles(testsRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => SourceCallsInCode(File.ReadAllText(path), CallerPathMarker))
+            .Select(path => Path.GetRelativePath(testsRoot, path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        // Set equality both ways. "No new copy" alone would pass a build where the shared helper itself was
+        // deleted and every rule silently fell back to something else - and it is also what proves the
+        // assembled marker still spells the attribute: mis-assemble it and the list comes back empty rather
+        // than naming the one file that genuinely uses it.
+        Assert.Equal(new List<string> { owner }, resolvers);
+    }
+
+    [Fact]
+    public void TheWalkUpScan_KeepsDeclarationsAndDropsProse()
+    {
+        // The must-catch and must-not-catch pair for the resolver scan, including the edit that defeats a
+        // whole-file text search: removing the walk-up and describing the removal in a comment that still
+        // names it (#1122). Every row is assembled from the marker rather than written out, for the reason
+        // the marker itself is assembled - a fixture spelling the attribute would make this file the seventh
+        // copy as far as the scan above is concerned.
+        var declaration = "private static string RepoRoot(" + CallerPathMarker + " string p = \"\") =>";
+
+        Assert.True(SourceCallsInCode("    " + declaration, CallerPathMarker));
+        Assert.False(SourceCallsInCode("    // " + declaration, CallerPathMarker));
+        Assert.False(SourceCallsInCode("    /// Replaced the old " + CallerPathMarker + " walk-up with the shared helper.", CallerPathMarker));
+        Assert.False(SourceCallsInCode("        var root = RepoTree.Root;", CallerPathMarker));
+    }
 }

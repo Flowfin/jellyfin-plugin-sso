@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Newtonsoft.Json.Linq;
@@ -124,7 +123,7 @@ public class DiscoveryJsonTests
         // The scan is over raw file text, so a mention inside a comment counts as a site. That is
         // deliberate: it needs no agreement with anyone else's idea of what a comment is, and prose can say
         // "the shared parse" at no cost.
-        var pluginRoot = Path.Combine(RepoRoot(), "SSO-Auth");
+        var pluginRoot = Path.Combine(RepoTree.Root, "SSO-Auth");
         var owner = Path.Combine("Api", "Oidc", "DiscoveryJson.cs");
 
         var sites = Directory.EnumerateFiles(pluginRoot, "*.cs", SearchOption.AllDirectories)
@@ -137,9 +136,4 @@ public class DiscoveryJsonTests
 
         Assert.Equal(new List<string> { owner }, sites);
     }
-
-    // The repository root, derived from this test file's compile-time path
-    // (<root>/SSO-Auth.Tests/Oidc/<file>).
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
 }

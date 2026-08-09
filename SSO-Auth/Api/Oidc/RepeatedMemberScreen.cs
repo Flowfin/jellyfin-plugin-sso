@@ -29,6 +29,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// member name travels only on this handler's own log entry, where it is bounded and neutralised inline at the
 /// log call (#1195). An operator needs it: the name is what identifies the defect to report to the provider,
 /// and no configuration relaxes the refusal, so an entry that withheld it would leave nothing to act on.
+///
+/// There is deliberately no <c>RepeatedMemberScreenTests</c>: a handler between the discovery read and the
+/// library has no property that is not a property of a request travelling through it, so its units are named
+/// for the property each pins and live beside the seams that exercise them. Which files those are is declared
+/// in <c>ArchitectureConformanceTests.TypesWithNoMirroredTestFile</c>, where a rule refuses the declaration
+/// once it stops describing the tree (#1189) - so this absence is a decision a reader can check rather than a
+/// gap they have to guess at.
 /// </summary>
 internal sealed class RepeatedMemberScreen : HttpMessageHandler
 {

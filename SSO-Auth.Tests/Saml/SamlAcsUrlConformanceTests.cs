@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using Xunit;
 
@@ -76,7 +75,7 @@ public class SamlAcsUrlConformanceTests
         // metadata; it composes no URL of this server's and calls no builder, and the rule says nothing
         // about it.
         Assert.True(
-            File.Exists(Path.Combine(RepoRoot(), MetadataImporter.Replace('/', Path.DirectorySeparatorChar))),
+            File.Exists(Path.Combine(RepoTree.Root, MetadataImporter.Replace('/', Path.DirectorySeparatorChar))),
             $"The must-not-catch surface no longer exists at {MetadataImporter}; re-point this rule before trusting it.");
         Assert.DoesNotContain(MetadataImporter, FilesWhoseCodeHolds(AcsPath));
         Assert.DoesNotContain(MetadataImporter, FilesWhoseCodeHolds("SamlAcsUrlBuilder."));
@@ -150,7 +149,7 @@ internal static class Importer
     // above read the same on either platform.
     private static IReadOnlyList<string> FilesWhoseCodeHolds(string token)
     {
-        var root = RepoRoot();
+        var root = RepoTree.Root;
 
         return Directory.EnumerateFiles(Path.Combine(root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
@@ -175,9 +174,4 @@ internal static class Importer
     private static bool IsBuildOutput(string path) =>
         path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
         || path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
-
-    // The repository root, derived from this test file's compile-time path
-    // (<root>/SSO-Auth.Tests/Saml/<file>).
-    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
-        Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(thisFilePath)!)!.FullName)!.FullName;
 }
