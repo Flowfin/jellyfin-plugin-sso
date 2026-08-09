@@ -407,6 +407,57 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
         Assert.False(result.IsError, result.Error);
     }
 
+    [Fact]
+    public async Task EncryptedIdToken_IsRejected_AndYieldsNoPrincipal()
+    {
+        // #1174. A JWE is five segments where a JWS is three, and the battery already refuses five
+        // segments of garbage - what it never established is what happens to a WELL-FORMED one, signed by
+        // the trusted key and then encrypted to a key this plugin does not hold. That is the shape a
+        // provider actually emits when an operator turns response encryption on at the IdP, and the
+        // handler's behaviour against it is the library's rather than this plugin's, so a library change
+        // to it would otherwise pass unseen.
+        //
+        // Non-vacuous by construction, and measured rather than asserted: remove the two encryption lines
+        // below and the same descriptor validates - it is Descriptor(), which
+        // ValidRs256Token_Succeeds_WithRawClaimsAndAlgorithm proves is accepted. So the rejection is
+        // bought by the encryption and by nothing else in the fixture.
+        using var contentKey = RSA.Create(2048);
+        var descriptor = Descriptor();
+        descriptor.EncryptingCredentials = new EncryptingCredentials(
+            new RsaSecurityKey(contentKey) { KeyId = KeyId }, SecurityAlgorithms.RsaOAEP, SecurityAlgorithms.Aes256CbcHmacSha512);
+        var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var result = await _validator.ValidateAsync(token, Options(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Null(result.User);
+    }
+
+    [Fact]
+    public async Task NestedJwtPayload_UnderATrustedSignature_IsRejected_AndYieldsNoPrincipal()
+    {
+        // #1174, the other half of the shape: a JWS whose payload is itself a JWT rather than a claims
+        // object. Built by hand because no minting API produces it - and that is the point of the row.
+        // The signature is genuine, made with the SAME key and kid the JWKS advertises, so every check
+        // this battery already has passes: the kid is in the allowlist, no critical header, the signature
+        // verifies. What must refuse it is the payload not being a claims set, and nothing else was
+        // standing between an attacker and a principal built from whatever a reader made of it.
+        //
+        // Non-vacuous, measured the same way: swap the nested token for the plain claims JSON on the line
+        // below and this row goes green as an ACCEPTED token, because everything else about it is valid.
+        var inner = CreateToken();
+        var header = Base64UrlEncoder.Encode($$"""{"alg":"RS256","typ":"JWT","kid":"{{KeyId}}"}""");
+        var payload = Base64UrlEncoder.Encode(inner);
+        var signature = Base64UrlEncoder.Encode(_rsa.SignData(
+            System.Text.Encoding.ASCII.GetBytes($"{header}.{payload}"), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+
+        var result = await _validator.ValidateAsync(
+            $"{header}.{payload}.{signature}", Options(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsError);
+        Assert.Null(result.User);
+    }
+
     // --- helpers ---
 
     private OidcClientOptions Options(string? jwks = null)
