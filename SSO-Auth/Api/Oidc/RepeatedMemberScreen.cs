@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -22,14 +23,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// it, so by the time a post-hoc check could speak, the fetch the repeat aimed at has already happened. Here
 /// the discovery response never reaches the library, so the JWKS URL it named is never requested at all.
 ///
-/// The refusal deliberately carries no provider-authored text. <see cref="HttpResponseMessage.ReasonPhrase"/>
-/// rejects CR/LF/NUL with a <see cref="FormatException"/>, so a member name spelled with an escaped line feed
-/// would make this handler throw while building its own refusal; and sanitising the name to fit would place a
-/// sanitiser one helper boundary away from the log call, which is exactly what the log-forging invariant
-/// forbids. So the reason phrase is a constant, and the member name reaches neither the response nor this
-/// handler's own entry: the walk reports it and the call site discards it (#1068 is where logging it is
-/// decided, and what bounding and filtering it would owe). AnEightHundredKilobyteMemberName_ReachesNoLogEntryAtAll
-/// is what holds that, so this paragraph stays a checkable claim rather than a description that drifted.
+/// The RESPONSE carries no provider-authored text. <see cref="HttpResponseMessage.ReasonPhrase"/> rejects
+/// CR/LF/NUL with a <see cref="FormatException"/>, so a member name spelled with an escaped line feed would
+/// make this handler throw while building its own refusal. The reason phrase is therefore a constant, and the
+/// member name travels only on this handler's own log entry, where it is bounded and neutralised inline at the
+/// log call (#1195). An operator needs it: the name is what identifies the defect to report to the provider,
+/// and no configuration relaxes the refusal, so an entry that withheld it would leave nothing to act on.
 /// </summary>
 internal sealed class RepeatedMemberScreen : HttpMessageHandler
 {
@@ -42,6 +41,24 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
 
     /// <summary>The constant reason a response that could not be inspected as JSON travels under.</summary>
     internal const string UninspectableReason = "The provider response could not be inspected as JSON";
+
+    /// <summary>
+    /// How much of a provider-authored member name may reach the refusal entry. The name arrives with no
+    /// natural bound: measured before this bound existed, one anonymous challenge put an 800 KB name in front
+    /// of this call, and the only thing limiting it was the 1 MB response cap
+    /// (<see cref="Net.ProviderResponseSizeLimit.MaxProviderResponseBytes"/>).
+    /// <para>
+    /// 128 sits well above every member name these two documents carry - the longest name in the OpenID
+    /// discovery metadata registry is the 46-character <c>authorization_response_iss_parameter_supported</c>,
+    /// and a JWKS entry's are shorter still - and far below the point where repeating the request fills a
+    /// disk. Both directions are pinned by tests, because a ceiling-only proof passes against a bound
+    /// tightened to a stub, and a stub throws away the one thing the entry exists to carry.
+    /// </para>
+    /// </summary>
+    private const int MaxLoggedMemberNameChars = 128;
+
+    /// <summary>Marks a member name this screen cut, so a truncated name is not read as the whole name.</summary>
+    private const string NameTruncationMarker = "[truncated]";
 
     private readonly HttpClient _client;
     private readonly string? _provider;
@@ -116,11 +133,10 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             // the day the read is no longer pre-buffered, and
             // ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm goes red on
             // exactly that day, so keeping them stays a checkable claim rather than a decorative one.
-            return Refuse(request, response, OidcDiscoveryRefusal.Uninspectable, cause: e);
+            return Refuse(request, response, OidcDiscoveryRefusal.Uninspectable, repeatedMember: null, cause: e);
         }
 
-        // The walk still reports WHICH member repeated; this unit deliberately does not log it (#1068).
-        var verdict = StrictJson.Inspect(body, out _);
+        var verdict = StrictJson.Inspect(body, out var repeatedMember);
         if (verdict == StrictJson.Verdict.Clean)
         {
             return response;
@@ -130,34 +146,72 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             request,
             response,
             verdict == StrictJson.Verdict.Repeated ? OidcDiscoveryRefusal.RepeatedMember : OidcDiscoveryRefusal.Uninspectable,
+            repeatedMember,
             cause: null);
     }
 
     // Records why the response is being withheld and returns the constant-reason refusal in its place.
     //
-    // NOTHING PROVIDER-AUTHORED reaches this entry. The reason is a compile-time constant, the provider
-    // name is the operator's own configuration value, and the document is named by a constant chosen from
-    // the request rather than echoed out of it. That is what makes the entry safe without a sanitiser: an
-    // arbitrary provider-chosen string needs bounding and filtering that ReplaceLineEndings alone does not
-    // give it — a raw vertical tab forges a line on a console sink, a NUL truncates the record for a
-    // C-string consumer, a right-to-left override reorders what is displayed — and the value that needs all
-    // that arrives with it in #1068 rather than ahead of it.
+    // ONE value here is provider-authored: the repeated member name. Everything beside it is not - the reason
+    // is a compile-time constant, the provider name is the operator's own configuration value, the document
+    // is named by a constant chosen from the request rather than echoed out of it, and only the exception
+    // TYPE is logged because its message quotes the provider's own Content-Type back.
     //
-    // Only the exception TYPE is logged, never its message: the message quotes the provider's own
-    // Content-Type, so it is one more untrusted string, while the type name is runtime-authored and
-    // distinguishes the decode failures an operator has to tell apart.
-    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, OidcDiscoveryRefusal refusal, Exception? cause)
+    // The name is bounded and neutralised in THIS method, and that is not a style choice: the log-forging
+    // sanitizer this repository relies on does not propagate across a method boundary, so a filter lifted
+    // into a helper stops being one as far as the analyzer is concerned.
+    //
+    // Four classes come off it, each because ReplaceLineEndings - the strip applied to the operator's own
+    // provider name beside it - does not remove them:
+    //
+    //   * CONTROL characters. A raw vertical tab advances a line on a console sink and a raw NUL truncates
+    //     the record for a C-string consumer, and ReplaceLineEndings passes both through. The class also
+    //     covers CR, LF, FF and NEL, so it subsumes that strip rather than sitting beside it, which is why
+    //     the strip is not also applied here: it would make two of these four classes unkillable by their
+    //     own mutation and prove nothing the class arms do not already prove.
+    //   * FORMAT characters. A right-to-left override is neither a control nor a separator, and it reorders
+    //     the rest of the entry as it is displayed - forging by rearranging rather than by inserting.
+    //   * The LINE and PARAGRAPH separators, which a line-ending replacement treats as line endings but a
+    //     control-character test does not reach.
+    //
+    // The fourth class named on #1195, the unpaired surrogate, has no arm, because a provider cannot put one
+    // here: a raw one has no UTF-8 encoding and StrictJson refuses the document before the walk starts, and
+    // an escaped one is a name GetString will not complete, so the walk reports Unreadable and never a name.
+    // AnUnpairedSurrogate_NeverBecomesARepeatedMemberName is what keeps that a measurement rather than a
+    // belief; a surrogate filter would instead mangle the legitimate astral names that arrive in pairs.
+    //
+    // What CAN manufacture one is the bound, by cutting between the halves of a pair, so the cut steps back
+    // off a high surrogate rather than through it.
+    private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, OidcDiscoveryRefusal refusal, string? repeatedMember, Exception? cause)
     {
         // One mapping from the refusal to the words an operator reads, so the log entry and the admin probe
         // that reports the same refusal (#1064) cannot be reworded apart.
         var reason = refusal == OidcDiscoveryRefusal.RepeatedMember ? RefusalReason : UninspectableReason;
         _refusal = refusal;
 
+        // Bounded before it is filtered, so the walk over the characters is over what the entry can carry
+        // rather than over everything the provider sent. The cut steps BACK off a high surrogate instead of
+        // through it: the bound is the one thing here that can manufacture an unpaired surrogate, by
+        // separating the halves of a legitimate astral pair, and a half pair corrupts the entry it lands in.
+        var cut = repeatedMember is null || repeatedMember.Length <= MaxLoggedMemberNameChars
+            ? repeatedMember
+            : string.Concat(
+                repeatedMember.AsSpan(0, char.IsHighSurrogate(repeatedMember[MaxLoggedMemberNameChars - 1]) ? MaxLoggedMemberNameChars - 1 : MaxLoggedMemberNameChars),
+                NameTruncationMarker);
+
+        // The filter, in the method that logs rather than behind a call from it. SA1118 forbids the
+        // expression inside the argument list, so it is a local here; what the log-forging invariant rules
+        // out is a HELPER, and TheNeutralisationLivesInTheMethodThatLogs is the scan that keeps it out.
+        var named = cut is null
+            ? string.Empty
+            : ", the repeated member is named \"" + new string(Array.FindAll(cut.ToCharArray(), c => !char.IsControl(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator))) + "\"";
+
         _logger.LogWarning(
-            "Refused the OpenID {Document} for provider {Provider}: {Reason}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
+            "Refused the OpenID {Document} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
             DocumentKind(request),
             _provider?.ReplaceLineEndings(string.Empty),
             reason,
+            named,
             cause is null ? string.Empty : $" [{cause.GetType().Name}]");
 
         response.Dispose();

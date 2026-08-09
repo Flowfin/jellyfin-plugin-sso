@@ -155,13 +155,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   Note for operators. A provider whose discovery or JWKS document repeats **any**
   member name inside one object will now fail to sign users in, where previously
   the repeat was resolved silently, and no configuration overrides that. The
-  server log records which of the two documents was refused and why. It does not
-  yet name the repeated member: that value is the provider's to choose, and it
-  arrives together with the bounding and filtering that make it safe to record
-  rather than ahead of it. Twenty discovery and JWKS documents from ten widely
-  used hosted providers were checked and none repeats a member; that sample is
-  hosted providers rather than the self-hosted identity servers many
-  installations run, so it bounds the risk without eliminating it.
+  server log records which of the two documents was refused, why, and which
+  member name was repeated, so the entry says what to report to the provider.
+  That name is the provider's to choose, so at most 128 characters of it are
+  recorded, marked `[truncated]` when it is cut, and control characters, Unicode
+  format characters and the line and paragraph separators are removed from it
+  first. A line-ending strip alone removes none of the first two, and each of
+  those classes can split, truncate, reorder or corrupt the entry it lands in.
+  Twenty discovery and JWKS documents from ten widely used hosted providers were
+  checked and none repeats a member; that sample is hosted providers rather than
+  the self-hosted identity servers many installations run, so it bounds the risk
+  without eliminating it.
 
   Two consequences worth knowing. The same refusal on the back-channel logout
   path leaves the session untouched rather than ending it — the behaviour any

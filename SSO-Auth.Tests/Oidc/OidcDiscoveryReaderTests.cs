@@ -465,12 +465,13 @@ public class OidcDiscoveryReaderTests
     }
 
     [Fact]
-    public async Task NoProviderAuthoredValueReachesTheRefusalEntry()
+    public async Task TheRepeatedMemberNameIsTheOnlyProviderAuthoredValueInTheRefusalEntry()
     {
-        // The entry carries a constant reason, the operator's own provider name, and a constant naming the
-        // document — nothing the provider chose. That is what lets it be safe without a sanitiser, so it is
-        // asserted rather than left to the next edit: the member name and the request URL arrive in #1068
-        // together with the bounds and filters that make them safe.
+        // The entry carries a constant reason, the operator's own provider name, a constant naming the
+        // document, and ONE value the provider chose: the repeated member name, which is what identifies the
+        // defect to report and is bounded and neutralised at that log call (#1195). Nothing else of the
+        // provider's joins it — the request URL in particular stays out, because an entry that echoed a
+        // provider-chosen URL would carry a second unbounded string beside the one that is bounded.
         const string plantedMember = "zzUnmistakableMemberNamezz";
         var duplicated = FullDiscovery(Authority).Insert(1, $"\"{plantedMember}\":1,\"{plantedMember}\":2,");
         var http = new CountingFactory(Serve(duplicated));
@@ -480,7 +481,7 @@ public class OidcDiscoveryReaderTests
 
         Assert.False(result.Available);
         var entry = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
-        Assert.DoesNotContain(plantedMember, entry.Message, StringComparison.Ordinal);
+        Assert.Contains(plantedMember, entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(DiscoveryUrl, entry.Message, StringComparison.Ordinal);
     }
     // Serves the given discovery JSON for the well-known document and the given JWKS for the keyset fetch;
