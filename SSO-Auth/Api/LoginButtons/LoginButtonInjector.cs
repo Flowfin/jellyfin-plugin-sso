@@ -25,7 +25,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 public static class LoginButtonInjector
 {
     /// <summary>The opening fence of the plugin-managed region inside the login disclaimer.</summary>
-    internal const string BeginMarker = "<!-- SSO-LOGIN-BUTTONS:BEGIN (managed by jellyfin-plugin-sso — do not edit inside) -->";
+    internal const string BeginMarker = "<!-- SSO-LOGIN-BUTTONS:BEGIN (managed by jellyfin-plugin-sso - do not edit inside) -->";
 
     /// <summary>The closing fence of the plugin-managed region.</summary>
     internal const string EndMarker = "<!-- SSO-LOGIN-BUTTONS:END -->";

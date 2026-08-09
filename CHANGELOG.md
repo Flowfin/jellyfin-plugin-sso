@@ -139,14 +139,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 - **A provider response that names a JSON member twice is refused before it is
   parsed.** A repeated member is accepted silently by every reader these
   documents reach, and none of them raises an error, so which of the two values a
-  consumer acts on is decided by parser internals rather than by the document —
+  consumer acts on is decided by parser internals rather than by the document -
   RFC 8259 leaves it unspecified and calls such objects interoperability-unsafe.
   A **successfully served** OpenID discovery document, and the JWKS it names, are
   now screened on the transport, so such a body never reaches the reader that
   would resolve it: the refused document's `jwks_uri` is never requested at all,
   rather than requested and reported afterwards. A document that cannot be
-  inspected as JSON — malformed, truncated, nested too deeply, or carrying a
-  character set the runtime does not know — is refused the same way. There is no
+  inspected as JSON - malformed, truncated, nested too deeply, or carrying a
+  character set the runtime does not know - is refused the same way. There is no
   size limit here; bounding what the plugin reads from a provider is tracked
   separately. An error response (a 404, a 500) is deliberately not screened and
   keeps its own status, so the log still names what the provider actually
@@ -168,7 +168,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   without eliminating it.
 
   Two consequences worth knowing. The same refusal on the back-channel logout
-  path leaves the session untouched rather than ending it — the behaviour any
+  path leaves the session untouched rather than ending it - the behaviour any
   unreadable discovery document already had, unchanged here and tracked
   separately. And the admin **Test connection** button does not yet name this as
   a cause, so a refused document currently shows there under a check that does not
@@ -179,7 +179,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   names an extension it does not understand and process. The plugin implements
   no JWS extension, and the token library ignores `crit` entirely, so a
   genuinely signed `id_token` or back-channel `logout_token` carrying one was
-  accepted with the constraint it declared silently dropped — an extension is
+  accepted with the constraint it declared silently dropped - an extension is
   marked critical precisely because ignoring it changes what the token asserts,
   such as a narrowed audience or a proof-of-possession binding. Both token paths
   now refuse such a token from one shared rule, so they cannot drift apart.

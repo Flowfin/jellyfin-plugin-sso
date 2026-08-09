@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// <summary>
 /// Refuses a provider response whose body names a member twice, BEFORE the identity library parses it
 /// (#1005). It presents the plugin's SSRF-hardened outbound client as a transport handler, so both documents
-/// the discovery read fetches — the well-known document and the JWKS it points at — pass through one screen
+/// the discovery read fetches - the well-known document and the JWKS it points at - pass through one screen
 /// on their way to the library.
 ///
 /// Position is the whole point. An equivalent check applied to the parsed result would report the problem
@@ -102,7 +102,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
 
         // A non-success response passes through unscreened so it keeps its own status: replacing a 404 with
         // "could not be inspected" would tell the operator the document was malformed when the real answer is
-        // that the provider served none. The library does parse such a body — measured — so what keeps its
+        // that the provider served none. The library does parse such a body - measured - so what keeps its
         // values from being acted on is the caller's `IsError` return in OidcDiscoveryReader. That check is
         // load-bearing rather than incidental, which is why ANonSuccessBodyThatRepeatsAMember_IsNeverActedOn
         // pins the outcome; the structural rule that would stop the read at compile time is #1062's.

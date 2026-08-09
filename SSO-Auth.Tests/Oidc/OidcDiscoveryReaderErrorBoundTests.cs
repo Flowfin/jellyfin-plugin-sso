@@ -86,8 +86,8 @@ public class OidcDiscoveryReaderErrorBoundTests
     [Fact]
     public async Task AnEightHundredKilobyteMemberName_ReachesNoLogEntryUnbounded()
     {
-        // The other value #1194 names. It was satisfied by exclusion when this row was written — the screen's
-        // refusal entry carried no provider-authored text at all — and #1195 has since put the member name
+        // The other value #1194 names. It was satisfied by exclusion when this row was written - the screen's
+        // refusal entry carried no provider-authored text at all - and #1195 has since put the member name
         // into that entry, with its own bound at that call. So the row now reads as what it always asserted:
         // 800 KB of provider-chosen name reaches no entry in this read, on either call, whole.
         var name = new string('m', 800 * 1024);
