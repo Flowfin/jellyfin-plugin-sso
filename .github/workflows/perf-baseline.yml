@@ -1,0 +1,178 @@
+# Login-latency baseline for the OpenID challenge and callback (#1118).
+#
+# Drives the out-of-solution benchmark harness (SSO-Auth.Bench, #1117) on a
+# GitHub-hosted runner and archives the raw output, so a number quoted on the
+# wiki's Performance and Load Baseline page can be traced back to the run that
+# produced it. The harness itself is described in SSO-Auth.Bench/README.md: it
+# times the plugin's own work in-process, with the IdP served from the test
+# project's fixture, so no network and no Jellyfin session minting is inside
+# these numbers.
+#
+# NON-GATING BY CONSTRUCTION, and this is a constraint carried from #742 rather
+# than a convenience: it runs ONLY on a weekly schedule and on manual dispatch,
+# never on push or pull_request, so it is not a PR check and gates no merge. It
+# also carries no latency threshold - the harness has none, because a number
+# that fails a build has to be a number the build machine can reproduce. What
+# can turn this job red is the harness exiting non-zero, which it does when a
+# round-trip stopped being a login. That is a correctness signal, not a latency
+# regression, and it still gates nothing because nothing here runs on a
+# pull request.
+#
+# WHY THE RUNNER IMAGE IS PINNED. Every other workflow in this repository uses
+# ubuntu-latest, and that is right for a gate: it should run on whatever the
+# fleet moves to. This one records numbers that are compared release over
+# release, and a silent image bump changes the hardware and the preinstalled
+# runtime underneath them. So the label is pinned, the image version the runner
+# reports is written into the provenance block next to the numbers, and a
+# baseline taken on one image is readable as such when the pin later moves.
+#
+# Hardened per the repo workflow policy (see zizmor.yml): every action is
+# SHA-pinned with a version comment, checkout runs with persist-credentials:false,
+# permissions are deny-all at the top level with the job granted only
+# contents:read, and no untrusted context is interpolated into a run script (the
+# dispatch inputs and the run URL are passed through `env`).
+name: Performance baseline (login latency)
+
+on:
+  schedule:
+    # Weekly, Mondays 06:53 UTC. Off the top of the hour (GitHub throttles exact
+    # :00 crons) and clear of every other cron in this repository, so the
+    # measurement does not contend for a runner with the E2E login harness
+    # (17 3), Scorecard (27 4), wiki-lint (0 5), Stryker (41 5) or the weekly
+    # fuzzing sweep (42 5). Contention is not a scheduling nicety here: a noisy
+    # neighbour is exactly what turns a baseline back into noise.
+    - cron: "53 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Measured round-trips per scenario."
+        required: false
+        default: "2000"
+      warmup:
+        description: "Round-trips each caller discards before measuring."
+        required: false
+        default: "200"
+      concurrency:
+        description: "Callers driving the concurrent scenario at once."
+        required: false
+        default: "16"
+
+# Explicit deny-all at workflow level; the job below grants only what it needs.
+permissions: {}
+
+# A newer run on the same ref supersedes an in-flight one; this records a
+# measurement rather than publishing anything, so cancelling a superseded run
+# loses nothing that was not about to be replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Measure login latency
+    # Pinned rather than ubuntu-latest, for the reason set out in the header.
+    runs-on: ubuntu-24.04
+    # The harness is in-process and finishes in seconds at these counts; the
+    # ceiling covers the SDK setup and the two-project Release build around it.
+    timeout-minutes: 30
+    permissions:
+      contents: read # check out the plugin, the test project and the harness
+    env:
+      # Defaults for the scheduled run, which carries no dispatch inputs. Both
+      # scenarios want more samples than the harness default of 500 for a number
+      # that is going to be quoted, and 2,000 in-flight states stay far below the
+      # state store's 100,000-entry cap, so nothing here measures the cap path.
+      ITERATIONS: ${{ github.event.inputs.iterations || '2000' }}
+      WARMUP: ${{ github.event.inputs.warmup || '200' }}
+      CONCURRENCY: ${{ github.event.inputs.concurrency || '16' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No step pushes via git, so do not persist the GITHUB_TOKEN in
+          # .git/config (zizmor "artipacked" hardening).
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          # The harness targets net9.0; it references the multi-target test
+          # project, which also has a net10.0 leg, so both SDKs are installed to
+          # keep the locked-mode restore of the reference graph deterministic.
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore harness (locked)
+        # --locked-mode fails if a committed packages.lock.json would change, so a
+        # drifted or tampered dependency graph cannot be measured here and then
+        # quoted as this commit's baseline.
+        run: dotnet restore SSO-Auth.Bench/SSO-Auth.Bench.csproj --locked-mode
+
+      - name: Build harness (Release)
+        # Release, because Debug numbers would characterise the wrong build.
+        run: dotnet build SSO-Auth.Bench/SSO-Auth.Bench.csproj -c Release --no-restore --warnaserror
+
+      - name: Record provenance
+        # Written before the run rather than after it, so a run that dies mid
+        # measurement still leaves the reader something that says what it was.
+        # ImageOS and ImageVersion are set by the GitHub-hosted runner itself;
+        # they are what makes "ubuntu-24.04" a specific machine rather than a
+        # label, and they are the first thing to check when a later baseline
+        # disagrees with this one.
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+          RUNNER_LABEL: ubuntu-24.04
+        run: |
+          mkdir -p perf
+          {
+            echo "runner label     ${RUNNER_LABEL}"
+            echo "runner image     ${ImageOS:-unreported} ${ImageVersion:-unreported}"
+            echo "processors       $(nproc)"
+            echo ".NET SDK         $(dotnet --version)"
+            echo "plugin commit    ${COMMIT}"
+            echo "run URL          ${RUN_URL}"
+            echo "parameters       --iterations ${ITERATIONS} --warmup ${WARMUP} --concurrency ${CONCURRENCY}"
+          } | tee perf/provenance.txt
+
+      - name: Run the login-latency benchmark
+        # --no-build so the measured binary is the one the step above built with
+        # --warnaserror, rather than a second implicit build with other settings.
+        # pipefail so a harness that exits non-zero is not swallowed by tee.
+        run: |
+          set -o pipefail
+          dotnet run --project SSO-Auth.Bench -c Release --no-build -- \
+            --iterations "$ITERATIONS" --warmup "$WARMUP" --concurrency "$CONCURRENCY" \
+            | tee perf/latency.txt
+
+      - name: Publish the numbers to the run summary
+        # The numbers belong where a reader lands, not only inside a download.
+        # always(), because a run that failed part way still has a provenance
+        # block worth reading, and the latency file may hold the partial output
+        # that says where it stopped.
+        if: always()
+        run: |
+          {
+            echo "## Login-latency baseline"
+            echo
+            echo '```'
+            cat perf/provenance.txt 2>/dev/null || echo "no provenance recorded"
+            echo '```'
+            echo
+            echo '```'
+            cat perf/latency.txt 2>/dev/null || echo "the harness produced no output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Archive the raw output
+        # The artifact is what makes a quoted number traceable: it carries the
+        # harness output verbatim next to the provenance that says which machine,
+        # which SDK and which commit produced it.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: login-latency-baseline
+          path: perf/
+          if-no-files-found: error
+          retention-days: 90
