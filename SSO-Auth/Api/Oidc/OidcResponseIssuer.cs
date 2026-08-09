@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Diagnostics;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json.Linq;
@@ -68,9 +69,17 @@ internal static class OidcResponseIssuer
     /// </summary>
     /// <param name="discovery">The parsed discovery document, or <see langword="null"/> when it could not be parsed.</param>
     /// <returns><c>true</c> only when the parameter is explicitly advertised as <c>true</c>.</returns>
-    internal static bool DiscoveryAdvertisesResponseIssuer(JObject? discovery) =>
-        discovery?["authorization_response_iss_parameter_supported"] is JValue { Type: JTokenType.Boolean } value
+    internal static bool DiscoveryAdvertisesResponseIssuer(JObject? discovery)
+    {
+        var advertised = discovery?["authorization_response_iss_parameter_supported"] is JValue { Type: JTokenType.Boolean } value
             && value.Value<bool>();
+
+        // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
+        // nothing. Reading true off an unparsed document would make the callback REQUIRE an iss parameter the
+        // provider may never send, which is the tolerant direction this flag is deliberately not taking.
+        Debug.Assert(discovery is not null || !advertised, "DiscoveryAdvertisesResponseIssuer reported true for a document that did not parse.");
+        return advertised;
+    }
 
     /// <summary>
     /// The validated id_token's issuer (its <c>iss</c> claim), or null when the token is absent/degenerate.
@@ -81,7 +90,18 @@ internal static class OidcResponseIssuer
     /// </summary>
     /// <param name="identityToken">The redeemed, already-validated id_token.</param>
     /// <returns>The token's issuer; null when the token does not parse, and empty when it carries no <c>iss</c> (JsonWebToken.Issuer returns "" for an absent claim). Both are treated as "no issuer" by every consumer (IsNullOrWhiteSpace / ordinal Equals), so the link stays un-stamped.</returns>
-    internal static string? IdTokenIssuer(string? identityToken) => TokenIssuer(identityToken);
+    internal static string? IdTokenIssuer(string? identityToken)
+    {
+        var issuer = TokenIssuer(identityToken);
+
+        // Post-condition, compiled out of the shipped build (#1082): no token, no issuer. The canonical link
+        // is bound to (iss, sub), so an issuer invented where there was no token to read one from would stamp
+        // a link with an anchor nothing authenticated. Deliberately NOT asserted: that a non-null issuer is
+        // non-empty or trimmed. This method's contract says empty is what an absent iss claim returns, and
+        // JsonWebToken hands back the claim value as written, whitespace included.
+        Debug.Assert(!string.IsNullOrEmpty(identityToken) || issuer is null, "IdTokenIssuer produced an issuer without a token.");
+        return issuer;
+    }
 
     // The id_token was validated by OidcIdTokenValidator before this runs, so it parses; the guard and
     // catch are defensive so a degenerate token can never turn the mix-up check itself into a 500.

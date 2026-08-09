@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -413,7 +414,12 @@ internal sealed class SamlResponse : IDisposable
     {
         var assertion = _xmlDoc.SelectSingleNode("/samlp:Response/saml:Assertion[1]", _xmlNameSpaceManager) as XmlElement;
         var id = assertion?.GetAttribute("ID");
-        return string.IsNullOrEmpty(id) ? null : id;
+        var assertionId = string.IsNullOrEmpty(id) ? null : id;
+
+        // Post-condition, compiled out of the shipped build (#1082): the replay store keys on this value, and
+        // an empty key would make every assertion without an ID collide into one already-consumed entry.
+        Debug.Assert(assertionId is null or { Length: > 0 }, "GetAssertionId returned an empty assertion ID.");
+        return assertionId;
     }
 
     /// <summary>
@@ -440,6 +446,10 @@ internal sealed class SamlResponse : IDisposable
             }
         }
 
+        // Post-condition, compiled out of the shipped build (#1082): callers retain a consumed assertion until
+        // this instant and compare it against a UTC clock, so a bound of any other kind would shift the
+        // retention window by the machine's offset without anything reading as wrong.
+        Debug.Assert(latest is null || latest.Value.Kind == DateTimeKind.Utc, "GetNotOnOrAfter returned a bound that is not UTC.");
         return latest;
     }
 
@@ -535,7 +545,14 @@ internal sealed class SamlResponse : IDisposable
     public string? GetNameID()
     {
         var node = _xmlDoc.SelectSingleNode("/samlp:Response/saml:Assertion[1]/saml:Subject/saml:NameID", _xmlNameSpaceManager);
-        return node?.InnerText;
+        var nameId = node?.InnerText;
+
+        // Post-condition, compiled out of the shipped build (#1082). This is the one getter here whose empty
+        // return is a real value rather than an absence, so the invariant is the ASYMMETRY: absent stays null.
+        // A refactor that started returning string.Empty for a missing NameID would hand the caller an empty
+        // subject to match a Jellyfin account against instead of a rejection.
+        Debug.Assert((node is null) == (nameId is null), "GetNameID collapsed an absent NameID into a value.");
+        return nameId;
     }
 
     /// <summary>
@@ -551,7 +568,12 @@ internal sealed class SamlResponse : IDisposable
     {
         var node = _xmlDoc.SelectSingleNode("/samlp:Response/saml:Assertion[1]/saml:AuthnStatement", _xmlNameSpaceManager) as XmlElement;
         var sessionIndex = node?.GetAttribute("SessionIndex");
-        return string.IsNullOrEmpty(sessionIndex) ? null : sessionIndex;
+        var captured = string.IsNullOrEmpty(sessionIndex) ? null : sessionIndex;
+
+        // Post-condition, compiled out of the shipped build (#1082): a later Single Logout request names the
+        // session by this handle, and an empty handle would name every session that never carried one.
+        Debug.Assert(captured is null or { Length: > 0 }, "GetSessionIndex returned an empty session index.");
+        return captured;
     }
 
     /// <summary>
@@ -565,7 +587,13 @@ internal sealed class SamlResponse : IDisposable
     {
         var node = _xmlDoc.SelectSingleNode(BearerSubjectConfirmationDataXPath, _xmlNameSpaceManager) as XmlElement;
         var recipient = node?.GetAttribute("Recipient");
-        return string.IsNullOrEmpty(recipient) ? null : recipient;
+        var addressee = string.IsNullOrEmpty(recipient) ? null : recipient;
+
+        // Post-condition, compiled out of the shipped build (#1082): SamlRecipientValidator decides binding by
+        // ordinal set membership, so an empty recipient is a value that can match rather than an absence that
+        // is refused - the difference between a bound assertion and one minted for somebody else.
+        Debug.Assert(addressee is null or { Length: > 0 }, "GetRecipient returned an empty recipient.");
+        return addressee;
     }
 
     /// <summary>
@@ -579,7 +607,13 @@ internal sealed class SamlResponse : IDisposable
     {
         var node = _xmlDoc.SelectSingleNode(BearerSubjectConfirmationDataXPath, _xmlNameSpaceManager) as XmlElement;
         var inResponseTo = node?.GetAttribute("InResponseTo");
-        return string.IsNullOrEmpty(inResponseTo) ? null : inResponseTo;
+        var requestId = string.IsNullOrEmpty(inResponseTo) ? null : inResponseTo;
+
+        // Post-condition, compiled out of the shipped build (#1082): null here means an unsolicited response
+        // and is handled as such, so an empty string would be correlated against the issued-request cache as
+        // though it named a request rather than taking the IdP-initiated path.
+        Debug.Assert(requestId is null or { Length: > 0 }, "GetInResponseTo returned an empty request id.");
+        return requestId;
     }
 
     /// <summary>
@@ -593,7 +627,13 @@ internal sealed class SamlResponse : IDisposable
     {
         var node = _xmlDoc.SelectSingleNode("/samlp:Response", _xmlNameSpaceManager) as XmlElement;
         var destination = node?.GetAttribute("Destination");
-        return string.IsNullOrEmpty(destination) ? null : destination;
+        var sentTo = string.IsNullOrEmpty(destination) ? null : destination;
+
+        // Post-condition, compiled out of the shipped build (#1082): the same set-membership check as the
+        // recipient runs over this value, and it is the weaker of the two because it sits outside the
+        // assertion, so an empty value that could match is worth less here and costs the same to refuse.
+        Debug.Assert(sentTo is null or { Length: > 0 }, "GetDestination returned an empty destination.");
+        return sentTo;
     }
 
     /// <summary>
@@ -635,6 +675,10 @@ internal sealed class SamlResponse : IDisposable
             }
         }
 
+        // Post-condition, compiled out of the shipped build (#1082): the role mapper enumerates this list and
+        // compares each entry ordinally against the configured role names. A null entry would throw inside
+        // that comparison on the authenticated path rather than simply failing to match.
+        Debug.Assert(output.TrueForAll(value => value is not null), "GetCustomAttributes returned a null attribute value.");
         return output;
     }
 
