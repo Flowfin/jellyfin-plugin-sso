@@ -3508,6 +3508,78 @@ public class ArchitectureConformanceTests
             .ToList();
 
     [Fact]
+    public void ParseSurfaceAssertions_NeverReachTheShippedBuild()
+    {
+        // #1082. The parse surface carries post-conditions so a silent mis-parse becomes a detectable fault
+        // under an assertion-enabled fuzzing build. They are Debug.Assert, which the compiler removes from a
+        // build without DEBUG, and that removal is the whole reason they are allowed on an authentication
+        // path at all: a post-condition that fired in a running server would take a login down over a
+        // condition the fail-closed paths already handle.
+        //
+        // WHAT THIS RULE DOES NOT DO, stated first because the name invites the wrong reading: it does not
+        // re-prove that [Conditional("DEBUG")] strips a call. That is the compiler's contract, and the
+        // evidence for it is the IL differential recorded on the issue, not a source scan. What this rule
+        // holds are the two ways the tree itself could defeat that contract.
+        var pluginSources = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            pluginSources.Count > 0,
+            "No plugin source file was found under SSO-Auth - the project moved, so this rule would pass vacuously (#1082).");
+
+        // The first way. Trace.Assert and Trace.Fail look like the same thing and are not: they are
+        // [Conditional("TRACE")], and TRACE is defined in a Release build by default, so one of these written
+        // by habit next to a Debug.Assert ships. It would then abort or dialog on whatever the fuzzer was
+        // meant to catch quietly, on the unauthenticated callback, in production.
+        var survivingAssertions = pluginSources
+            .SelectMany(path => CodeLines(path)
+                .Where(l => l.Text.Contains("Trace.Assert(", StringComparison.Ordinal)
+                    || l.Text.Contains("Trace.Fail(", StringComparison.Ordinal))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}: {l.Text}"))
+            .ToList();
+
+        Assert.True(
+            survivingAssertions.Count == 0,
+            "Trace.Assert / Trace.Fail are [Conditional(\"TRACE\")] and TRACE is defined in Release, so they ship - use Debug.Assert for a parse-surface post-condition (#1082). Offending lines: " + string.Join(" | ", survivingAssertions));
+
+        // The second way. Defining DEBUG for the shipping build carries every Debug.Assert into the shipped
+        // assembly, and it is a one-word edit in a file nobody rereads. A DefineConstants that mentions DEBUG
+        // is therefore refused outright here rather than parsed for its condition: the plugin's build files
+        // define no constants at all today, so the honest rule is that they define none, and anyone who needs
+        // one comes here to say why.
+        var buildFiles = new[] { Path.Combine(RepoRoot(), "Directory.Build.props"), Path.Combine(RepoRoot(), "SSO-Auth", "SSO-Auth.csproj") }
+            .Where(File.Exists)
+            .ToList();
+
+        Assert.Equal(2, buildFiles.Count);
+
+        var debugDefiners = buildFiles
+            .Where(path => File.ReadAllText(path).Contains("DefineConstants", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(
+            debugDefiners.Count == 0,
+            "The plugin's build files must define no compilation constants: a DEBUG among them carries every parse-surface Debug.Assert into the shipped assembly (#1082). Offending files: " + string.Join(", ", debugDefiners));
+
+        // Sentinel against a vacuous pass. Both bans above guard something only while the post-conditions
+        // exist. If they were deleted, the rule would keep passing over a plugin that asserts nothing, and
+        // the fuzzing configuration that runs with assertions on would be running them against nothing.
+        var assertionSites = pluginSources
+            .SelectMany(path => CodeLines(path)
+                .Where(l => l.Text.Contains("Debug.Assert(", StringComparison.Ordinal))
+                .Select(l => $"{Path.GetFileName(path)}:{l.Number}"))
+            .ToList();
+
+        Assert.True(
+            assertionSites.Count > 0,
+            "No Debug.Assert remains in the plugin, so the assertion-enabled fuzzing configuration has nothing to check and the bans above guard nothing (#1082).");
+    }
+
+    [Fact]
     public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
     {
         // #1003. XML signature wrapping against a SAML assertion is a full authentication bypass, and the way

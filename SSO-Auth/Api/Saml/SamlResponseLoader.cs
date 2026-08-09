@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Xml;
@@ -72,6 +73,10 @@ internal static class SamlResponseLoader
         try
         {
             response = new SamlResponse(certificateStr, secondaryCertificateStr, responseString);
+
+            // Post-condition, compiled out of the shipped build (#1082): a true return promises the caller a
+            // response whose document is loaded, and every caller dereferences it without a second check.
+            Debug.Assert(response.Xml.Length > 0, "TryParse returned true with an unloaded document.");
             return true;
         }
         catch (Exception ex) when (ex is FormatException or XmlException or CryptographicException or ArgumentException)

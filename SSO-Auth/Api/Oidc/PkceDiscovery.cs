@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -39,9 +40,15 @@ internal static class PkceDiscovery
     internal static bool SupportsS256(JObject? discovery)
     {
         var methods = discovery?["code_challenge_methods_supported"] as JArray;
-        return methods is not null
+        var advertised = methods is not null
             && methods.Any(method =>
                 method.Type == JTokenType.String
                 && string.Equals(method.Value<string>(), "S256", StringComparison.Ordinal));
+
+        // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
+        // nothing. This is the fail-closed half of RFC 9700 2.1.1 - the answer a caller acts on when the
+        // discovery read failed must come from the absence of evidence, never from a default.
+        Debug.Assert(discovery is not null || !advertised, "SupportsS256 reported S256 for a document that did not parse.");
+        return advertised;
     }
 }
