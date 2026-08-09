@@ -45,7 +45,7 @@ internal static class ProviderNameValidator
     {
         foreach (char c in name.AsSpan())
         {
-            // char.IsControl covers C0 (U+0000–U+001F), DEL (U+007F), and C1 (U+0080–U+009F) by name -
+            // char.IsControl covers C0 (U+0000 - U+001F), DEL (U+007F), and C1 (U+0080 - U+009F) by name -
             // chosen over spelling the two disjoint ranges out with ContainsAnyInRange because the BCL
             // property states the intent where hex bounds would need verifying. Control characters do
             // not round-trip through the callback URL, and a newline is also the ProviderScopedKey

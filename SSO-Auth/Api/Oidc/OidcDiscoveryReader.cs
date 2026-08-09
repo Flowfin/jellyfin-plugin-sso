@@ -94,7 +94,7 @@ internal static class OidcDiscoveryReader
             using var client = SsoHttp.CreateClient(httpClientFactory, allowPrivateNetworkAddresses);
             client.Timeout = FetchTimeout;
 
-            // Screen both documents this read fetches — the well-known document and the JWKS it points at —
+            // Screen both documents this read fetches - the well-known document and the JWKS it points at -
             // on the transport, so a body that names a member twice never reaches the library that would
             // resolve the repeat to its last occurrence (#1005). The screen forwards through the client
             // above rather than replacing it, so the User-Agent, the timeout and the SSRF-hardened transport

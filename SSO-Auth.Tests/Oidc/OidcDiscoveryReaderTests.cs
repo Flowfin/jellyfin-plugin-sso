@@ -177,7 +177,7 @@ public class OidcDiscoveryReaderTests
     public async Task TheSameDiscoveryDocumentWithoutTheDuplicate_IsStillRead()
     {
         // The positive control on the same subject. Without it, a screen that refused every document would
-        // satisfy the rejection above while taking every working provider offline — and it also proves the
+        // satisfy the rejection above while taking every working provider offline - and it also proves the
         // screen's body read leaves the response readable for the library that parses it afterwards.
         var http = new CountingFactory(Serve(FullDiscovery(Authority)));
 
@@ -197,7 +197,7 @@ public class OidcDiscoveryReaderTests
         //
         // Two properties of the fixture are load-bearing and neither is obvious. The planted URL is
         // SAME-AUTHORITY, because an off-authority one is refused by the discovery policy's endpoint
-        // validation before any fetch — the row would then pass with no screen at all, as evidence about
+        // validation before any fetch - the row would then pass with no screen at all, as evidence about
         // ValidateEndpoints. And it is LAST, because every reader resolves a repeat to its last occurrence,
         // so a URL planted first is the one nothing would ever request.
         var attackerJwks = Authority + "/jwks-attacker";
@@ -256,7 +256,7 @@ public class OidcDiscoveryReaderTests
         //
         // Asserting only that the read failed would NOT pin that: OidcDiscoveryReader catches every exception
         // and returns Unavailable, so a crashing screen and a refusing screen are indistinguishable from the
-        // result. The refusal REASON separates them — the screen can only log it by having walked the
+        // result. The refusal REASON separates them - the screen can only log it by having walked the
         // document and returned rather than thrown.
         var http = new CountingFactory(Serve("{\"a\\ud800\":1}"));
         var logger = new CapturingLogger();
@@ -289,7 +289,7 @@ public class OidcDiscoveryReaderTests
     public async Task AnUnknownCharset_IsRefusedRatherThanThrown_AndRecordedByExceptionTypeOnly()
     {
         // Content-Type is the provider's to choose, and an unknown charset makes the decode throw
-        // InvalidOperationException — on a body the ANONYMOUS challenge endpoint fetches. Unhandled, that
+        // InvalidOperationException - on a body the ANONYMOUS challenge endpoint fetches. Unhandled, that
         // escapes the screen: the read still fails closed via the caller's blanket catch, but the operator
         // loses the reason and this handler becomes the one fail path that reports nothing. This is the one
         // arm of the content-read catch a provider can reach; the other two are the row below.
@@ -385,7 +385,7 @@ public class OidcDiscoveryReaderTests
     [Fact]
     public async Task ANonSuccessResponse_KeepsItsOwnStatus_AndIsNotScreened()
     {
-        // A 404 or an HTML error page is not a document that means two things — it is a provider that served
+        // A 404 or an HTML error page is not a document that means two things - it is a provider that served
         // no document. Screening it would replace an honest status with "could not be inspected" and send the
         // operator hunting a duplicate that is not there. The HTML body is deliberately unwalkable, so a
         // screen that inspected non-success responses WOULD report it as uninspectable.
@@ -400,7 +400,7 @@ public class OidcDiscoveryReaderTests
         Assert.False(result.Available);
         Assert.DoesNotContain(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
 
-        // The status the provider actually returned is what reaches the operator — the half this row was
+        // The status the provider actually returned is what reaches the operator - the half this row was
         // named for and did not assert. A screened non-success response would carry the screen's constant
         // reason here instead, which is exactly what must not happen.
         var failClosed = Assert.Single(logger.Entries, e => e.Message.StartsWith("Could not read the OpenID discovery document", StringComparison.Ordinal));
@@ -414,7 +414,7 @@ public class OidcDiscoveryReaderTests
         // The screen deliberately does not inspect a non-success body, and the library DOES parse one:
         // measured, a 404 body still populates the discovery response, and a repeated `issuer` in it resolves
         // to the attacker's last occurrence. Nothing is acted on today only because the caller returns on
-        // IsError before touching any value — so that check is load-bearing, and this row is what pins it.
+        // IsError before touching any value - so that check is load-bearing, and this row is what pins it.
         // Without it, a future read of a discovery value outside the IsError branch would reintroduce the
         // last-wins resolution this whole change exists to remove, with the suite still green.
         var hostile = FullDiscovery(Authority).TrimEnd('}')
@@ -438,7 +438,7 @@ public class OidcDiscoveryReaderTests
     // The discriminating assertion, in one place so no row can be written without it.
     //
     // A screen that INSPECTS, logs, and then hands the document on produces exactly the same log entry as
-    // one that refuses — the entry is written before the decision. And every hostile fixture here is one
+    // one that refuses - the entry is written before the decision. And every hostile fixture here is one
     // the library rejects unaided, so `Available == false` does not discriminate either. What only a real
     // refusal produces is the SUBSTITUTED response: the library then reports the screen's constant reason,
     // and the JWKS the refused document named is never fetched. That second fact is the one a
@@ -470,7 +470,7 @@ public class OidcDiscoveryReaderTests
         // The entry carries a constant reason, the operator's own provider name, a constant naming the
         // document, and ONE value the provider chose: the repeated member name, which is what identifies the
         // defect to report and is bounded and neutralised at that log call (#1195). Nothing else of the
-        // provider's joins it — the request URL in particular stays out, because an entry that echoed a
+        // provider's joins it - the request URL in particular stays out, because an entry that echoed a
         // provider-chosen URL would carry a second unbounded string beside the one that is bounded.
         const string plantedMember = "zzUnmistakableMemberNamezz";
         var duplicated = FullDiscovery(Authority).Insert(1, $"\"{plantedMember}\":1,\"{plantedMember}\":2,");
@@ -570,7 +570,7 @@ public class OidcDiscoveryReaderTests
             }
 
             // Counted so a test can assert the JWKS URL a refused discovery document named was never
-            // dereferenced — the property a post-parse screen structurally cannot hold.
+            // dereferenced - the property a post-parse screen structurally cannot hold.
             if (url.EndsWith("/jwks", StringComparison.Ordinal))
             {
                 JwksRequests++;

@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 /// <summary>
 /// Validates an inbound OpenID Connect back-channel <c>logout_token</c> (OIDC Back-Channel Logout 1.0
-/// §2.4–§2.6, #962). The endpoint that calls this is ANONYMOUS - the token's signature is the only
+/// §2.4 - §2.6, #962). The endpoint that calls this is ANONYMOUS - the token's signature is the only
 /// authenticator - so every §2.6 rule is fail-closed and each maps to a fixed reason code (never
 /// request-derived text, so a rejection leaves an audit trail without a subject-identifier oracle,
 /// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification goes through the

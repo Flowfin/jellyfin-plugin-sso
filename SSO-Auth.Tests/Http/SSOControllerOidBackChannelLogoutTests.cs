@@ -236,10 +236,10 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
         // screen (#1005) refuses a discovery document that names `issuer` twice, which on THIS path means the
         // logout token is never validated: the revocation the IdP ordered does not happen and the captured
         // session survives. That is fail-OPEN for a logout while being fail-closed for a login, it predates
-        // the screen (any unreadable discovery already does it), and the screen only adds a new cause — so it
+        // the screen (any unreadable discovery already does it), and the screen only adds a new cause - so it
         // is pinned here and decided there rather than changed inside this delivery.
         //
-        // Both halves are asserted. The revocation does not happen and the session survives — and the refusal
+        // Both halves are asserted. The revocation does not happen and the session survives - and the refusal
         // states its reason in the log, which on this path is the ONLY place it does: the endpoint answers a
         // deliberately uniform 400, indistinguishable from a legitimate rejection, so without the log entry a
         // suppressed revocation is silent to everyone.
