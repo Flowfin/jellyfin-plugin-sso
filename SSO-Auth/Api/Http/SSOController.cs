@@ -1516,6 +1516,54 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Reports whether one Jellyfin account is SSO-managed (#1136), so a provisioning tool can decide in a
+    /// single call whether to offer a password field, a reset link, or neither. Requires administrator
+    /// privileges. Read-only - it changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// The two facts are reported SEPARATELY because they genuinely differ, and collapsing them is the
+    /// inference this endpoint exists to remove. An account can hold a canonical link while its
+    /// <c>AuthenticationProviderId</c> still routes password attempts to core's default provider, and an
+    /// account can carry the SSO stamp with no link left on it (unregistered, or provisioned and never
+    /// linked). Only the first of the two decides whether a password can be used.
+    /// </remarks>
+    /// <param name="jellyfinUserId">The Jellyfin user to report on.</param>
+    /// <returns>The account's SSO posture, or 404 when no such user exists.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("SSO-Managed/Status/{jellyfinUserId}")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult SsoManagedStatus(Guid jellyfinUserId)
+    {
+        // A user id nobody holds is a 404 rather than a report of two falses: "this account uses passwords"
+        // and "this account does not exist" are different answers, and a caller that cannot tell them apart
+        // would offer a password field for an account it is about to fail to find.
+        if (_userManager.GetUserById(jellyfinUserId) is not { } user)
+        {
+            return NotFound("No such Jellyfin user.");
+        }
+
+        return Ok(new
+        {
+            // The same detector the SSO-only feature and the login-path re-assertion use, so this report and
+            // the enforcement can never disagree about what the stamp means.
+            PasswordLoginDisabled = SsoAuthenticationProviders.IsSsoProvider(user.AuthenticationProviderId),
+            HasCanonicalLink = HoldsAnyCanonicalLink(jellyfinUserId),
+        });
+    }
+
+    /// <summary>
+    /// Whether the user holds at least one canonical link on any provider of either protocol. Reuses the
+    /// same per-mode read the link endpoints answer with, so this cannot report a link set the link
+    /// endpoints would not list. A provider present with no link for this user yields an empty list, which
+    /// is why the test is on the values rather than on the map being non-empty.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user to look for.</param>
+    /// <returns>True when any provider of either protocol holds a link for that user.</returns>
+    private bool HoldsAnyCanonicalLink(Guid jellyfinUserId) =>
+        _canonicalLinks.LinksByUser(ProviderMode.Oid, jellyfinUserId).Any(entry => entry.Value.Any())
+        || _canonicalLinks.LinksByUser(ProviderMode.Saml, jellyfinUserId).Any(entry => entry.Value.Any());
+
+    /// <summary>
     /// Turns SSO-only login on (#165), designating <paramref name="breakGlassAdminUsername"/> as the account
     /// whose native password login is never disabled. Requires administrator privileges. Fail-closed: the
     /// last-admin guard runs first, and unless the designated account is an existing, enabled administrator

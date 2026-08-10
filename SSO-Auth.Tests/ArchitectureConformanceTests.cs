@@ -2810,6 +2810,7 @@ public class ArchitectureConformanceTests
         "Config/Export", "Config/Import", // elevated config transfer
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "saml/links/{jellyfinUserId}", "oid/links/{jellyfinUserId}", // authenticated link listings
+        "SSO-Managed/Status/{jellyfinUserId}", // elevated read-only account report (#1136), in-memory, no outbound fetch
         "{viewName}", // SSOViewsController: read-only embedded static asset (ETag/304), no I/O, no login path
         "i18n", // SSOViewsController: anonymous read-only UI-string catalog (#913), in-memory, no I/O, no login path
     };
