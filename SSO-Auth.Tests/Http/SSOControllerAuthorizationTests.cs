@@ -43,6 +43,9 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         "ExportConfig", "ImportConfig", "Unregister",
         // The SSO-only login admin surface (#165): the mode toggle, the break-glass designation, and status.
         "EnableSsoOnly", "DisableSsoOnly", "DesignateBreakGlassAdmin", "SsoOnlyStatus",
+        // The per-account SSO-managed report (#1136): read-only, and elevation-gated because it answers for
+        // an account other than the caller's.
+        "SsoManagedStatus",
     };
 
     // The endpoints guarded by a bare [Authorize] (any authenticated caller, no elevation) - the canonical
