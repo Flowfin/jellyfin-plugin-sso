@@ -40,7 +40,7 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     {
         "OidAdd", "OidDel", "OidProviders", "OidTest", "OidStates",
         "SamlAdd", "SamlDel", "SamlProviders", "SamlTest", "SamlImportMetadata",
-        "ExportConfig", "ImportConfig", "Unregister",
+        "ExportConfig", "ImportConfig", "Unregister", "ExportLinks",
         // The SSO-only login admin surface (#165): the mode toggle, the break-glass designation, and status.
         "EnableSsoOnly", "DisableSsoOnly", "DesignateBreakGlassAdmin", "SsoOnlyStatus",
         // The per-account SSO-managed report (#1136): read-only, and elevation-gated because it answers for

@@ -1319,6 +1319,31 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Exports the account-link table as a portable, username-keyed document (#1126). Requires
+    /// administrator privileges. Read-only - it changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// A separate download from <c>Config/Export</c> on purpose. That document is defined as carrying no
+    /// link map, and this one carries identity data - usernames paired with identity-provider subject
+    /// identifiers - so an administrator asks for it explicitly instead of receiving it as a side effect of
+    /// exporting provider settings. Keying on the username rather than the Jellyfin user id is what makes
+    /// the snapshot survive the user-database rebuild that invalidates every id the links are stored
+    /// against; a link whose id no longer resolves to an account is dropped rather than exported dangling.
+    /// </remarks>
+    /// <returns>The link export document.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Config/Links/Export")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult ExportLinks()
+    {
+        // Snapshot under the config lock so the two protocols' link maps are read atomically against each
+        // other; the resolution to usernames happens there too, so the document that leaves the lock holds
+        // no user id for the formatter to serialize.
+        return Ok(SSOPlugin.Instance.ReadConfiguration(
+            live => LinkExport.Build(live, userId => _userManager.GetUserById(userId)?.Username)));
+    }
+
+    /// <summary>
     /// Imports a configuration export document into this instance (#161). Requires administrator privileges.
     /// The import is a fail-closed MERGE: the document is validated through the same ProviderConfigValidator
     /// the config-page save uses, and only if the whole document is valid is it merged - atomically, through

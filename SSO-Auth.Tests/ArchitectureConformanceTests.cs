@@ -2809,6 +2809,7 @@ public class ArchitectureConformanceTests
         "SAML/Test/{provider}", // LOCAL certificate parse - no outbound fetch (unlike OID/Test)
         "Config/Export", "Config/Import", // elevated config transfer
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
+        "Config/Links/Export", // elevated read-only link snapshot (#1126), in-memory, no outbound fetch
         "saml/links/{jellyfinUserId}", "oid/links/{jellyfinUserId}", // authenticated link listings
         "SSO-Managed/Status/{jellyfinUserId}", // elevated read-only account report (#1136), in-memory, no outbound fetch
         "{viewName}", // SSOViewsController: read-only embedded static asset (ETag/304), no I/O, no login path
