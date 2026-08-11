@@ -32,6 +32,27 @@ internal static class OidcSignatureKeys
     /// </summary>
     private const int MaxKeyIdLength = 256;
 
+    // RFC 7519 §5.1: the "application/" prefix on a typ value MAY be omitted, so both spellings of one
+    // media type have to be recognised as the same declaration.
+    private const string MediaTypePrefix = "application/";
+
+    // The JWT media types this plugin can attribute to a purpose, and therefore the only ones a typ screen
+    // can act on. Each is a registered value with one meaning, so a token carrying it is telling the reader
+    // which endpoint minted it: RFC 9068 for an OAuth access token, RFC 9449 for a DPoP proof, RFC 8417 for
+    // a security event token, and OIDC Back-Channel Logout 1.0 §2.4 for a logout_token.
+    private const string AccessTokenType = "at+jwt";
+    private const string DpopProofType = "dpop+jwt";
+    private const string SecurityEventType = "secevent+jwt";
+    private const string LogoutTokenType = "logout+jwt";
+
+    // What each entry point refuses. Two lists rather than one because the families are not symmetric: a
+    // logout_token IS a security event token, so secevent+jwt and logout+jwt are its own types and only
+    // foreign to the id_token path.
+    private static readonly ImmutableArray<string> ForeignToIdToken =
+        [AccessTokenType, DpopProofType, SecurityEventType, LogoutTokenType];
+
+    private static readonly ImmutableArray<string> ForeignToLogoutToken = [AccessTokenType, DpopProofType];
+
     /// <summary>
     /// Gets the asymmetric signature algorithms the plugin accepts (RFC 7518). Symmetric HS* would accept a
     /// token minted by anyone holding the shared client secret, and <c>none</c> is unauthenticated by
@@ -246,6 +267,71 @@ internal static class OidcSignatureKeys
             // documents. This endpoint is anonymous, so an escaping decode failure would be a 500 an
             // unauthenticated caller can drive.
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Whether a compact-serialized JWT may be read as an id_token, judged on the <c>typ</c> header alone
+    /// (#1317). A token declaring itself an access token, a DPoP proof, a security event or a
+    /// <c>logout_token</c> was minted for a different endpoint and is refused here rather than left to be
+    /// separated by the shape of its payload.
+    /// </summary>
+    /// <param name="token">The raw compact-serialized JWT.</param>
+    /// <returns><c>false</c> only when the header positively declares one of the foreign media types.</returns>
+    internal static bool TokenTypeIsAcceptableForIdToken(string? token) => !DeclaresForeignType(token, ForeignToIdToken);
+
+    /// <summary>
+    /// Whether a compact-serialized JWT may be read as a back-channel <c>logout_token</c>, judged on the
+    /// <c>typ</c> header alone (#1317). The foreign set is smaller than the id_token's on purpose:
+    /// <c>secevent+jwt</c> and <c>logout+jwt</c> name this token's OWN family, and an id_token has no
+    /// reserved media type to name, so the reverse confusion is caught by the forbidden <c>nonce</c> and
+    /// the required <c>events</c> member instead.
+    /// </summary>
+    /// <param name="token">The raw compact-serialized JWT.</param>
+    /// <returns><c>false</c> only when the header positively declares one of the foreign media types.</returns>
+    internal static bool TokenTypeIsAcceptableForLogoutToken(string? token) => !DeclaresForeignType(token, ForeignToLogoutToken);
+
+    // Whether the header declares one of the media types this plugin can attribute to another purpose.
+    //
+    // RFC 7519 §5.1 lets a producer omit the "application/" prefix, and media types are case-insensitive,
+    // so "application/Logout+JWT" and "logout+jwt" are the same declaration and both are matched. Comparing
+    // the raw header value with Ordinal equality is the one-character mistake that would let either spelling
+    // through, which is why the spellings have rows of their own in the test file.
+    //
+    // Absent, empty, non-string and unrecognised values all return false. That is the availability half of
+    // the decision and it is deliberate: typ is optional in an id_token, real providers omit it, send "JWT",
+    // or send a vendor value, so anything narrower than "declares a purpose this plugin knows is not this
+    // one" would refuse working providers. A value that is not a string declares nothing attributable and is
+    // not evidence of a foreign purpose - the token still has to pass every payload rule that follows.
+    private static bool DeclaresForeignType(string? token, ImmutableArray<string> foreign)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!new JsonWebToken(token).TryGetHeaderValue<string>("typ", out var declared) || string.IsNullOrEmpty(declared))
+            {
+                return false;
+            }
+
+            var mediaType = declared.StartsWith(MediaTypePrefix, StringComparison.OrdinalIgnoreCase)
+                ? declared[MediaTypePrefix.Length..]
+                : declared;
+            return foreign.Contains(mediaType, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            // Not a readable JWT; the handler refuses it on its own terms, as with the two gates above.
+            return false;
+        }
+        catch (FormatException)
+        {
+            // A segment that will not base64url-decode. The back-channel endpoint is anonymous, so an
+            // escaping decode failure here would be a 500 an unauthenticated caller can drive.
+            return false;
         }
     }
 

@@ -83,6 +83,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A token minted for one endpoint is no longer read as a token for the other
+  (#1317).** Neither JWT the plugin verifies used to have its `typ` header
+  looked at, so the only thing separating an id_token from a back-channel
+  logout token was the shape of its payload. Measured before the fix: a genuine
+  logout token, correctly typed and signed by the provider's own key, validated
+  on the login path and produced a user; and a logout token whose header said
+  `at+jwt` validated at the logout endpoint. Both entry points now refuse a
+  token that declares itself an access token (`at+jwt`), a DPoP proof
+  (`dpop+jwt`) or, on the login path, a security event (`secevent+jwt`) or a
+  logout token (`logout+jwt`), in every spelling of those media types. Nothing
+  a working provider sends is affected: `typ` is optional in an id_token, so a
+  token that omits it, sends the generic `JWT`, or sends a vendor value of the
+  provider's own is accepted exactly as before. An absent header is not treated
+  as a wrong one.
+
 - **A single dropped discovery response no longer cancels a sign-out the
   identity provider ordered (#1183).** On an inbound back-channel logout the
   plugin reads the provider's discovery document to obtain the keys the logout
