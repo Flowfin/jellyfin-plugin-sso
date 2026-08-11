@@ -43,4 +43,12 @@ internal static class SsoRateLimitClass
 
     /// <summary>The anonymous inbound SAML <c>LogoutRequest</c> Single Logout surface (#727, SLO-3b). (The authenticated OIDC RP-initiated logout route is caller-scoped and not rate-limited today.)</summary>
     internal const string Logout = "logout";
+
+    /// <summary>
+    /// The elevation-gated per-subject link export (#1091). Its own budget rather than a share of
+    /// <see cref="Unregister"/>'s: the export is a read an operator may run repeatedly while servicing an
+    /// access request, and spending the revoke budget on it would throttle the one write an administrator
+    /// needs during an incident.
+    /// </summary>
+    internal const string Export = "export";
 }

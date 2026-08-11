@@ -1344,6 +1344,48 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Exports the SSO linkages held for ONE Jellyfin account, across both protocols, as the same document
+    /// shape <c>Config/Links/Export</c> produces (#1091). Requires administrator privileges. Read-only - it
+    /// changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// The per-subject counterpart to the whole-table export, and the reason it is a separate route rather
+    /// than a filter on the existing one: an operator answering a data-subject access request must be able
+    /// to produce that subject's linkages WITHOUT handling every other account's, which the whole-table
+    /// document would force them to do and then redact by hand. The two protocol-specific listings
+    /// (<c>saml/links/{jellyfinUserId}</c>, <c>oid/links/{jellyfinUserId}</c>) answer for one protocol each
+    /// and are unthrottled; this answers for both at once and is throttled, because it is the surface an
+    /// authenticated administrator is most likely to drive in a loop over the whole user list.
+    /// </remarks>
+    /// <param name="jellyfinUserId">The Jellyfin user id to export the linkages of.</param>
+    /// <returns>The link export document for that account, or 404 when no such account exists.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Links/Export/{jellyfinUserId}")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult ExportUserLinks(Guid jellyfinUserId)
+    {
+        // Throttle before the account lookup, exactly as Unregister does: the 404 an unknown id produces is
+        // an existence answer, and an unthrottled one would enumerate the user table for an administrator
+        // whose elevation was borrowed rather than earned.
+        if (RateLimitCheck(SsoRateLimitClass.Export) is { } throttled)
+        {
+            return throttled;
+        }
+
+        if (_userManager.GetUserById(jellyfinUserId)?.Username is not { } username)
+        {
+            return NotFound("No Jellyfin account exists with that user id.");
+        }
+
+        // The export is the whole-table builder with a resolver that answers for this one id and null for
+        // every other, so the filtering falls out of the rule that already drops a link no account resolves
+        // to - there is no second walk of the link maps to keep in step with the first. Resolved once here
+        // rather than inside the lambda so the user manager is not called under the config lock.
+        return Ok(SSOPlugin.Instance.ReadConfiguration(
+            live => LinkExport.Build(live, userId => userId == jellyfinUserId ? username : null)));
+    }
+
+    /// <summary>
     /// Imports a configuration export document into this instance (#161). Requires administrator privileges.
     /// The import is a fail-closed MERGE: the document is validated through the same ProviderConfigValidator
     /// the config-page save uses, and only if the whole document is valid is it merged - atomically, through
