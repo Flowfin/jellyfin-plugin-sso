@@ -75,6 +75,12 @@ ADMIN_ROLES_JSON="${ADMIN_ROLES_JSON:-[]}"
 # SSO-only login round-trip. Off by default - the canonical Keycloak stack turns them on; other
 # providers opt in once their seeds carry the required roles.
 EXTENDED_PHASES="${EXTENDED_PHASES:-false}"
+# A second, non-reconfiguring pass over a Jellyfin this harness already initialised (#1123). Every
+# phase that WRITES setup state is skipped - the identity-provider seed, the first-run wizard, and the
+# two provider Add calls - and the same facts are read back from the persisted configuration instead.
+# The login round-trips and every assertion still run, so a phase that mutates server state can be
+# followed by a pass that observes what survived. Off by default: an unset run is the one-shot run.
+RELOGIN_ONLY="${RELOGIN_ONLY:-false}"
 # The two OIDC test users' passwords. They default to the username (every other harness seeds them that
 # way); Zitadel's default password policy rejects anything that simple, so that harness overrides both. The
 # SAME variables seed the account and drive the login, so the two can never disagree.
@@ -437,7 +443,11 @@ JSON
 
   log "Zitadel seeded (project=$zproject, client_id=$CLIENT_ID), signing key published"
 }
-idp_seed
+if [ "$RELOGIN_ONLY" = "true" ]; then
+  log "SKIPPED (relogin-only): identity-provider seeding - the client, role and users already exist"
+else
+  idp_seed
+fi
 
 
 # The id_token must be signed with an ASYMMETRIC, JWKS-verifiable algorithm. An identity provider that falls
@@ -486,9 +496,14 @@ jf() {
   fi
 }
 
-# If the wizard is already complete (a re-run against a persisted /config), skip it.
+# If the wizard is already complete (a re-run against a persisted /config), skip it. A relogin-only
+# pass refuses to run it at all rather than relying on that check: the wizard is setup, and a pass
+# that found an uninitialised server is looking at the wrong stack, not at one it may initialise.
 WIZARD_DONE="$(curl -fsS "$JELLYFIN/System/Info/Public" | jq -r '.StartupWizardCompleted // false')"
-if [ "$WIZARD_DONE" != "true" ]; then
+if [ "$RELOGIN_ONLY" = "true" ]; then
+  [ "$WIZARD_DONE" = "true" ] || die "relogin-only: the Jellyfin startup wizard is not complete - this pass reuses an already-initialised server and must not create one"
+  log "SKIPPED (relogin-only): first-run wizard - reusing admin '$ADMIN_USER' from the persisted config"
+elif [ "$WIZARD_DONE" != "true" ]; then
   # Jellyfin answers /System/Info/Public before the startup-wizard controller is fully ready, so poll the
   # wizard config endpoint until it responds - otherwise a fast-booting IdP (e.g. Authelia over TLS) lets
   # the harness race ahead of Jellyfin and the first wizard call fails intermittently (#921).
@@ -546,15 +561,19 @@ OID_CONFIG="$(cat <<JSON
 }
 JSON
 )"
-ADD_STATUS="$(curl -sS -o /tmp/add.out -w '%{http_code}' -X POST "$JELLYFIN/sso/OID/Add/$PROVIDER" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
-  -d "$OID_CONFIG")" || true
-if [ "$ADD_STATUS" != "200" ] && [ "$ADD_STATUS" != "204" ]; then
-  log "OID/Add returned HTTP $ADD_STATUS: $(cat /tmp/add.out 2>/dev/null)"
-  die "OID/Add failed (is the plugin loaded? a 404 means it is not)"
+if [ "$RELOGIN_ONLY" = "true" ]; then
+  log "SKIPPED (relogin-only): OID/Add - the provider configuration persisted under /config is reused"
+else
+  ADD_STATUS="$(curl -sS -o /tmp/add.out -w '%{http_code}' -X POST "$JELLYFIN/sso/OID/Add/$PROVIDER" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+    -d "$OID_CONFIG")" || true
+  if [ "$ADD_STATUS" != "200" ] && [ "$ADD_STATUS" != "204" ]; then
+    log "OID/Add returned HTTP $ADD_STATUS: $(cat /tmp/add.out 2>/dev/null)"
+    die "OID/Add failed (is the plugin loaded? a 404 means it is not)"
+  fi
+  log "Provider configured"
 fi
-log "Provider configured"
 
 # --------------------------------------------------------------------------------------------------
 # Phase 3 - assert the plugin loaded and the provider is enabled (milestone 1)
@@ -1268,11 +1287,22 @@ if [ "$EXTENDED_PHASES" = "true" ]; then
   # ------------------------------------------------------------------------------------------------
   log "== Extended: SSO-only login round-trip =="
   PW_USER="pwuser"; PW_PASS="Pw-e2e-1!"
-  NEWU="$(curl -fsS -X POST "$JELLYFIN/Users/New" \
-    -H "Content-Type: application/json" \
+  # A second pass over the same server already has this account: /Users/New refuses a duplicate name,
+  # and creating it is setup rather than the thing under test. Look first, create only when absent -
+  # the phase then asserts the same lockout and restoration against either account.
+  PW_ID="$(curl -fsS "$JELLYFIN/Users" \
     -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
-    -d "{\"Name\":\"$PW_USER\",\"Password\":\"$PW_PASS\"}")" || die "extended: creating the password user failed"
-  [ -n "$(printf '%s' "$NEWU" | jq -r '.Id // empty')" ] || die "extended: /Users/New returned no user id"
+    | jq -r --arg n "$PW_USER" '[.[] | select(.Name == $n) | .Id][0] // empty')" || die "extended: could not list users"
+  if [ -n "$PW_ID" ]; then
+    log "Reusing the existing password user '$PW_USER' ($PW_ID)"
+  else
+    NEWU="$(curl -fsS -X POST "$JELLYFIN/Users/New" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+      -d "{\"Name\":\"$PW_USER\",\"Password\":\"$PW_PASS\"}")" || die "extended: creating the password user failed"
+    PW_ID="$(printf '%s' "$NEWU" | jq -r '.Id // empty')"
+    [ -n "$PW_ID" ] || die "extended: /Users/New returned no user id"
+  fi
 
   [ "$(jf_auth_status "$PW_USER" "$PW_PASS")" = "200" ] || die "extended: the fresh password user cannot log in even before SSO-only"
 
@@ -1345,13 +1375,17 @@ SAML_CONFIG="$(cat <<JSON
 }
 JSON
 )"
-SADD_STATUS="$(curl -sS -o /tmp/samladd.out -w '%{http_code}' -X POST "$JELLYFIN/sso/SAML/Add/$PROVIDER" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
-  -d "$SAML_CONFIG")" || true
-if [ "$SADD_STATUS" != "200" ] && [ "$SADD_STATUS" != "204" ]; then
-  log "SAML/Add returned HTTP $SADD_STATUS: $(cat /tmp/samladd.out 2>/dev/null)"
-  die "SAML/Add failed"
+if [ "$RELOGIN_ONLY" = "true" ]; then
+  log "SKIPPED (relogin-only): SAML/Add - the SAML provider configuration persisted under /config is reused"
+else
+  SADD_STATUS="$(curl -sS -o /tmp/samladd.out -w '%{http_code}' -X POST "$JELLYFIN/sso/SAML/Add/$PROVIDER" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+    -d "$SAML_CONFIG")" || true
+  if [ "$SADD_STATUS" != "200" ] && [ "$SADD_STATUS" != "204" ]; then
+    log "SAML/Add returned HTTP $SADD_STATUS: $(cat /tmp/samladd.out 2>/dev/null)"
+    die "SAML/Add failed"
+  fi
 fi
 SNAMES="$(curl -fsS "$JELLYFIN/sso/SAML/GetNames")" || die "SAML GetNames failed"
 log "SAML GetNames => $SNAMES"

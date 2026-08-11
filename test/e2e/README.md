@@ -165,6 +165,35 @@ docker compose -f test/e2e/docker-compose.yml down -v
 A green run prints `ALL E2E CHECKS PASSED`. In CI, container logs are dumped automatically on
 failure.
 
+### A second pass over the same server (`RELOGIN_ONLY`)
+
+Step 3 configures everything it then asserts, which overwrites exactly the state a mutation test
+needs to survive. `RELOGIN_ONLY=true` runs the same driver without any of that setup: the
+identity-provider seed, the Jellyfin first-run wizard and the two provider `Add` calls are skipped
+and reported as skipped, the admin token and the provider configuration are read back from the
+persisted `/config`, and every login round-trip and assertion runs as before. So a phase can change
+server state and a following pass can observe what the logins do with it.
+
+```sh
+# First pass: the ordinary run above, which initialises Jellyfin and configures both providers.
+docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+
+# Second pass: same stack, no reconfiguration.
+RELOGIN_ONLY=true docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+```
+
+Run the second pass with `up` on the stopped stack rather than after a `down`. Only the harness
+container's environment changed, so Keycloak and Jellyfin restart in place and keep the realm's SAML
+signing key. A `down` removes the Keycloak container, the realm is re-imported into a fresh instance
+with a **new** signing certificate, and the certificate the first pass wrote into the plugin's SAML
+configuration no longer matches the assertions the IdP signs.
+
+A relogin-only pass refuses to run against an uninitialised server: it needs a Jellyfin whose wizard
+is already complete and whose provider configuration is already persisted, so pointing it at a wiped
+`test/e2e/jellyfin/config` is a fatal error rather than a silent re-initialisation.
+
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an
 already-initialised Jellyfin. These three are seeded imperatively against stateful storage and their seeds
