@@ -70,6 +70,13 @@ services:
       # canonical stack.
       ADMIN_ROLES_JSON: '["jellyfin-admin"]'
       EXTENDED_PHASES: "true"
+      # A second pass over the Jellyfin this stack already initialised (#1123): the seed, the wizard
+      # and the two provider Add calls are skipped and read back instead, so state a phase mutated
+      # survives into the next login. Taken from the invoking shell and defaulting to false, so an
+      # ordinary `docker compose up` is the one-shot run it has always been. The Jellyfin /config is
+      # the bind mount below, which `docker compose down -v` does not clear, so the second pass finds
+      # the completed wizard and the persisted provider configuration.
+      RELOGIN_ONLY: "${RELOGIN_ONLY:-false}"
       # The canonical base URL the plugin publishes in its SP metadata (#928 U8): the SAML/metadata
       # endpoint fails closed without it (the ACS URL must never come from a spoofable request Host).
       # This IS the Jellyfin service URL on the harness network, so the advertised ACS is reachable.
