@@ -45,6 +45,16 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   disclaimer text; provider names and labels are HTML-encoded. Per provider,
   **Hide login button** omits one provider's button and **Login button text**
   overrides its label.
+- **A linked-account roster for administrators (#1119).** A new
+  administrator-only endpoint, `GET /SSO/Links/Roster`, lists every Jellyfin
+  account that holds an SSO link, with the provider and canonical name behind
+  each one, in a single read. Finding out _which_ accounts were linked
+  previously meant walking the whole Jellyfin user list and asking the per-user
+  listings one request at a time. An account linked to several providers is one
+  row carrying several links, and a link whose account has since been deleted is
+  reported as an orphan rather than dropped, which is the one place that state is
+  visible at all. The roster is assembled from the link maps alone, so no
+  provider secret, signing key or certificate can appear in it.
 
 ### Changed
 
