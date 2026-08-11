@@ -73,6 +73,14 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.CriticalHeader);
         }
 
+        // RFC 7519 4.1.9, from the same shared table the id_token path screens against (#1317). This
+        // endpoint revokes sessions, so a token minted as an access token or a DPoP proof and replayed here
+        // must be refused for declaring itself something else, not left to the payload rules to catch.
+        if (!OidcSignatureKeys.TokenTypeIsAcceptableForLogoutToken(logoutToken))
+        {
+            return new Result(false, null, null, RejectReason.UnacceptableTokenType);
+        }
+
         // The algorithm is judged before the handler runs, purely so the refusal can be named. The handler
         // refuses a disallowed alg on its own - nothing new is rejected here - but it reports alg: none, a
         // case-variant spelling and an HS256 token keyed with the advertised public key as
@@ -286,6 +294,9 @@ internal sealed class OidcLogoutTokenValidator
 
         /// <summary>The header kid carries characters outside the accepted set, or is over-length (#1167).</summary>
         internal const string UnacceptableKeyId = "unacceptable_kid";
+
+        /// <summary>The header typ declares a media type minted for another endpoint (#1317).</summary>
+        internal const string UnacceptableTokenType = "unacceptable_typ";
 
         /// <summary>
         /// The provider's discovery document could not be read, so the signing keys never arrived and the

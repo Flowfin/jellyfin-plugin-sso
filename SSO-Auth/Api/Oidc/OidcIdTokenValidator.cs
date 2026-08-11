@@ -59,6 +59,15 @@ internal sealed class OidcIdTokenValidator : IIdentityTokenValidator
                 return Reject("Identity token validation failed: unprocessed critical header");
             }
 
+            // RFC 7519 4.1.9: a token declaring itself an access token, a DPoP proof, a security event or a
+            // logout_token was minted for another endpoint and must not log anybody in here (#1317). Nothing
+            // else separated the two token families before: the handler never reads typ, and a genuine
+            // logout_token signed by the trusted key validated on this path.
+            if (!OidcSignatureKeys.TokenTypeIsAcceptableForIdToken(identityToken))
+            {
+                return Reject("Identity token validation failed: unacceptable token type");
+            }
+
             var handler = new JsonWebTokenHandler { MapInboundClaims = false };
             var result = await handler.ValidateTokenAsync(identityToken, OidcSignatureKeys.BuildValidationParameters(options, ephemeralKeys)).ConfigureAwait(false);
             if (!result.IsValid)
