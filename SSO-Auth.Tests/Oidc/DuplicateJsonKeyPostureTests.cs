@@ -22,11 +22,15 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// The duplicate-key posture behind the screened discovery seam (#1186, unit 2 of #1005's ladder).
 ///
-/// Two tests that only make sense together. The plugin reads its discovery facts through Newtonsoft
-/// (<see cref="DiscoveryJson"/>) while the identity library reads the same bytes through System.Text.Json,
-/// so a document naming a member twice is read by two parsers that were never promised to agree about it.
-/// <see cref="ParserDuplicateKeyPosture_IsPinned"/> is the measurement of what they actually do, executed
-/// rather than quoted, so a dependency bump that flips a row fails here instead of in production;
+/// Two tests that only make sense together. A document naming a member twice is read by parsers that were
+/// never promised to agree about it - RFC 8259 §4 leaves the handling unspecified - and the rows below are
+/// what this dependency set actually does with one. Since #1054 the plugin's own fact read
+/// (<see cref="DiscoveryJson"/>) is System.Text.Json, the family the screen tokenizes with, so the pair the
+/// table used to be about - a Newtonsoft read behind a System.Text.Json screen - is no longer on this path.
+/// It is still measured, because the identity library's typed read and the plugin's role-claim read are both
+/// downstream of documents like this one, and a bump that flipped a row would move a decision nobody would
+/// see move. <see cref="ParserDuplicateKeyPosture_IsPinned"/> is that measurement, executed rather than
+/// quoted, so it fails here instead of in production;
 /// <see cref="EveryReaderOfTheDiscoveryDocument_ReachesTheSameDecision"/> is the property that measurement
 /// makes load-bearing - the document is refused at the transport, before either reader observes a value,
 /// so the two can never be made to differ.

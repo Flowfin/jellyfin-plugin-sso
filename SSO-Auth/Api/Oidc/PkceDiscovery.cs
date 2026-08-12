@@ -4,7 +4,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
@@ -26,24 +26,32 @@ internal static class PkceDiscovery
     /// <c>true</c> only when <c>S256</c> is advertised; <c>false</c> on absence, an empty/other-only set,
     /// a non-array value, non-string elements, or malformed/blank JSON.
     /// </returns>
-    internal static bool SupportsS256(string? discoveryJson) => SupportsS256(DiscoveryJson.TryParse(discoveryJson));
+    internal static bool SupportsS256(string? discoveryJson)
+    {
+        using var document = DiscoveryJson.TryParse(discoveryJson);
+        return SupportsS256(document?.RootElement);
+    }
 
     /// <summary>
     /// The same decision taken on an already-parsed document, so the challenge reads both of its discovery
     /// facts out of one parse (#1170).
     /// </summary>
-    /// <param name="discovery">The parsed discovery document, or <see langword="null"/> when it could not be parsed.</param>
+    /// <param name="discovery">The parsed discovery document's root, or <see langword="null"/> when it could not be parsed.</param>
     /// <returns>
     /// <c>true</c> only when <c>S256</c> is advertised; <c>false</c> on absence, an empty/other-only set,
     /// a non-array value, non-string elements, or a null root.
     /// </returns>
-    internal static bool SupportsS256(JObject? discovery)
+    internal static bool SupportsS256(JsonElement? discovery)
     {
-        var methods = discovery?["code_challenge_methods_supported"] as JArray;
-        var advertised = methods is not null
-            && methods.Any(method =>
-                method.Type == JTokenType.String
-                && string.Equals(method.Value<string>(), "S256", StringComparison.Ordinal));
+        // The ValueKind test is not redundant with the null test: a caller can hold a JsonElement that is
+        // non-null and not an object - default(JsonElement) is Undefined - and TryGetProperty THROWS on one
+        // rather than answering false, which would turn a malformed document into a 500 on the challenge.
+        var advertised = discovery is { ValueKind: JsonValueKind.Object } root
+            && root.TryGetProperty("code_challenge_methods_supported", out var methods)
+            && methods.ValueKind == JsonValueKind.Array
+            && methods.EnumerateArray().Any(method =>
+                method.ValueKind == JsonValueKind.String
+                && string.Equals(method.GetString(), "S256", StringComparison.Ordinal));
 
         // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
         // nothing. This is the fail-closed half of RFC 9700 2.1.1 - the answer a caller acts on when the
