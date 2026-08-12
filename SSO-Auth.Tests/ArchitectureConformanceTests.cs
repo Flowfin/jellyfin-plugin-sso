@@ -4379,6 +4379,12 @@ public class ArchitectureConformanceTests
         // OidcDiscoveryReader.ReadAsync took off a response that came back through RepeatedMemberScreen, so
         // a document naming a member twice was already refused at the transport and never reaches here.
         ["SSO-Auth/Api/Oidc/DiscoveryJson.cs"] = "SSO-Auth/Api/Oidc/RepeatedMemberScreen.cs",
+
+        // The id_token role claim's value. Here the gate is in the reading file itself rather than in a
+        // transport ahead of it: the value arrives as a claim on an already-validated token, so there is no
+        // response for a handler to sit in front of, and the screen runs on the string before Newtonsoft is
+        // consulted at all (#1324).
+        ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "SSO-Auth/Api/Oidc/OidcRoleExtractor.cs",
     };
 
     // Sites over bytes the plugin itself shipped or produced, each with the reason it is not provider
@@ -4401,11 +4407,11 @@ public class ArchitectureConformanceTests
     // contents exactly, so closing one of these has to move the entry rather than leave it standing.
     private static readonly SortedDictionary<string, string> UnscreenedUntrustedReads = new(StringComparer.Ordinal)
     {
-        // The role claim's value, straight off the id_token, parsed by Newtonsoft with no repeated-member
-        // check. #1053 is open on exactly this: the screen's Unreadable verdict is fail-closed in the
-        // discovery reader and fail-open here, and deciding what Unreadable MEANS on a privilege path comes
-        // before any code. Until it is decided the site stays visible here rather than filed as trusted.
-        ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "the id_token role claim value; the Unreadable-on-a-privilege-path decision is #1053",
+        // EMPTY, and that is a state this rule has to hold rather than a reason to delete the table. The one
+        // entry it carried was the role claim's value, disclosed here while #1053 decided what an unreadable
+        // document means on a privilege path; #1324 put the screen in front of it and the entry moved up to
+        // the gated table. An empty disclosure is the honest reading of the tree today, and the next
+        // unscreened read has a table to land in instead of a decision to re-open.
     };
 
     /// <summary>
