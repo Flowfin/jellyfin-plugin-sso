@@ -866,23 +866,47 @@ public class OidcAuthorizeStateBuilderTests
     // --- the refused-role-claim audit trail (#1149) ---
 
     [Fact]
-    public void AValueThatIsNotJson_AndAPathThatDoesNotResolve_AreAuditedApartByReasonCode()
+    public void AnUnreadableValue_AndAPathThatDoesNotResolve_AreAuditedApartByReasonCode()
     {
         // The whole point of the trail. Both logins end with no roles, and under a configured allow-list
         // both are denied, so from the operator's side they are one symptom with two very different causes:
-        // a provider sending something other than JSON, and a role-claim path that does not match what the
-        // provider actually emits. One entry each, and the codes must differ - a trail that gave both the
+        // a provider sending something the screen cannot read, and a role-claim path that does not match what
+        // the provider actually emits. One entry each, and the codes must differ - a trail that gave both the
         // same code would be no better than the empty role set they already share.
-        var notJson = Audit(c => c.RoleClaim = "realm_access.roles", ("realm_access", "not-json-at-all"));
+        var unreadable = Audit(c => c.RoleClaim = "realm_access.roles", ("realm_access", "not-json-at-all"));
         var unresolved = Audit(c => c.RoleClaim = "realm_access.missing", ("realm_access", "{\"roles\":[\"a\"]}"));
 
-        var first = Assert.Single(notJson.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+        var first = Assert.Single(unreadable.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
         var second = Assert.Single(unresolved.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
 
         Assert.Equal(LogLevel.Warning, first.Level);
-        Assert.Contains(OidcRoleExtractor.Outcome.ValueNotJson.ToString(), first.Message, StringComparison.Ordinal);
+        Assert.Contains(OidcRoleExtractor.Outcome.Unreadable.ToString(), first.Message, StringComparison.Ordinal);
         Assert.Contains(OidcRoleExtractor.Outcome.PathNotResolved.ToString(), second.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(OidcRoleExtractor.Outcome.PathNotResolved.ToString(), first.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARepeatedRoleMember_ReachesTheOperatorAsItsOwnReasonCode()
+    {
+        // A repeat is the one refusal an operator cannot diagnose from the outside: the document looks fine,
+        // the path is right, and the login is simply denied. It gets its own code rather than sharing
+        // Unreadable's, because the two ask for different actions - one is a provider serving bytes nobody can
+        // read, the other is a provider serving a document that means two things (#1324).
+        // The repeated member is named distinctively rather than being the role member itself, so the last
+        // assertion is about a string that could only have come from the claim value.
+        const string ProviderAuthoredName = "zzRepeatedMemberMarkerzz";
+        var repeated = Audit(
+            c => c.RoleClaim = "realm_access.roles",
+            ("realm_access", "{\"roles\":[\"a\"],\"" + ProviderAuthoredName + "\":1,\"" + ProviderAuthoredName + "\":2}"));
+
+        var entry = Assert.Single(repeated.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+
+        Assert.Contains(OidcRoleExtractor.Outcome.RepeatedMember.ToString(), entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(OidcRoleExtractor.Outcome.Unreadable.ToString(), entry.Message, StringComparison.Ordinal);
+
+        // The member name is provider-authored and must not travel: it is the one string in this refusal the
+        // claim decides, and the trail carries reason codes only.
+        Assert.DoesNotContain(ProviderAuthoredName, entry.Message, StringComparison.Ordinal);
     }
 
     [Fact]

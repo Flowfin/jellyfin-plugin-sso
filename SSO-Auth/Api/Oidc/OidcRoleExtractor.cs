@@ -45,6 +45,19 @@ internal static class OidcRoleExtractor
 
         /// <summary>The terminal node was reached but is not the configured shape - a non-array where an array was expected, or a non-object in object-map mode.</summary>
         TerminalWrongShape,
+
+        /// <summary>
+        /// An object scope this walk enters names a member twice, so the claim value means two things and
+        /// which of them decides the roles is a parser's choice rather than the document's (#1324).
+        /// </summary>
+        RepeatedMember,
+
+        /// <summary>
+        /// The screen could not read the claim value to the end, so nothing about it was established (#1053).
+        /// Distinct from <see cref="ValueNotJson"/>, which is Newtonsoft's answer AFTER it ran: this one is
+        /// returned instead of consulting it, so the two names also say which reader spoke.
+        /// </summary>
+        Unreadable,
     }
 
     /// <summary>
@@ -67,8 +80,13 @@ internal static class OidcRoleExtractor
     /// claim value as a single role. Every non-resolving shape (missing segment, non-object node, wrong
     /// terminal type) and a malformed claim value carry no roles AND a refusal reason - a parse failure
     /// fails closed rather than throwing (#216). The refusal reasons exist so a caller can tell a broken
-    /// path from a provider that legitimately sent no roles; the ROLE SET this returns is exactly the one
-    /// the previous bare-list version returned, for every input.
+    /// path from a provider that legitimately sent no roles.
+    /// <para>
+    /// Two shapes carry no roles that once did, and both are #1324 rather than an accident. A claim value
+    /// naming a member twice in a scope this walk enters is refused instead of resolving to whichever
+    /// occurrence a parser happens to keep, and a claim value the screen cannot read to the end is refused
+    /// instead of being handed to a second parser that can. Everything else returns what it always returned.
+    /// </para>
     /// </returns>
     internal static Result ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
     {
@@ -77,6 +95,25 @@ internal static class OidcRoleExtractor
         if (roleClaimSegments.Length == 1 && !terminalIsObjectMap)
         {
             return Resolved(new List<string> { claimValue });
+        }
+
+        // The screen runs BEFORE Newtonsoft, and that ordering is the substance of #1324 rather than a
+        // preference. The round-2 finding on PR #1032 was not that an unreadable document produced no roles,
+        // it was that it produced "proceed" and the code then fell through to a second parser, which granted
+        // the attacker's last-occurrence roles. A refusal here consults no second reader, so the value's
+        // meaning never becomes a question of which parser read it.
+        //
+        // Only the scopes this walk enters are screened. A repeat anywhere the walk does not go changes
+        // nothing it reads, and refusing on one would let an unrelated sibling in the provider's own claim -
+        // a vendor extension repeating a name - wipe the role set of every login (#1324).
+        //
+        // The repeated member's NAME is deliberately dropped. This value carries group DNs and e-mail
+        // addresses, the audit trail below records the outcome's own name and never anything derived from the
+        // claim, and a member name is derived from the claim.
+        var screened = StrictJson.Inspect(claimValue, EnteredScopeKeys(roleClaimSegments, terminalIsObjectMap), out _);
+        if (screened != StrictJson.Verdict.Clean)
+        {
+            return Refused(screened == StrictJson.Verdict.Repeated ? Outcome.RepeatedMember : Outcome.Unreadable);
         }
 
         // Everything else parses the claim value as a JSON object and walks it. The claim value is
@@ -142,6 +179,31 @@ internal static class OidcRoleExtractor
         {
             return Refused(Outcome.ValueNotJson);
         }
+    }
+
+    // The object scopes the walk below opens, named for the screen, in the order it descends them. The root
+    // is not listed because every reader starts there and the screen enters it by definition.
+    //
+    // Read off the walk rather than off the configuration's shape: the intermediates are exactly the segments
+    // the loop descends, and the terminal joins them only in object-map mode, where the roles ARE that
+    // object's member names. In array mode the terminal is an array, whose elements carry no names to repeat,
+    // and an object among them is skipped by the string filter - so entering it would screen a scope no role
+    // is ever read out of.
+    private static List<string> EnteredScopeKeys(string[] roleClaimSegments, bool terminalIsObjectMap)
+    {
+        var keys = new List<string>();
+        for (int i = 1; i < roleClaimSegments.Length - 1; i++)
+        {
+            keys.Add(roleClaimSegments[i]);
+        }
+
+        // A one-segment object-map path has no key: the claim value's root IS the terminal object.
+        if (terminalIsObjectMap && roleClaimSegments.Length > 1)
+        {
+            keys.Add(roleClaimSegments[^1]);
+        }
+
+        return keys;
     }
 
     private static Result Resolved(List<string> roles) => new(Outcome.Resolved, roles);
