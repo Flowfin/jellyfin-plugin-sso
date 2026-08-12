@@ -147,11 +147,16 @@ Local Docker must be working. The harness installs the **packaged** plugin, so b
 
 ```sh
 # 1. Build the packaged plugin zip (requires the .NET 9 SDK and JPRM: `pip install jprm`).
-jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net9.0
+#    jprm refuses an output directory that does not exist, and `artifacts/` is git-ignored,
+#    so a clean checkout has to create it. Everything jprm reports goes to stderr except the
+#    path of the archive it wrote, which is its only line of stdout - capture that instead of
+#    naming the file, because the name is derived from `name:` in build.yaml and moves with it.
+mkdir -p ./artifacts
+plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net9.0)
 
 # 2. Unpack it into the Jellyfin plugins directory the compose stack mounts.
 mkdir -p test/e2e/jellyfin/config/plugins/SSO-Auth
-unzip -o ./artifacts/sso-authentication_*.zip -d test/e2e/jellyfin/config/plugins/SSO-Auth
+unzip -o "$plugin_zip" -d test/e2e/jellyfin/config/plugins/SSO-Auth
 chmod -R 0777 test/e2e/jellyfin
 
 # 3. Boot the stack and run the harness (its exit code is the run's exit code).
