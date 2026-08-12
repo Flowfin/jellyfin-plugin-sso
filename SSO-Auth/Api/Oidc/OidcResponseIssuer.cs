@@ -3,9 +3,9 @@
 
 using System;
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
@@ -59,20 +59,30 @@ internal static class OidcResponseIssuer
     /// </summary>
     /// <param name="discoveryJson">The raw OpenID discovery document JSON.</param>
     /// <returns><c>true</c> only when the parameter is explicitly advertised as <c>true</c>.</returns>
-    internal static bool DiscoveryAdvertisesResponseIssuer(string? discoveryJson) =>
-        DiscoveryAdvertisesResponseIssuer(DiscoveryJson.TryParse(discoveryJson));
+    internal static bool DiscoveryAdvertisesResponseIssuer(string? discoveryJson)
+    {
+        using var document = DiscoveryJson.TryParse(discoveryJson);
+        return DiscoveryAdvertisesResponseIssuer(document?.RootElement);
+    }
 
     /// <summary>
     /// The same flag read off an already-parsed document, so the challenge reads both of its discovery facts
     /// out of one parse (#1170). Stays tolerant (<c>false</c>) on a null root, exactly as the raw-JSON entry
     /// point is on absent, blank or malformed input.
     /// </summary>
-    /// <param name="discovery">The parsed discovery document, or <see langword="null"/> when it could not be parsed.</param>
+    /// <param name="discovery">The parsed discovery document's root, or <see langword="null"/> when it could not be parsed.</param>
     /// <returns><c>true</c> only when the parameter is explicitly advertised as <c>true</c>.</returns>
-    internal static bool DiscoveryAdvertisesResponseIssuer(JObject? discovery)
+    internal static bool DiscoveryAdvertisesResponseIssuer(JsonElement? discovery)
     {
-        var advertised = discovery?["authorization_response_iss_parameter_supported"] is JValue { Type: JTokenType.Boolean } value
-            && value.Value<bool>();
+        // Only the JSON literal `true` advertises the parameter. A string "true", a 1, or the literal `false`
+        // all read as not advertised, which is the tolerant direction: requiring `iss` off a value the
+        // provider did not write as a boolean would lock out a provider that never sends one.
+        //
+        // The ValueKind test on the root is not redundant with the null test, for the same reason it is not
+        // in PkceDiscovery: TryGetProperty throws on a non-object element rather than answering false.
+        var advertised = discovery is { ValueKind: JsonValueKind.Object } root
+            && root.TryGetProperty("authorization_response_iss_parameter_supported", out var value)
+            && value.ValueKind == JsonValueKind.True;
 
         // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
         // nothing. Reading true off an unparsed document would make the callback REQUIRE an iss parameter the
