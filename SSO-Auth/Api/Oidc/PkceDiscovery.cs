@@ -49,14 +49,39 @@ internal static class PkceDiscovery
         var advertised = discovery is { ValueKind: JsonValueKind.Object } root
             && root.TryGetProperty("code_challenge_methods_supported", out var methods)
             && methods.ValueKind == JsonValueKind.Array
-            && methods.EnumerateArray().Any(method =>
-                method.ValueKind == JsonValueKind.String
-                && string.Equals(method.GetString(), "S256", StringComparison.Ordinal));
+            && methods.EnumerateArray().Any(IsS256);
 
         // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
         // nothing. This is the fail-closed half of RFC 9700 2.1.1 - the answer a caller acts on when the
         // discovery read failed must come from the absence of evidence, never from a default.
         Debug.Assert(discovery is not null || !advertised, "SupportsS256 reported S256 for a document that did not parse.");
         return advertised;
+    }
+
+    // Whether ONE advertised method is S256. Reading the text is what can fail: GetString refuses a string
+    // whose escape the decoder cannot complete, and an unpaired surrogate escape is the measured instance -
+    // the repeated-member screen reports such an array element Clean, because it decodes member NAMES and
+    // not values, so the element does arrive here.
+    //
+    // Such an element is not S256: it establishes no text at all, which is the same answer the screen gives
+    // a name it cannot decode. The scan CONTINUES past it rather than abandoning the array, and that is the
+    // load-bearing half. Abandoning would answer false for ["<undecodable>","S256"], and false here means
+    // the login is refused wherever RequirePkce is on, so one undecodable element beside a real S256 would
+    // take an otherwise-working provider offline.
+    private static bool IsS256(JsonElement method)
+    {
+        if (method.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(method.GetString(), "S256", StringComparison.Ordinal);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 }

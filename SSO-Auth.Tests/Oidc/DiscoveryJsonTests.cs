@@ -152,6 +152,27 @@ public class DiscoveryJsonTests
     }
 
     [Fact]
+    public void AnUndecodableMethodBesideS256_NeitherThrowsNorHidesTheS256()
+    {
+        // The screen decodes member NAMES, not values, so it reports this document Clean and the element
+        // arrives at the reader. Reading its text throws - an unpaired surrogate escape is text the decoder
+        // cannot complete - and the scan has to survive that without either escaping or stopping.
+        //
+        // Both halves are the point. A throw reaches OidcDiscoveryReader's catch-all and turns a document the
+        // screen admitted into a failed read, and answering false would refuse the login wherever RequirePkce
+        // is on. Either way a provider that works today goes offline over one bad array element.
+        const string Undecodable = "{\"code_challenge_methods_supported\":[\"\\uD800\",\"S256\"]}";
+
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(Undecodable, out _));
+        Assert.True(PkceDiscovery.SupportsS256(Undecodable));
+        Assert.True(OidcDiscoveryReader.FactsFrom(Undecodable).PkceS256);
+
+        // And the undecodable element is not itself read as an advertisement, which is what would make the
+        // row above pass for the wrong reason.
+        Assert.False(PkceDiscovery.SupportsS256("{\"code_challenge_methods_supported\":[\"\\uD800\"]}"));
+    }
+
+    [Fact]
     public void TheDocumentTheScreenAdmits_IsOneTheFactReaderReads()
     {
         // The positive control the rows above need. Without it every one of them would pass against a reader
