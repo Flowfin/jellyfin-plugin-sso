@@ -199,6 +199,28 @@ A relogin-only pass refuses to run against an uninitialised server: it needs a J
 is already complete and whose provider configuration is already persisted, so pointing it at a wiped
 `test/e2e/jellyfin/config` is a fatal error rather than a silent re-initialisation.
 
+### Legacy plaintext secret migrates on load
+
+`test/e2e/phases/legacy-secret-migration.sh` is a phase built on that second pass. It replaces the
+persisted `ssoenc:v1` envelope with the plaintext a pre-#158 configuration carried, restarts Jellyfin
+against it, and requires two things: the login keeps working, and the value is rewritten as an
+envelope with the plaintext gone from the file. A third pass then drives one more login, so the login
+that proves the migrated secret still decrypts is one made after the envelope exists.
+
+It runs on the host rather than in the harness container, which mounts only `/harness` and can
+therefore neither read the persisted configuration nor restart Jellyfin. Run it after a green
+canonical pass, with the stack stopped but not torn down:
+
+```sh
+docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+
+test/e2e/phases/legacy-secret-migration.sh
+```
+
+A green run prints `LEGACY SECRET MIGRATION PHASE PASSED`. In CI it runs on a release, a beta
+release, or a `providers: all` dispatch, on the Keycloak entry only.
+
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an
 already-initialised Jellyfin. These three are seeded imperatively against stateful storage and their seeds
