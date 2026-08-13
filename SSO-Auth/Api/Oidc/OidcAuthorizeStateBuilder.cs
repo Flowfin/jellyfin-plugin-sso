@@ -9,8 +9,11 @@ using System.Text.RegularExpressions;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
+using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
@@ -77,6 +80,11 @@ internal static class OidcAuthorizeStateBuilder
         // validity and of the username, like the subject above.
         var emailVerified = ResolveEmailVerified(claimList);
 
+        // The account-expiry deadline the provider states for this login (#1143), read only. Independent of
+        // validity, like the subject and email_verified above; nothing downstream consults it yet, so a
+        // provider with no expiry claim configured resolves exactly the state it resolved before.
+        var expiresAtUtc = ResolveExpiry(claimList, config);
+
         // Assemble the role-derived privileges (folders, admin, Live TV) in the single shared home
         // (#508); OR the assembled validity into the running validity - the SAML builder ignores it.
         var privileges = RolePrivilegeMapper.AssemblePrivileges(roles, config);
@@ -114,7 +122,7 @@ internal static class OidcAuthorizeStateBuilder
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
 
-        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore);
+        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc);
     }
 
     // The last "sub" claim value, or null when none is present. Kept separate from the username
@@ -150,6 +158,93 @@ internal static class OidcAuthorizeStateBuilder
         }
 
         return emailVerified;
+    }
+
+    // The account-expiry instant the configured expiry claim carries (#1143), or null when no claim is
+    // configured, none is present, or the value is not a shape AccountExpiryInstant understands. The LAST
+    // matching claim wins, the same rule the subject, email_verified and picture resolvers above already
+    // follow, so an administrator reading one of them has read them all. A dotted path walks into the
+    // claim's JSON object exactly as the role claim does; a path segment that does not resolve, or a
+    // terminal node that is an object or an array rather than a scalar, yields no instant and never throws,
+    // because the value is attacker-influenced and reaches a public callback (#216).
+    private static DateTime? ResolveExpiry(IReadOnlyList<Claim> claims, OidConfig config)
+    {
+        var segments = SplitClaimPath(config.AccountExpiryClaim);
+        if (segments.Length == 0 || string.IsNullOrWhiteSpace(segments[0]))
+        {
+            return null;
+        }
+
+        DateTime? expiresAtUtc = null;
+        foreach (var claim in claims)
+        {
+            if (!string.Equals(claim.Type, segments[0], StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var read = AccountExpiryInstant.Read(WalkToScalar(claim.Value, segments));
+            if (read is not null)
+            {
+                expiresAtUtc = read;
+            }
+        }
+
+        return expiresAtUtc;
+    }
+
+    // Walks a one-segment path to the claim value itself, and a longer one into the claim value parsed as
+    // JSON, returning the scalar the path names. Null on anything else: a value that is not JSON, a segment
+    // that is missing or sits under a non-object, and a terminal that is an object or an array.
+    private static string? WalkToScalar(string claimValue, string[] segments)
+    {
+        if (segments.Length == 1)
+        {
+            return claimValue;
+        }
+
+        // The screen runs BEFORE Newtonsoft, for the reason the role walk states at its own call (#1324): a
+        // scope this walk enters that names a member twice says two things about the deadline, and which of
+        // them wins would be a parser's choice rather than the document's. Only the scopes the walk actually
+        // descends through are screened, so an unrelated repeat elsewhere in the claim cannot take a working
+        // provider's logins offline. The terminal segment is READ and not entered, so it is not in the list.
+        if (StrictJson.Inspect(claimValue, segments.Skip(1).Take(segments.Length - 2).ToList(), out _) != StrictJson.Verdict.Clean)
+        {
+            return null;
+        }
+
+        // DateParseHandling.None is load-bearing rather than tidy. Newtonsoft's default turns a member whose
+        // value LOOKS like a date into a DateTime token, and reading that back as a string yields the
+        // round-trip form rather than the provider's bytes - so an ISO-8601 deadline behind a dotted path
+        // would reach the reader in a shape the reader refuses, and the claim would silently carry nothing.
+        // Verified by OidcAccountExpiryClaimTests.NestedIsoTimestamp_IsReadThroughThePath.
+        try
+        {
+            JToken node = JsonConvert.DeserializeObject<JObject>(
+                claimValue,
+                new JsonSerializerSettings { DateParseHandling = DateParseHandling.None })
+                ?? throw new JsonException("The claim value parsed to no object.");
+
+            for (var i = 1; i < segments.Length; i++)
+            {
+                if (node is not JObject scope || scope[segments[i]] is not { } next)
+                {
+                    return null;
+                }
+
+                node = next;
+            }
+
+            // A scalar only. An object or an array names no single instant, and JValue's own string
+            // conversion is invariant, so a JSON number reaches the reader as its digits.
+            return node is JValue { Value: not null } terminal ? terminal.Value<string>() : null;
+        }
+        catch (JsonException)
+        {
+            // The claim value is attacker-influenced and reaches a public callback, so a malformed body ends
+            // the walk with no instant and never an unhandled 500 (#216).
+            return null;
+        }
     }
 
     // Resolves the avatar URL. With a configured format the template wins: @{claimType} tokens are
@@ -192,11 +287,15 @@ internal static class OidcAuthorizeStateBuilder
 
     // Splits the configured role-claim path on unescaped dots; escaped "\." are normalized to ".".
     // Computed once per login - the path depends only on the configuration, not on any claim.
-    private static string[] SplitRoleClaimPath(OidConfig config)
+    private static string[] SplitRoleClaimPath(OidConfig config) => SplitClaimPath(config.RoleClaim);
+
+    // The one place a configured claim path is split, so the role claim and the expiry claim (#1143) cannot
+    // drift into two escaping conventions an administrator has to keep straight.
+    private static string[] SplitClaimPath(string? path)
     {
-        return string.IsNullOrEmpty(config.RoleClaim)
+        return string.IsNullOrEmpty(path)
             ? Array.Empty<string>()
-            : RoleClaimSplitRegex.Split(config.RoleClaim.Trim())
+            : RoleClaimSplitRegex.Split(path.Trim())
                 .Select(segment => segment.Replace("\\.", "."))
                 .ToArray();
     }
@@ -315,6 +414,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="AvatarUrl">The resolved avatar candidate URL: the configured AvatarUrlFormat template with @{claim} tokens substituted, or - when no template is configured (null/empty) - the standard OIDC "picture" claim (#723); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator.</param>
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
+    /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
     internal readonly record struct OidcAuthorizeState(
         string? Username,
         string? Subject,
@@ -327,7 +427,8 @@ internal static class OidcAuthorizeStateBuilder
         List<string> Folders,
         string? AvatarUrl,
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
-        int? MaxParentalRatingScore = null)
+        int? MaxParentalRatingScore = null,
+        DateTime? ExpiresAtUtc = null)
     {
         /// <summary>
         /// Gets the raw OpenID <c>id_token</c>, captured at the callback for a later RP-initiated logout

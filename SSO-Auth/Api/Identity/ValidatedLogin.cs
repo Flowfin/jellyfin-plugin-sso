@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
@@ -55,4 +56,7 @@ internal sealed record ValidatedLogin
 
     /// <summary>Gets the parental-rating-score ceiling the login resolves (#736), or null when the feature is off or no mapping matched (leave the existing ceiling untouched).</summary>
     internal int? MaxParentalRatingScore { get; init; }
+
+    /// <summary>Gets the account-expiry instant the configured expiry claim resolved (#1143), in UTC, or null when no claim is configured, the claim is absent, or its value is not a shape the reader understands. Carried only; no access decision is made from it (#1144 decides that).</summary>
+    internal DateTime? ExpiresAtUtc { get; init; }
 }

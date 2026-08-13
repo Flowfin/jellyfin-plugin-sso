@@ -11,6 +11,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **An account-expiry instant read from a provider claim (#1143).** A provider
+  can name a claim (OpenID) or assertion attribute (SAML) that carries the
+  instant its account access ends, and both protocols now read it onto the
+  verified identity as a UTC timestamp. It is read and carried, nothing more:
+  no login is refused, no account is disabled, and a provider that names no
+  claim behaves exactly as before, which is every provider by default. The
+  value is accepted as a JWT `NumericDate` or an ISO-8601 timestamp with or
+  without an offset, and an offset-less value is read as UTC rather than as the
+  server's local time. A claim that is absent, or whose value is neither shape,
+  carries no instant instead of failing the login. For OpenID the name may be a
+  dotted path into the claim's JSON, the same convention the role claim uses.
+  The field is settable in the plugin configuration; the provider forms in the
+  dashboard do not carry it yet.
 - **OpenID providers on a private network (#1058).** A new per-provider option,
   **Allow Private Network Addresses**, lets a provider's backchannel
   (discovery, JWKS, token, userinfo, back-channel logout) reach an identity

@@ -81,6 +81,31 @@ internal sealed class SamlAssertionValidator
     internal static List<string> GetAssertionRoles(SamlResponse samlResponse) =>
         samlResponse.GetCustomAttributes(RoleAttributeName);
 
+    // The account-expiry instant the configured attribute carries (#1143), or null when the provider names
+    // no attribute, the assertion carries none, or no value is a shape the reader understands. The LAST
+    // value wins, matching the OpenID resolvers, so one deployment note covers both protocols. The
+    // attribute name reaches GetCustomAttributes, which compares @Name in C# against a constant XPath, so
+    // an administrator-supplied name cannot select nodes the way an interpolated predicate could (#678).
+    // Nothing decides on the instant here; it is carried for the enforcement step (#1144).
+    private static DateTime? ReadExpiry(SamlConfig config, SamlResponse samlResponse)
+    {
+        if (string.IsNullOrWhiteSpace(config.AccountExpiryClaim))
+        {
+            return null;
+        }
+
+        DateTime? expiresAtUtc = null;
+        foreach (var value in samlResponse.GetCustomAttributes(config.AccountExpiryClaim.Trim()))
+        {
+            if (AccountExpiryInstant.Read(value) is { } read)
+            {
+                expiresAtUtc = read;
+            }
+        }
+
+        return expiresAtUtc;
+    }
+
     /// <summary>
     /// Parses the untrusted response and runs the response-level validation shared by every SAML leg:
     /// signature, time bounds and audience (<see cref="ValidateSaml"/>) plus the opt-in recipient binding.
@@ -231,6 +256,7 @@ internal sealed class SamlAssertionValidator
             AvatarUrl = null,
             PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
+            ExpiresAtUtc = ReadExpiry(config, samlResponse),
         });
         return true;
     }

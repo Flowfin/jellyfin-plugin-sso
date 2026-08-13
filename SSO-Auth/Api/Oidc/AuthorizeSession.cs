@@ -154,6 +154,7 @@ internal abstract class AuthorizeSession
                 AvatarUrl = derived.AvatarUrl,
                 PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
                 MaxParentalRatingScore = derived.MaxParentalRatingScore,
+                ExpiresAtUtc = derived.ExpiresAtUtc,
             });
 
             // Carry the OpenID logout material (#727, SLO-1b) alongside the keystone rather than inside it:

@@ -3,6 +3,7 @@
 
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -75,7 +76,9 @@ internal static class SamlTestFactory
         string[][]? audienceRestrictions = null,
         DateTimeOffset? certNotBefore = null,
         DateTimeOffset? certNotAfter = null,
-        int signingKeyBits = 2048)
+        int signingKeyBits = 2048,
+        string? extraAttributeName = null,
+        string[]? extraAttributeValues = null)
     {
         var audienceList = audiences ?? (audience == null ? null : new[] { audience });
         const string TimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
@@ -115,6 +118,17 @@ internal static class SamlTestFactory
         }
 
         var subjectConfirmationData = "<saml:SubjectConfirmationData" + subjectConfirmationAttributes + " />";
+
+        // One further named attribute beside Role, so a test can put a provider-specific attribute (the
+        // account-expiry attribute, #1143) into the SIGNED assertion rather than into a hand-edited body.
+        // Several values under one Name is the multi-valued shape a real IdP emits and the shape the
+        // last-value-wins read has to be pinned against.
+        var extraAttribute = extraAttributeName == null
+            ? string.Empty
+            : "<saml:Attribute Name=\"" + SecurityElement.Escape(extraAttributeName) + "\">"
+                + string.Concat((extraAttributeValues ?? Array.Empty<string>())
+                    .Select(value => "<saml:AttributeValue>" + SecurityElement.Escape(value) + "</saml:AttributeValue>"))
+                + "</saml:Attribute>";
 
         // One <AudienceRestriction> per inner array when audienceRestrictions is set (for the multi-block
         // AND tests), else a single restriction from audienceList as before.
@@ -184,6 +198,7 @@ internal static class SamlTestFactory
                     authnStatement +
                     "<saml:AttributeStatement>" +
                         "<saml:Attribute Name=\"Role\"><saml:AttributeValue>" + SecurityElement.Escape(role) + "</saml:AttributeValue></saml:Attribute>" +
+                        extraAttribute +
                     "</saml:AttributeStatement>" +
                 "</saml:Assertion>" +
             "</samlp:Response>";

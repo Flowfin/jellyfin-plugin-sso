@@ -55,7 +55,8 @@ internal sealed record VerifiedIdentity
         bool enableLiveTvManagement,
         string? avatarUrl,
         IReadOnlyList<PermissionGrant> permissionGrants,
-        int? maxParentalRatingScore)
+        int? maxParentalRatingScore,
+        DateTime? expiresAtUtc)
     {
         LinkMode = linkMode;
         AuditProtocol = auditProtocol;
@@ -71,6 +72,7 @@ internal sealed record VerifiedIdentity
         AvatarUrl = avatarUrl;
         PermissionGrants = permissionGrants;
         MaxParentalRatingScore = maxParentalRatingScore;
+        ExpiresAtUtc = expiresAtUtc;
     }
 
     /// <summary>Gets the protocol the canonical-link store keys this identity under (#369).</summary>
@@ -128,6 +130,14 @@ internal sealed record VerifiedIdentity
     internal int? MaxParentalRatingScore { get; }
 
     /// <summary>
+    /// Gets the account-expiry instant the provider's configured expiry claim resolved (#1143), in UTC, or
+    /// null when no claim is configured, the claim is absent, or its value is not a shape the reader
+    /// understands. Carried on the keystone so the enforcement step (#1144) has it at the one point both
+    /// protocols funnel through; nothing reads it yet, so a login behaves exactly as it did before.
+    /// </summary>
+    internal DateTime? ExpiresAtUtc { get; }
+
+    /// <summary>
     /// Mints the verified identity of an OpenID login. Called only from the OpenID redeem path
     /// (<c>AuthorizeSession.Ready</c>), which the store hands out only through its one-time atomic redeem of a
     /// promoted (role-gate-passed) state - so a raw or unvalidated login can never reach it.
@@ -164,5 +174,6 @@ internal sealed record VerifiedIdentity
             login.EnableLiveTvManagement,
             login.AvatarUrl,
             login.PermissionGrants,
-            login.MaxParentalRatingScore);
+            login.MaxParentalRatingScore,
+            login.ExpiresAtUtc);
 }
