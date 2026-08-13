@@ -4402,6 +4402,12 @@ public class ArchitectureConformanceTests
         // response for a handler to sit in front of, and the screen runs on the string before Newtonsoft is
         // consulted at all (#1324).
         ["SSO-Auth/Api/Oidc/OidcRoleExtractor.cs"] = "SSO-Auth/Api/Oidc/OidcRoleExtractor.cs",
+
+        // The account-expiry claim's value, walked to a scalar when the configured path is dotted (#1143).
+        // Same shape as the role claim above and gated the same way: the value is a claim on an
+        // already-validated token, so the screen runs in the reading file on the string, ahead of
+        // Newtonsoft, over exactly the scopes the walk descends through.
+        ["SSO-Auth/Api/Oidc/OidcAuthorizeStateBuilder.cs"] = "SSO-Auth/Api/Oidc/OidcAuthorizeStateBuilder.cs",
     };
 
     // Sites over bytes the plugin itself shipped or produced, each with the reason it is not provider

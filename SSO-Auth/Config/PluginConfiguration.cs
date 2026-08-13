@@ -224,6 +224,18 @@ public abstract class ProviderConfigBase
     public bool DisableAccountOnRoleDenied { get; set; }
 
     /// <summary>
+    /// Gets or sets the name of the claim (OpenID) or assertion attribute (SAML) that carries an
+    /// account-expiry instant (#1143). Blank - the default - reads no expiry at all, so no existing provider
+    /// changes behaviour. The value is read as a JWT <c>NumericDate</c> or an ISO-8601 timestamp and
+    /// normalised to UTC; a claim that is absent, or whose value is neither shape, resolves to no instant.
+    /// For OpenID the name may be a dotted path whose first segment names the claim and whose further
+    /// segments walk into that claim's JSON object, the same convention <c>RoleClaim</c> uses. Reading it
+    /// makes no access decision on its own; what the instant does is the enforcement step's question
+    /// (#1144).
+    /// </summary>
+    public string? AccountExpiryClaim { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether this provider is HIDDEN from the managed login-page buttons
     /// (#722), when <see cref="PluginConfiguration.ManageLoginPageButtons"/> is on. Off by default: an enabled
     /// provider gets a button. Set it to keep a provider usable via its direct start URL without advertising a
