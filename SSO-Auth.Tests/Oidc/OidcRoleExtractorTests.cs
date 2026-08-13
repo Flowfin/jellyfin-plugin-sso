@@ -216,10 +216,39 @@ public class OidcRoleExtractorTests
     [InlineData("\"scalar\"")]
     [InlineData("123")]
     [InlineData("[\"users\"]")]
-    public void ValueThatIsNotAJsonObject_IsValueNotJson(string claimValue)
+    public void ValueThatIsNotAJsonObject_IsUnreadable(string claimValue)
     {
-        // The claim value never became an object to walk. A literal JSON null deserializes to a null
-        // dictionary and belongs in the same class: nothing was parsed that a path could be applied to.
+        // The claim value never became an object to walk. These all reported ValueNotJson until #1324 put the
+        // screen in front of the parse: the screen reaches them first and none of them establishes anything,
+        // so the reason they now carry says which reader spoke as well as what it found.
+        var result = OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, false);
+
+        Assert.Equal(OidcRoleExtractor.Outcome.Unreadable, result.Outcome);
+        Assert.Empty(result.Roles);
+    }
+
+    public static TheoryData<string> ScreenedButUnparseable() => new()
+    {
+        // An object inside an array: the screen walks it, and the reader's dictionary deserialization does not
+        // take an array root.
+        "[{\"roles\":[\"users\"]}]",
+
+        // A leading byte-order mark, written as an escape so the byte lives in the fixture rather than in this
+        // source file. The screen strips one and reads the document; Newtonsoft does not and refuses it.
+        "\uFEFF{\"roles\":[\"users\"]}",
+    };
+
+    [Theory]
+    [MemberData(nameof(ScreenedButUnparseable))]
+    public void ValueTheScreenPassesAndTheParserRefuses_IsStillValueNotJson(string claimValue)
+    {
+        // ValueNotJson did not become unreachable when the screen landed ahead of it (#1324), and a reason
+        // nothing can produce is one a later reader deletes as dead. Both rows carry an object and repeat no
+        // member where the reader looks, so the screen admits them; Newtonsoft then refuses both, because an
+        // object inside an array is not a dictionary and a leading BOM is not JSON to it.
+        //
+        // The outcome is its own proof that the screen admitted them: a refusal there returns Unreadable or
+        // RepeatedMember and never reaches the parser that produces this one.
         var result = OidcRoleExtractor.ExtractRoles(new[] { "realm_access", "roles" }, claimValue, false);
 
         Assert.Equal(OidcRoleExtractor.Outcome.ValueNotJson, result.Outcome);

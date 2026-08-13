@@ -16,6 +16,18 @@
 # crasher and the evolved corpus as artifacts and, when a crasher is found, marks
 # the run red purely as a notification signal to me.
 #
+# ASSERTIONS ARE COMPILED IN HERE AND NOWHERE ELSE (#1081). The parse-surface
+# post-conditions from #1082 are `Debug.Assert`, so the shipped Release compile
+# strips the calls and a fuzz run against it would exercise a surface with none
+# of them live. The build step below defines DEBUG for this build alone. It is
+# passed on the command line rather than written into a build file on purpose:
+# `ParseSurfaceAssertions_NeverReachTheShippedBuild` refuses a DefineConstants in
+# Directory.Build.props or SSO-Auth.csproj outright, so keeping the constant here
+# leaves that guard at full strength and no publish route can inherit it. A
+# failing assertion aborts the process, which libFuzzer records as an ordinary
+# crasher and the report step below turns red; it is triaged exactly like any
+# other reproducer, per the harness README.
+#
 # Hardened per the repo workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
 # permissions are deny-all at the top level with the job granted only
@@ -99,8 +111,15 @@ jobs:
         # a drifted/tampered dependency graph cannot build here either.
         run: dotnet restore SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj --locked-mode
 
-      - name: Build harness (Release)
-        run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror
+      - name: Build harness (Release, assertions enabled)
+        # DEBUG is what keeps the [Conditional("DEBUG")] post-conditions on the parse
+        # surface through the compile. TRACE is restated because this property
+        # REPLACES the default constant set rather than adding to it, and Release
+        # defines TRACE; %3B is MSBuild's escape for the separator, which keeps the
+        # value one argument whatever the shell does with a semicolon. Configuration
+        # stays Release, so the fuzzer keeps optimized code and the output paths in
+        # `env` above do not move.
+        run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror -p:DefineConstants=DEBUG%3BTRACE
 
       - name: Install clang (libFuzzer)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang

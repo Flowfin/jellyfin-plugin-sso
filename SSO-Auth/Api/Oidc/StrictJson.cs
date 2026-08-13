@@ -34,12 +34,18 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// two are easily conflated: this is not the control that stops a hostile <c>issuer</c> VALUE, which is
 /// <c>ValidateIssuerName</c>'s job whether that value is repeated or not.
 ///
-/// Every member at every object scope is compared, rather than a caller-supplied list of the members the
-/// caller happens to index. The screen sits ahead of the identity library, whose own typed mapping and key-set
-/// materialisation are consumers too, and their indexed-member sets are internal to two pinned versions -
-/// an allowlist would have to enumerate them and would go quietly wrong at the next bump. It is also the rule
-/// .NET 10's <c>JsonSerializerOptions.Strict</c> preset already enforces, so this converges on the platform
-/// posture rather than inventing one.
+/// Every member is compared, rather than a caller-supplied list of the members the caller happens to index.
+/// The screen sits ahead of the identity library, whose own typed mapping and key-set materialisation are
+/// consumers too, and their indexed-member sets are internal to two pinned versions - an allowlist would have
+/// to enumerate them and would go quietly wrong at the next bump. It is also the rule .NET 10's
+/// <c>JsonSerializerOptions.Strict</c> preset already enforces, so this converges on the platform posture
+/// rather than inventing one.
+///
+/// WHICH SCOPES those members are compared in is the caller's to narrow, and only that (#1324). A caller
+/// reading a document along a configured path knows where its reader goes even though it does not know which
+/// members the reader names once it is there, so it names the scopes and the members inside them are still all
+/// compared. The default is every scope, and the overload taking no key list is that default rather than a
+/// separate walk.
 ///
 /// Deliberately a raw <see cref="Utf8JsonReader"/> walk rather than a <c>JsonSerializerOptions</c> setting.
 /// The plugin binds the HOST's System.Text.Json - .NET 9's in the Jellyfin 10.11 line, .NET 10's in the 12.0
@@ -65,7 +71,7 @@ internal static class StrictJson
     private const int MaxDepth = 64;
 
     /// <summary>
-    /// What <see cref="Inspect"/> found. Three outcomes and not a <c>bool</c>, because "this document names a
+    /// What <see cref="Inspect(string?, out string?)"/> found. Three outcomes and not a <c>bool</c>, because "this document names a
     /// member twice" and "this document could not be inspected" are different facts: the first is the attack
     /// this walk exists for, the second is everything from a truncated body to a hostile escape, and a caller
     /// handed one flag for both cannot report the reason it refused.
@@ -142,7 +148,42 @@ internal static class StrictJson
     ///
     /// Never throws.
     /// </returns>
-    internal static Verdict Inspect(string? json, out string? repeatedMember)
+    internal static Verdict Inspect(string? json, out string? repeatedMember) =>
+        Inspect(json, null, out repeatedMember);
+
+    /// <summary>
+    /// Walks <paramref name="json"/> and reports whether a member is named twice in an object scope the
+    /// caller's reader actually enters (#1324).
+    /// </summary>
+    /// <param name="json">The raw document, as received from the provider.</param>
+    /// <param name="enteredScopeKeys">
+    /// The member names the caller's reader descends through, in order, starting at the root object - which
+    /// is entered by definition, because a reader that indexes anything at all indexes it there. An object
+    /// reached by any other member is NOT entered, and neither is anything below it. Null means every object
+    /// scope is entered, which is the discovery posture: that caller hands the whole document to a library
+    /// whose indexed-member set it does not control, so there is no smaller set of scopes to name.
+    /// <para>
+    /// Naming SCOPES rather than members is the whole of the narrowing, and the reason is the one the class
+    /// summary gives for refusing member allowlists: inside a scope the reader enters, which members it
+    /// indexes today is not a thing this walk can know. What it can know is where the reader goes, because
+    /// the caller states it. So a repeat in a sibling the reader never opens is admitted - it changes nothing
+    /// the reader reads, and refusing it would let an unrelated vendor extension take a login offline - while
+    /// a repeat where the reader looks is refused whether or not the repeated member is one it names.
+    /// </para>
+    /// </param>
+    /// <param name="repeatedMember">
+    /// The repeated member's name when the verdict is <see cref="Verdict.Repeated"/>; otherwise null. It is
+    /// provider-authored, so a caller that logs it strips line endings inline at its own log call.
+    /// </param>
+    /// <returns>
+    /// The same three verdicts, decided the same way, over a narrower set of scopes.
+    /// <see cref="Verdict.Unreadable"/> is NOT narrowed and stays a fact about the whole document: bytes the
+    /// walk cannot get to the end of leave it unable to say where the scopes are at all, so a name it cannot
+    /// decode in a scope nobody enters still establishes nothing. Narrowing what is REFUSED is safe because
+    /// the unentered scope changes no reading; narrowing what is READ would be the walk claiming a scope
+    /// boundary it did not verify.
+    /// </returns>
+    internal static Verdict Inspect(string? json, IReadOnlyList<string>? enteredScopeKeys, out string? repeatedMember)
     {
         repeatedMember = null;
         if (string.IsNullOrWhiteSpace(json))
@@ -169,8 +210,13 @@ internal static class StrictJson
         // One name set per open object, so sibling scopes may reuse a name - every JWKS entry repeats `kty`
         // and `kid`, so a walk pooling names document-wide would refuse real documents while reporting an
         // attack. Only a repeat within the SAME object is a document that means two things.
-        var scopes = new Stack<HashSet<string>>();
+        //
+        // Arrays are pushed too, and carry no name set. They hold no members of their own, and an object
+        // inside one was not reached by naming a member, so an array frame ends the descent through it -
+        // otherwise the objects in an on-path array would each inherit that key's position.
+        var scopes = new Stack<Scope>();
         var sawObject = false;
+        string? memberName = null;
         try
         {
             // Throw-on-invalid rather than the default replacement fallback: replacement maps every unpaired
@@ -185,10 +231,15 @@ internal static class StrictJson
                 {
                     case JsonTokenType.StartObject:
                         sawObject = true;
-                        scopes.Push(new HashSet<string>(StringComparer.Ordinal));
+                        scopes.Push(Open(scopes, memberName, enteredScopeKeys));
+                        break;
+
+                    case JsonTokenType.StartArray:
+                        scopes.Push(default);
                         break;
 
                     case JsonTokenType.EndObject:
+                    case JsonTokenType.EndArray:
                         scopes.Pop();
                         break;
 
@@ -196,13 +247,22 @@ internal static class StrictJson
                         // GetString returns null only for a JSON null, which cannot be a member name, so the fallback is
                         // unreachable - but folding it to "" would make the empty name and "no name" the same
                         // key, and the empty name is a legal member a provider can repeat.
+                        //
+                        // It is read on EVERY property, entered scope or not, and that is what keeps Unreadable a
+                        // fact about the document: a name the decoder cannot complete raises here rather than
+                        // being skipped because nobody indexes it.
                         var name = reader.GetString() ?? string.Empty;
-                        if (!scopes.Peek().Add(name))
+                        var scope = scopes.Peek();
+                        if (scope.Names is not null && !scope.Names.Add(name))
                         {
                             repeatedMember = name;
                             return Verdict.Repeated;
                         }
 
+                        // Only ever consulted by the StartObject one token later. A stale value cannot admit a
+                        // scope: the sole frame that reads it is an object whose parent is an entered OBJECT,
+                        // and an object in that position is always immediately preceded by its own name.
+                        memberName = name;
                         break;
 
                     default:
@@ -240,4 +300,32 @@ internal static class StrictJson
         // EMPTY object is different and stays Clean: it has a scope, and that scope genuinely repeats nothing.
         return sawObject ? Verdict.Clean : Verdict.Unreadable;
     }
+
+    // Decides whether the object now opening is one the caller's reader enters, and how far along the key
+    // chain it sits. The root is entered whatever the caller named, because that is where any reading starts;
+    // below it, an object is entered only when its own member name is the next key the parent still owes, so
+    // the chain is followed in order rather than matched anywhere it happens to appear.
+    private static Scope Open(Stack<Scope> scopes, string? memberName, IReadOnlyList<string>? enteredScopeKeys)
+    {
+        if (enteredScopeKeys is null || scopes.Count == 0)
+        {
+            return new Scope(0, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        var parent = scopes.Peek();
+        var entered = parent.Names is not null
+            && parent.Descended < enteredScopeKeys.Count
+            && string.Equals(memberName, enteredScopeKeys[parent.Descended], StringComparison.Ordinal);
+
+        return entered ? new Scope(parent.Descended + 1, new HashSet<string>(StringComparer.Ordinal)) : default;
+    }
+
+    /// <summary>
+    /// One open object or array. A frame with no name set is one whose members are not compared - an array,
+    /// which has none, or an object the caller's reader never opens - and <c>default</c> is deliberately that
+    /// frame, so a frame pushed without a decision compares nothing rather than everything.
+    /// </summary>
+    /// <param name="Descended">How many of the caller's keys the chain down to this frame has consumed.</param>
+    /// <param name="Names">The names seen in this scope, or null when this scope is not compared.</param>
+    private readonly record struct Scope(int Descended, HashSet<string>? Names);
 }

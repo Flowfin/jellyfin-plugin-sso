@@ -53,6 +53,13 @@ jobs:
       # document (#1092). Structural only: the product-against-SBOM leg of the same checker takes the
       # SBOM as a second argument, and no SBOM exists at this point in the job.
       run: python3 scripts/check-vex.py security/vex/openvex.json
+    - name: Release-leg VEX check
+      # A valid document nobody ships is worth nothing to a consumer, so the leg set is
+      # checked here too: every workflow that stages the SBOM as a release asset also stages
+      # the VEX, with a sha256 and no md5 (#1093). Static, because the release legs run on a
+      # tag rather than on a pull request - this is the only route that reads them before the
+      # release they would have shipped from.
+      run: python3 scripts/check-release-vex.py
     - name: Restore dependencies
       # --locked-mode fails the restore if the committed packages.lock.json files would change,
       # so a drifted or tampered dependency graph cannot build in CI.

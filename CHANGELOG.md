@@ -45,6 +45,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   disclaimer text; provider names and labels are HTML-encoded. Per provider,
   **Hide login button** omits one provider's button and **Login button text**
   overrides its label.
+- **Every release now carries an OpenVEX document (#1093).** `openvex.json` and
+  its `openvex.sha256` ship as release assets beside `sbom.cyclonedx.json` on
+  all four release legs, so a scanner that flags an advisory in a transitive
+  dependency can read the recorded disposition for it instead of guessing. Only
+  the plugin zip still carries an `.md5`, which is what keeps the manifest
+  checksum paired with the build it belongs to.
 - **A linked-account roster for administrators (#1119).** A new
   administrator-only endpoint, `GET /SSO/Links/Roster`, lists every Jellyfin
   account that holds an SSO link, with the provider and canonical name behind

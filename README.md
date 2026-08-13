@@ -18,7 +18,10 @@
 <img alt="GPL 3.0 License" src="https://img.shields.io/github/license/Flowfin/jellyfin-plugin-sso.svg"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
-<img alt="Latest release" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&label=release"/>
+<img alt="Latest release for Jellyfin 10.11" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=4.*&label=release%20(Jellyfin%2010.11)"/>
+</a>
+<a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
+<img alt="Latest release for Jellyfin 12" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=5.*&label=release%20(Jellyfin%2012)"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/actions/workflows/dotnet.yml">
 <img alt="Build Status" src="https://github.com/Flowfin/jellyfin-plugin-sso/actions/workflows/dotnet.yml/badge.svg"/>

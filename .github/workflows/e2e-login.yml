@@ -58,6 +58,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
+      # Whether this is a full-matrix run. Published separately from the matrix itself because a step
+      # can be gated on the TRIGGER without being gated on which provider it is looking at, and the
+      # release-only phases below need exactly that (#1140).
+      full: ${{ steps.pick.outputs.full }}
     steps:
       - id: pick
         env:
@@ -78,10 +82,13 @@ jobs:
           # now has a harness here; adding one is a further object plus its test/e2e/<provider>/ directory.
           if [ "$IS_RELEASE" = "true" ] || [ "$DISPATCH_ALL" = "true" ]; then
             include="[$keycloak,$authelia,$authentik,$dex,$zitadel,$pocketid,$kanidm]"
+            full=true
           else
             include="[$keycloak]"
+            full=false
           fi
           echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          echo "full=$full" >> "$GITHUB_OUTPUT"
 
   e2e:
     needs: select
@@ -191,6 +198,22 @@ jobs:
               echo "::error::expected audit line missing from the Jellyfin log: $expected"; exit 1
             fi
           done
+
+      - name: Legacy plaintext secret migrates to ssoenc:v1 (#1140)
+        # A pre-#158 config carried its provider secret in plaintext. This plants one back into the
+        # persisted configuration, restarts Jellyfin against it, and requires the login to keep working
+        # and the value to be rewritten as an envelope. It was verified by hand once in the #717 live
+        # pass and nothing re-checked it since, so a migration regression would only have surfaced on a
+        # real upgrade.
+        #
+        # Release and `providers: all` only, and only on the canonical Keycloak stack: it costs two extra
+        # login passes, and it is the one stack that can be re-run in place (the seeds behind Zitadel,
+        # Pocket ID and Kanidm are not idempotent) and whose expected client secret the compose file
+        # states. Runs on a green harness only, so a real login failure surfaces as the harness failure.
+        if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
+        env:
+          COMPOSE: ${{ matrix.compose }}
+        run: test/e2e/phases/legacy-secret-migration.sh
 
       - name: Dump container logs on failure
         if: failure()

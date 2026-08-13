@@ -92,11 +92,61 @@ exhaust. The marginal value is modest (the raw parsing is delegated to already-h
 parsers - `System.Xml` with DTD prohibited, `Newtonsoft.Json`, `Microsoft.IdentityModel`), but real and
 low-maintenance, and it is the surface #174 already committed to.
 
+## The configuration that is fuzzed
+
+The weekly job builds **Release with `-p:DefineConstants=DEBUG%3BTRACE`** (#1081), and that is the only
+build in the repository which defines `DEBUG`. It matters because the post-conditions #1082 put on the
+parse surface are `Debug.Assert`, which the compiler removes outside a `DEBUG` compile, so the plain
+Release assembly the plugin ships carries none of them:
+
+```sh
+$ dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --warnaserror
+$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
+0
+$ dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --warnaserror -p:DefineConstants=DEBUG%3BTRACE
+$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
+1
+```
+
+Three things about that spelling, none of them incidental.
+
+It is a command-line property and not a line in a build file, because
+`ParseSurfaceAssertions_NeverReachTheShippedBuild` refuses a `DefineConstants` in
+`Directory.Build.props` or `SSO-Auth.csproj` outright, and keeping the constant out of both leaves that
+refusal at full strength. Nothing that ships is built this way, and nothing that ships can inherit it: an
+assertion left live in production auth code turns an input the login path is meant to reject into a
+process abort.
+
+`TRACE` is restated because the property replaces the default constant set instead of adding to it, and
+Release defines `TRACE`. Without it the fuzzed build would differ from Release in a second, unrelated
+way. `%3B` is MSBuild's escape for the separator, so the value survives whatever the shell would
+otherwise do with a bare semicolon.
+
+The configuration stays Release, so the assertions cost the fuzzer none of its optimized code:
+
+```sh
+$ dotnet msbuild SSO-Auth/SSO-Auth.csproj -p:Configuration=Release -p:DefineConstants=DEBUG%3BTRACE \
+      -getProperty:DefineConstants -getProperty:Optimize
+{ "Properties": { "DefineConstants": "DEBUG;TRACE", "Optimize": "true" } }
+```
+
+### An assertion failure is an ordinary crasher
+
+A failed `Debug.Assert` prints its message and stack and terminates the process, so libFuzzer records
+it the same way it records any other crash: a reproducer under `findings/<target>/`, archived by the
+`sharpfuzz-crashers-<target>` artifact, and the "Report findings" step turns that leg red.
+
+Triage is the same as for any other reproducer, and the rule against fixing it in the harness applies
+unchanged: **do not delete or weaken the assertion to make the run green.** A failing post-condition
+says the parser returned a shape the code around it already assumes it cannot return, so the reproducer
+is minimised and filed, and the fix goes into the parser or into the post-condition's own statement of
+the invariant, in a separate change.
+
 ## Running it (Linux)
 
 ```sh
-# 1. Build the harness (Release).
-dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release
+# 1. Build the harness (Release, with the parse-surface assertions compiled in).
+dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release -p:DefineConstants=DEBUG%3BTRACE
 
 # 2. Instrument the plugin assembly SharpFuzz will fuzz through.
 dotnet tool install --global SharpFuzz.CommandLine
