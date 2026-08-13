@@ -63,21 +63,18 @@ internal static class AccountExpiryInstant
     }
 
     // A JWT NumericDate: seconds since 1970-01-01T00:00:00Z, serialised as a JSON number and reaching a
-    // claim as its digits. An ALL-DIGIT value is read here and never as a separator-less calendar date,
+    // claim as its digits. An all-digit value is read here and never as a separator-less calendar date,
     // because NumericDate is the only all-digit instant either protocol defines and a compact "20261231"
-    // is neither RFC 3339 nor xsd:dateTime. Digits are matched one by one rather than through char.IsDigit,
-    // which is true for the Unicode decimal digits of every script, so an Arabic-Indic or fullwidth
-    // homoglyph string cannot reach long.TryParse and be read as an instant.
+    // is neither RFC 3339 nor xsd:dateTime.
+    //
+    // NumberStyles.None is the shape check: it refuses a sign, a thousands separator and surrounding
+    // whitespace, so only bare digits are read as an instant. The invariant culture is stated for the
+    // separator conventions None would otherwise take from the server's locale, and NOT as a guard against
+    // digits of another script - .NET's integer parse takes ASCII digits under every culture, which is
+    // measured in AccountExpiryInstantTests.DigitsOfAnotherScript_AreNotReadAsANumericDate rather than
+    // assumed here.
     private static DateTime? ReadNumericDate(string value)
     {
-        foreach (var c in value)
-        {
-            if (c is < '0' or > '9')
-            {
-                return null;
-            }
-        }
-
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
         {
             return null;

@@ -86,10 +86,11 @@ public class AccountExpiryInstantTests
     [InlineData("１８９３４５６０００")]
     public void DigitsOfAnotherScript_AreNotReadAsANumericDate(string raw)
     {
-        // char.IsDigit is true for the decimal digits of every script and long.TryParse accepts several of
-        // them, so a homoglyph deadline would parse to a real instant under the obvious spelling of this
-        // reader. The digits are matched one by one against '0'..'9' for that reason, and this is the test
-        // that goes red if that is ever relaxed to char.IsDigit.
+        // A deadline spelled in Arabic-Indic or fullwidth digits is refused, so the two ways of writing the
+        // same number are not two ways of setting the same deadline. Stated as its own case because it is
+        // the shape somebody would reach for to smuggle one past a reviewer reading the source, and NOT
+        // because a line here is what refuses it: .NET's integer parse takes ASCII digits only, under the
+        // invariant culture and under every other, so no argument of this reader's is load-bearing for it.
         Assert.Null(AccountExpiryInstant.Read(raw));
     }
 
