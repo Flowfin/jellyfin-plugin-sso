@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# A pre-#158 PLAINTEXT provider secret is migrated to an ssoenc:v1 envelope, and logins keep working
+# across the migration (#1140). Verified by hand once in the #717 live pass; this is the scripted
+# version, so a migration regression cannot reach a release unnoticed.
+#
+# It runs on the HOST rather than inside the harness container, for the same reason the workflow's
+# secrets-at-rest assertion does: the harness mounts only /harness, so it can neither read the
+# persisted config nor restart Jellyfin. Both are what this phase is made of.
+#
+# The shape, and why each step is where it is:
+#
+#   pass 1     the ordinary canonical run, which the caller has already made green. It leaves a
+#              configured Jellyfin whose secret is an ssoenc:v1 envelope, and it leaves the
+#              containers STOPPED rather than removed, which is what makes the rest possible.
+#   plant      the envelope is replaced on disk with the plaintext a pre-#158 config carried. Done
+#              with the stack down, so nothing is racing the write.
+#   pass 2     RELOGIN_ONLY, which restarts Jellyfin against the planted config and skips the seed,
+#              the wizard and the provider Add - without that the re-seed would rewrite the very
+#              secret the phase just planted and the run would assert nothing (#1123).
+#   pass 3     a second RELOGIN_ONLY pass, so the login that proves the migrated secret still
+#              decrypts is one driven AFTER the envelope exists. Pass 2's login happens while the
+#              plaintext is still on disk and is what triggers the rewrite, so it cannot be that
+#              login.
+#
+# Never `docker compose down` between the passes: that removes Keycloak, the realm is re-imported
+# into a fresh instance with a NEW SAML signing certificate, and the certificate pass 1 wrote into
+# the plugin's SAML configuration would no longer match the assertions the IdP signs.
+set -euo pipefail
+
+COMPOSE="${COMPOSE:-test/e2e/docker-compose.yml}"
+CONFIG="${CONFIG:-test/e2e/jellyfin/config/plugins/configurations/SSO-Auth.xml}"
+
+log()  { printf '%s\n' "== $* =="; }
+die()  { printf '::error::%s\n' "$*" >&2; exit 1; }
+pass() { printf 'PASS: %s\n' "$*"; }
+
+# The plaintext to plant is read out of the resolved compose configuration rather than written here.
+# It has to be the secret the identity provider actually expects: a wrong value would make pass 2's
+# login fail, and the phase would go red while the product behaved correctly, which is the worst
+# shape a regression gate can take.
+PLAINTEXT="$(docker compose -f "$COMPOSE" config 2>/dev/null \
+  | sed -n 's/^[[:space:]]*OIDC_CLIENT_SECRET:[[:space:]]*//p' | head -1 | tr -d '"')"
+[ -n "$PLAINTEXT" ] || die "could not read OIDC_CLIENT_SECRET out of $COMPOSE - nothing to plant"
+
+secret_element() { grep -o '<OidSecret>[^<]*</OidSecret>' "$CONFIG" | head -1; }
+
+log "Preconditions"
+[ -s "$CONFIG" ] || die "the plugin persisted no configuration at $CONFIG - run the canonical pass first"
+case "$(secret_element)" in
+  *'<OidSecret>ssoenc:v1:'*) pass "the starting state is an ssoenc:v1 envelope" ;;
+  *) die "the starting state is not an ssoenc:v1 envelope, so this phase would prove nothing: $(secret_element)" ;;
+esac
+
+log "Planting a pre-#158 plaintext secret"
+# One element, matched on its own tags, so a value containing markup could not widen the edit.
+perl -i -pe "s#<OidSecret>[^<]*</OidSecret>#<OidSecret>${PLAINTEXT}</OidSecret>#" "$CONFIG"
+grep -qF ">${PLAINTEXT}<" "$CONFIG" || die "the plant did not take - $CONFIG still holds no plaintext secret"
+grep -q 'ssoenc:v1:' "$CONFIG" && die "an ssoenc:v1 envelope survived the plant, so the config is not in the legacy shape"
+pass "the persisted secret is now plaintext, exactly as a pre-#158 config carried it"
+
+log "Pass 2: restart against the planted config and drive a login"
+RELOGIN_ONLY=true docker compose -f "$COMPOSE" up \
+  --abort-on-container-exit --exit-code-from harness \
+  || die "the login against the planted plaintext secret failed - a legacy config is no longer readable"
+pass "the login succeeded with a plaintext secret on disk"
+
+log "Asserting the migration"
+case "$(secret_element)" in
+  *'<OidSecret>ssoenc:v1:'*) pass "the persisted secret is an ssoenc:v1 envelope again" ;;
+  *) die "the secret was not migrated: $(secret_element)" ;;
+esac
+# Over the whole file rather than the one element: a migration that re-wrapped the provider secret
+# while leaving a copy of the plaintext anywhere else in the document has not removed the secret.
+if grep -qF "$PLAINTEXT" "$CONFIG"; then
+  die "the plaintext secret still appears in $CONFIG after the migration"
+fi
+pass "the plaintext value appears nowhere in the persisted configuration"
+
+log "Pass 3: a login driven after the migration"
+RELOGIN_ONLY=true docker compose -f "$COMPOSE" up \
+  --abort-on-container-exit --exit-code-from harness \
+  || die "the login after the migration failed - the migrated envelope does not decrypt to the right value"
+pass "the migrated secret still decrypts to the value the provider accepts"
+
+printf '\nLEGACY SECRET MIGRATION PHASE PASSED\n'

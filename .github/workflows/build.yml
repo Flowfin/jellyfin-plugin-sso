@@ -142,3 +142,18 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           path: ${{ steps.sbom.outputs.sbom-path }}
+
+      # The committed OpenVEX document, uploaded as its own artifact so the release leg
+      # can ship it beside the SBOM without checking out a tree over its downloaded assets
+      # (#1092/#1093). It rides this job because this job already has the tree, not because
+      # it is generated here - the statements are reviewed in the repository and shipped as
+      # reviewed. `if-no-files-found: error` keeps a deleted or moved document a red release
+      # rather than a release that quietly stops carrying its dispositions. The whole job is
+      # release-only (`if: inputs.attest`), so no CI or PR run pays for this.
+      - name: Upload VEX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
+        with:
+          name: vex-artifact
+          retention-days: 30
+          if-no-files-found: error
+          path: security/vex/openvex.json

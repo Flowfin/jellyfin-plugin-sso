@@ -1718,4 +1718,95 @@ public class CanonicalLinkServiceTests
         Assert.Equal(Existing, resolved);
         Assert.Equal(Existing, cfg.OidConfigs["kc"].CanonicalLinks["sub-1"]);
     }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_IdpNameCarriesRejectedCharacters_ProvisionsUnderTheSanitizedName()
+    {
+        // #1137, the 9p4#199 shape. Jellyfin's own CreateUserAsync refuses this name, so before the
+        // sanitizer the first login threw a host-shaped error and no account was ever created. The link is
+        // still written on the SUBJECT, so the rename decides nothing about which account later logins find.
+        var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        var created = TestUsers.Named("alice.smith", Other);
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        users.CreateUserAsync("alice.smith").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        var resolved = await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "<alice.smith>", allowExistingAccountLink: false);
+
+        Assert.Equal(Other, resolved);
+        await users.Received(1).CreateUserAsync("alice.smith");
+        await users.DidNotReceive().CreateUserAsync("<alice.smith>");
+        Assert.Equal(Other, cfg.OidConfigs["kc"].CanonicalLinks["sub-1"]);
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_AcceptableIdpName_MakesNoSecondNameLookup()
+    {
+        // The no-behaviour-change half of #1137: a name that needs no sanitization must take byte-for-byte
+        // the pre-#1137 path. The sanitized-name collision check is the one new name lookup, and it is
+        // reached only when the name actually changed - pinned here by the call count on GetUserByName,
+        // which the resolve path makes exactly once for an unchanged name.
+        var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        users.Received(1).GetUserByName("alice");
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_SanitizedNameIsTaken_RefusesRatherThanAdoptingByName()
+    {
+        // Adopting here would be a name-keyed match on a value the PLUGIN invented rather than one the
+        // provider sent, which is the takeover shape #829 rules the sanitizer out of. Refuse instead, and
+        // never reach CreateUserAsync, which would throw the host's own "already exists" anyway.
+        var (service, _, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        users.GetUserByName("alice!").Returns((User?)null);
+        users.GetUserByName("alice").Returns(TestUsers.Named("alice", Existing));
+
+        await Assert.ThrowsAsync<AccountLinkForbiddenException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice!", allowExistingAccountLink: false));
+
+        await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+        Assert.Single(log.Entries, e => e.Message.Contains("already bears", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_IdpNameSanitizesToNothing_RefusesWithoutInventingAName()
+    {
+        // The empty-result fallback. An all-dots name passes Jellyfin's own check and is path traversal at
+        // the profile directory (#447), so it is treated as nothing surviving; the login is refused rather
+        // than an account being provisioned under a name no identity provider sent.
+        var (service, _, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+
+        await Assert.ThrowsAsync<AccountLinkForbiddenException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "..", allowExistingAccountLink: false));
+
+        await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+        Assert.Single(log.Entries, e => e.Message.Contains("no character Jellyfin accepts", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_RefusedProvisioning_DoesNotClaimTheLegacyTargetWasOrphaned()
+    {
+        // The orphan warning states that a fresh account IS being provisioned and the legacy target is now
+        // orphaned. Refusing after it would leave both halves untrue on the one line an operator recovers
+        // from, so the name is resolved ahead of it; this pins that ordering rather than the comment.
+        var (service, _, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig
+        {
+            Enabled = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { [".."] = Existing },
+        });
+        users.GetUserById(Existing).Returns(TestUsers.Named("renamed-alice", Existing));
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+
+        await Assert.ThrowsAsync<AccountLinkForbiddenException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "..", allowExistingAccountLink: false));
+
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("orphaned", StringComparison.Ordinal));
+    }
 }

@@ -147,11 +147,16 @@ Local Docker must be working. The harness installs the **packaged** plugin, so b
 
 ```sh
 # 1. Build the packaged plugin zip (requires the .NET 9 SDK and JPRM: `pip install jprm`).
-jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net9.0
+#    jprm refuses an output directory that does not exist, and `artifacts/` is git-ignored,
+#    so a clean checkout has to create it. Everything jprm reports goes to stderr except the
+#    path of the archive it wrote, which is its only line of stdout - capture that instead of
+#    naming the file, because the name is derived from `name:` in build.yaml and moves with it.
+mkdir -p ./artifacts
+plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net9.0)
 
 # 2. Unpack it into the Jellyfin plugins directory the compose stack mounts.
 mkdir -p test/e2e/jellyfin/config/plugins/SSO-Auth
-unzip -o ./artifacts/sso-authentication_*.zip -d test/e2e/jellyfin/config/plugins/SSO-Auth
+unzip -o "$plugin_zip" -d test/e2e/jellyfin/config/plugins/SSO-Auth
 chmod -R 0777 test/e2e/jellyfin
 
 # 3. Boot the stack and run the harness (its exit code is the run's exit code).
@@ -193,6 +198,28 @@ configuration no longer matches the assertions the IdP signs.
 A relogin-only pass refuses to run against an uninitialised server: it needs a Jellyfin whose wizard
 is already complete and whose provider configuration is already persisted, so pointing it at a wiped
 `test/e2e/jellyfin/config` is a fatal error rather than a silent re-initialisation.
+
+### Legacy plaintext secret migrates on load
+
+`test/e2e/phases/legacy-secret-migration.sh` is a phase built on that second pass. It replaces the
+persisted `ssoenc:v1` envelope with the plaintext a pre-#158 configuration carried, restarts Jellyfin
+against it, and requires two things: the login keeps working, and the value is rewritten as an
+envelope with the plaintext gone from the file. A third pass then drives one more login, so the login
+that proves the migrated secret still decrypts is one made after the envelope exists.
+
+It runs on the host rather than in the harness container, which mounts only `/harness` and can
+therefore neither read the persisted configuration nor restart Jellyfin. Run it after a green
+canonical pass, with the stack stopped but not torn down:
+
+```sh
+docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+
+test/e2e/phases/legacy-secret-migration.sh
+```
+
+A green run prints `LEGACY SECRET MIGRATION PHASE PASSED`. In CI it runs on a release, a beta
+release, or a `providers: all` dispatch, on the Keycloak entry only.
 
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an

@@ -184,9 +184,10 @@ internal static class OidcDiscoveryReader
     /// <returns>The two facts this document advertises.</returns>
     internal static DiscoveryFacts FactsFrom(string? discoveryJson)
     {
-        var document = DiscoveryJson.TryParse(discoveryJson);
+        using var document = DiscoveryJson.TryParse(discoveryJson);
+        var root = document?.RootElement;
         return new DiscoveryFacts(
-            PkceDiscovery.SupportsS256(document),
-            OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(document));
+            PkceDiscovery.SupportsS256(root),
+            OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(root));
     }
 }

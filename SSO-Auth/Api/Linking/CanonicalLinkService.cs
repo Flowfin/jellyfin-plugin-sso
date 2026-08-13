@@ -448,6 +448,11 @@ internal sealed class CanonicalLinkService
     // so it exists inert for an administrator to approve; the caller then refuses the login without minting.
     private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled)
     {
+        // Resolved FIRST, ahead of the orphan warning below (#1137). That warning states that a fresh
+        // account is being provisioned and the legacy target is now orphaned; a refusal after it would
+        // leave both halves of that sentence untrue in the log, on the one line an operator recovers from.
+        var provisionedName = ResolveProvisionedName(mode, provider, username);
+
         if (legacyLink.HasValue && _legacyLinkWarnGate.TryEnter(_clock()))
         {
             // The dangerous, previously-silent case (#354/#361): a legacy username-keyed link
@@ -474,10 +479,10 @@ internal sealed class CanonicalLinkService
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
-            _logger.LogInformation("SSO user {Name} doesn't exist, creating...", username.ReplaceLineEndings(string.Empty));
+            _logger.LogInformation("SSO user {Name} doesn't exist, creating...", provisionedName.ReplaceLineEndings(string.Empty));
         }
 
-        var user = await _userManager.CreateUserAsync(username).ConfigureAwait(false);
+        var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
         user.AuthenticationProviderId = SsoManagedProviderId.Value;
         // https://jonathancrozier.com/blog/how-to-generate-a-cryptographically-secure-random-string-in-dot-net-with-c-sharp
         user.Password = _cryptoProvider.CreatePasswordHash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))).ToString();
@@ -515,7 +520,7 @@ internal sealed class CanonicalLinkService
             // later refused login of the now-pending account) and is always accurate - the completion-path
             // gate that refuses the login covers any disabled account, including one an admin disabled, so
             // auditing there would mislabel a deliberate ban as a fresh provisioning.
-            SsoAudit.ProvisionedPendingApproval(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, username);
+            SsoAudit.ProvisionedPendingApproval(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, provisionedName);
         }
 
         // Atomic check-then-link (#133): if a concurrent first-login for the same identity
@@ -524,6 +529,75 @@ internal sealed class CanonicalLinkService
         // link write stamps the login's issuer (#186), so the new link is issuer-bound.
         var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer);
         return effectiveUserId;
+    }
+
+    // The name a BRAND-NEW account is created under (#1137). Jellyfin's CreateUserAsync throws for a name
+    // outside its own character set, so an IdP that emits one (the 9p4#199 shape) used to fail the login
+    // with a host-shaped error and no actionable signal; sanitizing here turns that into a first login that
+    // succeeds under a normalized name. This runs on the CREATE arm only and touches nothing else: the link
+    // key stays the subject, and the raw IdP name is still what the legacy username key, the same-name
+    // lookup and the adoption comparison above are made against. That divergence is deliberate. Sanitizing
+    // the value those reads use would re-point an existing legacy link and change which account a login
+    // resolves to, which is exactly what #829 forbids this issue from doing; and it cannot strand this
+    // account, because every later login for the same identity resolves through the subject-keyed link
+    // written below rather than by name.
+    private string ResolveProvisionedName(ProviderMode mode, string provider, string username)
+    {
+        if (!ProvisionedUsername.TrySanitize(username, out var provisionedName))
+        {
+            // Nothing Jellyfin would accept survived. Refuse with a named plugin-side reason rather than
+            // letting CreateUserAsync throw a host-shaped error, and never invent a substitute name - an
+            // account an administrator sees has to come from something the identity provider actually sent.
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "SSO login via {Mode}/{Provider} refused: the identity provider's username has no character Jellyfin accepts in an account name, so no account can be provisioned for it.",
+                    mode.ToToken(),
+                    provider?.ReplaceLineEndings(string.Empty));
+            }
+
+            throw new AccountLinkForbiddenException("The SSO username contains no character Jellyfin accepts in an account name; refusing to provision an account under an invented name.");
+        }
+
+        if (string.Equals(provisionedName, username, StringComparison.Ordinal))
+        {
+            // Unchanged, so the name-taken check the caller already made still stands and no second lookup
+            // is made. A login whose name needs no sanitization therefore takes byte-for-byte the pre-#1137
+            // path, which is what the regression test over the existing flow pins.
+            return provisionedName;
+        }
+
+        if (_userManager.GetUserByName(provisionedName) != null)
+        {
+            // The normalized name is already worn by an account this identity has not proved it owns.
+            // Adopting it would be a name-keyed match on a value the plugin invented rather than one the
+            // provider sent, which is the takeover shape #829 rules out; appending a suffix would hand an
+            // administrator an account name nobody chose. Refuse instead, and name both spellings so the
+            // operator can rename one side.
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "SSO login for {Name} via {Mode}/{Provider} refused: the name normalizes to {Provisioned}, which an existing Jellyfin account already bears. Rename that account or the identity provider's username.",
+                    username?.ReplaceLineEndings(string.Empty),
+                    mode.ToToken(),
+                    provider?.ReplaceLineEndings(string.Empty),
+                    provisionedName.ReplaceLineEndings(string.Empty));
+            }
+
+            throw new AccountLinkForbiddenException("The sanitized SSO username is already taken by another Jellyfin account; refusing to adopt it by name.");
+        }
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "SSO username {Name} via {Mode}/{Provider} carries characters Jellyfin does not accept in an account name; provisioning as {Provisioned}. The account link is keyed on the provider subject, so the rename does not affect which account later logins resolve to.",
+                username?.ReplaceLineEndings(string.Empty),
+                mode.ToToken(),
+                provider?.ReplaceLineEndings(string.Empty),
+                provisionedName.ReplaceLineEndings(string.Empty));
+        }
+
+        return provisionedName;
     }
 
     /// <summary>
