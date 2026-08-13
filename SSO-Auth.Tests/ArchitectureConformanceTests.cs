@@ -1312,7 +1312,7 @@ public class ArchitectureConformanceTests
         // this expected count in the same PR that adds or removes a rate-limited endpoint (as the provider-form
         // roster rules do), so a change to the limiter surface is a conscious update here rather than a silent
         // drift the offender scan cannot see.
-        const int expectedTypedCallSites = 14;
+        const int expectedTypedCallSites = 15;
         var typedCall = new Regex("RateLimitCheck\\(\\s*SsoRateLimitClass\\.");
         var typedCallSites = ControllerSourceFiles()
             .Sum(path => typedCall.Matches(File.ReadAllText(path)).Count);
@@ -2795,6 +2795,9 @@ public class ArchitectureConformanceTests
         "SAML/Logout/{provider}", "SAML/ImportMetadata", "SAML/Auth/{provider}",
         "Unregister/{username}", "{mode}/Link/{provider}/{jellyfinUserId}",
         "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}",
+        // The per-subject link export (#1091): elevation-gated and read-only, but it answers per user id,
+        // so an unthrottled one is a user-table enumeration an administrator can drive in a loop.
+        "Links/Export/{jellyfinUserId}",
     };
 
     // Routes deliberately NOT rate-limited, each with the reason it is safe: an elevation-gated admin
@@ -2810,6 +2813,7 @@ public class ArchitectureConformanceTests
         "Config/Export", "Config/Import", // elevated config transfer
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "Config/Links/Export", // elevated read-only link snapshot (#1126), in-memory, no outbound fetch
+        "Links/Roster", // elevated read-only link roster (#1119), in-memory, no outbound fetch, takes no caller-supplied id
         "saml/links/{jellyfinUserId}", "oid/links/{jellyfinUserId}", // authenticated link listings
         "SSO-Managed/Status/{jellyfinUserId}", // elevated read-only account report (#1136), in-memory, no outbound fetch
         "{viewName}", // SSOViewsController: read-only embedded static asset (ETag/304), no I/O, no login path

@@ -51,6 +51,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   dependency can read the recorded disposition for it instead of guessing. Only
   the plugin zip still carries an `.md5`, which is what keeps the manifest
   checksum paired with the build it belongs to.
+- **An export of one account's SSO linkages (#1091).** A new administrator-only
+  endpoint, `GET /SSO/Links/Export/{jellyfinUserId}`, returns every OpenID and
+  SAML linkage held for one Jellyfin account in a single document, in the same
+  shape the whole-table export already produces. Answering an access request
+  previously meant either two calls per protocol against the per-user listings
+  or exporting the whole link table and redacting every other account by hand.
+  The document names the account by username rather than by its internal id and
+  carries no provider secret, signing key or token; an account that exists but
+  holds no linkage exports an empty document, which is a different answer from
+  the 404 an unknown id returns. The endpoint is rate-limited under a budget of
+  its own, so an administrator session cannot be used to walk the user table one
+  id at a time, and the throttle is applied before the account lookup so the
+  404 cannot be used to test for an account either.
+- **A linked-account roster for administrators (#1119).** A new
+  administrator-only endpoint, `GET /SSO/Links/Roster`, lists every Jellyfin
+  account that holds an SSO link, with the provider and canonical name behind
+  each one, in a single read. Finding out _which_ accounts were linked
+  previously meant walking the whole Jellyfin user list and asking the per-user
+  listings one request at a time. An account linked to several providers is one
+  row carrying several links, and a link whose account has since been deleted is
+  reported as an orphan rather than dropped, which is the one place that state is
+  visible at all. The roster is assembled from the link maps alone, so no
+  provider secret, signing key or certificate can appear in it.
 
 ### Changed
 
