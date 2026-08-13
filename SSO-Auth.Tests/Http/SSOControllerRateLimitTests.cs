@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Net;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
@@ -124,6 +125,19 @@ public class SSOControllerRateLimitTests
         await harness.Controller.SamlAuth("does-not-exist", new AuthResponse());
 
         AssertThrottled(harness, await harness.Controller.SamlAuth("does-not-exist", new AuthResponse()));
+    }
+
+    [Fact]
+    public void ExportUserLinks_OverRateLimit_Returns429()
+    {
+        // #1091. The gate is what stops an administrator's session, borrowed or scripted, from walking the
+        // whole user table one id at a time - the endpoint answers per user id and its 404 is an existence
+        // signal, so the throttle has to fire before the lookup, not after it.
+        var harness = Throttling(IPAddress.Parse("8.8.8.9"));
+
+        harness.Controller.ExportUserLinks(Guid.Parse("00000000-0000-0000-0000-0000000000ff"));
+
+        AssertThrottled(harness, harness.Controller.ExportUserLinks(Guid.Parse("00000000-0000-0000-0000-0000000000fe")));
     }
 
     [Fact]
