@@ -1344,6 +1344,31 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Lists every Jellyfin account that holds an SSO link, with the provider and canonical name behind
+    /// each link (#1119). Requires administrator privileges. Read-only - it changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// The per-user listings (<c>saml/links/{jellyfinUserId}</c>, <c>oid/links/{jellyfinUserId}</c>) answer
+    /// only for an id the caller already has, so finding out WHICH accounts are linked meant walking the
+    /// whole Jellyfin user list one request at a time. This answers that question in one read. Unlike the
+    /// portable export it reports a link whose user id resolves to no account rather than dropping it: an
+    /// orphaned link is left behind by a deleted account and is the thing an administrator opens this to
+    /// find, and it is invisible from every other surface.
+    /// </remarks>
+    /// <returns>The linked-account roster.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Links/Roster")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult LinkedAccountRoster()
+    {
+        // Snapshot under the config lock so the two protocols' link maps are inverted against each other
+        // atomically; the document that leaves the lock holds only strings and ids, so the JSON formatter
+        // cannot tear against a concurrent login writing a link.
+        return Ok(SSOPlugin.Instance.ReadConfiguration(
+            live => LinkRoster.Build(live, userId => _userManager.GetUserById(userId)?.Username)));
+    }
+
+    /// <summary>
     /// Exports the SSO linkages held for ONE Jellyfin account, across both protocols, as the same document
     /// shape <c>Config/Links/Export</c> produces (#1091). Requires administrator privileges. Read-only - it
     /// changes nothing.
