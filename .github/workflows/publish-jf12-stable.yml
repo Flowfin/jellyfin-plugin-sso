@@ -86,6 +86,9 @@ jobs:
         output-dir: _dist
     - name: Prepare GitHub Release assets
       run: |-
+        # The committed OpenVEX document joins the SBOM in the staging dir - see the same
+        # note in publish-beta.yml (#1092/#1093).
+        cp security/vex/openvex.json _dist/openvex.json
         pushd _dist
         # ONLY the plugin zip gets a `.md5` - see the same note in publish-beta.yml. The
         # manifest generator keeps the LAST asset ending in `.md5`, so a second one
@@ -96,6 +99,9 @@ jobs:
           sha256sum ${file#./} > ${file%.*}.sha256
         done
         sha256sum sbom.cyclonedx.json > sbom.cyclonedx.sha256
+        # Also the staging check: sha256sum exits non-zero on a missing file under `bash -e`,
+        # so a leg that failed to place the document reds here instead of publishing without it.
+        sha256sum openvex.json > openvex.sha256
         ls -l
         popd
     - name: Publish output artifacts

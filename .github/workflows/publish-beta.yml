@@ -164,6 +164,11 @@ jobs:
         output-dir: _dist
     - name: Prepare GitHub Release assets
       run: |-
+        # The committed OpenVEX document joins the SBOM in the staging dir, so a consumer
+        # gets this build's component list and its triaged non-exploitable dispositions from
+        # one release (#1092/#1093). It is copied rather than generated: the statements are
+        # reviewed in the repository, and a release must ship the reviewed bytes.
+        cp security/vex/openvex.json _dist/openvex.json
         pushd _dist
         # ONLY the plugin zip gets a `.md5`. Defence in depth: the generator this repo now
         # owns pairs a release's checksum with ITS zip by name, but the third-party one it
@@ -171,13 +176,16 @@ jobs:
         # renaming the plugin to `community-sso-for-jellyfin` moved its md5 ahead of
         # `sbom.cyclonedx.md5` alphabetically and made the manifest publish the SBOM's
         # checksum, breaking every install (#942). One `.md5` per release keeps that class
-        # unreachable however the manifest is built. The SBOM keeps a sha256, the meaningful
-        # integrity value for it.
+        # unreachable however the manifest is built. The SBOM and the VEX keep a sha256, the
+        # meaningful integrity value for them.
         for file in ./*.zip; do
           md5sum ${file#./} > ${file%.*}.md5
           sha256sum ${file#./} > ${file%.*}.sha256
         done
         sha256sum sbom.cyclonedx.json > sbom.cyclonedx.sha256
+        # Also the staging check: sha256sum exits non-zero on a missing file under `bash -e`,
+        # so a leg that failed to place the document reds here instead of publishing without it.
+        sha256sum openvex.json > openvex.sha256
         ls -l
         popd
     - name: Upload beta assets to a draft release
