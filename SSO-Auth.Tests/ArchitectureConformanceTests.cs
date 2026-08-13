@@ -3183,6 +3183,23 @@ public class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void TheProvisionedUsernameAllowlist_StillMirrorsTheRecordedHostRule()
+    {
+        // ProvisionedUsername.AllowedPunctuation is a hand-copy of Jellyfin's own account-name check, which
+        // the plugin cannot reference: it lives in the server, off the Controller/Model surface compiled
+        // against. Its one in-repo record is the regex written into AvatarService's comment (#447), so the
+        // copy is pinned to that record here. Nothing can pin either against the server - that residual is
+        // stated on ProvisionedUsername - but the two halves inside this tree can no longer drift apart in
+        // silence, which is the near-miss worth the rule: an editor widening or narrowing one spelling and
+        // never learning that the other one decides what a brand-new account is actually named.
+        var avatar = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Avatar", "AvatarService.cs"));
+        var recorded = Regex.Match(avatar, @"\^\(\?!\\s\)\[\\w(?<members>[^\]]*)\]\+\(\?<!\\s\)\$", RegexOptions.None, TimeSpan.FromSeconds(5));
+
+        Assert.True(recorded.Success, $"{nameof(AvatarService)} no longer records the host username regex, which is the only source {nameof(ProvisionedUsername)}'s allowlist is derived from (#1137).");
+        Assert.Equal(ProvisionedUsername.AllowedPunctuation, recorded.Groups["members"].Value.Replace(@"\-", "-", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TheOidcCallbackPathScan_LeavesTheSamlBuilderAlone()
     {
         // Must-not-catch, named by #1162: the SAML AssertionConsumerServiceURL is the sibling issue's subject
