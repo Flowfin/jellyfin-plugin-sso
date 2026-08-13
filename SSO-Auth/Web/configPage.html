@@ -41,6 +41,16 @@
                 Making changes to this configuration requires a restart of
                 Jellyfin.
                 <br />
+                <span data-i18n="config.username_normalization_note"
+                  >A provider username carrying characters Jellyfin does not
+                  accept in an account name is normalized before a new account
+                  is created, and a login whose name normalizes to nothing
+                  usable, or to a name another account already bears, is refused
+                  rather than provisioned under an invented one. Account links
+                  are keyed on the provider subject, so a normalized name never
+                  changes which account a later login resolves to.</span
+                >
+                <br />
                 This plug-in is at the Release Candidate stage of its maturity
                 ladder (In-Development &rarr; Alpha &rarr; Beta &rarr; Release
                 Candidate &rarr; Full Release); not all configuration options

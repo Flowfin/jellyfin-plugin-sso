@@ -29,6 +29,7 @@
   "link.disabled_note": " (disabled)",
   "config.title": "SSO Settings:",
   "config.sso_only_summary": "SSO-only login (disable password login)",
+  "config.username_normalization_note": "A provider username carrying characters Jellyfin does not accept in an account name is normalized before a new account is created, and a login whose name normalizes to nothing usable, or to a name another account already bears, is refused rather than provisioned under an invented one. Account links are keyed on the provider subject, so a normalized name never changes which account a later login resolves to.",
   "config.placeholder_keep_secret": "Leave blank to keep the current secret",
   "config.placeholder_keep_key": "Leave blank to keep the current key",
   "config.oidc_providers": "SSO providers",
