@@ -13,6 +13,7 @@
   "error.awaiting_approval": "Your account is not active. It is awaiting administrator approval.",
   "error.acr_not_satisfied": "A stronger authentication level (for example MFA) is required to log in.",
   "error.auth_too_old": "You authenticated too long ago; please sign in again.",
+  "error.access_expired": "Your access has expired. Contact the server administrator if this is unexpected.",
   "page.logging_in": "Logging in...",
   "page.enable_javascript": "Please enable Javascript to complete the login",
   "page.account_linked": "Account linked. You can now log in with SSO.",

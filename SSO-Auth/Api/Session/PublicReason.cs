@@ -40,4 +40,7 @@ internal enum PublicReason
 
     /// <summary>max_age is configured but the id_token's auth_time was absent or older than the window (#961) - the user authenticated too long ago. Operator-facing by design.</summary>
     AuthTooOld,
+
+    /// <summary>An account-expiry claim is configured and the login's deadline has passed, or the configured claim produced no readable instant at all (#1144) - one body for both, so an expired subject cannot tell the two apart. User-facing by design.</summary>
+    AccessExpired,
 }

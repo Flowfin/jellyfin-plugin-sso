@@ -12,6 +12,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Logout;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -38,6 +39,7 @@ internal sealed class LoginCompletionService
     private readonly SessionMinter _sessionMinter;
     private readonly SsoOnlyLoginService _ssoOnly;
     private readonly ProviderConfigStore _configStore;
+    private readonly ISessionManager _sessionManager;
     private readonly ILogger _logger;
 
     /// <summary>
@@ -48,13 +50,15 @@ internal sealed class LoginCompletionService
     /// <param name="sessionMinter">The session minter run under the in-flight revocation gate.</param>
     /// <param name="ssoOnly">The SSO-only login enforcement service.</param>
     /// <param name="configStore">The provider configuration store.</param>
+    /// <param name="sessionManager">Jellyfin session manager, used to revoke an account's live tokens when the account-expiry gate disables it (#1144); without it a token minted before the deadline would outlive it.</param>
     /// <param name="logger">The logger.</param>
-    internal LoginCompletionService(CanonicalLinkService canonicalLinks, SessionMinter sessionMinter, SsoOnlyLoginService ssoOnly, ProviderConfigStore configStore, ILogger logger)
+    internal LoginCompletionService(CanonicalLinkService canonicalLinks, SessionMinter sessionMinter, SsoOnlyLoginService ssoOnly, ProviderConfigStore configStore, ISessionManager sessionManager, ILogger logger)
     {
         _canonicalLinks = canonicalLinks ?? throw new ArgumentNullException(nameof(canonicalLinks));
         _sessionMinter = sessionMinter ?? throw new ArgumentNullException(nameof(sessionMinter));
         _ssoOnly = ssoOnly ?? throw new ArgumentNullException(nameof(ssoOnly));
         _configStore = configStore ?? throw new ArgumentNullException(nameof(configStore));
+        _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -99,6 +103,19 @@ internal sealed class LoginCompletionService
         catch (AccountLinkForbiddenException)
         {
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccountLinkForbidden));
+        }
+
+        // Account-expiry gate (#1144), ahead of the pending-approval gate so an account this path already
+        // disabled is refused under its own reason rather than reported as awaiting an approval nobody is
+        // waiting to give. Opt-in: with no AccountExpiryClaim configured for the provider, nothing here runs
+        // and the login takes byte-for-byte its pre-#1144 path.
+        if (!string.IsNullOrWhiteSpace(config.AccountExpiryClaim))
+        {
+            var expiryRefusal = await EnforceAccountExpiryAsync(identity, userId).ConfigureAwait(false);
+            if (expiryRefusal is not null)
+            {
+                return expiryRefusal;
+            }
         }
 
         // Pending-approval gate (#737): a resolved account that is disabled - a brand-new user just
@@ -156,6 +173,59 @@ internal sealed class LoginCompletionService
         CaptureLogoutState(identity, userId, logoutContext, authenticationResult);
 
         return LoginStatusMapper.ToActionResult(new LoginOutcome.Success(authenticationResult));
+    }
+
+    // Enforces a configured account-expiry deadline against the resolved account (#1144). Returns the
+    // refusal to send, or null to let the login continue.
+    //
+    // THE GUARD (T-D1, mass-lockout defence): an administrator is exempt from the whole gate, not merely
+    // from the disable. An identity provider that starts emitting a past instant - or a claim mapped to the
+    // wrong attribute - must be able to strand at most the non-admin accounts, so an administrator both
+    // stays enabled and stays able to log in and repair the configuration. That is why the exemption is read
+    // from the RESOLVED account before anything else happens rather than inferred from a disable that
+    // declined to act; the two are not the same, and only the first keeps the recovery door open. The basis
+    // is the account, never identity.Admin, which is the identity provider's own say-so.
+    //
+    // A configured claim that produced no readable instant refuses the login and disables nothing. Granting
+    // unlimited access on a claim the reader could not parse would make a transient identity-provider change
+    // indistinguishable from an unlimited account, and disabling on it would make that same transient change
+    // indistinguishable from a real expiry - so the fail-closed answer is to refuse this login and leave the
+    // account exactly as it was.
+    private async Task<ActionResult?> EnforceAccountExpiryAsync(VerifiedIdentity identity, Guid userId)
+    {
+        if (_canonicalLinks.IsAccountAdministrator(userId))
+        {
+            return null;
+        }
+
+        if (identity.ExpiresAtUtc is not { } deadline)
+        {
+            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccessExpired));
+        }
+
+        if (deadline > DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        // Fired at the transition only. A second expired login finds the account already disabled, the
+        // disable returns false, and neither the audit line nor the revocation runs again - so a login loop
+        // against an expired identity cannot flood the trail or mass-revoke on every attempt.
+        if (await _canonicalLinks.DisableExpiredAccountAsync(identity.LinkMode, identity.Provider, identity.Subject, identity.Issuer).ConfigureAwait(false))
+        {
+            SsoAudit.AccountExpired(_logger, identity.AuditProtocol, identity.Provider);
+
+            // Without this, "time-limited" means only that no NEW session is minted while a token issued
+            // before the deadline keeps working until it expires on its own. Scoped strictly to this one
+            // user id, which is what separates it from the per-provider disable that deliberately does not
+            // revoke (#468): there the id is one of many behind a provider and revoking would be an
+            // unscoped mass-logout, here it is the single subject whose access just ended. Runs after the
+            // disable is persisted, so a revoke that throws leaves the account already disabled rather than
+            // the pair half-done.
+            await _sessionManager.RevokeUserTokens(userId, null).ConfigureAwait(false);
+        }
+
+        return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccessExpired));
     }
 
     // Persist the per-session Single Logout state (#727, SLO-1b), only when the feature is on. Runs AFTER a
