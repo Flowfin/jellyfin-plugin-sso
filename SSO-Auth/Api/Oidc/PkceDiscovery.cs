@@ -44,10 +44,15 @@ internal static class PkceDiscovery
     internal static bool SupportsS256(JsonElement? discovery)
     {
         // The ValueKind test is not redundant with the null test: a caller can hold a JsonElement that is
-        // non-null and not an object - default(JsonElement) is Undefined - and TryGetProperty THROWS on one
-        // rather than answering false, which would turn a malformed document into a 500 on the challenge.
+        // non-null and not an object - default(JsonElement) is Undefined - and the member walk enumerates a
+        // root, which THROWS on a non-object rather than answering false, turning a malformed document into
+        // a 500 on the challenge.
+        //
+        // The lookup goes through DiscoveryJson so a member name carrying an unpaired surrogate escape is
+        // skipped rather than thrown out of (#1340); TryGetProperty abandons the whole lookup on one, and
+        // an abandoned lookup here reads as "no S256" and refuses every login under RequirePkce.
         var advertised = discovery is { ValueKind: JsonValueKind.Object } root
-            && root.TryGetProperty("code_challenge_methods_supported", out var methods)
+            && DiscoveryJson.TryGetMember(root, "code_challenge_methods_supported", out var methods)
             && methods.ValueKind == JsonValueKind.Array
             && methods.EnumerateArray().Any(IsS256);
 

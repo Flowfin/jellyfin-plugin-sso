@@ -144,6 +144,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A discovery document can no longer break both of the plugin's discovery
+  checks with a member name it never had to look at (#1340).** The two readers
+  that decide whether a provider advertises PKCE `S256` and the RFC 9207
+  response `iss` parameter both looked their member up with a call that decodes
+  every candidate name long enough to still match. A name written with an
+  unpaired surrogate escape has no decoding, so the lookup raised an error
+  instead of answering, and which of the two readers it hit depended only on how
+  long that unrelated name was. Both facts are now read through one lookup that
+  skips a name it cannot decode and keeps going, so a provider that does
+  advertise `S256` beside such a name still reads as advertising it, rather than
+  having every login under **Require PKCE** refused. Both answers are otherwise
+  unchanged, each still failing in the direction it is documented to: PKCE
+  support closed, the response `iss` flag tolerant. No login on the shipped
+  configuration reached this - the repeated-member screen already reports such a
+  body unreadable before either reader sees it - and the two documents that
+  reach it join the fuzz corpus so the smoke gate replays them.
+
 - **A token minted for one endpoint is no longer read as a token for the other
   (#1317).** Neither JWT the plugin verifies used to have its `typ` header
   looked at, so the only thing separating an id_token from a back-channel

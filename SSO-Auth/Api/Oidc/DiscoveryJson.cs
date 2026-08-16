@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Text.Json;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -63,5 +64,58 @@ internal static class DiscoveryJson
         // answer to the caller and neither leaks a document nobody closes.
         document.Dispose();
         return null;
+    }
+
+    /// <summary>
+    /// Looks a member up on a discovery root without ever throwing, which is what
+    /// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> does not promise. That method
+    /// unescapes any candidate member name long enough to still match after unescaping, and an unpaired
+    /// surrogate escape has no completion, so the decoder raises <see cref="InvalidOperationException"/>
+    /// and the whole lookup is abandoned (#1340). Both discovery facts are read through here so neither
+    /// reader carries the throw, and the padding that selects which one is hit stops being a property of
+    /// the lookup name's length.
+    ///
+    /// An undecodable name is SKIPPED and the walk CONTINUES, which is the load-bearing half rather than a
+    /// detail. Answering "absent" for the whole document would let one member nobody asked about decide the
+    /// PKCE fact, and false there refuses the login wherever <c>RequirePkce</c> is on - so a document
+    /// carrying both an undecodable name and a real <c>code_challenge_methods_supported</c> would take an
+    /// otherwise-working provider offline. This is the same reasoning <c>PkceDiscovery.IsS256</c> already
+    /// applies one level down, on the value side of the same decoder failure.
+    ///
+    /// A name that does not decode also cannot equal the ASCII name being looked for, so skipping it loses
+    /// no match: what is dropped is a candidate that could only ever have answered no.
+    /// </summary>
+    /// <param name="root">The discovery document's root object.</param>
+    /// <param name="name">The member name to find, compared ordinally against each decodable member.</param>
+    /// <param name="value">The first matching member's value; <see langword="default"/> when none matches.</param>
+    /// <returns><see langword="true"/> when a member of that name is present.</returns>
+    internal static bool TryGetMember(JsonElement root, string name, out JsonElement value)
+    {
+        // Walked by hand rather than delegating to TryGetProperty and catching around it: one path answers
+        // for every document, so there is no second comparison that could disagree with the first about the
+        // same bytes. First match wins, exactly as TryGetProperty does - repeated members are refused
+        // upstream by the screen (#1054) and are not this method's decision.
+        foreach (var member in root.EnumerateObject())
+        {
+            try
+            {
+                if (!member.NameEquals(name))
+                {
+                    continue;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // This member's name carries an escape the decoder cannot complete. It is not the name being
+                // looked for; the next member still can be.
+                continue;
+            }
+
+            value = member.Value;
+            return true;
+        }
+
+        value = default;
+        return false;
     }
 }
