@@ -212,6 +212,16 @@ internal sealed class OidcLogoutTokenValidator
     // The events claim is a JSON object; presence of the back-channel-logout member is what makes this a
     // logout_token. Read it as a JsonElement and require the member - a claim that is absent, not an object,
     // or an object without the member is rejected. Any parse failure is a fail-closed "not a logout_token".
+    //
+    // The member is looked up through the walk that cannot throw rather than through
+    // JsonElement.TryGetProperty, which is what the sentence above claimed and did not do (#1349). That
+    // method unescapes any candidate member name long enough to still match after unescaping, and an
+    // unpaired surrogate escape has no completion, so the decoder raised InvalidOperationException out of
+    // this method - past ValidateAsync, which has no catch, and past the endpoint, which does not cover this
+    // line. The refusal that was owed took the uniform 400 and the audited reason code with it. Skipping the
+    // undecodable name rather than abandoning the claim is the same load-bearing half #1340 settled for the
+    // discovery readers: a name that does not decode cannot equal this ASCII event URI, so nothing that
+    // could have matched is lost, and a token carrying the real member beside one is still recognised.
     private static bool HasBackChannelLogoutEvent(JsonWebToken token)
     {
         if (!token.TryGetPayloadValue<JsonElement>("events", out var events))
@@ -220,7 +230,7 @@ internal sealed class OidcLogoutTokenValidator
         }
 
         return events.ValueKind == JsonValueKind.Object
-            && events.TryGetProperty(BackChannelLogoutEvent, out _);
+            && JsonMember.TryGet(events, BackChannelLogoutEvent, out _);
     }
 
     /// <summary>
