@@ -24,11 +24,34 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 /// </remarks>
 public static class LoginButtonInjector
 {
-    /// <summary>The opening fence of the plugin-managed region inside the login disclaimer.</summary>
-    internal const string BeginMarker = "<!-- SSO-LOGIN-BUTTONS:BEGIN (managed by jellyfin-plugin-sso - do not edit inside) -->";
+    /// <summary>
+    /// What an opening fence is RECOGNISED by, and the whole of it. Everything after this token, up to and
+    /// including the <c>--&gt;</c> that closes the comment on the same line, is prose the matcher does not
+    /// read (#1344).
+    ///
+    /// That split is the point. The opener is written into every installation's login disclaimer and is found
+    /// again by an exact search on the next sync, so any edit to the literal that is matched orphans every
+    /// block already on disk: the plugin stops recognising its own region, appends a second one beside it, and
+    /// no later action - not disabling the buttons, not reconfiguring them - can remove the first. That is
+    /// what a typographic pass over this tree did to the parenthetical below, and it shipped. Recognising
+    /// only this token makes the parenthetical safe to rewrite, and the token itself carries nothing a
+    /// typographic pass looks for: the hyphens in <c>SSO-LOGIN-BUTTONS</c> are already plain ASCII, which is
+    /// the direction such a pass converts TOWARDS rather than away from.
+    /// </summary>
+    internal const string BeginMarkerPrefix = "<!-- SSO-LOGIN-BUTTONS:BEGIN";
+
+    /// <summary>
+    /// The opening fence this version WRITES. Older installations carry a different spelling of the
+    /// parenthetical and are recognised all the same, because recognition is
+    /// <see cref="BeginMarkerPrefix"/> and never this constant.
+    /// </summary>
+    internal const string BeginMarker = BeginMarkerPrefix + " (managed by jellyfin-plugin-sso - do not edit inside) -->";
 
     /// <summary>The closing fence of the plugin-managed region.</summary>
     internal const string EndMarker = "<!-- SSO-LOGIN-BUTTONS:END -->";
+
+    /// <summary>The three characters that close an HTML comment, and so an opening fence.</summary>
+    private const string CommentClose = "-->";
 
     /// <summary>
     /// Renders the managed button block, or the empty string when there are no buttons. The returned string,
@@ -74,12 +97,15 @@ public static class LoginButtonInjector
     }
 
     /// <summary>
-    /// Splices <paramref name="block"/> into <paramref name="existingDisclaimer"/> idempotently: an existing
-    /// managed region (between the markers) is replaced; when none is present the block is appended; and an
-    /// empty <paramref name="block"/> removes the managed region entirely, restoring the surrounding admin
-    /// content. Content outside the markers - an admin's own disclaimer - is preserved, aside from the
-    /// blank-line separator the managed region introduces, which is collapsed on removal so repeated
-    /// enable/disable cycles cannot accumulate whitespace.
+    /// Splices <paramref name="block"/> into <paramref name="existingDisclaimer"/> idempotently: the FIRST
+    /// managed region is replaced, every further managed region is removed, when none is present the block is
+    /// appended, and an empty <paramref name="block"/> removes them all. Content outside the fences - an
+    /// admin's own disclaimer - is preserved, aside from the blank-line separator a managed region introduces,
+    /// which is collapsed on removal so repeated enable/disable cycles cannot accumulate whitespace.
+    ///
+    /// Removing the extra regions rather than only the first is what repairs an installation that was already
+    /// left holding two blocks by the orphaning described at <see cref="BeginMarkerPrefix"/>: it converges to
+    /// exactly one on the next sync, and to none when the buttons are turned off, from any number of them.
     /// </summary>
     /// <param name="existingDisclaimer">The current login disclaimer (may be null/empty).</param>
     /// <param name="block">The managed block from <see cref="BuildBlock"/> (empty to remove the region).</param>
@@ -88,24 +114,9 @@ public static class LoginButtonInjector
     {
         ArgumentNullException.ThrowIfNull(block);
         var current = existingDisclaimer ?? string.Empty;
+        var regions = FindRegions(current);
 
-        var begin = current.IndexOf(BeginMarker, StringComparison.Ordinal);
-
-        // Search for the CLOSING fence only AFTER the opener. Searching from 0 would let a stray END that a
-        // hand-edited disclaimer placed BEFORE the BEGIN make the region look malformed on every sync, so a
-        // fresh block would be re-appended each time - and because a login's canonical-link write also raises
-        // the config-changed event, that would grow the disclaimer without bound, once per login. Anchoring
-        // the END search past the BEGIN ignores the stray marker and converges instead.
-        var end = begin >= 0
-            ? current.IndexOf(EndMarker, begin + BeginMarker.Length, StringComparison.Ordinal)
-            : -1;
-
-        // A well-formed existing region is BEGIN then END-after-BEGIN. Anything else (only one marker) is
-        // treated as "no managed region": we never parse a partial fence, so we cannot corrupt surrounding
-        // content. A fresh block then appends cleanly.
-        var hasRegion = begin >= 0 && end >= 0;
-
-        if (!hasRegion)
+        if (regions.Count == 0)
         {
             if (block.Length == 0)
             {
@@ -116,23 +127,94 @@ public static class LoginButtonInjector
             return current.Length == 0 ? block : current.TrimEnd('\n') + "\n\n" + block;
         }
 
-        var before = current[..begin];
-        var after = current[(end + EndMarker.Length)..];
-
-        if (block.Length == 0)
+        // Last to first, so an earlier region's offsets are still valid when its turn comes. Only the first
+        // region keeps a block; the rest are orphans and are spliced out.
+        for (var i = regions.Count - 1; i > 0; i--)
         {
-            // Remove the region and heal the seam: collapse the blank-line separator the insert introduced so
-            // repeated enable/disable cycles do not accumulate whitespace, then trim a now-trailing gap.
-            var healed = before.TrimEnd('\n');
-            var tail = after.TrimStart('\n');
-            if (healed.Length == 0)
-            {
-                return tail;
-            }
-
-            return tail.Length == 0 ? healed : healed + "\n\n" + tail;
+            current = Splice(current, regions[i], string.Empty);
         }
 
-        return before + block + after;
+        return Splice(current, regions[0], block);
+    }
+
+    /// <summary>
+    /// Every well-formed managed region in <paramref name="current"/>, in order, as (start, end-exclusive)
+    /// character offsets spanning the opening fence through the closing one.
+    ///
+    /// What is recognised: an opening fence is <see cref="BeginMarkerPrefix"/> followed by the first
+    /// <c>--&gt;</c> that occurs BEFORE the next newline, and a region is such an opener followed by
+    /// <see cref="EndMarker"/> somewhere after it.
+    ///
+    /// What is not, and each for its own reason. The prefix with no comment close on its line is not an
+    /// opener: the fences this type writes are whole lines, so a search that crossed one would let a
+    /// hand-typed fragment swallow the real opener below it and take the admin's own content with it when the
+    /// region was replaced. An opener with no closing fence after it is not a region: a partial fence is never
+    /// parsed, so surrounding content cannot be corrupted, and a fresh block appends cleanly instead. And the
+    /// closing fence is searched for only AFTER an opener, so a stray END that a hand-edited disclaimer placed
+    /// ahead of one is ignored rather than making the region look malformed on every sync - which would
+    /// re-append a block each time, and because a login's canonical-link write also raises the config-changed
+    /// event, would grow the disclaimer without bound, once per login.
+    /// </summary>
+    /// <param name="current">The disclaimer to scan.</param>
+    /// <returns>The regions found, in document order; empty when there are none.</returns>
+    private static List<(int Start, int End)> FindRegions(string current)
+    {
+        var regions = new List<(int Start, int End)>();
+        var from = 0;
+
+        while (from < current.Length)
+        {
+            var begin = current.IndexOf(BeginMarkerPrefix, from, StringComparison.Ordinal);
+            if (begin < 0)
+            {
+                break;
+            }
+
+            var afterPrefix = begin + BeginMarkerPrefix.Length;
+            var close = current.IndexOf(CommentClose, afterPrefix, StringComparison.Ordinal);
+            var newline = current.IndexOf('\n', afterPrefix);
+            if (close < 0 || (newline >= 0 && newline < close))
+            {
+                from = afterPrefix;
+                continue;
+            }
+
+            var openerEnd = close + CommentClose.Length;
+            var end = current.IndexOf(EndMarker, openerEnd, StringComparison.Ordinal);
+            if (end < 0)
+            {
+                from = afterPrefix;
+                continue;
+            }
+
+            var regionEnd = end + EndMarker.Length;
+            regions.Add((begin, regionEnd));
+            from = regionEnd;
+        }
+
+        return regions;
+    }
+
+    // Replaces one region's characters with a replacement, healing the seam when the replacement is empty:
+    // the blank-line separator the insert introduced is collapsed, so repeated enable/disable cycles do not
+    // accumulate whitespace, and a now-trailing gap is trimmed.
+    private static string Splice(string current, (int Start, int End) region, string replacement)
+    {
+        var before = current[..region.Start];
+        var after = current[region.End..];
+
+        if (replacement.Length != 0)
+        {
+            return before + replacement + after;
+        }
+
+        var healed = before.TrimEnd('\n');
+        var tail = after.TrimStart('\n');
+        if (healed.Length == 0)
+        {
+            return tail;
+        }
+
+        return tail.Length == 0 ? healed : healed + "\n\n" + tail;
     }
 }
