@@ -150,6 +150,17 @@ jobs:
           # Der Waechter hatte die Lauf-Nummer immer; er hat nur nie gefragt.
           : > zustand.md
           : > schluessel.txt
+          # EIN ABSCHNITT JE WORKFLOW, NICHT JE LAUF.
+          #
+          # Der zweite Trockenlauf vom 17.08. schrieb `### Wiki Lint` zweimal
+          # untereinander, weil drei rote Laeufe desselben Workflows in red.tsv
+          # standen. Das ist dieselbe Wiederholung, die als 29 Kommentare
+          # angefangen hat - nur in einen Koerper verschoben statt behoben.
+          #
+          # red.tsv ist nach Aktualitaet sortiert, also ist der ERSTE Eintrag je
+          # Workflow der neueste; die Zahl der Laeufe steht ohnehin separat im
+          # Text.
+          awk -F'\t' '!gesehen[$4]++' red.tsv > je-workflow.tsv
           while IFS=$'\t' read -r url conclusion event wf_name; do
             run_id="${url##*/}"
             schritt=$(gh run view "$run_id" --repo "$REPO" --json jobs \
@@ -165,14 +176,25 @@ jobs:
             # Bericht waere ausfuehrlicher und genauso nutzlos gewesen wie die
             # Vorlage, die er ersetzt.
             #
-            # `--log-failed` schreibt je Zeile `job<TAB>schritt<TAB>zeit meldung`,
-            # also ist die Schritt-Spalte der Filter und das Praefix faellt weg,
-            # bevor gekappt wird.
+            # UND NICHT UEBER DIE SCHRITT-SPALTE, denn die traegt nichts.
+            # Gemessen am 17.08. an einem roten Lauf: `--log-failed` schrieb
+            # ALLE 175 Zeilen mit `UNKNOWN STEP`, waehrend die Jobs-API den
+            # Schritt sauber benennt. Ein Filter darauf trifft nie und liefert
+            # "(kein Protokoll abrufbar)" - im zweiten Trockenlauf genau so
+            # passiert.
+            #
+            # Der verlaessliche Anker ist die Fehlermarke, die der Runner selbst
+            # setzt: die Zeilen VOR dem ersten `##[error]` sind die Ausgabe, die
+            # den Lauf gekippt hat. Der Abbau steht dahinter und faellt damit
+            # von selbst weg.
             schwanz=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
               | sed 's/\r$//' \
-              | awk -F'\t' -v s="$schritt" 'NF>=3 && $2==s { sub(/^[^ ]+ /, "", $3); print $3 }' \
+              | sed 's/^[^\t]*\t[^\t]*\t//' | sed 's/^[0-9TZ:.-]\{20,\} //' \
               | grep -vE '^\s*$' | grep -vE '^##\[(group|endgroup)\]' \
-              | tail -n 12 | cut -c1-200 || true)
+              | awk '/##\[error\]/ { gefunden=1; for (i=1;i<=n;i++) print puffer[i]; print; exit }
+                     { puffer[++n]=$0; if (n>12) { for (i=1;i<n;i++) puffer[i]=puffer[i+1]; n-- } }
+                     END { if (!gefunden) for (i=1;i<=n;i++) print puffer[i] }' \
+              | cut -c1-200 || true)
             [ -n "$schwanz" ] || schwanz="(kein Protokoll abrufbar)"
             printf '%s\t%s\n' "$wf_name" "$schritt" >> schluessel.txt
             # Wie viele rote Laeufe dieses Workflows, und seit wann.
@@ -189,7 +211,7 @@ jobs:
               printf 'Red since `%s`, %s run(s) in this window. Latest: %s\n\n' \
                 "${seit:-unknown}" "$zahl" "$url"
             } >> zustand.md
-          done < red.tsv
+          done < je-workflow.tsv
 
           # DER KOERPER HAELT DEN ZUSTAND, KOMMENTARE HALTEN UEBERGAENGE.
           #
