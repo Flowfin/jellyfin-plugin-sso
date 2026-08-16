@@ -79,9 +79,11 @@ internal static class OidcResponseIssuer
         // provider did not write as a boolean would lock out a provider that never sends one.
         //
         // The ValueKind test on the root is not redundant with the null test, for the same reason it is not
-        // in PkceDiscovery: TryGetProperty throws on a non-object element rather than answering false.
+        // in PkceDiscovery: enumerating a non-object element throws rather than answering false. The lookup
+        // itself goes through DiscoveryJson, which skips a member name whose escape the decoder cannot
+        // complete instead of letting it abandon the read (#1340).
         var advertised = discovery is { ValueKind: JsonValueKind.Object } root
-            && root.TryGetProperty("authorization_response_iss_parameter_supported", out var value)
+            && DiscoveryJson.TryGetMember(root, "authorization_response_iss_parameter_supported", out var value)
             && value.ValueKind == JsonValueKind.True;
 
         // Post-condition, compiled out of the shipped build (#1082): a document that did not parse advertises
