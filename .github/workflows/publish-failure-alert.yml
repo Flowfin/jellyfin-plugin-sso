@@ -158,8 +158,21 @@ jobs:
             # DAS PROTOKOLLENDE, GEKAPPT. Ein ganzes Joblog sprengt jede Issue
             # und wird deshalb nicht gelesen; die letzten Zeilen des roten
             # Schritts sind das, was ein Mensch zuerst ansehen wuerde.
+            # NUR DIE ZEILEN DES GESCHEITERTEN SCHRITTS, und der Grund steht im
+            # Trockenlauf vom 17.08.: `tail` auf das ganze Joblog liefert den
+            # ABBAU - "Removing SSH command configuration", "Cleaning up orphan
+            # processes" - und nicht den Fehler, der weiter oben steht. Der
+            # Bericht waere ausfuehrlicher und genauso nutzlos gewesen wie die
+            # Vorlage, die er ersetzt.
+            #
+            # `--log-failed` schreibt je Zeile `job<TAB>schritt<TAB>zeit meldung`,
+            # also ist die Schritt-Spalte der Filter und das Praefix faellt weg,
+            # bevor gekappt wird.
             schwanz=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
-              | sed 's/\r$//' | grep -vE '^\s*$' | tail -n 12 | cut -c1-200 || true)
+              | sed 's/\r$//' \
+              | awk -F'\t' -v s="$schritt" 'NF>=3 && $2==s { sub(/^[^ ]+ /, "", $3); print $3 }' \
+              | grep -vE '^\s*$' | grep -vE '^##\[(group|endgroup)\]' \
+              | tail -n 12 | cut -c1-200 || true)
             [ -n "$schwanz" ] || schwanz="(kein Protokoll abrufbar)"
             printf '%s\t%s\n' "$wf_name" "$schritt" >> schluessel.txt
             # Wie viele rote Laeufe dieses Workflows, und seit wann.
