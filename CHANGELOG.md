@@ -123,6 +123,25 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   configuration are unchanged, so the rename lands as an in-place update that
   keeps every existing setting.
 
+### Fixed
+
+- **A second, unremovable set of sign-in buttons on the login page (#1344).**
+  The plugin fences the buttons it manages inside the login disclaimer with a
+  marker comment, and finds that region again by an exact search on the next
+  sync. The opening marker's wording changed in an earlier release, so on any
+  server whose disclaimer already held the previous wording the plugin stopped
+  recognising its own region: it added a second set of buttons beside the first,
+  and nothing it could do afterwards removed the first. Turning the buttons off
+  removed only the newer set and left the older one behind, so the duplicate
+  outlived the feature that created it and only a hand edit of the disclaimer
+  cleared it. The region is now recognised by the stable
+  `<!-- SSO-LOGIN-BUTTONS:BEGIN` token alone, and the wording that follows it is
+  no longer read, so a server holding either wording converges to exactly one
+  managed set on its next sync and to none when the buttons are turned off -
+  including a server already left holding two. An admin's own disclaimer text,
+  before, between and after the managed regions, is preserved as it always was.
+  A future edit to that wording can no longer orphan anything.
+
 ### Security
 
 - **A token minted for one endpoint is no longer read as a token for the other
