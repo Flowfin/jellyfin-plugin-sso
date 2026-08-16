@@ -617,6 +617,23 @@ internal sealed class CanonicalLinkService
     }
 
     /// <summary>
+    /// Whether the resolved account holds <see cref="PermissionKind.IsAdministrator"/>. The read the
+    /// mass-lockout guard (T-D1) is made from where a caller has to decide BEFORE acting rather than learn
+    /// it from a refusal - the account-expiry gate (#1144) has to let an administrator log in rather than
+    /// merely leave it enabled, so it cannot infer the guard from a disable that returned false. Basis is
+    /// the RESOLVED account, never the identity provider's admin claim, which is the same basis the disable
+    /// paths use. A user that vanished between resolution and here reports false, so the guard opens no door
+    /// for an account that is not there.
+    /// </summary>
+    /// <param name="userId">The resolved Jellyfin user id.</param>
+    /// <returns><see langword="true"/> when the account exists and is an administrator.</returns>
+    internal bool IsAccountAdministrator(Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        return user is not null && user.HasPermission(PermissionKind.IsAdministrator);
+    }
+
+    /// <summary>
     /// Login-time deprovisioning (#831): when an SSO login is DENIED by the role allow-list, disable the
     /// existing linked Jellyfin account so a user offboarded at the identity provider loses Jellyfin access
     /// immediately, rather than keeping any session until a role change would otherwise apply. Opt-in per
@@ -635,7 +652,37 @@ internal sealed class CanonicalLinkService
     /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose login was denied.</param>
     /// <param name="issuer">The denied login's token issuer (OpenID only; null for SAML), checked against the link's stored issuer binding (#186) so a colliding subject from a repointed identity provider cannot disable the prior provider's account.</param>
     /// <returns><see langword="true"/> when an enabled non-admin account was actually disabled (so the caller audits it); otherwise <see langword="false"/>.</returns>
-    internal async Task<bool> DisableDeniedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null)
+    internal Task<bool> DisableDeniedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
+        DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer);
+
+    /// <summary>
+    /// Login-time enforcement of an account-expiry deadline (#1144): when a login carries an expiry instant
+    /// at or before now, disable the existing linked Jellyfin account so a time-limited or guest identity
+    /// loses Jellyfin access at its deadline rather than for as long as its tokens happen to live. Opt-in per
+    /// provider (<see cref="ProviderConfigBase.AccountExpiryClaim"/>).
+    /// <para>
+    /// One rule, one implementation: this shares every safety property of
+    /// <see cref="DisableDeniedAccountAsync"/> - the same mass-lockout guard (T-D1), the same issuer binding
+    /// (#186), the same never-create/never-adopt resolution, the same no-op on an already-disabled account -
+    /// because it is the same code, and a second copy would be a second place for the guard to be dropped
+    /// from. The two names exist because the two callers mean different things by disabling, and each owes
+    /// its own audit line.
+    /// </para>
+    /// </summary>
+    /// <param name="mode">The provider protocol.</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose deadline has passed.</param>
+    /// <param name="issuer">The login's token issuer (OpenID only; null for SAML), checked against the link's stored issuer binding (#186).</param>
+    /// <returns><see langword="true"/> when an enabled non-admin account was actually disabled (so the caller audits it once, at the transition); otherwise <see langword="false"/>.</returns>
+    internal Task<bool> DisableExpiredAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
+        DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer);
+
+    // The shared body of both login-time disable paths above. Kept private and unnamed for either caller so
+    // neither reason can acquire a guard the other lacks: PermissionRolePolicy bars IsDisabled from SSO role
+    // mapping precisely so no login can disable an account, and these are its two sanctioned exceptions
+    // (#831, #1144, alongside #737). Two exceptions sharing one body is what keeps that policy's invariant
+    // readable - the guard below is stated once and cannot be present in one exception and absent in the other.
+    private async Task<bool> DisableLinkedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer)
     {
         if (string.IsNullOrWhiteSpace(canonicalKey))
         {

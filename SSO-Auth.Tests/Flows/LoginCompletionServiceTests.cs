@@ -55,7 +55,7 @@ public class LoginCompletionServiceTests
         var avatar = new AvatarService(users, Substitute.For<IProviderManager>(), Substitute.For<IServerConfigurationManager>(), new CapturingLogger(), "test-agent");
         var minter = new SessionMinter(users, avatar, sessions, new CapturingLogger());
         var ssoOnly = new SsoOnlyLoginService(users, store, new CapturingLogger());
-        return (new LoginCompletionService(canonicalLinks, minter, ssoOnly, store, auditLog ?? new CapturingLogger()), cfg, users, sessions);
+        return (new LoginCompletionService(canonicalLinks, minter, ssoOnly, store, sessions, auditLog ?? new CapturingLogger()), cfg, users, sessions);
     }
 
     private static AuthResponse Response() =>

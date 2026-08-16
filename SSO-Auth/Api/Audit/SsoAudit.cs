@@ -102,6 +102,30 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty));
     }
 
+    /// <summary>
+    /// Records an existing account being disabled because its access deadline has passed (#1144): the
+    /// provider configures an account-expiry claim and the login carried an instant at or before now. Fired
+    /// once, at the transition, never on the later refused logins of an account already disabled by it. Only
+    /// non-sensitive fields are logged - the protocol and provider name, never the subject/username or the
+    /// deadline itself (T-I1) - so an offboarding, or a mass-expiry incident from an identity provider that
+    /// starts emitting a past instant, leaves an operator trail.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name.</param>
+    internal static void AccountExpired(ILogger logger, string protocol, string provider)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Account disabled by account expiry: an SSO login via {Protocol} provider '{Provider}' carried an expiry instant at or before now, so the account was disabled and its tokens were revoked (AccountExpiryClaim). Administrators are never disabled by this path.",
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty));
+    }
+
     /// <summary>Records a provider being added or updated.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>

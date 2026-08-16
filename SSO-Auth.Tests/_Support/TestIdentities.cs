@@ -34,9 +34,10 @@ internal static class TestIdentities
             AvatarUrl = derived.AvatarUrl,
             PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
+            ExpiresAtUtc = derived.ExpiresAtUtc,
         });
 
-    internal static VerifiedIdentity Saml(string provider, string nameId, SamlAuthorizeStateBuilder.SamlAuthorizeState privileges) =>
+    internal static VerifiedIdentity Saml(string provider, string nameId, SamlAuthorizeStateBuilder.SamlAuthorizeState privileges, DateTime? expiresAtUtc = null) =>
         VerifiedIdentity.FromValidatedSaml(new ValidatedLogin
         {
             Provider = provider,
@@ -51,5 +52,6 @@ internal static class TestIdentities
             AvatarUrl = null,
             PermissionGrants = privileges.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = privileges.MaxParentalRatingScore,
+            ExpiresAtUtc = expiresAtUtc,
         });
 }
