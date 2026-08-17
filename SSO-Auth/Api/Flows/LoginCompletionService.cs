@@ -105,7 +105,11 @@ internal sealed class LoginCompletionService
                 // the relative source is passed only when the login carried none. Passing both and letting a
                 // later write overwrite the earlier one would put the same rule in two places and make the
                 // outcome depend on their order.
-                identity.ExpiresAtUtc is null ? identity.GuestAccessDuration : null).ConfigureAwait(false);
+                identity.ExpiresAtUtc is null ? identity.GuestAccessDuration : null,
+                // Follow the identity provider's username on an already-linked account (#1138). Read off the
+                // provider configuration rather than off the identity, because it is the administrator's
+                // policy and not something the login gets to assert.
+                config.SyncUsernameFromProvider).ConfigureAwait(false);
         }
         catch (AccountLinkForbiddenException)
         {

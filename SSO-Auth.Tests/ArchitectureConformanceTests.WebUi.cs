@@ -175,14 +175,14 @@ public partial class ArchitectureConformanceTests
             "Roles", "AdminRoles", "EnableAllFolders", "EnabledFolders", "EnableFolderRoles", "FolderRoleMapping",
             "EnableLiveTvRoles", "LiveTvRoles", "LiveTvManagementRoles", "EnableLiveTv", "EnableLiveTvManagement",
             "DoNotLoadProfile", "SchemeOverride", "PortOverride", "BaseUrlOverride",
-            "RequirePkce", "AllowExistingAccountLink", "ProvisionNewUsersDisabled", "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
+            "RequirePkce", "AllowExistingAccountLink", "ProvisionNewUsersDisabled", "SyncUsernameFromProvider", "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
             "AcrValues", "Prompt", "MaxAge", "RequireAcr",
             "DisableHttps", "DisablePushedAuthorization", "DoNotValidateEndpoints", "DoNotValidateIssuerName", "DoNotValidateResponseIssuer",
             "AllowPrivateNetworkAddresses",
             "HideLoginButton", "LoginButtonText", "PostLogoutRedirectUri",
         };
 
-        Assert.Equal(45, expected.Length);
+        Assert.Equal(46, expected.Length);
         var missing = expected.Where(id => !markedIds.Contains(id)).ToList();
         Assert.True(
             missing.Count == 0,
