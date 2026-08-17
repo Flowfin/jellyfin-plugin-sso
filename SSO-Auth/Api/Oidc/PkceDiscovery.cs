@@ -48,11 +48,11 @@ internal static class PkceDiscovery
         // root, which THROWS on a non-object rather than answering false, turning a malformed document into
         // a 500 on the challenge.
         //
-        // The lookup goes through DiscoveryJson so a member name carrying an unpaired surrogate escape is
+        // The lookup goes through JsonMember so a member name carrying an unpaired surrogate escape is
         // skipped rather than thrown out of (#1340); TryGetProperty abandons the whole lookup on one, and
         // an abandoned lookup here reads as "no S256" and refuses every login under RequirePkce.
         var advertised = discovery is { ValueKind: JsonValueKind.Object } root
-            && DiscoveryJson.TryGetMember(root, "code_challenge_methods_supported", out var methods)
+            && JsonMember.TryGet(root, "code_challenge_methods_supported", out var methods)
             && methods.ValueKind == JsonValueKind.Array
             && methods.EnumerateArray().Any(IsS256);
 

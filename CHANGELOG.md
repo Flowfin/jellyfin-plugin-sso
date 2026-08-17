@@ -144,6 +144,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A back-channel logout token can no longer break the check that decides
+  whether it is one (#1349).** The plugin looks for a fixed member in a logout
+  token's `events` claim, and found it with the same call #1340 took out of the
+  discovery readers: one that decodes every candidate member name long enough to
+  still match, where a name written with an unpaired surrogate escape has no
+  decoding. A token whose `events` object named only such a member raised an
+  error out of the validator instead of being refused, so the uniform response
+  the endpoint answers every unusable token with was not sent and the rejection
+  never reached the audit trail. The member is now looked up through the same
+  walk that skips a name it cannot decode and keeps going: such a token is
+  refused as not a logout token, with that reason recorded, and a token carrying
+  the real member beside an undecodable one is still recognised and still ends
+  the session it names. Reaching this needed a token that had already passed
+  signature, issuer, audience and lifetime validation, so it was never a way in
+  for a caller without the provider's signing key.
+
 - **A discovery document can no longer break both of the plugin's discovery
   checks with a member name it never had to look at (#1340).** The two readers
   that decide whether a provider advertises PKCE `S256` and the RFC 9207
