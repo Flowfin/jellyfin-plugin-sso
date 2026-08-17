@@ -173,20 +173,56 @@ public class ProvisioningPolicyTemplateTests
     }
 
     [Fact]
-    public void ZeroIsAValidCeiling_AndIsNotUnset()
+    public async Task ZeroIsAValidCeiling_AndIsWritten_NotTreatedAsUnset()
     {
-        // Jellyfin reads zero as "no limit" on both fields, so it is a value an administrator can mean.
-        // Rejecting it, or folding it into unset, would make that setting unreachable through a template.
+        // Jellyfin reads zero as "no limit" and "unlimited", so it is a value an administrator can mean and
+        // it has to reach the account. Two ways to lose it and this covers both: refusing it at save, and
+        // the subtler one where the writer tests truthiness instead of presence and quietly skips it, which
+        // leaves the account on whatever Jellyfin defaulted to while the config page shows a zero.
         ProviderConfigValidator.ValidateProvisioningTemplate(
             "SAML",
             "idp",
             new ProvisioningPolicyTemplate { RemoteClientBitrateLimit = 0, MaxActiveSessions = 0 });
+
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { RemoteClientBitrateLimit = 0, MaxActiveSessions = 0 };
+        var created = Provisionable(users, "alice");
+        created.RemoteClientBitrateLimit = 5;
+        created.MaxActiveSessions = 7;
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal(0, created.RemoteClientBitrateLimit);
+        Assert.Equal(0, created.MaxActiveSessions);
     }
 
     [Fact]
     public void ANullTemplate_PassesValidation()
     {
         ProviderConfigValidator.ValidateProvisioningTemplate("OpenID", "kc", null);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AnInvalidTemplate_IsRefusedByTheWholeConfigSave_OnBothProtocols(bool openId)
+    {
+        // The predicate being right is worth nothing if the save never calls it, and a check reachable only
+        // from its own unit test is exactly the shape that gets quietly unwired. This goes through the
+        // whole-config entry point the config-page save runs, once per protocol, so dropping either call
+        // site is caught rather than left to be noticed by an administrator whose template did nothing.
+        var incoming = new PluginConfiguration();
+        var template = new ProvisioningPolicyTemplate { MaxActiveSessions = -1 };
+        if (openId)
+        {
+            incoming.OidConfigs["kc"] = new OidConfig { ProvisioningPolicyTemplate = template };
+        }
+        else
+        {
+            incoming.SamlConfigs["idp"] = new SamlConfig { ProvisioningPolicyTemplate = template };
+        }
+
+        Assert.Throws<ArgumentException>(() => ProviderConfigValidator.Validate(incoming, new PluginConfiguration()));
     }
 
     [Fact]
