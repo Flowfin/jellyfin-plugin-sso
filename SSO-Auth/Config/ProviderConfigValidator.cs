@@ -63,6 +63,7 @@ internal static class ProviderConfigValidator
                 ValidatePostLogoutRedirectUri("OpenID", kvp.Key, kvp.Value?.BaseUrlOverride, kvp.Value?.PostLogoutRedirectUri);
                 ValidatePermissionRoleMappings("OpenID", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("OpenID", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateGuestAccessDurations("OpenID", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("OpenID", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateAcrRequirement(kvp.Key, kvp.Value);
             }
@@ -84,6 +85,7 @@ internal static class ProviderConfigValidator
                 ValidateSamlSigningKey(kvp.Key, kvp.Value?.SamlRolloverSigningKeyPfx);
                 ValidatePermissionRoleMappings("SAML", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("SAML", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateGuestAccessDurations("SAML", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("SAML", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
             }
         }
@@ -466,6 +468,56 @@ internal static class ProviderConfigValidator
             {
                 throw new ArgumentException(
                     $"{protocol} provider '{echoName}' has a parental-rating mapping with no roles: each mapping must list at least one role the ceiling applies to.",
+                    nameof(mappings));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rejects an access-duration mapping (#1146) whose duration is not positive, is longer than
+    /// <see cref="GuestAccessDurationRoleMap.MaxDurationHours"/>, or which lists no roles. The upper bound is
+    /// a guard rather than a policy: the duration is added to the provisioning instant on the login path and
+    /// <see cref="DateTime.AddHours"/> throws past <see cref="DateTime.MaxValue"/>, so an unbounded value
+    /// would turn every provisioning login for that provider into a 500. A null mappings collection or a null
+    /// entry maps nothing and is tolerated.
+    /// </summary>
+    /// <param name="protocol">The protocol label ("OpenID" or "SAML") echoed in the rejection message.</param>
+    /// <param name="provider">The provider name, echoed (line-ending-stripped) in the rejection message.</param>
+    /// <param name="mappings">The access-duration mappings to check.</param>
+    /// <exception cref="ArgumentException">An entry has a non-positive or out-of-range duration, or lists no roles.</exception>
+    internal static void ValidateGuestAccessDurations(string protocol, string provider, System.Collections.Generic.IEnumerable<GuestAccessDurationRoleMap>? mappings)
+    {
+        if (mappings == null)
+        {
+            return;
+        }
+
+        foreach (var mapping in mappings)
+        {
+            if (mapping == null)
+            {
+                continue;
+            }
+
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+            if (mapping.DurationHours <= 0)
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has an invalid access-duration mapping: the duration must be greater than zero hours (remove the mapping to leave access unlimited).",
+                    nameof(mappings));
+            }
+
+            if (mapping.DurationHours > GuestAccessDurationRoleMap.MaxDurationHours)
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has an access-duration mapping above the {GuestAccessDurationRoleMap.MaxDurationHours}-hour maximum: a longer limit is not a time limit, so remove the mapping instead.",
+                    nameof(mappings));
+            }
+
+            if (mapping.Roles == null || mapping.Roles.Length == 0)
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has an access-duration mapping with no roles: each mapping must list at least one role the duration applies to.",
                     nameof(mappings));
             }
         }

@@ -56,7 +56,8 @@ internal sealed record VerifiedIdentity
         string? avatarUrl,
         IReadOnlyList<PermissionGrant> permissionGrants,
         int? maxParentalRatingScore,
-        DateTime? expiresAtUtc)
+        DateTime? expiresAtUtc,
+        TimeSpan? guestAccessDuration)
     {
         LinkMode = linkMode;
         AuditProtocol = auditProtocol;
@@ -73,6 +74,7 @@ internal sealed record VerifiedIdentity
         PermissionGrants = permissionGrants;
         MaxParentalRatingScore = maxParentalRatingScore;
         ExpiresAtUtc = expiresAtUtc;
+        GuestAccessDuration = guestAccessDuration;
     }
 
     /// <summary>Gets the protocol the canonical-link store keys this identity under (#369).</summary>
@@ -138,6 +140,16 @@ internal sealed record VerifiedIdentity
     internal DateTime? ExpiresAtUtc { get; }
 
     /// <summary>
+    /// Gets the fixed access duration the provider maps the login's roles to (#1146), or null when the
+    /// provider maps no role to a duration or the login held none. It is a DURATION rather than an instant
+    /// because it is anchored to the moment an account is actually provisioned, inside the same locked
+    /// transaction that writes the link - a login resolving an EXISTING account never reads it, which is what
+    /// makes the deadline stamped once rather than slid forward on every visit. Where a login carries both
+    /// this and <see cref="ExpiresAtUtc"/>, the absolute instant wins.
+    /// </summary>
+    internal TimeSpan? GuestAccessDuration { get; }
+
+    /// <summary>
     /// Mints the verified identity of an OpenID login. Called only from the OpenID redeem path
     /// (<c>AuthorizeSession.Ready</c>), which the store hands out only through its one-time atomic redeem of a
     /// promoted (role-gate-passed) state - so a raw or unvalidated login can never reach it.
@@ -175,5 +187,6 @@ internal sealed record VerifiedIdentity
             login.AvatarUrl,
             login.PermissionGrants,
             login.MaxParentalRatingScore,
-            login.ExpiresAtUtc);
+            login.ExpiresAtUtc,
+            login.GuestAccessDuration);
 }

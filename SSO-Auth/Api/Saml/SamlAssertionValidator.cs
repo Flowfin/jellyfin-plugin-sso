@@ -257,6 +257,7 @@ internal sealed class SamlAssertionValidator
             PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
             ExpiresAtUtc = ReadExpiry(config, samlResponse),
+            GuestAccessDuration = derived.GuestAccessDuration,
         });
         return true;
     }

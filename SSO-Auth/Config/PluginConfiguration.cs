@@ -237,6 +237,30 @@ public abstract class ProviderConfigBase
     public string? AccountExpiryClaim { get; set; }
 
     /// <summary>
+    /// Gets or sets the role-to-duration mappings that give a brand-new account a fixed access lifetime
+    /// (#1146), the second of the two expiry sources: a login provisioning a new account while holding a
+    /// mapped role gets a deadline of that moment plus the mapped duration. Null or empty - the default -
+    /// maps nothing, so a provider carrying none provisions byte-identically to before.
+    /// <para>
+    /// It is the RELATIVE source and <see cref="AccountExpiryClaim"/> is the absolute one. Where a login
+    /// carries both, the claim wins: the identity provider is the authority on a date it emitted. Where
+    /// several mapped roles match, the SHORTEST duration wins, which is the fail-closed direction and
+    /// matches the minimum-wins rule <see cref="ParentalRatingRoleMap"/> already states for a ceiling.
+    /// </para>
+    /// <para>
+    /// Stamped ONCE, on the arm that creates the account, and anchored to that moment rather than re-read
+    /// per login - so a later login of the same account leaves the recorded deadline exactly where it was.
+    /// A sliding deadline would be indistinguishable from unlimited access for anyone who keeps logging in,
+    /// which is the whole failure this direction of the feature can have and the absolute claim cannot.
+    /// Losing the role later neither extends nor clears the deadline; removing access for a role a user no
+    /// longer holds is the allow-list's and #831's job, not this one's.
+    /// </para>
+    /// </summary>
+    [XmlArray("GuestAccessDurationRoleMappings")]
+    [XmlArrayItem(typeof(GuestAccessDurationRoleMap), ElementName = "GuestAccessDurationRoleMappings")]
+    public List<GuestAccessDurationRoleMap>? GuestAccessDurationRoleMappings { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether this provider is HIDDEN from the managed login-page buttons
     /// (#722), when <see cref="PluginConfiguration.ManageLoginPageButtons"/> is on. Off by default: an enabled
     /// provider gets a button. Set it to keep a provider usable via its direct start URL without advertising a
@@ -972,6 +996,40 @@ public class ParentalRatingRoleMap
     /// <summary>
     /// Gets or sets the roles the ceiling applies to. A login holding any of these roles is capped at
     /// <see cref="Score"/>; a login holding none is left untouched.
+    /// </summary>
+    public string[]? Roles { get; set; }
+}
+
+/// <summary>
+/// Maps a set of provider roles to a fixed access duration (#1146): an account provisioned by a login
+/// holding any of the listed roles is stamped with a deadline of the provisioning moment plus
+/// <see cref="DurationHours"/>. When a login matches several entries the SHORTEST duration wins, which is
+/// the fail-closed direction. Validated on save: the role list must be non-empty and the duration must be
+/// positive and within <see cref="MaxDurationHours"/>.
+/// </summary>
+public class GuestAccessDurationRoleMap
+{
+    /// <summary>
+    /// The largest duration a mapping may carry, in hours - a hundred 365-day years. It is a guard rather
+    /// than a policy: the duration is added to the provisioning instant on the login path, and
+    /// <see cref="DateTime.AddHours"/> THROWS once the result leaves <see cref="DateTime.MaxValue"/>, so an
+    /// unbounded value hand-edited into the config XML would turn every provisioning login for that provider
+    /// into a 500 rather than into a very distant deadline. Anything needing longer than a century is not a
+    /// time limit and should carry no mapping at all.
+    /// </summary>
+    public const int MaxDurationHours = 876_000;
+
+    /// <summary>
+    /// Gets or sets the access duration granted to the listed roles, in hours, counted from the moment the
+    /// account is provisioned. Hours rather than days so a short trial (a 12-hour pass) and a long one (a
+    /// 30-day guest, 720) are both expressible in one field. A shorter value is more restrictive; when
+    /// several mappings match a login the smallest wins.
+    /// </summary>
+    public int DurationHours { get; set; }
+
+    /// <summary>
+    /// Gets or sets the roles the duration applies to. A login holding any of these roles provisions with the
+    /// deadline; a login holding none provisions with no deadline at all.
     /// </summary>
     public string[]? Roles { get; set; }
 }

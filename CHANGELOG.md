@@ -45,6 +45,25 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   rather than checked against a list, so any code Jellyfin accepts works. As with
   the rest of the template, these are set in the plugin configuration and the
   provider forms in the dashboard do not carry them yet.
+- **A guest or trial group can carry a fixed access duration (#1146).** A
+  provider can map identity-provider roles to a length of access in hours, and
+  an account created by a login holding one of those roles is given a deadline
+  of that moment plus the mapped duration. It is the second way into the expiry
+  machinery: the claim below is the provider naming a date, this one is you
+  naming a length, which is what a guest or trial group usually needs. The
+  deadline is stamped once, when the account is created, and a later login by
+  the same account leaves it exactly where it is, so a trial does not quietly
+  become unlimited access for anyone who keeps signing in. A login holding two
+  mapped roles takes the shorter of the two. Where a login carries both a mapped
+  role and an expiry claim, the claim wins, because the provider is the
+  authority on a date it emitted. Only a newly created account is given a
+  deadline: an SSO login that takes over an existing Jellyfin account is not,
+  and losing the role later neither extends nor clears a deadline already
+  recorded. Nothing changes for a provider that maps no role, which is every
+  provider by default. A duration of zero or less is refused when you save, as
+  is one longer than a century, and so is a mapping that lists no roles. The
+  mappings are set in the plugin configuration; the provider forms in the
+  dashboard do not carry them yet.
 - **Account expiry now ends access on the deadline rather than at the next
   login (#1145).** The instant a login carries is persisted against that
   account's SSO link, and an hourly background pass disables any linked account

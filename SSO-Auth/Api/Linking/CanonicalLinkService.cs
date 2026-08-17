@@ -190,8 +190,16 @@ internal sealed class CanonicalLinkService
     /// to approve. Never disables an existing or adopted account. Default off (a new account is created
     /// enabled); the caller inspects the resolved account via <see cref="IsAccountAwaitingApproval"/>.
     /// </param>
+    /// <param name="provisionedAccessDuration">
+    /// The role-mapped fixed access duration (#1146). When a brand-new account is created on this login - the
+    /// CREATE ARM ONLY - its canonical link is stamped with a deadline of the link-write instant plus this
+    /// duration. Every other arm ignores it: an existing link resolved by a later login is left exactly as it
+    /// was, which is what makes the deadline stamped once rather than slid forward on every visit, and an
+    /// ADOPTED account is not a provisioning event, so it is not given a lifetime it never agreed to. Default
+    /// null (no deadline), so a provider mapping no role provisions byte-identically to before.
+    /// </param>
     /// <returns>The resolved Jellyfin user id.</returns>
-    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false)
+    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null)
     {
         // Defense in depth (#95, #155): a login that resolved no stable identity key (OpenID sub /
         // SAML NameID) or no username must never create, adopt, or look up an account. Both callbacks
@@ -260,7 +268,7 @@ internal sealed class CanonicalLinkService
                 return AdoptExistingAccount(mode, provider, canonicalKey, username, issuer, existingAccount!, adoptionGate, decision.UserId);
 
             case AccountLinkAction.CreateNewAccount:
-                return await CreateNewAccountAsync(mode, provider, canonicalKey, username, issuer, candidates.LegacyLink, provisionDisabled).ConfigureAwait(false);
+                return await CreateNewAccountAsync(mode, provider, canonicalKey, username, issuer, candidates.LegacyLink, provisionDisabled, provisionedAccessDuration).ConfigureAwait(false);
 
             case AccountLinkAction.RejectNameTaken:
                 throw RejectNameTaken(candidates.LegacyLink, mode, provider, username);
@@ -460,7 +468,7 @@ internal sealed class CanonicalLinkService
     // when a now-orphaned legacy link is being left behind. When provisionDisabled is set (the provider's
     // ProvisionNewUsersDisabled policy, #737), the brand-new account is created disabled and persisted here
     // so it exists inert for an administrator to approve; the caller then refuses the login without minting.
-    private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled)
+    private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled, TimeSpan? provisionedAccessDuration)
     {
         // Resolved FIRST, ahead of the orphan warning below (#1137). That warning states that a fresh
         // account is being provisioned and the legacy target is now orphaned; a refusal after it would
@@ -549,7 +557,11 @@ internal sealed class CanonicalLinkService
         // linked meanwhile, use its account - this freshly created user is left unlinked rather
         // than overwriting the winner's link (a rare, benign orphan, not a duplicate login). The
         // link write stamps the login's issuer (#186), so the new link is issuer-bound.
-        var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer);
+        // The role-mapped access duration (#1146) travels with the link write and is stamped only when THIS
+        // call actually wrote the link, in the same transaction. That placement is the whole guarantee: the
+        // #133 race loser writes no link and therefore stamps no deadline over the winner's, and a deadline
+        // can only ever come into existence beside a live link, which is what bounds the map.
+        var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration);
         return effectiveUserId;
     }
 
@@ -1156,7 +1168,7 @@ internal sealed class CanonicalLinkService
     // reports WroteLink=false (so the caller does not re-emit the adoption audit). The link write goes
     // straight into the config (no discarded ActionResult), so a failure to persist propagates rather
     // than falling through as a successful adoption.
-    private (Guid EffectiveUserId, bool WroteLink) LinkCanonicalIfAbsent(ProviderMode mode, string provider, string canonicalKey, Guid candidateUserId, string? issuer)
+    private (Guid EffectiveUserId, bool WroteLink) LinkCanonicalIfAbsent(ProviderMode mode, string provider, string canonicalKey, Guid candidateUserId, string? issuer, TimeSpan? provisionedAccessDuration = null)
     {
         return _configStore.Mutate(configuration =>
         {
@@ -1181,6 +1193,14 @@ internal sealed class CanonicalLinkService
                 // A link written under this login carries this login's issuer (#186). The #133 race loser
                 // (wroteLink == false) uses the winner's already-stamped link, so it stamps nothing.
                 StampIssuerInPlace(configuration, mode, provider, canonicalKey, issuer);
+
+                // A link written by a PROVISIONING login carries the role-mapped access deadline (#1146),
+                // anchored to this instant. Only the create arm passes a duration - adoption passes none - and
+                // only the writer reaches here, so a second login of the same account resolves the existing
+                // link, never re-enters this branch, and leaves the recorded deadline exactly where it is. A
+                // sliding deadline is the one defect this direction of the feature can have, and this is the
+                // single place it is prevented rather than a rule restated at each caller.
+                StampProvisionedDeadlineInPlace(configuration, mode, provider, canonicalKey, provisionedAccessDuration);
             }
 
             return (effectiveUserId, wroteLink);
@@ -1369,6 +1389,34 @@ internal sealed class CanonicalLinkService
         if (configuration.OidConfigs.TryGetValue(provider, out var config) && config is not null)
         {
             config.CanonicalLinkIssuers[canonicalKey] = issuer;
+        }
+    }
+
+    // Stamps the role-mapped access deadline beside a link this transaction just wrote (#1146), inside the
+    // caller's config lock so the deadline and the link it describes land together or not at all. Called
+    // from the create arm only; every other caller passes null and this is a no-op.
+    //
+    // The clock read is the instance clock, so the suite can pin the anchor instead of racing the wall
+    // clock. Both protocols are handled - unlike the issuer stamp, which is OpenID-only - because the map it
+    // writes into is carried by ProviderConfigBase and is swept for both.
+    //
+    // The duration is re-checked against the same bounds the policy and the save-time validator apply,
+    // because the guard has to sit where the arithmetic is: DateTime.AddHours THROWS past DateTime.MaxValue,
+    // and a value hand-edited into the config XML reaches this line without passing the save path at all. A
+    // duration outside the bounds stamps NOTHING rather than throwing, so the login still succeeds and the
+    // account simply carries no deadline - which is exactly what the same provider does today.
+    private void StampProvisionedDeadlineInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, TimeSpan? provisionedAccessDuration)
+    {
+        if (provisionedAccessDuration is not { } duration
+            || duration <= TimeSpan.Zero
+            || duration > TimeSpan.FromHours(GuestAccessDurationRoleMap.MaxDurationHours))
+        {
+            return;
+        }
+
+        if (TryGetProvider(configuration, mode, provider, out var config))
+        {
+            config.CanonicalLinkDeadlines[canonicalKey] = _clock().ToUniversalTime() + duration;
         }
     }
 

@@ -35,6 +35,7 @@ internal static class TestIdentities
             PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
             ExpiresAtUtc = derived.ExpiresAtUtc,
+            GuestAccessDuration = derived.GuestAccessDuration,
         });
 
     internal static VerifiedIdentity Saml(string provider, string nameId, SamlAuthorizeStateBuilder.SamlAuthorizeState privileges, DateTime? expiresAtUtc = null) =>
@@ -53,5 +54,6 @@ internal static class TestIdentities
             PermissionGrants = privileges.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = privileges.MaxParentalRatingScore,
             ExpiresAtUtc = expiresAtUtc,
+            GuestAccessDuration = privileges.GuestAccessDuration,
         });
 }

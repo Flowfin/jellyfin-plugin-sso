@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -39,7 +40,12 @@ internal static class SamlAuthorizeStateBuilder
         // mapping matched, so the mint leaves the account's existing ceiling untouched.
         var maxParentalRatingScore = ParentalRatingPolicy.Resolve(roles, config);
 
-        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore);
+        // Reduce the SAME role set to a fixed access duration (#1146): null when the provider maps no role to
+        // a duration or this login held none, in which case a provisioned account gets no deadline. Resolved
+        // here, beside the other role reductions, so no second attribute read is added to the callback.
+        var guestAccessDuration = GuestAccessDurationPolicy.Resolve(roles, config);
+
+        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration);
     }
 
     /// <summary>
@@ -51,11 +57,13 @@ internal static class SamlAuthorizeStateBuilder
     /// <param name="Folders">The enabled folders (statically enabled plus role-granted).</param>
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
+    /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
     internal readonly record struct SamlAuthorizeState(
         bool Admin,
         bool EnableLiveTv,
         bool EnableLiveTvManagement,
         List<string> Folders,
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
-        int? MaxParentalRatingScore = null);
+        int? MaxParentalRatingScore = null,
+        TimeSpan? GuestAccessDuration = null);
 }

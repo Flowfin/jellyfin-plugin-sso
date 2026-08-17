@@ -102,6 +102,11 @@ internal static class OidcAuthorizeStateBuilder
         // mapping matched, so the mint leaves the account's existing ceiling untouched.
         var maxParentalRatingScore = ParentalRatingPolicy.Resolve(roles, config);
 
+        // Reduce the SAME role set to a fixed access duration (#1146): null when the provider maps no role
+        // to a duration or this login held none, in which case a provisioned account gets no deadline. It is
+        // resolved here, beside the other role reductions, so no second role read is added to the callback.
+        var guestAccessDuration = GuestAccessDurationPolicy.Resolve(roles, config);
+
         // If nothing has validated the login yet, fall back to the stable "sub" as the username. The
         // subject was already resolved above (last "sub" wins), so this reuses it instead of scanning
         // the claims a second time. Faithful to the original: unlike the preferred-username branch, this
@@ -122,7 +127,7 @@ internal static class OidcAuthorizeStateBuilder
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
 
-        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc);
+        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration);
     }
 
     // The last "sub" claim value, or null when none is present. Kept separate from the username
@@ -415,6 +420,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
+    /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
     internal readonly record struct OidcAuthorizeState(
         string? Username,
         string? Subject,
@@ -428,7 +434,8 @@ internal static class OidcAuthorizeStateBuilder
         string? AvatarUrl,
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
         int? MaxParentalRatingScore = null,
-        DateTime? ExpiresAtUtc = null)
+        DateTime? ExpiresAtUtc = null,
+        TimeSpan? GuestAccessDuration = null)
     {
         /// <summary>
         /// Gets the raw OpenID <c>id_token</c>, captured at the callback for a later RP-initiated logout

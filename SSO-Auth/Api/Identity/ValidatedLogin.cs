@@ -59,4 +59,7 @@ internal sealed record ValidatedLogin
 
     /// <summary>Gets the account-expiry instant the configured expiry claim resolved (#1143), in UTC, or null when no claim is configured, the claim is absent, or its value is not a shape the reader understands. Carried only; no access decision is made from it (#1144 decides that).</summary>
     internal DateTime? ExpiresAtUtc { get; init; }
+
+    /// <summary>Gets the fixed access duration the login's roles resolved (#1146), or null when the provider maps no role to a duration or the login held none. A DURATION, not an instant: it is anchored to the moment an account is actually provisioned, and it is read on that arm only.</summary>
+    internal TimeSpan? GuestAccessDuration { get; init; }
 }
