@@ -211,6 +211,39 @@ public class AccountExpirySweepTests
         await sessions.DidNotReceive().RevokeUserTokens(untouched, Arg.Any<string?>());
     }
 
+    [Fact]
+    public async Task ADeadlineWhoseUserWasDeleted_DisablesNobody()
+    {
+        // A link can outlive the account it points at. The sweep must read that as nothing to do rather
+        // than as something to force, and it must not throw out of a pass that still has other links to
+        // walk after this one.
+        var (sweep, config, users, sessions, audit) = Build();
+        config.CanonicalLinks["sub-1"] = Linked;
+        config.CanonicalLinkDeadlines["sub-1"] = Past;
+        users.GetUserById(Linked).Returns((User?)null);
+
+        Assert.Equal(0, await sweep.SweepAsync());
+        await sessions.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task AProviderWithNoDeadlinesAtAll_IsAPassThatTouchesNothing()
+    {
+        // The default shape of every installation: a provider that names no expiry claim never writes a
+        // deadline, so the tick walks an empty map and ends. This is the row that would go red if the walk
+        // ever inferred a deadline from anything other than the stored map.
+        var (sweep, config, users, sessions, audit) = Build();
+        var user = TestUsers.Named("alice", Linked);
+        users.GetUserById(Linked).Returns(user);
+        config.CanonicalLinks["sub-1"] = Linked;
+
+        Assert.Equal(0, await sweep.SweepAsync());
+        Assert.False(user.HasPermission(PermissionKind.IsDisabled));
+        await sessions.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
+        Assert.Empty(audit.Entries);
+    }
+
     // --- helpers ---
 
     private static (AccountExpirySweep Sweep, OidConfig Config, IUserManager Users, ISessionManager Sessions, CapturingLogger Audit) Build()

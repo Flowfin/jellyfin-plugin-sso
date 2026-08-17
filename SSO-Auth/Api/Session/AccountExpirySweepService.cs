@@ -85,36 +85,43 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
     /// <inheritdoc />
     public void Dispose() => _stopping.Dispose();
 
+    /// <summary>
+    /// One tick, separated from the loop so the suite can run it without waiting out a period.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is reported here on success. Every account the pass disables already writes its own
+    /// <c>[SSO Audit]</c> line, and a second count line beside them would say nothing an operator cannot
+    /// read off those.
+    /// </remarks>
+    /// <returns>A task that completes when the pass has finished or has been logged as failed.</returns>
+    internal async Task TickAsync()
+    {
+        // No configuration to sweep. Skip this tick rather than throw; the plugin is constructed during
+        // plugin load, so this is normally set well before the first period elapses.
+        if (SSOPlugin.Instance is not { } plugin)
+        {
+            return;
+        }
+
+        try
+        {
+            var canonicalLinks = new CanonicalLinkService(_userManager, _cryptoProvider, plugin.ConfigStore, _logger);
+            await new AccountExpirySweep(canonicalLinks, _sessionManager, _logger).SweepAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Fail-safe: one bad pass must not end the loop. The next tick retries from the persisted state,
+            // and the deadlines it enforces are still on disk.
+            _logger.LogError(ex, "Account-expiry sweep tick failed; no account was disabled by it. The next tick retries.");
+        }
+    }
+
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(Period);
         while (await SafeWaitAsync(timer, cancellationToken).ConfigureAwait(false))
         {
-            var plugin = SSOPlugin.Instance;
-            if (plugin is null)
-            {
-                // No configuration to sweep. Skip this tick rather than throw; the plugin is constructed
-                // during plugin load, so this is normally set by the time the first period elapses.
-                continue;
-            }
-
-            try
-            {
-                var canonicalLinks = new CanonicalLinkService(_userManager, _cryptoProvider, plugin.ConfigStore, _logger);
-                var disabled = await new AccountExpirySweep(canonicalLinks, _sessionManager, _logger).SweepAsync().ConfigureAwait(false);
-                if (disabled > 0 && _logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogInformation(
-                        "Account-expiry sweep disabled {DisabledCount} account(s) whose deadline had passed. Each is recorded on its own [SSO Audit] line.",
-                        disabled);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Fail-safe: one bad pass must not end the loop. The next tick retries from the persisted
-                // state, and the deadlines it enforces are still on disk.
-                _logger.LogError(ex, "Account-expiry sweep tick failed; no account was disabled by it. The next tick retries.");
-            }
+            await TickAsync().ConfigureAwait(false);
         }
     }
 

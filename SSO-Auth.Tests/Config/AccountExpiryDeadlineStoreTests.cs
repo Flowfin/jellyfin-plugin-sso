@@ -179,6 +179,75 @@ public class AccountExpiryDeadlineStoreTests
     }
 
     [Fact]
+    public void ADeadlineIsNeverWritten_ForAnUnknownProvider_OrABlankKey()
+    {
+        // Two fail-closed arms of the only writer. An unknown provider is reachable when a save deletes one
+        // while a login for it is in flight, and a blank key is what an identity that did not resolve looks
+        // like; neither may create an entry, and neither may throw out of a login that has otherwise
+        // succeeded.
+        var configuration = new PluginConfiguration();
+        var config = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = config;
+        config.CanonicalLinks["sub-1"] = User;
+        var service = LinkService(configuration);
+
+        service.RecordAccountDeadline(ProviderMode.Oid, "deleted-provider", "sub-1", Deadline);
+        service.RecordAccountDeadline(ProviderMode.Oid, "kc", "   ", Deadline);
+
+        Assert.Empty(config.CanonicalLinkDeadlines);
+    }
+
+    [Fact]
+    public void TheSamlArm_RecordsAndRemovesADeadlineToo()
+    {
+        // Both protocols carry the map, so both arms of the provider lookup have to be reachable. SAML has
+        // no issuer map for a deadline to ride along with, which is why it is written and removed here on
+        // its own rather than as a side effect of the OpenID bookkeeping.
+        var configuration = new PluginConfiguration();
+        var config = new SamlConfig { Enabled = true };
+        configuration.SamlConfigs["idp"] = config;
+        config.CanonicalLinks["nameid-1"] = User;
+        var service = LinkService(configuration);
+
+        service.RecordAccountDeadline(ProviderMode.Saml, "idp", "nameid-1", Deadline);
+        Assert.Equal(Deadline, config.CanonicalLinkDeadlines["nameid-1"]);
+
+        service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", User);
+        Assert.Empty(config.CanonicalLinkDeadlines);
+    }
+
+    [Fact]
+    public void AProviderStoredWithANullBody_IsSkippedByTheExpiredWalk()
+    {
+        // The null-body add (#350) leaves an entry whose value is null. The walk reads two maps off that
+        // value, so skipping it rather than dereferencing it is what keeps one malformed provider from
+        // taking every sweep tick down with a NullReferenceException.
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["broken"] = null!;
+
+        Assert.Empty(LinkService(configuration).ExpiredLinks(new DateTime(2999, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void ADeadlineWrittenAsLocalTime_IsStoredAsUtc()
+    {
+        // #676: one clock basis throughout. A deadline stored in the server's local time would be compared
+        // against a UTC now, so an account would expire hours early or late depending on where the server
+        // is, which is the kind of defect nobody reports as a bug.
+        var configuration = new PluginConfiguration();
+        var config = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = config;
+        config.CanonicalLinks["sub-1"] = User;
+        var local = new DateTime(2999, 1, 1, 12, 0, 0, DateTimeKind.Local);
+
+        LinkService(configuration).RecordAccountDeadline(ProviderMode.Oid, "kc", "sub-1", local);
+
+        var stored = config.CanonicalLinkDeadlines["sub-1"];
+        Assert.Equal(DateTimeKind.Utc, stored.Kind);
+        Assert.Equal(local.ToUniversalTime(), stored);
+    }
+
+    [Fact]
     public void Deadlines_AreOmittedFromJson_ButKeptInXml()
     {
         // Server-managed exactly like the links and the issuer bindings: withheld from JSON so a config PUT
