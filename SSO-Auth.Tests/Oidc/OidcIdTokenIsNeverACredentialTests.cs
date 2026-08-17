@@ -63,7 +63,7 @@ public class OidcIdTokenIsNeverACredentialTests
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var idToken = fixture.IdToken(subject: "sub-1", username: "alice");
         var served = new List<string>();
-        var harness = BuildHarness(fixture, request => Serve(fixture, request, idToken, served));
+        var harness = OidcRoundTrip.BuildHarness(fixture, request => OidcRoundTrip.ServeIdp(fixture, request, idToken, served: served));
 
         var user = TestUsers.Named("alice", Guid.Parse("1a999999-1111-1111-1111-111111111111"));
         harness.UserManager.CreateUserAsync("alice").Returns(user);
@@ -74,10 +74,10 @@ public class OidcIdTokenIsNeverACredentialTests
             .AuthenticateDirect(Arg.Do<AuthenticationRequest>(request => mint = request))
             .Returns(new AuthenticationResult());
 
-        var (state, binding) = await DriveChallenge(harness);
-        RepointToCallback(harness, state, binding, $"?code=test-code&state={state}");
+        var (state, binding) = await OidcRoundTrip.DriveChallenge(harness, fixture);
+        OidcRoundTrip.RepointToCallback(harness, binding, $"?code=test-code&state={state}");
         var callback = Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state));
-        var authed = await harness.Controller.OidAuth("kc", Redeem(state));
+        var authed = await harness.Controller.OidAuth("kc", OidcRoundTrip.Redeem(state));
 
         // Control one: the flow really ran on this token. Without this, every absence below would also hold
         // for a login that failed before the token was ever redeemed.
@@ -114,10 +114,10 @@ public class OidcIdTokenIsNeverACredentialTests
         using var foreign = new OidcTokenFixture(Authority, "jf");
         var idToken = foreign.IdToken(subject: "sub-1", username: "alice");
         var served = new List<string>();
-        var harness = BuildHarness(fixture, request => Serve(fixture, request, idToken, served));
+        var harness = OidcRoundTrip.BuildHarness(fixture, request => OidcRoundTrip.ServeIdp(fixture, request, idToken, served: served));
 
-        var (state, binding) = await DriveChallenge(harness);
-        RepointToCallback(harness, state, binding, $"?code=test-code&state={state}");
+        var (state, binding) = await OidcRoundTrip.DriveChallenge(harness, fixture);
+        OidcRoundTrip.RepointToCallback(harness, binding, $"?code=test-code&state={state}");
         var callback = await harness.Controller.OidCallback("kc", state);
 
         // The token was signed by a key this provider does not advertise, so the callback must refuse it. If
@@ -141,7 +141,7 @@ public class OidcIdTokenIsNeverACredentialTests
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var idToken = fixture.IdToken(subject: "sub-1", username: "alice");
         var served = new List<string>();
-        var harness = BuildHarness(fixture, request => Serve(fixture, request, idToken, served), c => c.EnableSingleLogout = true);
+        var harness = OidcRoundTrip.BuildHarness(fixture, request => OidcRoundTrip.ServeIdp(fixture, request, idToken, served: served), plugin: c => c.EnableSingleLogout = true);
 
         var user = TestUsers.Named("alice", Guid.Parse("1b999999-1111-1111-1111-111111111111"));
         harness.UserManager.CreateUserAsync("alice").Returns(user);
@@ -152,10 +152,10 @@ public class OidcIdTokenIsNeverACredentialTests
             .AuthenticateDirect(Arg.Do<AuthenticationRequest>(request => mint = request))
             .Returns(new AuthenticationResult { SessionInfo = new SessionInfoDto { Id = "session-key-slo" } });
 
-        var (state, binding) = await DriveChallenge(harness);
-        RepointToCallback(harness, state, binding, $"?code=test-code&state={state}");
+        var (state, binding) = await OidcRoundTrip.DriveChallenge(harness, fixture);
+        OidcRoundTrip.RepointToCallback(harness, binding, $"?code=test-code&state={state}");
         var callback = Assert.IsType<ContentResult>(await harness.Controller.OidCallback("kc", state));
-        Assert.IsType<OkObjectResult>(await harness.Controller.OidAuth("kc", Redeem(state)));
+        Assert.IsType<OkObjectResult>(await harness.Controller.OidAuth("kc", OidcRoundTrip.Redeem(state)));
         Assert.NotNull(mint);
         Assert.Contains(served, body => Carries(body, idToken));
 
@@ -215,110 +215,4 @@ public class OidcIdTokenIsNeverACredentialTests
         ObjectResult obj => obj.Value?.ToString() ?? string.Empty,
         _ => result.ToString() ?? string.Empty,
     };
-
-    // The challenge/callback/redeem scaffolding below is the same shape OidcRoundTripTests uses privately.
-    // It is repeated here rather than lifted out of that file, because lifting it would rewrite fourteen call
-    // sites in a file this change has no other reason to touch. #1351 carries the extraction.
-
-    // A harness with one enabled provider "kc" pointed at the fixture's authority. Pushed authorization off so
-    // the challenge is a plain redirect, profile loading off so the id_token claims are the whole identity, and
-    // the authorization/link toggles off so the redeem takes the first-time-provision path.
-    private static SsoControllerHarness BuildHarness(
-        OidcTokenFixture fixture,
-        Func<HttpRequestMessage, HttpResponseMessage> responder,
-        Action<PluginConfiguration>? configure = null) =>
-        new SsoControllerHarness(
-            c =>
-            {
-                c.OidConfigs["kc"] = new OidConfig
-                {
-                    Enabled = true,
-                    OidEndpoint = fixture.Issuer,
-                    OidClientId = fixture.ClientId,
-                    OidScopes = Array.Empty<string>(),
-                    DisablePushedAuthorization = true,
-                    DoNotLoadProfile = true,
-                    EnableAuthorization = false,
-                    AllowExistingAccountLink = false,
-                };
-                configure?.Invoke(c);
-            },
-            httpResponder: responder);
-
-    // Drives a real challenge and returns the state token and browser-binding cookie it minted.
-    private static async Task<(string State, string Binding)> DriveChallenge(SsoControllerHarness harness)
-    {
-        harness.Controller.HttpContext.Request.Path = "/sso/OID/start/kc";
-        var challenge = Assert.IsType<RedirectResult>(await harness.Controller.OidChallenge("kc"));
-        Assert.StartsWith(Authority + "/authorize", challenge.Url, StringComparison.Ordinal);
-
-        var state = UrlEncodedQuery.Find(challenge.Url, "state") ?? string.Empty;
-        Assert.False(string.IsNullOrEmpty(state));
-        var binding = BindingCookie(harness.Controller.Response);
-        Assert.False(string.IsNullOrEmpty(binding));
-        return (state, binding);
-    }
-
-    // Re-points the same context at the callback route, carrying the binding cookie the challenge set (#326).
-    private static void RepointToCallback(SsoControllerHarness harness, string state, string binding, string query)
-    {
-        harness.Controller.HttpContext.Request.Path = "/sso/OID/redirect/kc";
-        harness.Controller.HttpContext.Request.QueryString = new QueryString(query);
-        harness.Controller.HttpContext.Request.Headers.Cookie = $"{AuthorizeStateBinding.CookieName}={binding}";
-    }
-
-    private static AuthResponse Redeem(string state) => new AuthResponse
-    {
-        Data = state,
-        DeviceID = "device-1",
-        DeviceName = "Test Device",
-        AppName = "Jellyfin Web",
-        AppVersion = "1.0",
-    };
-
-    private static string BindingCookie(HttpResponse response)
-    {
-        var prefix = AuthorizeStateBinding.CookieName + "=";
-        foreach (var header in response.Headers.SetCookie)
-        {
-            if (header is not null && header.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                var value = header.Substring(prefix.Length);
-                var end = value.IndexOf(';', StringComparison.Ordinal);
-                return end >= 0 ? value.Substring(0, end) : value;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    // The provider's endpoints, recording every body served so the search can be shown to work against one
-    // that really carries the token.
-    private static HttpResponseMessage Serve(OidcTokenFixture fixture, HttpRequestMessage request, string idToken, List<string> served)
-    {
-        var url = request.RequestUri!.AbsoluteUri;
-        string body;
-        if (url == fixture.DiscoveryUrl)
-        {
-            body = fixture.Discovery();
-        }
-        else if (url == fixture.JwksUrl)
-        {
-            body = fixture.Jwks();
-        }
-        else if (url == fixture.TokenUrl)
-        {
-            body = fixture.TokenEndpointJson(idToken);
-        }
-        else
-        {
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        }
-
-        served.Add(body);
-        return new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-        };
-    }
 }

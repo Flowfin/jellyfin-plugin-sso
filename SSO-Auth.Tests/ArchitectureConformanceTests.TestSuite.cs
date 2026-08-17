@@ -40,6 +40,18 @@ public partial class ArchitectureConformanceTests
     // SSOPlugin.Instance and clears the flow caches.
     private const string HarnessDoor = "new SsoControllerHarness";
 
+    // The same door reached one call deeper. A support type that builds the harness for its callers opens it
+    // on their behalf, and the scan reads each test file's OWN code lines, so those callers stop naming
+    // HarnessDoor the moment the construction moves behind such a type - the rule keeps passing while
+    // covering less. Measured when the OpenID round-trip scaffolding was lifted into _Support (#1351): both
+    // classes named the harness door at the commit before, and neither did after.
+    //
+    // Seeded by hand rather than derived, for the reason the derivation itself cannot reach: what makes this
+    // a door is that the method it names constructs the harness, which is a fact about test-support code,
+    // and ProcessWideDoors derives from the production tree. A support type that builds a harness belongs
+    // here, and the entry is spelled exactly as a call site spells it.
+    private const string ScaffoldDoor = "OidcRoundTrip.BuildHarness";
+
     // A door no test names because it sits behind another one: a production reset hook opens it, so every
     // test opening THAT door opens this one too. Keyed door -> the door that opens it. The rule proves both
     // halves rather than trusting the table, so an entry whose indirection is removed fails as loudly as a
@@ -210,13 +222,14 @@ public partial class ArchitectureConformanceTests
             : DoorsNamedByTestBearingSource(source, doors);
 
     // Every process-wide door a test can reach: the test-only hooks the production tree declares, keyed
-    // Type.Method exactly as a call site spells them, plus the harness construction. Derived rather than
-    // listed, so a new hook cannot create a door the rule above is blind to.
+    // Type.Method exactly as a call site spells them, plus the harness construction and the support method
+    // that performs it for a caller. The hooks are derived rather than listed, so a new hook cannot create a
+    // door the rule above is blind to; the two seeds are what no reading of the production tree could find.
     private static IReadOnlyList<string> ProcessWideDoors()
     {
         var declaration = new Regex(@"\b(?:class|record|struct)\s+(?<type>[A-Za-z0-9_]+)");
         var hook = new Regex(@"\binternal\s+static\s+[^;=]*?\b(?<hook>[A-Za-z0-9_]+ForTests)\s*\(");
-        var doors = new List<string> { HarnessDoor };
+        var doors = new List<string> { HarnessDoor, ScaffoldDoor };
 
         foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories))
         {
