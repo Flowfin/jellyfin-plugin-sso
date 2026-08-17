@@ -11,6 +11,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A per-provider starting policy for accounts SSO creates (#1099).** A
+  provider can carry a template whose set fields are written onto a brand-new
+  SSO account at creation: any of the boolean Jellyfin permissions, a
+  remote-client bitrate ceiling, and a maximum session count. It is written
+  once, at creation, and never re-applied, so a change you make on the user
+  afterwards survives every later login. That is the difference from the
+  role-to-permission mappings, which are re-asserted on every login on purpose.
+  Opt-in field by field: anything the template does not name is left at
+  Jellyfin's own default, and a provider with no template creates accounts
+  exactly as before. A template cannot grant administrator, all-folders or Live
+  TV access, which keep their own dedicated settings, and it cannot disable an
+  account; those names are refused when you save, and refused again when the
+  template is written, so a configuration file edited by hand cannot use one
+  either. A negative bitrate or session count is refused at save rather than
+  quietly changed. Zero means no limit and unlimited, as it does elsewhere in
+  Jellyfin. The template is set in the plugin configuration; the provider forms
+  in the dashboard do not carry it yet.
 - **Account expiry now ends access on the deadline rather than at the next
   login (#1145).** The instant a login carries is persisted against that
   account's SSO link, and an hourly background pass disables any linked account

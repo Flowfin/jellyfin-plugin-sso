@@ -358,6 +358,20 @@ public abstract class ProviderConfigBase
     public List<PermissionRoleMap>? PermissionRoleMappings { get; set; }
 
     /// <summary>
+    /// Gets or sets a static policy template written onto a BRAND-NEW SSO account at creation and never
+    /// re-applied on any later login (#1099). Null - the default - provisions byte-identically to before,
+    /// which is every provider that does not set one.
+    /// <para>
+    /// "Once, at creation" is the whole contract. Because it never runs again, an administrator's later
+    /// per-user edit survives, which is what separates this from the role mappings above: those are
+    /// authoritative and re-asserted per login precisely so a revoked role revokes its permission. A
+    /// template that re-applied would silently undo hand edits on the next login, and an administrator
+    /// would have no way to tell which of the two wrote the value they are looking at.
+    /// </para>
+    /// </summary>
+    public ProvisioningPolicyTemplate? ProvisioningPolicyTemplate { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the role-to-parental-rating mapping
     /// (<see cref="ParentalRatingRoleMappings"/>) is applied at login (#736). Off by default (fail closed):
     /// a deployment that does not set it sees no change on upgrade. Gated additionally by
@@ -810,6 +824,68 @@ public class FolderRoleMap
     /// Gets or sets the folders that are allowed from the given role.
     /// </summary>
     public List<string>? Folders { get; set; }
+}
+
+/// <summary>
+/// A static policy written onto a brand-new SSO account at creation and never re-applied (#1099). Every
+/// field is opt-in: an unset one leaves Jellyfin's own new-user default alone, so a provider that carries a
+/// template still only overrides what it names. Validated fail-closed on save.
+/// </summary>
+public class ProvisioningPolicyTemplate
+{
+    /// <summary>
+    /// Gets or sets the boolean Jellyfin permissions written onto a brand-new account, each as the exact
+    /// <c>PermissionKind</c> enum name with the value to write. A permission that is not listed is never
+    /// touched, so Jellyfin's own new-user default governs it - that is what makes every field of this
+    /// template opt-in rather than a policy the plugin imposes wholesale.
+    /// </summary>
+    /// <remarks>
+    /// The same vocabulary and the same refusals as <see cref="PermissionRoleMap.Permission"/>: an unknown
+    /// name is rejected on save, and so are the permissions with their own dedicated configuration
+    /// (administrator, all-folders, Live TV) and <c>IsDisabled</c>. The dedicated four keep one authoritative
+    /// source each. <c>IsDisabled</c> is refused for the stronger reason (#165, Finding H1): a template that
+    /// could write it would make every account a provider creates arrive disabled, or - read the other way -
+    /// hand a second, unaudited route to a permission the plugin deliberately writes from exactly three
+    /// places. The pending-approval hold that legitimately creates an inert account is
+    /// <see cref="ProviderConfigBase.ProvisionNewUsersDisabled"/>, which is audited.
+    /// </remarks>
+    [XmlArray("Permissions")]
+    [XmlArrayItem(typeof(ProvisionedPermissionEntry), ElementName = "Permissions")]
+    public List<ProvisionedPermissionEntry>? Permissions { get; set; }
+
+    /// <summary>
+    /// Gets or sets the remote-client bitrate ceiling in bits per second written onto a brand-new account.
+    /// Null leaves Jellyfin's own default alone. Zero is a meaningful value (Jellyfin reads it as no limit),
+    /// so it is distinct from unset; a negative value is rejected on save.
+    /// </summary>
+    public int? RemoteClientBitrateLimit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum number of simultaneous sessions written onto a brand-new account. Null
+    /// leaves Jellyfin's own default alone. Zero is a meaningful value (Jellyfin reads it as unlimited), so
+    /// it is distinct from unset; a negative value is rejected on save.
+    /// </summary>
+    public int? MaxActiveSessions { get; set; }
+}
+
+/// <summary>
+/// One boolean permission a provisioning template writes onto a brand-new account (#1099).
+/// </summary>
+public class ProvisionedPermissionEntry
+{
+    /// <summary>
+    /// Gets or sets the Jellyfin permission to write, as the exact <c>PermissionKind</c> enum name (for
+    /// example <c>EnableContentDownloading</c>). An unknown name, or one of the permissions managed by
+    /// their own dedicated setting or barred from SSO writes, is rejected on save.
+    /// </summary>
+    public string? Permission { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the permission is granted. Defaults to <see langword="false"/>,
+    /// so an entry added without a value REVOKES rather than grants - the fail-closed direction for a field
+    /// an administrator may have added by hand to a config file and left half-filled.
+    /// </summary>
+    public bool Granted { get; set; }
 }
 
 /// <summary>
