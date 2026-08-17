@@ -95,23 +95,23 @@ jobs:
           echo "Examined $(jq length runs.json) run(s) on ${BRANCH}; $(wc -l < red.tsv) non-success since ${cutoff}."
           if [ ! -s red.tsv ]; then
             echo "Nothing red."
-            # NICHTS ROT HEISST SCHLIESSEN, und zwar durch den Waechter selbst.
+            # NOTHING RED MEANS CLOSE, and the watcher does the closing itself.
             #
-            # Er hat es nie getan. #1314 wurde um 21:20 gruen und blieb offen,
-            # bis ein Mensch sie um 21:50 schloss - und weil sie DANN zu war,
-            # legte der naechste Takt #1354 neu an, fuer einen Fehler, den es
-            # nicht mehr gab. Ein Melder, der nur oeffnet, erzeugt Karteileichen
-            # und Doppelmeldungen aus demselben Grund.
-            offen=$(gh issue list --repo "$REPO" --state open --label release-alert \
+            # It never did. #1314 went green at 21:20 and stayed open until it
+            # was closed by hand at 21:50 - and because it was closed THEN, the
+            # next tick filed #1354 afresh, for a failure that no longer
+            # existed. A reporter that only ever opens produces dead entries and
+            # duplicate reports, and for the same reason.
+            open_issue=$(gh issue list --repo "$REPO" --state open --label release-alert \
               --json number --jq '.[0].number // empty')
-            if [ -n "${offen:-}" ]; then
+            if [ -n "${open_issue:-}" ]; then
               if [ "$DRY_RUN" = "true" ]; then
-                echo "DRY RUN: would close #${offen}."
+                echo "DRY RUN: would close #${open_issue}."
               else
-                gh issue comment "$offen" --repo "$REPO" --body "Nothing on \`${BRANCH}\` is red any more; \
+                gh issue comment "$open_issue" --repo "$REPO" --body "Nothing on \`${BRANCH}\` is red any more; \
           closing. Examined $(jq length runs.json) run(s) since ${cutoff}."
-                gh issue close "$offen" --repo "$REPO" --reason completed
-                echo "Closed #${offen}."
+                gh issue close "$open_issue" --repo "$REPO" --reason completed
+                echo "Closed #${open_issue}."
               fi
             else
               echo "No open alert issue to close."
@@ -138,92 +138,90 @@ jobs:
               --jq '.body, (.comments[].body)')
           fi
 
-          # WAS ROT IST, MIT GRUND - und der Grund kommt aus dem Protokoll.
+          # WHAT IS RED, WITH THE REASON - and the reason comes from the log.
           #
-          # Bis zum 17.08. stand hier eine feste Vorlage: Name, Ausgang, Ausloeser,
-          # Link. Sie sagte, DASS etwas rot ist, und nie WAS. #1314 lief damit
-          # sieben Tage und 29 gleichlautende Kommentare, waehrend die Ursache -
-          # ein fehlender Bindestrich in einem Wiki-Anker - die ganze Zeit im
-          # Protokoll des ersten Laufs stand.
+          # Until 2026-08-17 a fixed template stood here: name, conclusion,
+          # trigger, link. It said THAT something was red, and never WHAT. #1314
+          # ran on that template for seven days and 29 identically worded
+          # comments, while the cause - a missing hyphen in a wiki anchor - sat
+          # in the first run's log the entire time.
           #
-          # `gh run view --log-failed` liefert genau den gescheiterten Schritt.
-          # Der Waechter hatte die Lauf-Nummer immer; er hat nur nie gefragt.
-          : > zustand.md
-          : > schluessel.txt
-          # EIN ABSCHNITT JE WORKFLOW, NICHT JE LAUF.
+          # `gh run view --log-failed` returns exactly the step that failed. The
+          # watcher always had the run number; it simply never asked.
+          : > state.md
+          : > key.txt
+          # ONE SECTION PER WORKFLOW, NOT PER RUN.
           #
-          # Der zweite Trockenlauf vom 17.08. schrieb `### Wiki Lint` zweimal
-          # untereinander, weil drei rote Laeufe desselben Workflows in red.tsv
-          # standen. Das ist dieselbe Wiederholung, die als 29 Kommentare
-          # angefangen hat - nur in einen Koerper verschoben statt behoben.
+          # The second dry run on 2026-08-17 wrote `### Wiki Lint` twice, one
+          # under the other, because three red runs of the same workflow stood
+          # in red.tsv. That is the same repetition that began as 29 comments,
+          # moved into one body rather than fixed.
           #
-          # red.tsv ist nach Aktualitaet sortiert, also ist der ERSTE Eintrag je
-          # Workflow der neueste; die Zahl der Laeufe steht ohnehin separat im
-          # Text.
-          awk -F'\t' '!gesehen[$4]++' red.tsv > je-workflow.tsv
+          # red.tsv is sorted by recency, so the FIRST entry per workflow is the
+          # newest; the number of runs is carried separately in the text anyway.
+          awk -F'\t' '!seen[$4]++' red.tsv > per-workflow.tsv
           while IFS=$'\t' read -r url conclusion event wf_name; do
             run_id="${url##*/}"
-            schritt=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+            step=$(gh run view "$run_id" --repo "$REPO" --json jobs \
               --jq '[.jobs[] | select(.conclusion=="failure") | .steps[]
-                     | select(.conclusion=="failure") | .name][0] // "unbekannt"' 2>/dev/null || echo "unbekannt")
-            # DAS PROTOKOLLENDE, GEKAPPT. Ein ganzes Joblog sprengt jede Issue
-            # und wird deshalb nicht gelesen; die letzten Zeilen des roten
-            # Schritts sind das, was ein Mensch zuerst ansehen wuerde.
-            # NUR DIE ZEILEN DES GESCHEITERTEN SCHRITTS, und der Grund steht im
-            # Trockenlauf vom 17.08.: `tail` auf das ganze Joblog liefert den
-            # ABBAU - "Removing SSH command configuration", "Cleaning up orphan
-            # processes" - und nicht den Fehler, der weiter oben steht. Der
-            # Bericht waere ausfuehrlicher und genauso nutzlos gewesen wie die
-            # Vorlage, die er ersetzt.
+                     | select(.conclusion=="failure") | .name][0] // "unknown"' 2>/dev/null || echo "unknown")
+            # THE END OF THE LOG, CAPPED. A whole job log bursts any issue and
+            # for that reason goes unread; the last lines of the red step are
+            # what a reader looks at first.
+            # ONLY THE LINES OF THE FAILED STEP, and the reason is in the dry
+            # run of 2026-08-17: `tail` over the whole job log returns the
+            # TEARDOWN - "Removing SSH command configuration", "Cleaning up
+            # orphan processes" - and not the error, which stands further up.
+            # The report would have been longer and exactly as useless as the
+            # template it replaces.
             #
-            # UND NICHT UEBER DIE SCHRITT-SPALTE, denn die traegt nichts.
-            # Gemessen am 17.08. an einem roten Lauf: `--log-failed` schrieb
-            # ALLE 175 Zeilen mit `UNKNOWN STEP`, waehrend die Jobs-API den
-            # Schritt sauber benennt. Ein Filter darauf trifft nie und liefert
-            # "(kein Protokoll abrufbar)" - im zweiten Trockenlauf genau so
-            # passiert.
+            # AND NOT VIA THE STEP COLUMN, because that column carries nothing.
+            # Measured on 2026-08-17 against a red run: `--log-failed` wrote ALL
+            # 175 lines with `UNKNOWN STEP`, while the jobs API names the step
+            # cleanly. A filter on it never matches and yields "(no log
+            # available)" - which is exactly what the second dry run produced.
             #
-            # Der verlaessliche Anker ist die Fehlermarke, die der Runner selbst
-            # setzt: die Zeilen VOR dem ersten `##[error]` sind die Ausgabe, die
-            # den Lauf gekippt hat. Der Abbau steht dahinter und faellt damit
-            # von selbst weg.
-            schwanz=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
+            # The reliable anchor is the error marker the runner sets itself:
+            # the lines BEFORE the first `##[error]` are the output that tipped
+            # the run over. The teardown sits behind it and so drops away by
+            # itself.
+            log_excerpt=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
               | sed 's/\r$//' \
               | sed 's/^[^\t]*\t[^\t]*\t//' | sed 's/^[0-9TZ:.-]\{20,\} //' \
               | grep -vE '^\s*$' | grep -vE '^##\[(group|endgroup)\]' \
-              | awk '/##\[error\]/ { gefunden=1; for (i=1;i<=n;i++) print puffer[i]; print; exit }
-                     { puffer[++n]=$0; if (n>12) { for (i=1;i<n;i++) puffer[i]=puffer[i+1]; n-- } }
-                     END { if (!gefunden) for (i=1;i<=n;i++) print puffer[i] }' \
+              | awk '/##\[error\]/ { found=1; for (i=1;i<=n;i++) print buffer[i]; print; exit }
+                     { buffer[++n]=$0; if (n>12) { for (i=1;i<n;i++) buffer[i]=buffer[i+1]; n-- } }
+                     END { if (!found) for (i=1;i<=n;i++) print buffer[i] }' \
               | cut -c1-200 || true)
-            [ -n "$schwanz" ] || schwanz="(kein Protokoll abrufbar)"
-            printf '%s\t%s\n' "$wf_name" "$schritt" >> schluessel.txt
-            # Wie viele rote Laeufe dieses Workflows, und seit wann.
-            zahl=$(cut -f4 red.tsv | grep -cxF "$wf_name" || echo 1)
-            seit=$(jq -r --arg w "$wf_name" '[.[] | select(.workflowName==$w)
+            [ -n "$log_excerpt" ] || log_excerpt="(no log available)"
+            printf '%s\t%s\n' "$wf_name" "$step" >> key.txt
+            # How many red runs of this workflow, and since when.
+            count=$(cut -f4 red.tsv | grep -cxF "$wf_name" || echo 1)
+            since=$(jq -r --arg w "$wf_name" '[.[] | select(.workflowName==$w)
                      | select((.conclusion // "") as $c
                               | $c != "success" and $c != "skipped" and $c != "cancelled" and $c != "")
                      | .updatedAt] | sort | .[0] // ""' runs.json)
             {
               printf '### %s\n\n' "$wf_name"
               printf 'Failing step: **%s** (conclusion `%s`, trigger `%s`)\n\n' \
-                "$schritt" "$conclusion" "$event"
-              printf '```\n%s\n```\n\n' "$schwanz"
+                "$step" "$conclusion" "$event"
+              printf '```\n%s\n```\n\n' "$log_excerpt"
               printf 'Red since `%s`, %s run(s) in this window. Latest: %s\n\n' \
-                "${seit:-unknown}" "$zahl" "$url"
-            } >> zustand.md
-          done < je-workflow.tsv
+                "${since:-unknown}" "$count" "$url"
+            } >> state.md
+          done < per-workflow.tsv
 
-          # DER KOERPER HAELT DEN ZUSTAND, KOMMENTARE HALTEN UEBERGAENGE.
+          # THE BODY HOLDS THE STATE, COMMENTS HOLD THE TRANSITIONS.
           #
-          # Der alte Waechter kommentierte je ROTEM LAUF, und sein
-          # Dedup-Schluessel war die Lauf-URL - die sich per Definition bei
-          # jedem Lauf aendert. Jeder Push nach main erzeugte damit einen
-          # weiteren gleichlautenden Kommentar. 29 fuer eine Ursache.
+          # The old watcher commented per RED RUN, and its dedup key was the run
+          # URL - which by definition changes with every run. Every push to main
+          # therefore produced one more identically worded comment. 29 of them
+          # for a single cause.
           #
-          # Der Schluessel ist jetzt Workflow PLUS gescheiterter Schritt. Aendert
-          # sich daran nichts, wird nur der Koerper aktualisiert und still
-          # geschwiegen; kommt ein neuer Schritt dazu, ist das eine Nachricht.
-          kopf="Workflows on \`${BRANCH}\` are red. This body is rewritten each tick and always
+          # The key is now workflow PLUS failed step. If that does not change,
+          # only the body is updated and nothing is said; if a new step appears,
+          # that is news.
+          header="Workflows on \`${BRANCH}\` are red. This body is rewritten each tick and always
           shows the CURRENT state; comments below mark changes only.
 
           A failure on the default branch is not a required pull-request check and is not emailed, so it
@@ -234,28 +232,31 @@ jobs:
           The watcher closes this issue itself once nothing is red.
 
           Refs #982, #1015, #1357."
-          body="$kopf
+          body="$header
 
-          $(cat zustand.md)"
-          neu_schluessel=$(sort -u schluessel.txt | tr '\t' ':' | tr '\n' ';')
+          $(cat state.md)"
+          new_key=$(sort -u key.txt | tr '\t' ':' | tr '\n' ';')
 
           if [ "$DRY_RUN" = "true" ]; then
-            echo "DRY RUN, filing nothing. Would report: ${neu_schluessel}"
+            echo "DRY RUN, filing nothing. Would report: ${new_key}"
             echo "--- body ---"; echo "$body"
             exit 0
           fi
 
           if [ -n "${num:-}" ]; then
-            alt_schluessel=$(printf '%s' "$reported" | sed -n 's/.*<!-- schluessel: \(.*\) -->.*/\1/p' | head -1)
+            # The marker was spelled differently before #1362 renamed it, so on the first tick after
+            # that change this read finds nothing and the comparison below reports a transition. That
+            # is one comment, once, and the semantics of the key are unchanged: workflow plus step.
+            old_key=$(printf '%s' "$reported" | sed -n 's/.*<!-- key: \(.*\) -->.*/\1/p' | head -1)
             gh issue edit "$num" --repo "$REPO" --body "$body
 
-          <!-- schluessel: ${neu_schluessel} -->"
-            if [ "$alt_schluessel" != "$neu_schluessel" ]; then
+          <!-- key: ${new_key} -->"
+            if [ "$old_key" != "$new_key" ]; then
               echo "Failing set changed; commenting."
               gh issue comment "$num" --repo "$REPO" --body "The set of red workflows changed.
 
-          Now: ${neu_schluessel}
-          Before: ${alt_schluessel:-(nothing recorded)}
+          Now: ${new_key}
+          Before: ${old_key:-(nothing recorded)}
 
           The body above carries the current state and the failing step's log."
             else
@@ -267,5 +268,5 @@ jobs:
               --title "A workflow concluded non-success on the default branch" \
               --body "$body
 
-          <!-- schluessel: ${neu_schluessel} -->" | grep -o '[0-9]*$')
+          <!-- key: ${new_key} -->" | grep -o '[0-9]*$')
           fi
