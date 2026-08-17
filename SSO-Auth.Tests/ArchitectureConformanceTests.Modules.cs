@@ -58,7 +58,7 @@ public partial class ArchitectureConformanceTests
 
 
     [InlineData("Provider", "Net", "RateLimit")] // provider config/test/naming - validates URLs (Net) and keys throttles (RateLimit)
-    [InlineData("Linking", "Audit", "Provider", "RateLimit")] // account linking - audits writes, validates providers, throttles
+    [InlineData("Linking", "Audit", "Authz", "Provider", "RateLimit")] // account linking - audits writes, validates providers, throttles; writes the provider's static provisioning template at the one place an account is created, through the same permission vocabulary the role mapping uses rather than a second one (Authz, leaf, no cycle - #1099)
     [InlineData("Saml", "Authz", "Crypto", "Identity", "RateLimit", "Session")] // SAML core/validators - mints the keystone (Identity), returns login outcomes (Session), maps roles (Authz), throttles (RateLimit), enforces the signing-key floor (Crypto)
     [InlineData("Oidc", "Audit", "Authz", "Avatar", "Crypto", "Identity", "Logout", "Net", "Provider", "RateLimit", "Routing")] // OIDC flow - mints the keystone (Identity), orchestrates roles, avatar, net, provider, throttle; reads its callback path through the Routing suffix reader; enforces the signing-key floor (Crypto); carries the captured logout context (Logout, #727); records a REFUSED role claim at the point the walk refused it, which is inside this module rather than at a gate downstream (Audit, leaf, no cycle - #1149)
     [InlineData("Identity", "Authz", "Provider")] // the identity keystone - grants (Authz) + link mode (Provider); decoupled from the protocols by #790

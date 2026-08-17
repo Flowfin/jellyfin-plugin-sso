@@ -11,6 +11,7 @@ using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
+using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -484,6 +485,14 @@ internal sealed class CanonicalLinkService
 
         var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
         user.AuthenticationProviderId = SsoManagedProviderId.Value;
+
+        // The provider's static provisioning template (#1099), applied HERE and only here: this is the one
+        // arm on which an account is brand new, which is what lets an administrator's later per-user edit
+        // survive every subsequent login. It writes only the fields the template names, so a provider
+        // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
+        // an account created inert already carries its policy when an administrator comes to enable it,
+        // rather than getting it on a first login that may never happen.
+        ProvisioningPolicy.ApplyAtProvisioning(user, ProvisioningTemplateFor(mode, provider));
         // https://jonathancrozier.com/blog/how-to-generate-a-cryptographically-secure-random-string-in-dot-net-with-c-sharp
         user.Password = _cryptoProvider.CreatePasswordHash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))).ToString();
 
@@ -530,6 +539,18 @@ internal sealed class CanonicalLinkService
         var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer);
         return effectiveUserId;
     }
+
+    // The provider's provisioning template (#1099), read under the config lock in its own short transaction
+    // rather than threaded down from the caller, so the create arm reads the configuration that is live when
+    // the account is actually made. A missing provider, or one stored with a null config object (#350),
+    // carries no template and writes nothing - the same fail-closed skip every other read here uses.
+    private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider) =>
+        _configStore.Read(configuration => mode switch
+        {
+            ProviderMode.Saml => configuration.SamlConfigs.TryGetValue(provider, out var saml) ? saml?.ProvisioningPolicyTemplate : null,
+            ProviderMode.Oid => configuration.OidConfigs.TryGetValue(provider, out var oid) ? oid?.ProvisioningPolicyTemplate : null,
+            _ => null,
+        });
 
     // The name a BRAND-NEW account is created under (#1137). Jellyfin's CreateUserAsync throws for a name
     // outside its own character set, so an IdP that emits one (the 9p4#199 shape) used to fail the login

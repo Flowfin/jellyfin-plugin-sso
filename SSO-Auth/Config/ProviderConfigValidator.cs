@@ -62,6 +62,7 @@ internal static class ProviderConfigValidator
                 ValidatePostLogoutRedirectUri("OpenID", kvp.Key, kvp.Value?.BaseUrlOverride, kvp.Value?.PostLogoutRedirectUri);
                 ValidatePermissionRoleMappings("OpenID", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("OpenID", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateProvisioningTemplate("OpenID", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateAcrRequirement(kvp.Key, kvp.Value);
             }
         }
@@ -82,6 +83,7 @@ internal static class ProviderConfigValidator
                 ValidateSamlSigningKey(kvp.Key, kvp.Value?.SamlRolloverSigningKeyPfx);
                 ValidatePermissionRoleMappings("SAML", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("SAML", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateProvisioningTemplate("SAML", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
             }
         }
     }
@@ -339,6 +341,71 @@ internal static class ProviderConfigValidator
             throw new ArgumentException(
                 $"{protocol} provider '{echoName}' has an invalid permission-role mapping: it {reason}. Each mapping's Permission must be the exact name of a Jellyfin PermissionKind (for example EnableContentDownloading) other than IsAdministrator, EnableAllFolders, EnableLiveTvAccess, EnableLiveTvManagement, or IsDisabled.",
                 nameof(mappings));
+        }
+    }
+
+    /// <summary>
+    /// Rejects a provisioning template (#1099) that names a permission the plugin may not write, or that
+    /// carries a negative bitrate ceiling or session count. All three would be persisted and then silently do
+    /// nothing at provisioning, or - for the numbers - be written as a value Jellyfin cannot mean. A null
+    /// template, a null permission list or a null entry configures nothing and is tolerated.
+    /// </summary>
+    /// <param name="protocol">The protocol label ("OpenID" or "SAML") echoed in the rejection message.</param>
+    /// <param name="provider">The provider name, echoed (control-stripped) in the rejection message.</param>
+    /// <param name="template">The provisioning template to check.</param>
+    /// <exception cref="ArgumentException">The template names an invalid or dedicated permission, or carries a negative number.</exception>
+    internal static void ValidateProvisioningTemplate(string protocol, string provider, ProvisioningPolicyTemplate? template)
+    {
+        if (template == null)
+        {
+            return;
+        }
+
+        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+
+        foreach (var entry in template.Permissions ?? new System.Collections.Generic.List<ProvisionedPermissionEntry>())
+        {
+            if (entry == null)
+            {
+                continue;
+            }
+
+            // The same classification the role mappings are validated against, so an administrator cannot
+            // reach through a template what the mapping surface refuses by name: the dedicated four keep one
+            // authoritative source each, and IsDisabled stays barred from every config-driven SSO write.
+            var status = PermissionRolePolicy.Classify(entry.Permission);
+            if (status == PermissionRolePolicy.PermissionNameStatus.Valid)
+            {
+                continue;
+            }
+
+            var echoPerm = string.Concat((entry.Permission ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var reason = status switch
+            {
+                PermissionRolePolicy.PermissionNameStatus.Empty => "has an entry with an empty permission name",
+                PermissionRolePolicy.PermissionNameStatus.Dedicated => $"names '{echoPerm}', which is managed by its own dedicated setting (administrator, all-folders, or Live TV) or is barred from SSO writes (account-disable) and may not be templated",
+                _ => $"names '{echoPerm}', which is not a known Jellyfin permission",
+            };
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' has an invalid provisioning template: it {reason}. Each entry's Permission must be the exact name of a Jellyfin PermissionKind (for example EnableContentDownloading) other than IsAdministrator, EnableAllFolders, EnableLiveTvAccess, EnableLiveTvManagement, or IsDisabled.",
+                nameof(template));
+        }
+
+        // Zero is meaningful on both (Jellyfin reads it as "no limit" / "unlimited") and is distinct from
+        // unset, which is null; only a negative value is nonsense, and it is refused rather than clamped so
+        // the administrator finds out at save instead of wondering later which value took effect.
+        if (template.RemoteClientBitrateLimit < 0)
+        {
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' has an invalid provisioning template: the remote-client bitrate limit must be zero or greater (zero means no limit; leave it unset to keep Jellyfin's default).",
+                nameof(template));
+        }
+
+        if (template.MaxActiveSessions < 0)
+        {
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' has an invalid provisioning template: the maximum active sessions must be zero or greater (zero means unlimited; leave it unset to keep Jellyfin's default).",
+                nameof(template));
         }
     }
 
