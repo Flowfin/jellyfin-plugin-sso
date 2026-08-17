@@ -278,6 +278,51 @@ public class ConfigXmlLifecycleTests
         }
     }
 
+    [Fact]
+    public void GuestAccessDurationMappings_SurviveTheDiskCycle_AndStayVisibleToTheAdminSurface()
+    {
+        // Two properties of the #1146 mapping, both of which fail SILENTLY if they are wrong, which is why
+        // they are pinned rather than read off the attributes.
+        //
+        // The first is that a populated mapping list survives the disk cycle at all, nested inside a
+        // provider inside the configuration document, rather than coming back null or empty.
+        //
+        // WHAT THIS DOES NOT COVER, measured rather than assumed: renaming the XmlArrayItem element does not
+        // redden it. Both halves of a round-trip read the same attribute, so a rename is self-consistent
+        // here and only breaks against a document written by an EARLIER build. That risk is nil while the
+        // element has never shipped, and it is the reason the comment on the neighbouring dictionary calls
+        // its element name load-bearing; nothing in this file can stand in for that.
+        //
+        // The second is the config-page save. The admin page rebuilds a provider from the object it fetched
+        // and overwrites only the fields it knows, so a field it does not know survives a save - but only
+        // while the server actually serializes it out. A [JsonIgnore] added here by analogy with the
+        // server-managed maps beside it would make the page fetch a provider without the mappings and post
+        // that back, erasing them on the next unrelated settings change.
+        var original = new PluginConfiguration();
+        original.OidConfigs["kc"] = new OidConfig
+        {
+            OidEndpoint = "https://idp/.well-known/openid-configuration",
+            GuestAccessDurationRoleMappings = new System.Collections.Generic.List<GuestAccessDurationRoleMap>
+            {
+                new GuestAccessDurationRoleMap { DurationHours = 24, Roles = new[] { "trial" } },
+                new GuestAccessDurationRoleMap { DurationHours = 720, Roles = new[] { "guest", "visitor" } },
+            },
+        };
+
+        var back = RoundTripXml(original);
+
+        var mappings = back.OidConfigs["kc"].GuestAccessDurationRoleMappings;
+        Assert.NotNull(mappings);
+        Assert.Equal(2, mappings!.Count);
+        Assert.Equal(24, mappings[0].DurationHours);
+        Assert.Equal(new[] { "trial" }, mappings[0].Roles);
+        Assert.Equal(720, mappings[1].DurationHours);
+        Assert.Equal(new[] { "guest", "visitor" }, mappings[1].Roles);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(original.OidConfigs["kc"]);
+        Assert.Contains("GuestAccessDurationRoleMappings", json, StringComparison.Ordinal);
+    }
+
     private static string Serialize<T>(T value)
     {
         var serializer = new XmlSerializer(typeof(T));
