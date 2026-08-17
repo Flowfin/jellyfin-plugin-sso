@@ -41,6 +41,64 @@ public class LoginButtonInjectorTests
             LoginButtonInjector.BuildBlock(One("corp", "Corp", LoginButtonProtocol.Saml)));
     }
 
+    /// <summary>
+    /// The button carries the inline style that survives Jellyfin's runtime restyle.
+    /// </summary>
+    /// <remarks>
+    /// The login controller adds `button-link` to every anchor in the disclaimer, and that class zeroes the
+    /// padding and margin `emby-button` set and underlines on hover. An inline style beats a class rule in
+    /// every state. Reported in discussion #1342, where an admin needed nine declarations of Custom CSS to
+    /// get back what the runtime class had taken away.
+    /// </remarks>
+    [Fact]
+    public void BuildBlock_CarriesTheInlineStyleThatSurvivesTheRuntimeRestyle()
+    {
+        var block = LoginButtonInjector.BuildBlock(One("keycloak", "Keycloak"));
+
+        Assert.Contains("style=\"margin:0.25em 0;padding:0.9em 1em;text-decoration:none;color:inherit\"", block, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every declaration in the style answers one thing `button-link` does, and none of them is decoration.
+    /// </summary>
+    /// <remarks>
+    /// Pinned one by one rather than as a single string so that removing any of them names which behaviour
+    /// came back. `.button-link { margin: 0; padding: 0 }` at line 47 of `emby-button.scss` beats
+    /// `.emby-button { padding: 0.9em 1em }` at line 1 by declaration order at equal specificity, and
+    /// `.button-link:hover` adds the underline.
+    /// </remarks>
+    [Theory]
+    [InlineData("padding:0.9em 1em")]
+    [InlineData("margin:0.25em 0")]
+    [InlineData("text-decoration:none")]
+    [InlineData("color:inherit")]
+    public void BuildBlock_TheStyleAnswersEachThingTheRuntimeClassTakesAway(string declaration)
+    {
+        Assert.Contains(declaration, LoginButtonInjector.BuildBlock(One("keycloak", "Keycloak")), System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The style is a fixed literal and no part of it comes from configuration.
+    /// </summary>
+    /// <remarks>
+    /// A `style` attribute is the one place in this block where CSS is interpreted, so an admin-supplied
+    /// string reaching it would be a new injection surface on the login page. The name and the label are
+    /// HTML-encoded elsewhere; this asserts that neither is anywhere near the attribute.
+    /// </remarks>
+    [Fact]
+    public void BuildBlock_TheStyleTakesNothingFromConfiguration()
+    {
+        var block = LoginButtonInjector.BuildBlock(One("style=\"x\":expression(alert(1))", "url(javascript:alert(1))"));
+
+        // The VALUE of the attribute, not the line it sits on. The provider name reaches the href and the
+        // label, where words like `expression` are ordinary encoded text; asserting over the whole tag would
+        // fail on that and prove nothing about the style.
+        var opened = block.IndexOf("style=\"", System.StringComparison.Ordinal) + "style=\"".Length;
+        var value = block[opened..block.IndexOf('"', opened)];
+
+        Assert.Equal(LoginButtonInjector.ButtonStyle, value);
+    }
+
     [Fact]
     public void BuildBlock_HtmlEncodesAHostileLabel_NoScriptSurvives()
     {
@@ -163,8 +221,11 @@ public class LoginButtonInjectorTests
             .Replace("<div class=\"sso-login-buttons\">", string.Empty, System.StringComparison.Ordinal)
             .Replace("</div>", string.Empty, System.StringComparison.Ordinal)
             .Replace("</a>", string.Empty, System.StringComparison.Ordinal);
-        // The anchor open tag's href value is encoded (contains no quote), so [^"]* matches it exactly.
-        stripped = Regex.Replace(stripped, "<a class=\"[^\"]*\" href=\"[^\"]*\">", string.Empty);
+        // The anchor open tag's attribute values contain no quote - the style is a fixed literal and the href
+        // is encoded - so [^"]* matches each of them exactly. The style attribute is named here rather than
+        // matched loosely: a pattern that skipped unknown attributes would strip an attribute an injection had
+        // introduced, and this test exists to see exactly that.
+        stripped = Regex.Replace(stripped, "<a class=\"[^\"]*\" style=\"[^\"]*\" href=\"[^\"]*\">", string.Empty);
 
         Assert.DoesNotContain("<", stripped, System.StringComparison.Ordinal);
     }

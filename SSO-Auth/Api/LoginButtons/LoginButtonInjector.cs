@@ -54,6 +54,58 @@ public static class LoginButtonInjector
     private const string CommentClose = "-->";
 
     /// <summary>
+    /// What each button carries as an inline <c>style</c>, and why an inline style rather than a stylesheet.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// JELLYFIN RESTYLES THIS ANCHOR AFTER THE PLUGIN HAS WRITTEN IT. The login controller takes every link in
+    /// the disclaimer and adds its own classes at runtime
+    /// (<c>src/apps/legacy/controllers/session/login/index.js</c>):
+    /// </para>
+    /// <code>
+    /// for (const elem of loginDisclaimer.querySelectorAll('a')) {
+    ///     elem.rel = 'noopener noreferrer';
+    ///     elem.target = '_blank';
+    ///     elem.classList.add('button-link');
+    ///     elem.setAttribute('is', 'emby-linkbutton');
+    /// }
+    /// </code>
+    /// <para>
+    /// `button-link` and `emby-button` have the same specificity and `button-link` is declared later in
+    /// `emby-button.scss`, so it wins. What it takes away is exactly what makes a button look like one:
+    /// </para>
+    /// <code>
+    /// .emby-button       { padding: 0.9em 1em; }   /* line 1  */
+    /// .emby-button.block { margin: 0.25em 0; }     /* line 78 */
+    /// .button-link       { margin: 0; padding: 0; }/* line 47, later, so it wins */
+    /// .button-link:hover { text-decoration: underline; }
+    /// </code>
+    /// <para>
+    /// So the shipped button renders with no padding and underlines on hover, which is what discussion #1342
+    /// reported and worked around with nine declarations of Custom CSS. An inline style beats any class rule
+    /// that does not carry <c>!important</c>, in every state including <c>:hover</c>, so the four declarations
+    /// below restore what the runtime class removed and nothing more.
+    /// </para>
+    /// <para>
+    /// IT SURVIVES SANITISING, which is the reason this is possible at all. The disclaimer is rendered through
+    /// markdown-it and then DOMPurify before it reaches the page, and `style` is in DOMPurify 2.5.9's default
+    /// attribute allow-list (`src/attrs.js`, the `html` set). The plugin pins nothing here: if a future Jellyfin
+    /// narrows that list, the attribute is dropped and the button falls back to today's appearance rather than
+    /// to a broken one.
+    /// </para>
+    /// <para>
+    /// WHAT IT DELIBERATELY DOES NOT DO is make the button full width. `.loginDisclaimerContainer` is
+    /// `display: flex` and `.loginDisclaimer` is a flex item, so the region shrinks to its content and
+    /// `.emby-button.block`'s `width: 100%` resolves against a width that came from the content. Widening it
+    /// means restyling Jellyfin's own containers, which are outside this plugin's fence, and this plugin's
+    /// promise is that it manages its own region and leaves an admin's page alone. The wiki carries the
+    /// two-line snippet for admins who want it.
+    /// </para>
+    /// </remarks>
+    internal const string ButtonStyle =
+        "margin:0.25em 0;padding:0.9em 1em;text-decoration:none;color:inherit";
+
+    /// <summary>
     /// Renders the managed button block, or the empty string when there are no buttons. The returned string,
     /// when non-empty, always begins with <see cref="BeginMarker"/> and ends with <see cref="EndMarker"/>.
     /// </summary>
@@ -83,7 +135,9 @@ public static class LoginButtonInjector
             // Both the href attribute value and the visible label are HTML-encoded, so a name/label such as
             // `"><script>…` renders as inert text, never markup. HtmlEncode also encodes the quotes that
             // would otherwise break out of the attribute.
-            sb.Append("  <a class=\"raised block emby-button sso-login-button\" href=\"")
+            sb.Append("  <a class=\"raised block emby-button sso-login-button\" style=\"")
+                .Append(ButtonStyle)
+                .Append("\" href=\"")
                 .Append(WebUtility.HtmlEncode(href))
                 .Append("\">")
                 .Append(WebUtility.HtmlEncode(button.Text))
