@@ -243,6 +243,160 @@ public class ProvisioningPolicyTemplateTests
         Assert.Equal(2, created.MaxActiveSessions);
     }
 
+    [Fact]
+    public async Task ANewAccount_ComesOutWithExactlyTheTemplatedPlaybackDefaults()
+    {
+        // The playback block (#1100). These are columns on the account like the two ceilings above rather
+        // than permissions, so they ride the same create-arm write and inherit the same "never re-applied"
+        // contract instead of needing a second one.
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate
+        {
+            AudioLanguagePreference = "eng",
+            SubtitleLanguagePreference = "ger",
+            SubtitleMode = nameof(SubtitlePlaybackMode.Smart),
+            PlayDefaultAudioTrack = true,
+            RememberAudioSelections = false,
+            RememberSubtitleSelections = true,
+        };
+        var created = Provisionable(users, "alice");
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal("eng", created.AudioLanguagePreference);
+        Assert.Equal("ger", created.SubtitleLanguagePreference);
+        Assert.Equal(SubtitlePlaybackMode.Smart, created.SubtitleMode);
+        Assert.True(created.PlayDefaultAudioTrack);
+        Assert.False(created.RememberAudioSelections);
+        Assert.True(created.RememberSubtitleSelections);
+    }
+
+    [Fact]
+    public async Task AnUnsetPlaybackField_IsLeftAtJellyfinsOwnDefault()
+    {
+        // Opt-in per field here too: naming an audio language must not drag the other five along and
+        // flatten preferences the administrator never mentioned.
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { AudioLanguagePreference = "eng" };
+        var created = Provisionable(users, "alice");
+        created.SubtitleLanguagePreference = "fre";
+        created.SubtitleMode = SubtitlePlaybackMode.Always;
+        created.RememberAudioSelections = true;
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal("eng", created.AudioLanguagePreference);
+        Assert.Equal("fre", created.SubtitleLanguagePreference);
+        Assert.Equal(SubtitlePlaybackMode.Always, created.SubtitleMode);
+        Assert.True(created.RememberAudioSelections);
+    }
+
+    [Fact]
+    public async Task FalseIsAMeaningfulPreference_AndIsWritten_NotTreatedAsUnset()
+    {
+        // The bool twin of the zero-ceiling row above, and the reason all three of these are nullable
+        // bools. A writer testing truthiness instead of presence would skip a deliberate false, leaving
+        // Jellyfin's own default standing while the config shows the box cleared.
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate
+        {
+            PlayDefaultAudioTrack = false,
+            RememberAudioSelections = false,
+            RememberSubtitleSelections = false,
+        };
+        var created = Provisionable(users, "alice");
+        created.PlayDefaultAudioTrack = true;
+        created.RememberAudioSelections = true;
+        created.RememberSubtitleSelections = true;
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.False(created.PlayDefaultAudioTrack);
+        Assert.False(created.RememberAudioSelections);
+        Assert.False(created.RememberSubtitleSelections);
+    }
+
+    [Fact]
+    public async Task ASecondLogin_LeavesALaterPlaybackEdit_Intact()
+    {
+        // The same contract the row above pins for the policy fields, asserted for the playback block,
+        // since these are the fields a USER is most likely to change for themselves after provisioning.
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate
+        {
+            AudioLanguagePreference = "eng",
+            SubtitleMode = nameof(SubtitlePlaybackMode.Smart),
+        };
+        var created = Provisionable(users, "alice");
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+        Assert.Equal("eng", created.AudioLanguagePreference);
+
+        created.AudioLanguagePreference = "jpn";
+        created.SubtitleMode = SubtitlePlaybackMode.None;
+        var second = await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal(Created, second);
+        Assert.Equal("jpn", created.AudioLanguagePreference);
+        Assert.Equal(SubtitlePlaybackMode.None, created.SubtitleMode);
+        await users.Received(1).CreateUserAsync("alice");
+    }
+
+    [Theory]
+    [InlineData("NotAMode")]
+    [InlineData("smart")]
+    [InlineData("")]
+    public async Task AnUnknownSubtitleMode_IsRefusedAtSaveAndWritesNothing(string mode)
+    {
+        // Both halves again, and the lowercase row is the one-character mistake somebody actually makes:
+        // the parse is deliberately case-SENSITIVE, so "smart" is refused rather than quietly accepted.
+        // The writer's skip is what a config file edited around the validator meets, and without it an
+        // unparsable name would land on the enum's zero value - a real mode the administrator never chose.
+        Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateProvisioningTemplate(
+            "OpenID",
+            "kc",
+            new ProvisioningPolicyTemplate { SubtitleMode = mode }));
+
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { SubtitleMode = mode };
+        var created = Provisionable(users, "alice");
+        created.SubtitleMode = SubtitlePlaybackMode.Always;
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal(SubtitlePlaybackMode.Always, created.SubtitleMode);
+    }
+
+    [Fact]
+    public void EverySubtitleModeJellyfinDefines_IsAccepted_AndTheRefusalNamesRealOnes()
+    {
+        // Derived from the enum rather than from a list written out here, so a mode Jellyfin adds is
+        // accepted the day it lands instead of being refused by a vocabulary that drifted.
+        foreach (var mode in Enum.GetValues<SubtitlePlaybackMode>())
+        {
+            ProviderConfigValidator.ValidateProvisioningTemplate(
+                "OpenID",
+                "kc",
+                new ProvisioningPolicyTemplate { SubtitleMode = mode.ToString() });
+        }
+
+        // The refusal message offers examples, and an example that does not parse would send an
+        // administrator round the loop a second time. Nothing else checks a string inside a message.
+        foreach (var example in new[] { "Default", "Always", "OnlyForced", "Smart" })
+        {
+            Assert.True(Enum.TryParse<SubtitlePlaybackMode>(example, out _), example);
+        }
+    }
+
+    [Fact]
+    public void ANullSubtitleMode_PassesValidation_BecauseUnsetIsHowAFieldIsDeclined()
+    {
+        ProviderConfigValidator.ValidateProvisioningTemplate(
+            "SAML",
+            "idp",
+            new ProvisioningPolicyTemplate { AudioLanguagePreference = "eng", SubtitleMode = null });
+    }
+
     // --- helpers ---
 
     private static (CanonicalLinkService Service, OidConfig Config, IUserManager Users) Build()

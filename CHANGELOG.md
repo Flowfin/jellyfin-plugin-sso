@@ -28,6 +28,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   quietly changed. Zero means no limit and unlimited, as it does elsewhere in
   Jellyfin. The template is set in the plugin configuration; the provider forms
   in the dashboard do not carry it yet.
+- **The starting policy can also seed playback preferences (#1100).** The same
+  per-provider template now carries the language and playback block: preferred
+  audio language, preferred subtitle language, subtitle mode, whether the
+  default audio track plays, and whether audio and subtitle selections are
+  remembered. It behaves exactly like the rest of the template. Each field is
+  opt-in, anything left unset stays at Jellyfin's own default, and the values are
+  written once when the account is created and never re-applied, so a preference
+  you or the user change afterwards survives every later login. Clearing one of
+  the three switches is a real setting rather than an absent one, so a template
+  can turn it off and have it stick. The subtitle mode is the one field with a
+  fixed vocabulary: an unrecognised name is refused when you save, naming the
+  modes Jellyfin accepts, and refused again when the template is written, so a
+  configuration file edited by hand cannot slip one through and leave an account
+  on a mode nobody chose. The two language fields are passed to Jellyfin as given
+  rather than checked against a list, so any code Jellyfin accepts works. As with
+  the rest of the template, these are set in the plugin configuration and the
+  provider forms in the dashboard do not carry them yet.
 - **Account expiry now ends access on the deadline rather than at the next
   login (#1145).** The instant a login carries is persisted against that
   account's SSO link, and an hourly background pass disables any linked account
