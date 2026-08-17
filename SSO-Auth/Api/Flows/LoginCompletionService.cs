@@ -205,6 +205,14 @@ internal sealed class LoginCompletionService
 
         if (deadline > DateTime.UtcNow)
         {
+            // Persist the still-future deadline beside the link (#1145). This is the ONLY writer of that
+            // map, and it is what makes the deadline enforceable between logins: the gate above only fires
+            // when the expired user comes back, so a guest who simply stops logging in would otherwise keep
+            // an enabled account and any long-lived token for as long as those tokens happen to live. It is
+            // deliberately not reached for an administrator, who returned above - the mass-lockout exemption
+            // (T-D1) is stated once, and an account the sweep may not act on is one it should not carry a
+            // deadline for.
+            _canonicalLinks.RecordAccountDeadline(identity.LinkMode, identity.Provider, identity.Subject, deadline);
             return null;
         }
 

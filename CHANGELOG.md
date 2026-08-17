@@ -11,6 +11,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **Account expiry now ends access on the deadline rather than at the next
+  login (#1145).** The instant a login carries is persisted against that
+  account's SSO link, and an hourly background pass disables any linked account
+  whose deadline has gone by and revokes that account's tokens. Until now the
+  deadline was only checked when the expired user came back, so a guest who
+  simply stopped logging in kept an enabled account, any long-lived token and,
+  with password login still on, a password door, for as long as those happened
+  to last. The deadline is stored in the plugin configuration, so it survives a
+  restart, and a settings save can neither clear it nor set one. Nothing changes
+  for a provider that names no expiry claim, which is every provider by default.
+  An administrator is never disabled by this pass, exactly as on the login path:
+  a provider that starts emitting a past instant reaches every account at once,
+  and someone has to be left who can open the settings page. A provider you
+  switch off is skipped rather than swept, and an account already disabled is
+  left alone rather than logged again on every pass.
 - **An account-expiry instant read from a provider claim (#1143).** A provider
   can name a claim (OpenID) or assertion attribute (SAML) that carries the
   instant its account access ends, and both protocols now read it onto the
