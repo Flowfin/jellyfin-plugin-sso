@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
@@ -405,6 +406,21 @@ internal static class ProviderConfigValidator
         {
             throw new ArgumentException(
                 $"{protocol} provider '{echoName}' has an invalid provisioning template: the maximum active sessions must be zero or greater (zero means unlimited; leave it unset to keep Jellyfin's default).",
+                nameof(template));
+        }
+
+        // The subtitle mode (#1100) is the one playback preference with a closed vocabulary, so it is the one
+        // that can be mis-set rather than merely unusual. Refused here rather than clamped: an unknown name
+        // that fell through would land on the enum's zero value, which is itself a real mode, so the
+        // administrator would get a setting they never chose and nothing would say so. The two language
+        // fields are deliberately NOT checked against a list - Jellyfin stores what it is given, and a
+        // plugin-side allow-list would drift against it and begin refusing codes Jellyfin accepts.
+        if (template.SubtitleMode != null
+            && !Enum.TryParse<SubtitlePlaybackMode>(template.SubtitleMode, ignoreCase: false, out _))
+        {
+            var echoMode = string.Concat(template.SubtitleMode.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' has an invalid provisioning template: it names subtitle mode '{echoMode}', which is not a known Jellyfin SubtitlePlaybackMode. Use the exact enum name (for example Default, Always, OnlyForced, or Smart), or leave it unset to keep Jellyfin's default.",
                 nameof(template));
         }
     }

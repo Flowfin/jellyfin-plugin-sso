@@ -866,6 +866,51 @@ public class ProvisioningPolicyTemplate
     /// it is distinct from unset; a negative value is rejected on save.
     /// </summary>
     public int? MaxActiveSessions { get; set; }
+
+    /// <summary>
+    /// Gets or sets the preferred audio language written onto a brand-new account (#1100), as the language
+    /// code Jellyfin itself stores (for example <c>eng</c>). Null leaves Jellyfin's own default alone.
+    /// </summary>
+    /// <remarks>
+    /// This and the five fields below it are playback preferences rather than permissions, so unlike the
+    /// permission entries above they grant nothing and can widen no account's access. The two language
+    /// fields are not validated against a language list: Jellyfin stores whatever code it is given, and a
+    /// plugin-side allow-list would drift against it and begin refusing languages Jellyfin accepts.
+    /// </remarks>
+    public string? AudioLanguagePreference { get; set; }
+
+    /// <summary>
+    /// Gets or sets the preferred subtitle language written onto a brand-new account (#1100), as the
+    /// language code Jellyfin itself stores. Null leaves Jellyfin's own default alone.
+    /// </summary>
+    public string? SubtitleLanguagePreference { get; set; }
+
+    /// <summary>
+    /// Gets or sets the subtitle playback mode written onto a brand-new account (#1100), as the exact
+    /// <c>SubtitlePlaybackMode</c> enum name (for example <c>Smart</c>). Null leaves Jellyfin's own default
+    /// alone, and an unknown name is rejected on save rather than falling back to the enum's zero value,
+    /// which would silently be a mode the administrator did not ask for.
+    /// </summary>
+    public string? SubtitleMode { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the default audio track is played, written onto a brand-new
+    /// account (#1100). Null leaves Jellyfin's own default alone, which is why this is a nullable bool:
+    /// with a plain one an unset field is indistinguishable from a deliberate <see langword="false"/>.
+    /// </summary>
+    public bool? PlayDefaultAudioTrack { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether audio selections are remembered, written onto a brand-new
+    /// account (#1100). Null leaves Jellyfin's own default alone.
+    /// </summary>
+    public bool? RememberAudioSelections { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether subtitle selections are remembered, written onto a brand-new
+    /// account (#1100). Null leaves Jellyfin's own default alone.
+    /// </summary>
+    public bool? RememberSubtitleSelections { get; set; }
 }
 
 /// <summary>

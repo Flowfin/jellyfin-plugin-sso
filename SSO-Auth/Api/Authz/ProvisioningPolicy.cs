@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
@@ -73,6 +74,50 @@ internal static class ProvisioningPolicy
         if (template.MaxActiveSessions is { } sessions)
         {
             user.MaxActiveSessions = sessions;
+            written++;
+        }
+
+        // The playback preferences (#1100). These are columns on the account itself, alongside the two
+        // numbers above, so they are written here on the same create arm rather than through a second
+        // persistence call - which also means they inherit "never re-applied" for free instead of needing
+        // their own guard. They grant nothing: no field below can widen an account's access.
+        if (template.AudioLanguagePreference is { } audioLanguage)
+        {
+            user.AudioLanguagePreference = audioLanguage;
+            written++;
+        }
+
+        if (template.SubtitleLanguagePreference is { } subtitleLanguage)
+        {
+            user.SubtitleLanguagePreference = subtitleLanguage;
+            written++;
+        }
+
+        // Parsed rather than cast, and skipped when it does not parse. Save-time validation already refuses
+        // an unknown name; this is the same second refusal the permission entries get above, for the same
+        // reason - a config file edited by hand around the validator still reaches this writer. Falling back
+        // to the enum's zero value would quietly set a mode nobody asked for.
+        if (Enum.TryParse<SubtitlePlaybackMode>(template.SubtitleMode, ignoreCase: false, out var subtitleMode))
+        {
+            user.SubtitleMode = subtitleMode;
+            written++;
+        }
+
+        if (template.PlayDefaultAudioTrack is { } playDefaultAudioTrack)
+        {
+            user.PlayDefaultAudioTrack = playDefaultAudioTrack;
+            written++;
+        }
+
+        if (template.RememberAudioSelections is { } rememberAudio)
+        {
+            user.RememberAudioSelections = rememberAudio;
+            written++;
+        }
+
+        if (template.RememberSubtitleSelections is { } rememberSubtitles)
+        {
+            user.RememberSubtitleSelections = rememberSubtitles;
             written++;
         }
 
