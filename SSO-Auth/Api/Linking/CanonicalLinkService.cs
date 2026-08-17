@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Jellyfin.Data;
@@ -465,9 +467,36 @@ internal sealed class CanonicalLinkService
             return userId;
         }
 
+        // BOUND AT RUNTIME, NOT AT COMPILE TIME, and HostRename says why: `IUserManager.RenameUser` takes
+        // (User, string) up to 10.11.8 and (Guid, string, string) from 10.11.9 on, so a direct call to
+        // either one breaks the floor build or the shipping build. This is the same divergence
+        // `SsoOnlyLoginService.AllUsers` already answers the same way.
         try
         {
-            await _userManager.RenameUser(userId, currentName, desiredName).ConfigureAwait(false);
+            var call = HostRename.Resolve(_userManager.GetType(), account, userId, currentName, desiredName)
+                ?? throw new InvalidOperationException(HostRename.NeitherShape);
+
+            object? returned;
+            try
+            {
+                returned = call.Method.Invoke(_userManager, call.Arguments);
+            }
+            catch (TargetInvocationException wrapped) when (wrapped.InnerException is not null)
+            {
+                // The host's own refusal, unwrapped. Without this the log below records a
+                // TargetInvocationException where the reason belongs, and the reason is the whole value of
+                // logging it: an admin needs to read "that name is taken", not "reflection threw".
+                ExceptionDispatchInfo.Capture(wrapped.InnerException).Throw();
+                throw;
+            }
+
+            // Both known shapes return Task. A shape that does not is awaited as nothing rather than
+            // refused, because the rename has already happened by then and failing here would log a
+            // failure for work that succeeded.
+            if (returned is Task rename)
+            {
+                await rename.ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
