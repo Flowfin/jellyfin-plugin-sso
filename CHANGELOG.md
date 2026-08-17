@@ -27,6 +27,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   neither clear it nor invent one. It is not part of the portable link export
   either, because a login instant belongs to the server that observed it and
   cannot be restored onto another.
+- **Jellyfin accounts can follow a rename at the identity provider (#1138).** A
+  new per-provider option, **Follow Username Renames From The Provider**, renames
+  a linked Jellyfin account on the user's next SSO login when their username has
+  changed at the provider. Off by default, in which case the Jellyfin name stays
+  as it was and the two drift apart, which is what happens today. This is the
+  display name only: the account is found by its stable subject identifier
+  either way, so turning it on cannot change which account a login reaches, and
+  it adds no way to select an account by name. The new name is cleaned up the
+  same way a newly created account's name is, so a rename can never put a name on
+  an account that Jellyfin would have refused at creation. If another Jellyfin
+  account already holds the name, the rename is skipped and both accounts keep
+  their names rather than the outcome depending on who logged in last. A rename
+  that fails for any other reason is logged and the login still succeeds, because
+  a display name that has drifted is cosmetic and a refused login is not. Each
+  rename is recorded as an audit event naming both the old and the new name. The
+  option is in the provider forms for OpenID and SAML.
+
 - **A per-provider starting policy for accounts SSO creates (#1099).** A
   provider can carry a template whose set fields are written onto a brand-new
   SSO account at creation: any of the boolean Jellyfin permissions, a

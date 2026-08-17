@@ -1709,6 +1709,36 @@
                       <label>
                         <input
                           is="emby-checkbox"
+                          id="SyncUsernameFromProvider"
+                          name="SyncUsernameFromProvider"
+                          type="checkbox"
+                          class="sso-toggle"
+                        />
+                        <span>Follow Username Renames From The Provider</span>
+                      </label>
+                      <div class="fieldDescription checkboxFieldDescription">
+                        When someone is renamed at the identity provider, rename
+                        their Jellyfin account to match on their next SSO login.
+                        Off by default, in which case the Jellyfin name stays as
+                        it was and the two drift apart. This changes the
+                        <strong>display name only</strong>: the account is found
+                        by its stable subject identifier either way, so turning
+                        this on cannot change which account a login reaches. The
+                        new name is cleaned up the same way a newly created one
+                        is. If another Jellyfin account already holds the name,
+                        the rename is skipped and both accounts keep their
+                        names. A rename that fails for any other reason is
+                        logged and the login still succeeds. Each rename is
+                        recorded as an audit event.
+                      </div>
+                    </div>
+
+                    <div
+                      class="checkboxContainer checkboxContainer-withDescription"
+                    >
+                      <label>
+                        <input
+                          is="emby-checkbox"
                           id="RequireVerifiedEmailForAdoption"
                           name="RequireVerifiedEmailForAdoption"
                           type="checkbox"
@@ -2553,6 +2583,30 @@
                       "awaiting administrator approval" message until an admin
                       enables it. Off by default. Never disables an existing or
                       adopted account, and each deferral is audited.
+                    </div>
+                  </div>
+
+                  <div
+                    class="checkboxContainer checkboxContainer-withDescription"
+                  >
+                    <label>
+                      <input
+                        is="emby-checkbox"
+                        id="saml-SyncUsernameFromProvider"
+                        name="saml-SyncUsernameFromProvider"
+                        type="checkbox"
+                        class="sso-toggle"
+                      />
+                      <span>Follow Username Renames From The Provider</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">
+                      When someone is renamed at the identity provider, rename
+                      their Jellyfin account to match on their next SSO login.
+                      Off by default. Display name only: the account is found by
+                      its stable NameID either way, so this cannot change which
+                      account a login reaches. Skipped when another account
+                      already holds the name, and a rename that fails never
+                      fails the login. Each rename is audited.
                     </div>
                   </div>
                 </div>

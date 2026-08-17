@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Jellyfin.Data;
@@ -198,8 +200,15 @@ internal sealed class CanonicalLinkService
     /// ADOPTED account is not a provisioning event, so it is not given a lifetime it never agreed to. Default
     /// null (no deadline), so a provider mapping no role provisions byte-identically to before.
     /// </param>
+    /// <param name="syncUsername">
+    /// The provider's SyncUsernameFromProvider policy (#1138): when an EXISTING link resolves an account
+    /// whose Jellyfin name no longer matches the name the login presents, rename that account to follow the
+    /// identity provider. The RESOLVE ARM only - a created account already carries the presented name, and an
+    /// adopted one was selected BY its name. Default off, in which case the resolved account's name is never
+    /// touched, which is what every deployment does today.
+    /// </param>
     /// <returns>The resolved Jellyfin user id.</returns>
-    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null)
+    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null, bool syncUsername = false)
     {
         // Defense in depth (#95, #155): a login that resolved no stable identity key (OpenID sub /
         // SAML NameID) or no username must never create, adopt, or look up an account. Both callbacks
@@ -261,7 +270,10 @@ internal sealed class CanonicalLinkService
         switch (decision.Action)
         {
             case AccountLinkAction.UseExistingLink:
-                return decision.UserId;
+                // The one arm where the two names can have drifted apart: the subject resolved an account
+                // that already existed under whatever name it was created with, and the identity provider
+                // may have renamed the person since.
+                return await SyncUsernameIfRequestedAsync(syncUsername, mode, provider, decision.UserId, username).ConfigureAwait(false);
 
             case AccountLinkAction.AdoptExistingAccount:
                 // existingAccount is non-null here (adoption is only chosen when a named account resolved).
@@ -406,6 +418,106 @@ internal sealed class CanonicalLinkService
         }
 
         return migratedUserId;
+    }
+
+    // Renames a resolved account to follow its identity provider (#1138), and returns that account either
+    // way. Off by default; every early return below leaves the account exactly as it was and still yields a
+    // successful login, because a display name that has drifted is cosmetic and refusing the login over it
+    // would be far more expensive than the mismatch.
+    //
+    // THE INVARIANT THIS MUST NOT BREAK is that the subject is the key. The account is already resolved
+    // when this runs - it is passed in by id - so nothing here can change WHICH account a login reaches. The
+    // name follows the account; it never selects one. That is why this is a rename and not a lookup.
+    //
+    // The guards, in the order they fail:
+    //
+    // - The presented name is sanitized through the same map a provisioned name takes (#1137), so a rename
+    //   cannot put a name onto an account that Jellyfin's own check would have refused at creation, and a
+    //   name with nothing usable left in it renames nothing.
+    // - A name already held by a DIFFERENT account is left alone. The host would refuse the collision
+    //   anyway, but refusing it here is what keeps the two accounts' names from depending on which of them
+    //   logged in last, and it is the case where swallowing the host's error would look like a silent
+    //   no-op with no reason recorded.
+    // - A rename that throws for any other reason is logged and swallowed.
+    private async Task<Guid> SyncUsernameIfRequestedAsync(bool syncUsername, ProviderMode mode, string provider, Guid userId, string presentedName)
+    {
+        if (!syncUsername || !ProvisionedUsername.TrySanitize(presentedName, out var desiredName))
+        {
+            return userId;
+        }
+
+        var account = _userManager.GetUserById(userId);
+        if (account is null || string.Equals(account.Username, desiredName, StringComparison.Ordinal))
+        {
+            return userId;
+        }
+
+        var currentName = account.Username;
+        var holder = _userManager.GetUserByName(desiredName);
+        if (holder is not null && holder.Id != userId)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "SSO login via {Mode}/{Provider}: the identity provider's username is already held by a different Jellyfin account, so the linked account keeps its current name. Rename or merge the other account to let the sync proceed.",
+                    mode.ToToken(),
+                    provider.ReplaceLineEndings(string.Empty));
+            }
+
+            return userId;
+        }
+
+        // BOUND AT RUNTIME, NOT AT COMPILE TIME, and HostRename says why: `IUserManager.RenameUser` takes
+        // (User, string) up to 10.11.8 and (Guid, string, string) from 10.11.9 on, so a direct call to
+        // either one breaks the floor build or the shipping build. This is the same divergence
+        // `SsoOnlyLoginService.AllUsers` already answers the same way.
+        try
+        {
+            var call = HostRename.Resolve(_userManager.GetType(), account, userId, currentName, desiredName)
+                ?? throw new InvalidOperationException(HostRename.NeitherShape);
+
+            object? returned;
+            try
+            {
+                returned = call.Method.Invoke(_userManager, call.Arguments);
+            }
+            catch (TargetInvocationException wrapped) when (wrapped.InnerException is not null)
+            {
+                // The host's own refusal, unwrapped. Without this the log below records a
+                // TargetInvocationException where the reason belongs, and the reason is the whole value of
+                // logging it: an admin needs to read "that name is taken", not "reflection threw".
+                ExceptionDispatchInfo.Capture(wrapped.InnerException).Throw();
+                throw;
+            }
+
+            // Both known shapes return Task. A shape that does not is awaited as nothing rather than
+            // refused, because the rename has already happened by then and failing here would log a
+            // failure for work that succeeded.
+            if (returned is Task rename)
+            {
+                await rename.ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Deliberately broad. The host decides what a legal name is and what it throws when it is not,
+            // and this plugin compiles against an interface that promises neither; letting any of it escape
+            // would turn a cosmetic mismatch into a failed login, which is the one outcome this feature must
+            // never cause. The account keeps its old name and the reason is on the record.
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "SSO login via {Mode}/{Provider}: renaming the linked account to follow the identity provider failed; it keeps its current name and the login continues.",
+                    mode.ToToken(),
+                    provider.ReplaceLineEndings(string.Empty));
+            }
+
+            return userId;
+        }
+
+        SsoAudit.AccountRenamed(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, currentName, desiredName);
+        return userId;
     }
 
     // Adopts the pre-existing account that shares the display name, after clearing the eligibility gate.

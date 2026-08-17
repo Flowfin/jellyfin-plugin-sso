@@ -81,6 +81,33 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records a linked account being renamed to follow its identity provider (#1138). The rename changes
+    /// the name an administrator sees in the Jellyfin dashboard and nothing else, so the trail has to say
+    /// which name became which - without it, an account an operator is looking for has silently become a
+    /// different row in the user list with no record of why. Both names are identity-provider-influenced,
+    /// so both are stripped of line endings inline at the call, like every other name this file logs.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="previousName">The name the account held before the rename.</param>
+    /// <param name="newName">The sanitized name it now holds.</param>
+    internal static void AccountRenamed(ILogger logger, string protocol, string provider, string previousName, string newName)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Linked account renamed from '{PreviousName}' to '{NewName}' to follow {Protocol} provider '{Provider}' (SyncUsernameFromProvider).",
+            previousName?.ReplaceLineEndings(string.Empty),
+            newName?.ReplaceLineEndings(string.Empty),
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
     /// Records an existing account being disabled by login-time deprovisioning (#831): its SSO login was
     /// denied by the role allow-list and the provider opts into disabling on denial. Only non-sensitive
     /// fields are logged - the protocol and provider name, never the subject/username (T-I1) - so an

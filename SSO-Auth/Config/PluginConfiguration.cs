@@ -309,6 +309,25 @@ public abstract class ProviderConfigBase
     public bool ProvisionNewUsersDisabled { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether a login whose identity-provider username differs from the
+    /// linked Jellyfin account's name RENAMES that account to follow the provider (#1138). Off by default
+    /// (opt-in): a provider-side rename leaves the Jellyfin name as it was, which is the behaviour every
+    /// existing deployment has.
+    /// <para>
+    /// The subject stays the key. Resolution is keyed on the OpenID <c>sub</c> / SAML <c>NameID</c> (#155,
+    /// #186) and this adds no name-keyed path: the name FOLLOWS the account the subject already resolved,
+    /// and never selects one. Turning it on therefore cannot change which account a login reaches.
+    /// </para>
+    /// <para>
+    /// Fail-safe in both directions. The new name passes the same sanitization a provisioned name does
+    /// (<c>ProvisionedUsername</c>, #1137), a name already held by a DIFFERENT account is left alone rather
+    /// than fought over, and a rename the host refuses is logged and swallowed - a display-name mismatch is
+    /// cosmetic, and turning it into a failed login would be the more expensive failure by far.
+    /// </para>
+    /// </summary>
+    public bool SyncUsernameFromProvider { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether all folders are allowed by default.
     /// </summary>
     public bool EnableAllFolders { get; set; }
