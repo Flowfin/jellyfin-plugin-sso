@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Xunit;
@@ -78,6 +79,86 @@ public class ProviderConfigValidatorTests
             ProviderConfigValidator.ValidateParentalRatingMappings("OpenID", "kc", new ParentalRatingRoleMap[] { null! }); // a null entry is tolerated
             ProviderConfigValidator.ValidateParentalRatingMappings("OpenID", "kc", null); // no mappings at all
         }));
+    }
+
+    // --- ValidateGuestAccessDurations (#1146): reject a non-positive or overflowing duration, or no roles ---
+
+    [Theory]
+    [InlineData(0)] // would be a deadline equal to the provisioning instant: created, then swept away
+    [InlineData(-1)] // would be a deadline already in the past
+    public void ValidateGuestAccessDurations_NonPositiveDuration_Throws(int hours)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateGuestAccessDurations(
+            "OpenID", "kc", new[] { new GuestAccessDurationRoleMap { DurationHours = hours, Roles = new[] { "guest" } } }));
+
+        Assert.Equal("mappings", ex.ParamName);
+        Assert.Contains("kc", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("greater than zero", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateGuestAccessDurations_DurationBeyondTheGuard_Throws()
+    {
+        // The overflow near-miss at the save door. Adding int.MaxValue hours to the provisioning instant
+        // leaves DateTime's range and AddHours throws, so refusing it here is what keeps a mis-typed field
+        // from becoming a failed login rather than a very distant deadline.
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateGuestAccessDurations(
+            "OpenID", "kc", new[] { new GuestAccessDurationRoleMap { DurationHours = int.MaxValue, Roles = new[] { "guest" } } }));
+
+        Assert.Equal("mappings", ex.ParamName);
+        Assert.Contains("maximum", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateGuestAccessDurations_NullRoles_Throws()
+        => AssertDurationNoRolesRejected(null);
+
+    [Fact]
+    public void ValidateGuestAccessDurations_EmptyRoles_Throws()
+        => AssertDurationNoRolesRejected(Array.Empty<string>());
+
+    private static void AssertDurationNoRolesRejected(string[]? roles)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateGuestAccessDurations(
+            "SAML", "idp", new[] { new GuestAccessDurationRoleMap { DurationHours = 24, Roles = roles! } }));
+
+        Assert.Equal("mappings", ex.ParamName);
+        Assert.Contains("no roles", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateGuestAccessDurations_ValidOrNullOrEmpty_DoesNotThrow()
+    {
+        Assert.Null(Record.Exception(() =>
+        {
+            ProviderConfigValidator.ValidateGuestAccessDurations("OpenID", "kc", new[] { new GuestAccessDurationRoleMap { DurationHours = 1, Roles = new[] { "guest" } } });
+            ProviderConfigValidator.ValidateGuestAccessDurations("OpenID", "kc", new[] { new GuestAccessDurationRoleMap { DurationHours = GuestAccessDurationRoleMap.MaxDurationHours, Roles = new[] { "guest" } } }); // the boundary itself is allowed
+            ProviderConfigValidator.ValidateGuestAccessDurations("OpenID", "kc", new GuestAccessDurationRoleMap[] { null! }); // a null entry is tolerated
+            ProviderConfigValidator.ValidateGuestAccessDurations("OpenID", "kc", null); // no mappings at all
+        }));
+    }
+
+    [Fact]
+    public void Validate_WholeConfig_RejectsAnInvalidDurationOnEitherProtocol()
+    {
+        // The composition row: the per-provider check above is only load-bearing if the config-page save
+        // actually calls it, on both maps. Without this a bad mapping is refused at the Add endpoints and
+        // waved through by the save path that most administrators use.
+        var oidc = new PluginConfiguration();
+        oidc.OidConfigs["kc"] = new OidConfig
+        {
+            OidEndpoint = "https://idp/.well-known",
+            GuestAccessDurationRoleMappings = new List<GuestAccessDurationRoleMap> { new GuestAccessDurationRoleMap { DurationHours = 0, Roles = new[] { "guest" } } },
+        };
+        Assert.Throws<ArgumentException>(() => ProviderConfigValidator.Validate(oidc, new PluginConfiguration()));
+
+        var saml = new PluginConfiguration();
+        saml.SamlConfigs["idp"] = new SamlConfig
+        {
+            SamlEndpoint = "https://idp/saml",
+            GuestAccessDurationRoleMappings = new List<GuestAccessDurationRoleMap> { new GuestAccessDurationRoleMap { DurationHours = 0, Roles = new[] { "guest" } } },
+        };
+        Assert.Throws<ArgumentException>(() => ProviderConfigValidator.Validate(saml, new PluginConfiguration()));
     }
 
     // --- ValidateProviderName (#336, #360): reject a NEW round-trip-breaking name; exempt existing names ---

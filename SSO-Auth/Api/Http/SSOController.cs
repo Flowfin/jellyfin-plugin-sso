@@ -688,6 +688,10 @@ public class SSOController : ControllerBase
         // Reject an invalid parental-rating mapping (#736) at the door too (negative score / no roles), like
         // the permission-role guard above - the Add endpoints bypass the config-page save-time validation.
         ProviderConfigValidator.ValidateParentalRatingMappings(OpenIdProtocol, provider, config.ParentalRatingRoleMappings);
+        // And an invalid access-duration mapping (#1146), for the same reason: a non-positive or out-of-range
+        // duration reaching the login path would silently stamp nothing, so it is refused at every write door
+        // rather than only at the config page.
+        ProviderConfigValidator.ValidateGuestAccessDurations(OpenIdProtocol, provider, config.GuestAccessDurationRoleMappings);
         // Reject RequireAcr with no acr_values at the door too (#757): an empty allow-list would refuse every
         // login for the provider (a silent single-provider lockout). Mirrors the config-page/import validation
         // so this Add path - which persists through MutateConfiguration and bypasses the save-time Validate -
@@ -1175,6 +1179,7 @@ public class SSOController : ControllerBase
         // Reject a malformed generic permission-role mapping (#164) at the door, as OidAdd does.
         ProviderConfigValidator.ValidatePermissionRoleMappings(SamlProtocol, provider, newConfig.PermissionRoleMappings);
         ProviderConfigValidator.ValidateParentalRatingMappings(SamlProtocol, provider, newConfig.ParentalRatingRoleMappings);
+        ProviderConfigValidator.ValidateGuestAccessDurations(SamlProtocol, provider, newConfig.GuestAccessDurationRoleMappings);
         SSOPlugin.Instance.MutateConfiguration(configuration =>
         {
             // The name guard needs the under-lock existence check (#336) and runs before any mutation,

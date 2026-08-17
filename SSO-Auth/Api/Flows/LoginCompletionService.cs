@@ -98,7 +98,14 @@ internal sealed class LoginCompletionService
                 config.AllowExistingAccountLink,
                 adoptionGate,
                 identity.Issuer,
-                config.ProvisionNewUsersDisabled).ConfigureAwait(false);
+                config.ProvisionNewUsersDisabled,
+                // The role-mapped access duration (#1146), handed down so the create arm can anchor a
+                // deadline to the exact moment it writes the link. THE RESOLUTION ORDER IS STATED HERE, once
+                // and in one expression: an absolute instant the identity provider emitted (#1143) wins, so
+                // the relative source is passed only when the login carried none. Passing both and letting a
+                // later write overwrite the earlier one would put the same rule in two places and make the
+                // outcome depend on their order.
+                identity.ExpiresAtUtc is null ? identity.GuestAccessDuration : null).ConfigureAwait(false);
         }
         catch (AccountLinkForbiddenException)
         {
