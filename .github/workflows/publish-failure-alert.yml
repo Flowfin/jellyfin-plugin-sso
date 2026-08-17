@@ -94,7 +94,28 @@ jobs:
 
           echo "Examined $(jq length runs.json) run(s) on ${BRANCH}; $(wc -l < red.tsv) non-success since ${cutoff}."
           if [ ! -s red.tsv ]; then
-            echo "Nothing red. No issue filed."
+            echo "Nothing red."
+            # NICHTS ROT HEISST SCHLIESSEN, und zwar durch den Waechter selbst.
+            #
+            # Er hat es nie getan. #1314 wurde um 21:20 gruen und blieb offen,
+            # bis ein Mensch sie um 21:50 schloss - und weil sie DANN zu war,
+            # legte der naechste Takt #1354 neu an, fuer einen Fehler, den es
+            # nicht mehr gab. Ein Melder, der nur oeffnet, erzeugt Karteileichen
+            # und Doppelmeldungen aus demselben Grund.
+            offen=$(gh issue list --repo "$REPO" --state open --label release-alert \
+              --json number --jq '.[0].number // empty')
+            if [ -n "${offen:-}" ]; then
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "DRY RUN: would close #${offen}."
+              else
+                gh issue comment "$offen" --repo "$REPO" --body "Nothing on \`${BRANCH}\` is red any more; \
+          closing. Examined $(jq length runs.json) run(s) since ${cutoff}."
+                gh issue close "$offen" --repo "$REPO" --reason completed
+                echo "Closed #${offen}."
+              fi
+            else
+              echo "No open alert issue to close."
+            fi
             exit 0
           fi
 
@@ -117,44 +138,134 @@ jobs:
               --jq '.body, (.comments[].body)')
           fi
 
+          # WAS ROT IST, MIT GRUND - und der Grund kommt aus dem Protokoll.
+          #
+          # Bis zum 17.08. stand hier eine feste Vorlage: Name, Ausgang, Ausloeser,
+          # Link. Sie sagte, DASS etwas rot ist, und nie WAS. #1314 lief damit
+          # sieben Tage und 29 gleichlautende Kommentare, waehrend die Ursache -
+          # ein fehlender Bindestrich in einem Wiki-Anker - die ganze Zeit im
+          # Protokoll des ersten Laufs stand.
+          #
+          # `gh run view --log-failed` liefert genau den gescheiterten Schritt.
+          # Der Waechter hatte die Lauf-Nummer immer; er hat nur nie gefragt.
+          : > zustand.md
+          : > schluessel.txt
+          # EIN ABSCHNITT JE WORKFLOW, NICHT JE LAUF.
+          #
+          # Der zweite Trockenlauf vom 17.08. schrieb `### Wiki Lint` zweimal
+          # untereinander, weil drei rote Laeufe desselben Workflows in red.tsv
+          # standen. Das ist dieselbe Wiederholung, die als 29 Kommentare
+          # angefangen hat - nur in einen Koerper verschoben statt behoben.
+          #
+          # red.tsv ist nach Aktualitaet sortiert, also ist der ERSTE Eintrag je
+          # Workflow der neueste; die Zahl der Laeufe steht ohnehin separat im
+          # Text.
+          awk -F'\t' '!gesehen[$4]++' red.tsv > je-workflow.tsv
           while IFS=$'\t' read -r url conclusion event wf_name; do
-            case "$reported" in
-              *"$url"*)
-                echo "Already reported, skipping: ${url}"
-                continue
-                ;;
-            esac
+            run_id="${url##*/}"
+            schritt=$(gh run view "$run_id" --repo "$REPO" --json jobs \
+              --jq '[.jobs[] | select(.conclusion=="failure") | .steps[]
+                     | select(.conclusion=="failure") | .name][0] // "unbekannt"' 2>/dev/null || echo "unbekannt")
+            # DAS PROTOKOLLENDE, GEKAPPT. Ein ganzes Joblog sprengt jede Issue
+            # und wird deshalb nicht gelesen; die letzten Zeilen des roten
+            # Schritts sind das, was ein Mensch zuerst ansehen wuerde.
+            # NUR DIE ZEILEN DES GESCHEITERTEN SCHRITTS, und der Grund steht im
+            # Trockenlauf vom 17.08.: `tail` auf das ganze Joblog liefert den
+            # ABBAU - "Removing SSH command configuration", "Cleaning up orphan
+            # processes" - und nicht den Fehler, der weiter oben steht. Der
+            # Bericht waere ausfuehrlicher und genauso nutzlos gewesen wie die
+            # Vorlage, die er ersetzt.
+            #
+            # UND NICHT UEBER DIE SCHRITT-SPALTE, denn die traegt nichts.
+            # Gemessen am 17.08. an einem roten Lauf: `--log-failed` schrieb
+            # ALLE 175 Zeilen mit `UNKNOWN STEP`, waehrend die Jobs-API den
+            # Schritt sauber benennt. Ein Filter darauf trifft nie und liefert
+            # "(kein Protokoll abrufbar)" - im zweiten Trockenlauf genau so
+            # passiert.
+            #
+            # Der verlaessliche Anker ist die Fehlermarke, die der Runner selbst
+            # setzt: die Zeilen VOR dem ersten `##[error]` sind die Ausgabe, die
+            # den Lauf gekippt hat. Der Abbau steht dahinter und faellt damit
+            # von selbst weg.
+            schwanz=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
+              | sed 's/\r$//' \
+              | sed 's/^[^\t]*\t[^\t]*\t//' | sed 's/^[0-9TZ:.-]\{20,\} //' \
+              | grep -vE '^\s*$' | grep -vE '^##\[(group|endgroup)\]' \
+              | awk '/##\[error\]/ { gefunden=1; for (i=1;i<=n;i++) print puffer[i]; print; exit }
+                     { puffer[++n]=$0; if (n>12) { for (i=1;i<n;i++) puffer[i]=puffer[i+1]; n-- } }
+                     END { if (!gefunden) for (i=1;i<=n;i++) print puffer[i] }' \
+              | cut -c1-200 || true)
+            [ -n "$schwanz" ] || schwanz="(kein Protokoll abrufbar)"
+            printf '%s\t%s\n' "$wf_name" "$schritt" >> schluessel.txt
+            # Wie viele rote Laeufe dieses Workflows, und seit wann.
+            zahl=$(cut -f4 red.tsv | grep -cxF "$wf_name" || echo 1)
+            seit=$(jq -r --arg w "$wf_name" '[.[] | select(.workflowName==$w)
+                     | select((.conclusion // "") as $c
+                              | $c != "success" and $c != "skipped" and $c != "cancelled" and $c != "")
+                     | .updatedAt] | sort | .[0] // ""' runs.json)
+            {
+              printf '### %s\n\n' "$wf_name"
+              printf 'Failing step: **%s** (conclusion `%s`, trigger `%s`)\n\n' \
+                "$schritt" "$conclusion" "$event"
+              printf '```\n%s\n```\n\n' "$schwanz"
+              printf 'Red since `%s`, %s run(s) in this window. Latest: %s\n\n' \
+                "${seit:-unknown}" "$zahl" "$url"
+            } >> zustand.md
+          done < je-workflow.tsv
 
-            body="The **${wf_name}** workflow run on \`${BRANCH}\` ended with conclusion \`${conclusion}\` (trigger: ${event}).
+          # DER KOERPER HAELT DEN ZUSTAND, KOMMENTARE HALTEN UEBERGAENGE.
+          #
+          # Der alte Waechter kommentierte je ROTEM LAUF, und sein
+          # Dedup-Schluessel war die Lauf-URL - die sich per Definition bei
+          # jedem Lauf aendert. Jeder Push nach main erzeugte damit einen
+          # weiteren gleichlautenden Kommentar. 29 fuer eine Ursache.
+          #
+          # Der Schluessel ist jetzt Workflow PLUS gescheiterter Schritt. Aendert
+          # sich daran nichts, wird nur der Koerper aktualisiert und still
+          # geschwiegen; kommt ein neuer Schritt dazu, ist das eine Nachricht.
+          kopf="Workflows on \`${BRANCH}\` are red. This body is rewritten each tick and always
+          shows the CURRENT state; comments below mark changes only.
 
           A failure on the default branch is not a required pull-request check and is not emailed, so it
           can stay red while every pull request shows green. If this was a publish or monitoring workflow,
-          a release channel may also not have updated and installs can go stale unnoticed.
+          a release channel may also not have updated and installs can go stale unnoticed - check whether
+          a GitHub release was created but its channel manifest was not committed (the beta.12 mode).
 
-          Failed run: ${url}
+          The watcher closes this issue itself once nothing is red.
 
-          What to check: the run log first. For a publish or monitoring workflow, check whether a GitHub
-          release was created but its channel manifest was not committed (the beta.12 failure mode), then
-          fix the cause, re-run the publish and confirm the channel manifest lists the newest release. For
-          any other workflow, fix the cause and re-run it green on the default branch. Close this issue
-          once nothing is red.
+          Refs #982, #1015, #1357."
+          body="$kopf
 
-          Refs #982, #1015."
+          $(cat zustand.md)"
+          neu_schluessel=$(sort -u schluessel.txt | tr '\t' ':' | tr '\n' ';')
 
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "DRY RUN, filing nothing. Would report ${wf_name} (${conclusion}) ${url}"
-              continue
-            fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN, filing nothing. Would report: ${neu_schluessel}"
+            echo "--- body ---"; echo "$body"
+            exit 0
+          fi
 
-            if [ -n "${num:-}" ]; then
-              echo "Updating existing alert issue #${num} with ${url}"
-              gh issue comment "$num" --repo "$REPO" --body "$body"
+          if [ -n "${num:-}" ]; then
+            alt_schluessel=$(printf '%s' "$reported" | sed -n 's/.*<!-- schluessel: \(.*\) -->.*/\1/p' | head -1)
+            gh issue edit "$num" --repo "$REPO" --body "$body
+
+          <!-- schluessel: ${neu_schluessel} -->"
+            if [ "$alt_schluessel" != "$neu_schluessel" ]; then
+              echo "Failing set changed; commenting."
+              gh issue comment "$num" --repo "$REPO" --body "The set of red workflows changed.
+
+          Now: ${neu_schluessel}
+          Before: ${alt_schluessel:-(nothing recorded)}
+
+          The body above carries the current state and the failing step's log."
             else
-              echo "No open alert issue; creating one for ${url}"
-              num=$(gh issue create --repo "$REPO" --label release-alert \
-                --title "A workflow concluded non-success on the default branch" \
-                --body "$body" | grep -o '[0-9]*$')
+              echo "Same failing set as before; body refreshed, no comment."
             fi
-            reported="${reported}
-          ${url}"
-          done < red.tsv
+          else
+            echo "No open alert issue; creating one."
+            num=$(gh issue create --repo "$REPO" --label release-alert \
+              --title "A workflow concluded non-success on the default branch" \
+              --body "$body
+
+          <!-- schluessel: ${neu_schluessel} -->" | grep -o '[0-9]*$')
+          fi
