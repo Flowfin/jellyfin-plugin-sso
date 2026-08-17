@@ -173,8 +173,17 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
 // is the disposition rather than a per-property annotation.
 public abstract class ProviderConfigBase
 {
+    /// <summary>
+    /// The resolution <see cref="CanonicalLinkLastLogins"/> is kept to: a successful login rewrites a stored
+    /// instant only once it is this much older than now, so the write cost of the stamp is at most one
+    /// configuration persist per link per hour rather than one per login. It lives here, beside the map, so
+    /// the promise a reader of the value gets and the rule the writer applies are the same sentence.
+    /// </summary>
+    internal static readonly TimeSpan LastSsoLoginGranularity = TimeSpan.FromHours(1);
+
     private SerializableDictionary<string, Guid>? _canonicalLinks;
     private SerializableDictionary<string, DateTime>? _canonicalLinkDeadlines;
+    private SerializableDictionary<string, DateTime>? _canonicalLinkLastLogins;
 
     /// <summary>
     /// Gets or sets the canonical external base URL for this provider, e.g.
@@ -491,6 +500,33 @@ public abstract class ProviderConfigBase
     {
         get => _canonicalLinkDeadlines ??= new SerializableDictionary<string, DateTime>();
         set => _canonicalLinkDeadlines = value;
+    }
+
+    /// <summary>
+    /// Gets or sets, per canonical link, the instant of the last successful SSO login that resolved it
+    /// (#1120), in UTC. Keyed by the same stable subject as <see cref="CanonicalLinks"/>, so the map's
+    /// cardinality IS the link map's: a repeat login overwrites one value and never appends, and the entry is
+    /// removed with the link it describes. That is what makes it a bounded per-link field rather than an
+    /// event log, which is the property the roster's "last SSO login" column had to be built on.
+    /// <para>
+    /// It is deliberately coarse. A successful login only rewrites the stored instant once it is older than
+    /// <see cref="LastSsoLoginGranularity"/>, because the ordinary repeat login of an established user pays
+    /// no configuration persist at all today and a write-through stamp would put one on the login path - on
+    /// the file that carries every provider secret envelope and every link map. The trade is stated where a
+    /// reader of the value will meet it: the instant is accurate to the granularity, never fresher.
+    /// </para>
+    /// </summary>
+    // Server-managed exactly like CanonicalLinks and CanonicalLinkDeadlines: written by logins, never
+    // admin-edited, persisted in the config XML but withheld from every JSON response ([JsonIgnore]) so a
+    // config PUT can neither read the login history of a guessed subject back out nor forge an entry.
+    // Preserved on save by ServerManagedFields.Preserve. Self-healing lazy init, so a direct index
+    // assignment persists into the stored map.
+    [XmlElement("CanonicalLinkLastLogins")]
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SerializableDictionary<string, DateTime> CanonicalLinkLastLogins
+    {
+        get => _canonicalLinkLastLogins ??= new SerializableDictionary<string, DateTime>();
+        set => _canonicalLinkLastLogins = value;
     }
 }
 

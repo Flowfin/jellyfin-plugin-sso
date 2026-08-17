@@ -57,8 +57,14 @@ public partial class ArchitectureConformanceTests
         //   (#1145), the exact parallel of _canonicalLinks and bounded BY it - an entry is only ever written
         //   beside a live link and is removed with that link, so the link map is its ceiling and no separate
         //   cap or sweep convention is owed. Serialized config mutated only under the config lock.
+        // - ProviderConfigBase._canonicalLinkLastLogins: the persisted per-link last-SSO-login instants
+        //   (#1120), bounded by the link map in exactly the same way - one entry per live link, overwritten
+        //   rather than appended by a repeat login, removed with the link on every erasure route. It is the
+        //   ONE shape this rule has to keep out: a per-login event log would need a cap and a sweep, and the
+        //   reason this needs neither is the bound, so the exemption is granted to the bounded design and not
+        //   to the subject matter.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
-        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines" };
+        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins" };
 
         var offenders = PluginClasses
             .Where(t => !storeLike.Any(s => SimpleName(t).EndsWith(s, StringComparison.Ordinal)))

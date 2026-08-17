@@ -17,7 +17,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// <param name="CanonicalName">The identity key the link is stored under.</param>
 /// <param name="UserId">The Jellyfin user id the link points at, which may no longer resolve to an account.</param>
 /// <param name="Issuer">The issuer this OpenID link is bound to (#186), or null for SAML and for links written before the binding existed.</param>
-internal readonly record struct CanonicalLinkRow(string Protocol, string Provider, string CanonicalName, Guid UserId, string? Issuer);
+/// <param name="LastSsoLoginUtc">The instant of the last successful SSO login through this link (#1120), or null when none has been stamped since the field existed.</param>
+internal readonly record struct CanonicalLinkRow(string Protocol, string Provider, string CanonicalName, Guid UserId, string? Issuer, DateTime? LastSsoLoginUtc);
 
 /// <summary>
 /// Builds the portable account-link snapshot (#1126). It reads the two link maps and resolves each
@@ -67,7 +68,8 @@ internal static class LinkExport
                     provider,
                     link.Key,
                     link.Value,
-                    config.CanonicalLinkIssuers.TryGetValue(link.Key, out var issuer) ? issuer : null);
+                    config.CanonicalLinkIssuers.TryGetValue(link.Key, out var issuer) ? issuer : null,
+                    LastSsoLogin(config, link.Key));
             }
         }
 
@@ -75,7 +77,7 @@ internal static class LinkExport
         {
             foreach (var link in config.CanonicalLinks)
             {
-                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null);
+                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null, LastSsoLogin(config, link.Key));
             }
         }
     }
@@ -106,6 +108,11 @@ internal static class LinkExport
                 continue;
             }
 
+            // The last-SSO-login stamp on the row is deliberately NOT carried into this document (#1120). The
+            // export exists to be re-applied to a rebuilt server, and a login instant is an observation rather
+            // than restorable state: writing it back would assert a login that never happened on the new
+            // server, and shipping it out widens where that personal data travels for no gain. The roster,
+            // which is a read of the live server, is the one document that reports it.
             document.Links.Add(new LinkExportEntry
             {
                 Protocol = row.Protocol,
@@ -118,6 +125,17 @@ internal static class LinkExport
 
         return document;
     }
+
+    // The last-SSO-login stamp for one link (#1120), keyed by the same canonical name as the link itself and
+    // carried on both protocols. Null when no login has been stamped since the field existed, which is the
+    // honest answer a reader has to be able to distinguish from an instant: a default DateTime here would be
+    // rendered as a login in year one rather than as "never". Normalized to UTC on the way out, the same way
+    // every other reader of these maps does it, so what the roster serializes carries a Z and cannot be read
+    // as the server's local wall clock.
+    private static DateTime? LastSsoLogin(ProviderConfigBase config, string canonicalName) =>
+        config.CanonicalLinkLastLogins.TryGetValue(canonicalName, out var stamped)
+            ? stamped.ToUniversalTime()
+            : null;
 
     // A provider stored with a null config object is reachable through a null-bodied add (#350), and the
     // read side treats that the same fail-closed way the link listings do: skipped, never dereferenced.
