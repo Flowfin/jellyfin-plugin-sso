@@ -84,6 +84,36 @@ public partial class ArchitectureConformanceTests
         t.Name.Contains('<', StringComparison.Ordinal)
         || t.GetCustomAttribute<CompilerGeneratedAttribute>() is not null;
 
+    // The root namespace the code-coverage collector owns. Nothing in this repository may declare a type
+    // under it, so a type found there in the plugin assembly was put there by the measurement tool.
+    private const string CoverageCollectorRoot = "Microsoft.CodeCoverage";
+
+    // A type the coverage collector injected into the plugin assembly rather than one the plugin declares
+    // (#1376). Where the collector instruments statically - which is what it does on the CI runner, and what
+    // `EnableStaticManagedInstrumentation` forces locally - it rewrites SSO-Auth.dll and adds its own tracker,
+    // so reflection over the assembly returns a type no source file in this repository declares:
+    //
+    //     Microsoft.CodeCoverage.Instrumentation.Static.Tracker.StaticManagedTrackerTemplate_<guid>
+    //
+    // The structural rules below ask about THIS PLUGIN's types, so dropping it corrects what they mean instead
+    // of opening a hole in them: it sits beside IsCompilerGenerated for the same reason, a type nobody wrote.
+    // Keyed on the namespace, because the two alternatives were measured and are worse. The leaf name carries
+    // a per-run GUID (two runs of the same command produced ...Template_35ca082e-ddba-41f3-92d4-d3c73a3f411c
+    // and ...Template_d5693c66-87a6-4fe4-a052-30edbfe89233), so the full name cannot be pinned; and the only
+    // attributes the injected type carries are ExcludeFromCodeCoverage and SecuritySafeCritical, both of which
+    // a real plugin type may legitimately carry, so keying on a marker attribute would silently exempt plugin
+    // code from every rule here. Matching the collector's root rather than the tracker's exact namespace also
+    // survives a collector version that moves the injected type, and a namespace it moves OUT of Microsoft's
+    // root fails loudly rather than passing.
+    private static bool IsCoverageInstrumentation(Type t) => IsCoverageCollectorNamespace(t.Namespace);
+
+    // Whether a namespace belongs to the coverage collector, written exactly as the root-namespace rule writes
+    // its own containment test so the two cannot drift: the root itself, or a "root."-prefixed descendant. A
+    // sibling that merely starts with the same letters (Microsoft.CodeCoverageOfMine) is NOT the collector's.
+    private static bool IsCoverageCollectorNamespace(string? ns) =>
+        ns is not null
+        && (ns == CoverageCollectorRoot || ns.StartsWith(CoverageCollectorRoot + ".", StringComparison.Ordinal));
+
     // Every source file that declares a controller type, discovered from reflection so the controller
     // source scans follow the planned #318 controller split automatically (#388): reflection names the
     // controller TYPES (deriving from ControllerBase); the files are those declaring them - a partial-class

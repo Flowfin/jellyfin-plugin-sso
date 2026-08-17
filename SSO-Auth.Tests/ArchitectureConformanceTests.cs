@@ -77,10 +77,13 @@ public partial class ArchitectureConformanceTests
         typeof(ReplayCache), typeof(SamlRequestCache), typeof(OidcStateStore), typeof(SamlOutcomeStore),
     };
 
-    // Every production type, compiler-generated ones excluded - the base sequence for structural rules
-    // that must cover interfaces/enums/structs/delegates too (e.g. the namespace boundary).
+    // Every production type - the base sequence for structural rules that must cover
+    // interfaces/enums/structs/delegates too (e.g. the namespace boundary). Two kinds of type are not the
+    // plugin's, and both are dropped HERE rather than at each rule, so every rule below judges the same set:
+    // the ones the compiler emits, and the one the code-coverage collector injects when it instruments this
+    // assembly statically (#1376).
     private static IEnumerable<Type> AllPluginTypes =>
-        typeof(SSOPlugin).Assembly.GetTypes().Where(t => !IsCompilerGenerated(t));
+        typeof(SSOPlugin).Assembly.GetTypes().Where(t => !IsCompilerGenerated(t) && !IsCoverageInstrumentation(t));
 
     // The class subset, for rules that only make sense on classes (helper shape, controller base type).
     private static IEnumerable<Type> PluginClasses => AllPluginTypes.Where(t => t.IsClass);
@@ -159,5 +162,31 @@ public partial class ArchitectureConformanceTests
             .ToList();
 
         Assert.True(outside.Count == 0, "All plugin types must live under the " + Root + " root namespace: " + string.Join(", ", outside));
+    }
+
+    [Theory]
+    // What the collector owns, and is therefore dropped before the rules above see it (#1376): the namespace
+    // the injected tracker was measured in, the collector's root itself, and another descendant of that root,
+    // which is where a later collector version moving the tracker would put it.
+    [InlineData("Microsoft.CodeCoverage.Instrumentation.Static.Tracker", true)]
+    [InlineData("Microsoft.CodeCoverage", true)]
+    [InlineData("Microsoft.CodeCoverage.Somewhere.Else", true)]
+    // What it does not own, so the rule above still bites for the reason it names. The plugin's own root and
+    // its descendants are never dropped (a rule that dropped them would report nothing forever); the
+    // "…SSO_AuthEvil" sibling the rule exists to catch stays in scope; a namespace that merely opens with the
+    // collector's letters is somebody else's; and an ordinary foreign namespace is still an offender.
+    [InlineData(Root, false)]
+    [InlineData(Root + ".Api.Oidc", false)]
+    [InlineData(Root + "Evil", false)]
+    [InlineData("Microsoft.CodeCoverageOfMine", false)]
+    [InlineData("Microsoft.AspNetCore.Mvc", false)]
+    [InlineData(null, false)]
+    public void CoverageCollectorTypes_AreTheOnlyOnesTheStructuralRulesDrop(string? ns, bool dropped)
+    {
+        // The exclusion the base type sequence applies is a correction to what the rules MEAN - a type the
+        // measurement tool wrote is not one of the plugin's - so it has to be exactly as wide as the tool and
+        // no wider. Widen it and the rules stop reporting real strays; the rows below are the ones that would
+        // go red for it.
+        Assert.Equal(dropped, IsCoverageCollectorNamespace(ns));
     }
 }
