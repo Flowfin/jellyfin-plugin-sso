@@ -76,4 +76,17 @@ public class LinkedAccountEntry
     /// this user, or the username it fell back to for a link made before subjects were required.
     /// </summary>
     public string? CanonicalName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the last successful SSO login through this link (#1120), in UTC, or null when none has
+    /// been recorded. Null means exactly "never seen since this field existed" - a link that predates it, or
+    /// one whose account has not signed in since - and never a login at an unknown time, which is why it is
+    /// nullable rather than a default instant a reader would render as a date in year one.
+    /// <para>
+    /// It is accurate to the granularity the stamp is coalesced at, not to the second: the plugin rewrites the
+    /// stored instant only once it has aged, so that an ordinary repeat login costs no configuration write.
+    /// Read it as "not later than", and do not build a session timeline on it.
+    /// </para>
+    /// </summary>
+    public DateTime? LastSsoLoginUtc { get; set; }
 }

@@ -11,6 +11,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **The account-link roster now reports the last SSO login (#1120).** Each link
+  in the roster carries the moment a login last signed in through it, so an
+  administrator can tell a live link from one nobody has used. Nothing is added
+  to the log: the plugin keeps one timestamp per link that already exists,
+  overwritten by the next login rather than appended to, and it is removed the
+  moment the link is - by unlinking, by removing an account's links from the
+  dashboard, and by deleting or repointing the provider. The stored value is
+  deliberately coarse. It is rewritten only once it is more than an hour old, so
+  signing in repeatedly costs no write to the plugin configuration, and the
+  roster reports "not later than" rather than a precise instant. A link nobody
+  has used since this version, or one made before it, reports nothing at all
+  instead of a made-up date. The value is withheld from the configuration page
+  in both directions: it cannot be read back through it, and a settings save can
+  neither clear it nor invent one. It is not part of the portable link export
+  either, because a login instant belongs to the server that observed it and
+  cannot be restored onto another.
 - **A per-provider starting policy for accounts SSO creates (#1099).** A
   provider can carry a template whose set fields are written onto a brand-new
   SSO account at creation: any of the boolean Jellyfin permissions, a

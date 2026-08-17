@@ -177,6 +177,13 @@ internal sealed class LoginCompletionService
             () => _canonicalLinks.IsIdentityStillLinked(identity.LinkMode, identity.Provider, identity.Subject, userId)).ConfigureAwait(false);
         SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, identity.Username, identity.Admin);
 
+        // Stamp the link the login resolved (#1120), at the one point that knows both that the mint succeeded
+        // and which link carried it. Placed AFTER the mint on purpose: a refused or failed login must leave no
+        // trace in a field the roster presents as "last SSO login", and a stamp written before the mint would
+        // record attempts. Bounded and coalesced inside the service - see RecordLastSsoLogin - so an
+        // established user's repeat login still pays no configuration persist.
+        _canonicalLinks.RecordLastSsoLogin(identity.LinkMode, identity.Provider, identity.Subject);
+
         CaptureLogoutState(identity, userId, logoutContext, authenticationResult);
 
         return LoginStatusMapper.ToActionResult(new LoginOutcome.Success(authenticationResult));

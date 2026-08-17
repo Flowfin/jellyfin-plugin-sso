@@ -61,6 +61,7 @@ internal static class LinkRoster
                 Protocol = row.Protocol,
                 Provider = row.Provider,
                 CanonicalName = row.CanonicalName,
+                LastSsoLoginUtc = row.LastSsoLoginUtc,
             });
         }
 

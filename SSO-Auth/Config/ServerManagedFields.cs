@@ -116,6 +116,12 @@ internal static class ServerManagedFields
         // one across a repoint would hand a different identity provider's subject an inherited deadline.
         incoming.CanonicalLinkDeadlines = endpointUnchanged ? live.CanonicalLinkDeadlines : new SerializableDictionary<string, DateTime>();
 
+        // The last-SSO-login stamps ride with the links on both arms too (#1120), and the DROP arm is the one
+        // that matters for a personal-data field: a repoint re-identifies the provider, so carrying the login
+        // history of subjects whose links were just dropped would retain personal data about accounts this
+        // provider no longer knows, with no administrator route left to erase it.
+        incoming.CanonicalLinkLastLogins = endpointUnchanged ? live.CanonicalLinkLastLogins : new SerializableDictionary<string, DateTime>();
+
         incoming.OidSecret = ResolveUpdatedSecret(incoming, live);
     }
 
@@ -146,6 +152,11 @@ internal static class ServerManagedFields
         // save silently clearing every stored deadline - which would leave the sweep nothing to act on and
         // turn a time-limited account back into an unlimited one. SAML has no repoint belt to gate it on.
         incoming.CanonicalLinkDeadlines = live.CanonicalLinkDeadlines;
+
+        // Same shape for the last-SSO-login stamps (#1120): withheld from JSON, so a config-page save arrives
+        // with the map empty and re-injecting the live one is what stops an unrelated settings change silently
+        // resetting every "last SSO login" in the roster to never.
+        incoming.CanonicalLinkLastLogins = live.CanonicalLinkLastLogins;
         incoming.SamlSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlSigningKeyPfx, live.SamlSigningKeyPfx);
         incoming.SamlRolloverSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlRolloverSigningKeyPfx, live.SamlRolloverSigningKeyPfx);
     }

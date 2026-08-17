@@ -777,6 +777,85 @@ internal sealed class CanonicalLinkService
     }
 
     /// <summary>
+    /// Stamps the instant of a successful SSO login against the canonical link it resolved (#1120), so the
+    /// administrator roster can answer "last SSO login" without any event log being kept.
+    /// <para>
+    /// Bounded by construction, which is the whole design: an entry is only ever written beside a live link,
+    /// so the map's cardinality is the link map's, a repeat login overwrites one value rather than appending,
+    /// and <see cref="TryRemoveLink"/> / <see cref="RemoveUserEverywhere"/> take the entry away with the link.
+    /// </para>
+    /// <para>
+    /// Coarse on purpose. An established user's repeat login pays no configuration persist today, and this is
+    /// the login hot path, so a write-through stamp would add one write per login to the file that carries
+    /// every provider secret envelope and every link map. The stamp is therefore only rewritten once it has
+    /// aged past <see cref="ProviderConfigBase.LastSsoLoginGranularity"/>: the value is accurate to that
+    /// resolution and never fresher, and the roster's wording has to promise no more than that.
+    /// </para>
+    /// </summary>
+    /// <param name="mode">The provider protocol the link belongs to.</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="canonicalKey">The stable subject key the link is stored under.</param>
+    internal void RecordLastSsoLogin(ProviderMode mode, string provider, string? canonicalKey)
+    {
+        if (string.IsNullOrWhiteSpace(canonicalKey))
+        {
+            return;
+        }
+
+        var nowUtc = _clock().ToUniversalTime();
+
+        // Decided under a locked READ so the common case - an established user logging in again inside the
+        // granularity window - reaches no write at all. The decision and the write are two lock acquisitions
+        // deliberately: the field is last-writer-wins by definition, so the worst a login racing another can
+        // produce is one redundant write of an equivalent instant, and there is nothing a single held lock
+        // would protect. A stored instant in the FUTURE (a config restored from a machine whose clock ran
+        // ahead, or a clock stepped back) is also due, because `now - stored` is negative there and a stamp
+        // that is never overdue would be frozen forever.
+        var due = _configStore.Read(configuration =>
+            TryGetProvider(configuration, mode, provider, out var config)
+            && config.CanonicalLinks.ContainsKey(canonicalKey)
+            && (!config.CanonicalLinkLastLogins.TryGetValue(canonicalKey, out var stored)
+                || stored.ToUniversalTime() > nowUtc
+                || nowUtc - stored.ToUniversalTime() >= ProviderConfigBase.LastSsoLoginGranularity));
+
+        if (!due)
+        {
+            return;
+        }
+
+        // AVAILABILITY. This is bookkeeping for a roster column and it runs AFTER the session has been minted,
+        // so a configuration persist that throws - a read-only or full volume being the ordinary way - must not
+        // turn a login that has already succeeded into an error the user sees, which is what an escaping
+        // exception here would do. It is deliberately swallowed to a warning: the cost of the failure is a
+        // stale "last SSO login", and letting it out would trade a cosmetic gap for SSO refusing every login
+        // on the server. The deadline writer above is deliberately NOT given the same treatment, because a
+        // lost deadline is lost ENFORCEMENT rather than a lost display.
+        try
+        {
+            _configStore.Mutate(configuration =>
+            {
+                // Re-tested inside the write lock rather than trusted from the read above: an unlink landing
+                // between the two acquisitions must not resurrect a stamp for a subject that no longer holds
+                // a link, which is the bound every other guarantee here rests on.
+                if (TryGetProvider(configuration, mode, provider, out var config) && config.CanonicalLinks.ContainsKey(canonicalKey))
+                {
+                    config.CanonicalLinkLastLogins[canonicalKey] = nowUtc;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            // The provider only, never the subject: this names whose bookkeeping failed and nothing that
+            // identifies the account, which is the rule the audit trail already holds itself to. Line endings
+            // are stripped AT the call rather than in a helper, because the sanitizer does not survive one.
+            _logger.LogWarning(
+                ex,
+                "[SSO] Could not record the last SSO login for provider {Provider}. The login itself succeeded; the roster timestamp is stale.",
+                provider?.ReplaceLineEndings(string.Empty));
+        }
+    }
+
+    /// <summary>
     /// The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across the
     /// providers of both protocols, materialized in one locked pass (#1145).
     /// </summary>
@@ -1006,6 +1085,12 @@ internal sealed class CanonicalLinkService
             // subject must start with no deadline rather than inherit the removed link's.
             RemoveDeadline(configuration, mode, provider, canonicalName);
 
+            // Drop the last-SSO-login stamp alongside the link (#1120). Unlinking IS the erasure route an
+            // administrator has for that personal data, so a stamp that survived the unlink would be login
+            // history retained for a subject the server no longer knows, and a re-link of the same subject
+            // would report a "last SSO login" that belongs to the previous holder of the key.
+            RemoveLastSsoLogin(configuration, mode, provider, canonicalName);
+
             // Whether the user keeps any other canonical link across ALL providers, read in the SAME
             // transaction as the removal (#468): computing it here rather than in a second lock acquisition
             // means a concurrent link add/remove cannot interleave between the remove and the check and
@@ -1097,6 +1182,16 @@ internal sealed class CanonicalLinkService
                     foreach (var staleKey in config.CanonicalLinkDeadlines.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
                     {
                         config.CanonicalLinkDeadlines.Remove(staleKey);
+                    }
+
+                    // And the last-SSO-login stamps (#1120), on both protocols for the same reason the
+                    // deadlines are: this path removes the links directly rather than through TryRemoveLink,
+                    // so it needs its own prune, and the admin Unregister is the erasure route the retention
+                    // promise names. A stamp left behind here would be login history for an account whose
+                    // links were just revoked, with nothing left in the roster to reach it by.
+                    foreach (var staleKey in config.CanonicalLinkLastLogins.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
+                    {
+                        config.CanonicalLinkLastLogins.Remove(staleKey);
                     }
                 }
             }
@@ -1322,6 +1417,18 @@ internal sealed class CanonicalLinkService
         if (TryGetProvider(configuration, mode, provider, out var config))
         {
             config.CanonicalLinkDeadlines.Remove(canonicalKey);
+        }
+    }
+
+    // Drops a link's last-SSO-login stamp within the caller's already-held config transaction (#1120), called
+    // alongside a link removal. Kept as its own named step beside RemoveDeadline rather than folded into it,
+    // because the two are removed for different reasons: an orphan deadline is bookkeeping the sweep would act
+    // on, an orphan stamp is retained personal data whose erasure route was just taken.
+    private static void RemoveLastSsoLogin(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
+    {
+        if (TryGetProvider(configuration, mode, provider, out var config))
+        {
+            config.CanonicalLinkLastLogins.Remove(canonicalKey);
         }
     }
 
