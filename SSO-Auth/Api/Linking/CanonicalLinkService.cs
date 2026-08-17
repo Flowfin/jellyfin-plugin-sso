@@ -91,6 +91,19 @@ internal enum IssuerBinding
 internal readonly record struct CanonicalLinkRemoval(CanonicalLinkRemoveResult Result, bool UserRetainsAnyLink);
 
 /// <summary>
+/// One canonical link whose persisted account-expiry deadline has passed (#1145), as seen in a single locked
+/// pass. A detached snapshot rather than a live view: the sweep acts on each entry in its own transaction, so
+/// materializing the candidates first keeps the config lock short and cannot tear against a concurrent login.
+/// Every entry is re-resolved and re-guarded by the disable it feeds, so an entry that stopped being true in
+/// between is a no-op rather than a wrong disable.
+/// </summary>
+/// <param name="Mode">The provider protocol the link belongs to.</param>
+/// <param name="Provider">The provider name.</param>
+/// <param name="CanonicalKey">The stable subject key the link and the deadline are stored under.</param>
+/// <param name="UserId">The Jellyfin user the link points at, as read in that pass.</param>
+internal readonly record struct ExpiredCanonicalLink(ProviderMode Mode, string Provider, string CanonicalKey, Guid UserId);
+
+/// <summary>
 /// The account-linking workflow behind the SSO login and admin endpoints: it resolves an SSO identity
 /// to a Jellyfin account (reusing an existing canonical link, adopting a pre-existing account, or
 /// creating one), migrates legacy username-keyed links to the stable subject key (#155), and revokes
@@ -652,8 +665,8 @@ internal sealed class CanonicalLinkService
     /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose login was denied.</param>
     /// <param name="issuer">The denied login's token issuer (OpenID only; null for SAML), checked against the link's stored issuer binding (#186) so a colliding subject from a repointed identity provider cannot disable the prior provider's account.</param>
     /// <returns><see langword="true"/> when an enabled non-admin account was actually disabled (so the caller audits it); otherwise <see langword="false"/>.</returns>
-    internal Task<bool> DisableDeniedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
-        DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer);
+    internal async Task<bool> DisableDeniedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
+        await DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer, enforceIssuerBinding: true).ConfigureAwait(false) is not null;
 
     /// <summary>
     /// Login-time enforcement of an account-expiry deadline (#1144): when a login carries an expiry instant
@@ -674,19 +687,123 @@ internal sealed class CanonicalLinkService
     /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose deadline has passed.</param>
     /// <param name="issuer">The login's token issuer (OpenID only; null for SAML), checked against the link's stored issuer binding (#186).</param>
     /// <returns><see langword="true"/> when an enabled non-admin account was actually disabled (so the caller audits it once, at the transition); otherwise <see langword="false"/>.</returns>
-    internal Task<bool> DisableExpiredAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
-        DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer);
+    internal async Task<bool> DisableExpiredAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
+        await DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer, enforceIssuerBinding: true).ConfigureAwait(false) is not null;
 
-    // The shared body of both login-time disable paths above. Kept private and unnamed for either caller so
-    // neither reason can acquire a guard the other lacks: PermissionRolePolicy bars IsDisabled from SSO role
-    // mapping precisely so no login can disable an account, and these are its two sanctioned exceptions
-    // (#831, #1144, alongside #737). Two exceptions sharing one body is what keeps that policy's invariant
-    // readable - the guard below is stated once and cannot be present in one exception and absent in the other.
-    private async Task<bool> DisableLinkedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer)
+    /// <summary>
+    /// Between-logins enforcement of an account-expiry deadline (#1145): the background sweep's disable, for
+    /// a link whose persisted deadline has passed with no intervening login. Returns the account it actually
+    /// disabled so the caller can revoke exactly that user's tokens, which a boolean could not name.
+    /// <para>
+    /// Same body, same mass-lockout guard (T-D1), same never-create/never-adopt resolution, same no-op on an
+    /// already-disabled account as the two login paths above. It differs in ONE respect and the difference is
+    /// deliberate: the issuer binding (#186) is not applied, because there is no incoming login to bind
+    /// against. That check exists to stop a login whose subject collides with a link stamped for a DIFFERENT
+    /// identity provider from acting on the prior provider's account; a sweep reads the stored link by its own
+    /// stored key and has no second party to confuse it with, so comparing the stored issuer with itself would
+    /// be a tautology, while passing a null issuer would instead classify every properly bound link as a
+    /// Mismatch and silently exempt exactly the links that are correctly stamped.
+    /// </para>
+    /// </summary>
+    /// <param name="mode">The provider protocol the link belongs to.</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="canonicalKey">The stable subject key whose persisted deadline has passed.</param>
+    /// <returns>The Jellyfin user id disabled by this call, or <see langword="null"/> when nothing was disabled (no live link, deleted user, administrator, or already disabled).</returns>
+    internal Task<Guid?> DisableExpiredAccountBySweepAsync(ProviderMode mode, string provider, string? canonicalKey) =>
+        DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer: null, enforceIssuerBinding: false);
+
+    /// <summary>
+    /// Persists the account-expiry instant a login carried for one canonical link (#1145), in its own config
+    /// transaction. Idempotent and last-writer-wins: the identity provider is authoritative about its own
+    /// deadline, so a login carrying a moved instant moves the stored one.
+    /// <para>
+    /// Written only when the link still exists, which is what bounds the map: an entry can only be created
+    /// beside a live link, and <see cref="TryRemoveLink"/> / <see cref="RemoveUserEverywhere"/> take it away
+    /// with that link. Nothing else may write here - the map is withheld from JSON precisely so a config PUT
+    /// cannot forge a PAST instant for a guessed subject and have the sweep disable that account.
+    /// </para>
+    /// </summary>
+    /// <param name="mode">The provider protocol the link belongs to.</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="canonicalKey">The stable subject key the link is stored under.</param>
+    /// <param name="deadlineUtc">The expiry instant to persist, in UTC.</param>
+    internal void RecordAccountDeadline(ProviderMode mode, string provider, string? canonicalKey, DateTime deadlineUtc)
     {
         if (string.IsNullOrWhiteSpace(canonicalKey))
         {
-            return false;
+            return;
+        }
+
+        _configStore.Mutate(configuration =>
+        {
+            if (TryGetProvider(configuration, mode, provider, out var config) && config.CanonicalLinks.ContainsKey(canonicalKey))
+            {
+                config.CanonicalLinkDeadlines[canonicalKey] = deadlineUtc.ToUniversalTime();
+            }
+        });
+    }
+
+    /// <summary>
+    /// The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across the
+    /// providers of both protocols, materialized in one locked pass (#1145).
+    /// </summary>
+    /// <remarks>
+    /// A candidate list, not a verdict. Whether an entry may be acted on at all is decided in ONE place, by
+    /// <see cref="DisableExpiredAccountBySweepAsync"/>, which re-resolves the link under the config lock and
+    /// applies every guard - including <c>requireEnabled</c>, so a provider an administrator switched off is
+    /// left alone: its logins are already refused, and reading that switch as permission to disable its whole
+    /// userbase unattended is the opposite of what it says. Re-stating that test here would be a second place
+    /// for it to drift out of and could not be proven independently, so this walk does not carry it. A
+    /// deadline whose link has gone IS skipped here, because without a link there is no account to name. The
+    /// pass is a bounded walk over the persisted maps and contacts no identity provider.
+    /// </remarks>
+    /// <param name="nowUtc">The instant to compare each deadline against.</param>
+    /// <returns>The expired links, as a detached snapshot.</returns>
+    internal IReadOnlyList<ExpiredCanonicalLink> ExpiredLinks(DateTime nowUtc)
+    {
+        return _configStore.Read(configuration =>
+        {
+            var expired = new List<ExpiredCanonicalLink>();
+            Collect(configuration.SamlConfigs, ProviderMode.Saml, expired);
+            Collect(configuration.OidConfigs, ProviderMode.Oid, expired);
+            return (IReadOnlyList<ExpiredCanonicalLink>)expired;
+        });
+
+        void Collect<T>(SerializableDictionary<string, T> configs, ProviderMode mode, List<ExpiredCanonicalLink> into)
+            where T : ProviderConfigBase
+        {
+            foreach (var entry in configs)
+            {
+                // A provider stored with a null config object (reachable via the null-body add, #350) holds
+                // nothing to sweep; skipped rather than dereferenced, as everywhere else in this file.
+                if (entry.Value is not { } config)
+                {
+                    continue;
+                }
+
+                foreach (var deadline in config.CanonicalLinkDeadlines)
+                {
+                    if (deadline.Value <= nowUtc && config.CanonicalLinks.TryGetValue(deadline.Key, out var userId))
+                    {
+                        into.Add(new ExpiredCanonicalLink(mode, entry.Key, deadline.Key, userId));
+                    }
+                }
+            }
+        }
+    }
+
+    // The shared body of every disable-a-linked-account path above. Kept private and unnamed for any caller
+    // so none can acquire a guard another lacks: PermissionRolePolicy bars IsDisabled from SSO role mapping
+    // precisely so no login can disable an account, and these are its sanctioned exceptions (#831, #1144,
+    // #1145, alongside #737). The exceptions sharing one body is what keeps that policy's invariant readable
+    // - the guard below is stated once and cannot be present in one exception and absent in another. Returns
+    // the disabled user id rather than a flag so the sweep can revoke that one account's tokens; the
+    // login-path wrappers project it back to the boolean they have always returned.
+    private async Task<Guid?> DisableLinkedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer, bool enforceIssuerBinding)
+    {
+        if (string.IsNullOrWhiteSpace(canonicalKey))
+        {
+            return null;
         }
 
         // Resolve the existing subject-keyed link under the config lock; never a create, never the legacy
@@ -697,30 +814,30 @@ internal sealed class CanonicalLinkService
         var userId = _configStore.Read(configuration =>
             TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links)
                 && links.TryGetValue(canonicalKey, out var linked)
-                && ClassifyIssuer(configuration, mode, provider, canonicalKey, issuer) != IssuerBinding.Mismatch
+                && (!enforceIssuerBinding || ClassifyIssuer(configuration, mode, provider, canonicalKey, issuer) != IssuerBinding.Mismatch)
                 ? (Guid?)linked
                 : null);
         if (userId is null)
         {
-            return false;
+            return null;
         }
 
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
         {
-            return false;
+            return null;
         }
 
         // THE GUARD: an administrator is never disabled by SSO denial (covers the break-glass admin), so this
         // path can never strand the server. An already-disabled account is left untouched (no re-audit).
         if (user.HasPermission(PermissionKind.IsAdministrator) || user.HasPermission(PermissionKind.IsDisabled))
         {
-            return false;
+            return null;
         }
 
         user.SetPermission(PermissionKind.IsDisabled, true);
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-        return true;
+        return userId;
     }
 
     // Logs the name-taken refusal (distinguishing a pending migratable legacy link from an ordinary #95
@@ -851,6 +968,11 @@ internal sealed class CanonicalLinkService
             // orphans and a later re-link of the same sub is not judged against a stale binding. No-op for SAML.
             RemoveIssuer(configuration, mode, provider, canonicalName);
 
+            // Drop the persisted expiry deadline alongside the link (#1145), for the same reason and on both
+            // protocols: an orphan deadline is unreachable bookkeeping, and a later re-link of the same
+            // subject must start with no deadline rather than inherit the removed link's.
+            RemoveDeadline(configuration, mode, provider, canonicalName);
+
             // Whether the user keeps any other canonical link across ALL providers, read in the SAME
             // transaction as the removal (#468): computing it here rather than in a second lock acquisition
             // means a concurrent link add/remove cannot interleave between the remove and the check and
@@ -930,6 +1052,18 @@ internal sealed class CanonicalLinkService
                     foreach (var staleKey in oid.CanonicalLinkIssuers.Keys.Where(k => !liveLinks.ContainsKey(k)).ToList())
                     {
                         oid.CanonicalLinkIssuers.Remove(staleKey);
+                    }
+                }
+
+                // The same prune for the expiry deadlines (#1145), on BOTH protocols - unlike the issuer map
+                // this one exists for SAML too. An orphan here is worse than dead weight: it would name a
+                // subject whose link was just revoked, so a re-link of that subject would arrive already
+                // expired and be disabled by the next sweep tick.
+                if (config?.CanonicalLinks is { } remaining)
+                {
+                    foreach (var staleKey in config.CanonicalLinkDeadlines.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
+                    {
+                        config.CanonicalLinkDeadlines.Remove(staleKey);
                     }
                 }
             }
@@ -1121,6 +1255,33 @@ internal sealed class CanonicalLinkService
         var ok = configs.TryGetValue(provider, out var config);
         links = config?.CanonicalLinks;
         return ok && links != null && (!requireEnabled || config?.Enabled == true);
+    }
+
+    // The provider config object itself, for the server-managed map that hangs off it and is not the links
+    // map (the deadlines, #1145). Same fail-closed shape as TryGetLinks: a missing provider, or an entry
+    // stored with a null config object (#350), returns false rather than being dereferenced. Callers must
+    // hold the config lock; the maps are self-healing, so mutating the returned object's map persists.
+    private static bool TryGetProvider(PluginConfiguration configuration, ProviderMode mode, string provider, [NotNullWhen(true)] out ProviderConfigBase? config)
+    {
+        config = mode switch
+        {
+            ProviderMode.Saml => configuration.SamlConfigs.TryGetValue(provider, out var saml) ? saml : null,
+            ProviderMode.Oid => configuration.OidConfigs.TryGetValue(provider, out var oid) ? oid : null,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown provider mode."),
+        };
+
+        return config is not null;
+    }
+
+    // Drops a link's persisted expiry deadline within the caller's already-held config transaction (#1145),
+    // called alongside a link removal so the deadline map does not outlive the links it keys off. Without it
+    // a re-link of the same subject would inherit the previous holder's deadline and be swept immediately.
+    private static void RemoveDeadline(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
+    {
+        if (TryGetProvider(configuration, mode, provider, out var config))
+        {
+            config.CanonicalLinkDeadlines.Remove(canonicalKey);
+        }
     }
 
     // Classifies an OpenID subject link's issuer binding against the login's issuer, read under the caller's

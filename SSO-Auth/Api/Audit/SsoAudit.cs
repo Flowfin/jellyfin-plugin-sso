@@ -126,6 +126,30 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty));
     }
 
+    /// <summary>
+    /// Records an account being disabled by the between-logins expiry sweep (#1145): its persisted deadline
+    /// passed with no login attempt in between, so nothing on the login path was ever going to notice. Fired
+    /// once, at the transition, never on later ticks that find the account already disabled. Carries the same
+    /// non-sensitive fields as the login-time line - the protocol and provider name, never the subject or the
+    /// deadline (T-I1) - and is worded distinctly from it because the two answer different operator questions:
+    /// this one says access ended on the clock while the user was away.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name.</param>
+    internal static void AccountExpiredBySweep(ILogger logger, string protocol, string provider)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Account disabled by account expiry: the background expiry sweep found a stored deadline at or before now for a {Protocol} provider '{Provider}' link with no intervening login, so the account was disabled and its tokens were revoked (AccountExpiryClaim). Administrators are never disabled by this path.",
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty));
+    }
+
     /// <summary>Records a provider being added or updated.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>

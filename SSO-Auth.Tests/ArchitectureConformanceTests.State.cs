@@ -53,8 +53,12 @@ public partial class ArchitectureConformanceTests
         // - PluginConfiguration._logoutSessions: the persisted Single Logout session map (#727) - serialized
         //   config mutated only under the config lock via SessionLogoutStore, so it is config state, not
         //   in-flight state; the store type (SessionLogoutStore) holds the bounding logic, not the field.
+        // - ProviderConfigBase._canonicalLinkDeadlines: the persisted per-link account-expiry instants
+        //   (#1145), the exact parallel of _canonicalLinks and bounded BY it - an entry is only ever written
+        //   beside a live link and is removed with that link, so the link map is its ceiling and no separate
+        //   cap or sweep convention is owed. Serialized config mutated only under the config lock.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
-        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions" };
+        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines" };
 
         var offenders = PluginClasses
             .Where(t => !storeLike.Any(s => SimpleName(t).EndsWith(s, StringComparison.Ordinal)))
