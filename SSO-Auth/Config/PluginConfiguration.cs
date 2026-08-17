@@ -174,6 +174,7 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
 public abstract class ProviderConfigBase
 {
     private SerializableDictionary<string, Guid>? _canonicalLinks;
+    private SerializableDictionary<string, DateTime>? _canonicalLinkDeadlines;
 
     /// <summary>
     /// Gets or sets the canonical external base URL for this provider, e.g.
@@ -425,6 +426,33 @@ public abstract class ProviderConfigBase
         // assignment cannot race; an empty map serializes the same as the old throwaway did.
         get => _canonicalLinks ??= new SerializableDictionary<string, Guid>();
         set => _canonicalLinks = value;
+    }
+
+    /// <summary>
+    /// Gets or sets, per canonical link, the account-expiry instant the last login carried for it (#1145),
+    /// in UTC. Keyed by the same stable subject as <see cref="CanonicalLinks"/>. Written only while
+    /// <see cref="AccountExpiryClaim"/> is configured and only for a link whose deadline is still in the
+    /// future; removed with its link, so the map is bounded by the link map rather than growing on its own.
+    /// <para>
+    /// It exists because login-time enforcement (#1144) only fires when the expired user comes back. A guest
+    /// who simply stops logging in keeps an enabled account, any long-lived token and - with
+    /// <see cref="PluginConfiguration.DisablePasswordLogin"/> off - a password door, indefinitely. Persisting
+    /// the instant is what lets the background sweep end access ON the deadline rather than at the next
+    /// login attempt, and persisting it in the config XML rather than in memory is what makes that survive a
+    /// restart.
+    /// </para>
+    /// </summary>
+    // Server-managed exactly like CanonicalLinks: written by logins, never admin-edited, persisted in the
+    // config XML but withheld from every JSON response ([JsonIgnore]) so a config PUT can neither read the
+    // deadlines back nor forge one - forging a PAST instant would be a remote disable of any account whose
+    // subject the poster can guess. Preserved on save by ServerManagedFields.Preserve. Self-healing lazy
+    // init, so a direct index assignment persists into the stored map.
+    [XmlElement("CanonicalLinkDeadlines")]
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SerializableDictionary<string, DateTime> CanonicalLinkDeadlines
+    {
+        get => _canonicalLinkDeadlines ??= new SerializableDictionary<string, DateTime>();
+        set => _canonicalLinkDeadlines = value;
     }
 }
 

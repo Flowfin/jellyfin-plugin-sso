@@ -111,6 +111,11 @@ internal static class ServerManagedFields
         incoming.CanonicalLinks = endpointUnchanged ? live.CanonicalLinks : new SerializableDictionary<string, Guid>();
         incoming.CanonicalLinkIssuers = endpointUnchanged ? live.CanonicalLinkIssuers : new SerializableDictionary<string, string>();
 
+        // The expiry deadlines ride with the links they key off (#1145), on both arms of the repoint belt: a
+        // deadline whose link was just dropped would be an orphan the sweep can never redeem, and carrying
+        // one across a repoint would hand a different identity provider's subject an inherited deadline.
+        incoming.CanonicalLinkDeadlines = endpointUnchanged ? live.CanonicalLinkDeadlines : new SerializableDictionary<string, DateTime>();
+
         incoming.OidSecret = ResolveUpdatedSecret(incoming, live);
     }
 
@@ -135,6 +140,12 @@ internal static class ServerManagedFields
         }
 
         incoming.CanonicalLinks = live.CanonicalLinks;
+
+        // As on the OpenID arm (#1145), and for the stronger of the two reasons: these are withheld from
+        // JSON, so a config-page save arrives with them empty and re-injecting the live map is what stops a
+        // save silently clearing every stored deadline - which would leave the sweep nothing to act on and
+        // turn a time-limited account back into an unlimited one. SAML has no repoint belt to gate it on.
+        incoming.CanonicalLinkDeadlines = live.CanonicalLinkDeadlines;
         incoming.SamlSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlSigningKeyPfx, live.SamlSigningKeyPfx);
         incoming.SamlRolloverSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlRolloverSigningKeyPfx, live.SamlRolloverSigningKeyPfx);
     }

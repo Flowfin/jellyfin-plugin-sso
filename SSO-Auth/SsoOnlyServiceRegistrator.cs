@@ -30,6 +30,11 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddHostedService<SsoOnlyReconciliationService>();
 
+        // Ends access ON an account-expiry deadline rather than at the expired user's next login attempt
+        // (#1145). Login-time enforcement (#1144) never fires for a guest who simply stops coming back, so
+        // without a timer the deadline binds only those who return.
+        serviceCollection.AddHostedService<AccountExpirySweepService>();
+
         // Keeps the login-page "Sign in with …" buttons (#722) in sync with the configured providers by
         // splicing a managed block into the server's branding login disclaimer on every config change.
         serviceCollection.AddHostedService<LoginButtonManager>();
