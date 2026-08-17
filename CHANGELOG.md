@@ -226,6 +226,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The sign-in buttons did not look like the login page's own buttons (#1372).**
+  Jellyfin restyles every link in the login disclaimer at runtime: it adds its
+  own `button-link` class, which is declared after `emby-button` at the same
+  specificity and so wins. What that class takes away is the padding the button
+  classes had set, and it underlines the label on hover. The button this plugin
+  ships therefore rendered barely wider than its text, in link colour and
+  underlined, and an administrator who wanted it to match the buttons above it
+  had to write nine declarations of custom CSS. Each button now carries the four
+  declarations that restore what the runtime class removed, as an inline style,
+  which beats a class rule in every state including hover. Nothing else changes:
+  the plugin still manages only its own region of the disclaimer, and your custom
+  CSS stays yours. The buttons are still not stretched across the page, because
+  the disclaimer is a flex item that shrinks to its content and widening it would
+  mean restyling Jellyfin's own containers; the wiki carries that two-line
+  snippet for anyone who wants it. Found and measured by
+  [@teekennedy](https://github.com/teekennedy) in discussion #1342.
+
 - **A second, unremovable set of sign-in buttons on the login page (#1344).**
   The plugin fences the buttons it manages inside the login disclaimer with a
   marker comment, and finds that region again by an exact search on the next
