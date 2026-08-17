@@ -744,15 +744,18 @@ internal sealed class CanonicalLinkService
     }
 
     /// <summary>
-    /// The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across every
-    /// ENABLED provider of both protocols, materialized in one locked pass (#1145).
+    /// The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across the
+    /// providers of both protocols, materialized in one locked pass (#1145).
     /// </summary>
     /// <remarks>
-    /// A DISABLED provider is skipped, the same treatment every grant path gives it: its logins are already
-    /// refused, and an administrator who switched a provider off has asked for its logins to stop, not for
-    /// its userbase to be disabled while nobody is watching. A deadline whose link has since gone is skipped
-    /// too, so a stale entry cannot name an account it no longer describes. The pass is a bounded walk over
-    /// the persisted maps and contacts no identity provider.
+    /// A candidate list, not a verdict. Whether an entry may be acted on at all is decided in ONE place, by
+    /// <see cref="DisableExpiredAccountBySweepAsync"/>, which re-resolves the link under the config lock and
+    /// applies every guard - including <c>requireEnabled</c>, so a provider an administrator switched off is
+    /// left alone: its logins are already refused, and reading that switch as permission to disable its whole
+    /// userbase unattended is the opposite of what it says. Re-stating that test here would be a second place
+    /// for it to drift out of and could not be proven independently, so this walk does not carry it. A
+    /// deadline whose link has gone IS skipped here, because without a link there is no account to name. The
+    /// pass is a bounded walk over the persisted maps and contacts no identity provider.
     /// </remarks>
     /// <param name="nowUtc">The instant to compare each deadline against.</param>
     /// <returns>The expired links, as a detached snapshot.</returns>
@@ -773,7 +776,7 @@ internal sealed class CanonicalLinkService
             {
                 // A provider stored with a null config object (reachable via the null-body add, #350) holds
                 // nothing to sweep; skipped rather than dereferenced, as everywhere else in this file.
-                if (entry.Value is not { Enabled: true } config)
+                if (entry.Value is not { } config)
                 {
                     continue;
                 }

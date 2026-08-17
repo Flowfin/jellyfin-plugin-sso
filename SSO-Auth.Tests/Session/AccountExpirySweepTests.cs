@@ -110,7 +110,8 @@ public class AccountExpirySweepTests
     {
         // A provider an administrator switched off already refuses every login for it. Reading that as
         // permission to disable its whole userbase while nobody is watching is the opposite of what the
-        // switch says, so the sweep skips it exactly as every grant path does.
+        // switch says. The refusal is the shared disable body's requireEnabled resolve rather than a second
+        // test in the walk, which is why removing that argument - and nothing in the sweep - reddens this.
         var (sweep, config, users, sessions, _) = Build();
         var user = LinkedUser(users, config, admin: false, deadline: Past);
         config.Enabled = false;
