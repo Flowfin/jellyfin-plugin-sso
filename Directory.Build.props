@@ -1,6 +1,37 @@
 <Project>
 
   <PropertyGroup>
+      <!-- The graph is watched, not only recorded. NuGet checks the restored graph
+           against the advisory database and NU1901 to NU1904 are raised to errors, so a
+           known-vulnerable package fails the restore. Left as warnings they would be
+           true and green, printed into a log nobody reads.
+  
+           This board committed a lockfile and ran no audit, which is the worse half of
+           the pair: the graph was held still and nothing looked at it. Eleven boards of
+           this fleet were in that state on 2026-08-18, and the twelfth is why it
+           matters. jellyfin-plugin-watchlist was told by Scorecard about one high
+           advisory; switching this on found a second one rated critical that Scorecard
+           had never reported.
+  
+           Mode all rather than direct: both of those arrived under the Jellyfin
+           packages and neither was referenced by a project file, so a direct-only audit
+           would have found neither.
+  
+           Nothing is pinned here. Measured with the audit forced on from the command
+           line, this board reports no advisory today; the entry is the detector, not a
+           repair.
+  
+           Note for whoever edits this comment: an XML comment may not contain two
+           hyphens in a row. A draft elsewhere in this fleet spelled out a command line
+           flag, left the file malformed, and the build failed on a property defined
+           twenty lines below. -->
+      <NuGetAudit>true</NuGetAudit>
+      <NuGetAuditMode>all</NuGetAuditMode>
+      <NuGetAuditLevel>low</NuGetAuditLevel>
+      <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <!-- CI's dotnet.yml already builds with the warnaserror flag; setting the project property too
          makes a plain local `dotnet build` (no flag) match CI instead of silently passing on
          warnings a contributor's machine would otherwise hide until the PR build. -->
