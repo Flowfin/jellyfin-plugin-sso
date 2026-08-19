@@ -81,6 +81,12 @@ internal static class FlowResponses
     /// response. The empty-key and unknown-provider refusals keep distinct bodies (the service checks the
     /// empty key first), and an unhandled result throws rather than silently returning a wrong status.
     /// </summary>
+    /// <remarks>
+    /// The conflict arm is reachable only from the pre-provision write (#1133); the flows redeem an
+    /// identity-provider response first and repoint rather than refuse. It is mapped here anyway rather
+    /// than at that one caller, because a refusal that leaves the stored link untouched has one correct
+    /// status whichever entry point produced it, and a second mapper is how the two would come to disagree.
+    /// </remarks>
     /// <param name="result">The closed write-result variant from <c>CanonicalLinkService.TryCreateLink</c>.</param>
     /// <returns>The mapped <see cref="ActionResult"/>.</returns>
     internal static ActionResult MapCanonicalLinkWrite(CanonicalLinkWriteResult result) => result switch
@@ -88,6 +94,7 @@ internal static class FlowResponses
         CanonicalLinkWriteResult.Created => new NoContentResult(),
         CanonicalLinkWriteResult.EmptyKey => new BadRequestObjectResult("The SSO login did not resolve an identity."),
         CanonicalLinkWriteResult.UnknownProvider => new BadRequestObjectResult(LoginStatusMapper.NoMatchingProviderMessage),
+        CanonicalLinkWriteResult.ConflictingUser => new ConflictObjectResult("That identity is already linked to a different Jellyfin account. Remove the existing link first."),
         _ => throw new InvalidOperationException($"Unhandled canonical-link write result: {result}"),
     };
 }

@@ -185,6 +185,40 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void LinkPreprovisioned_LogsWarning_WithTheActorProviderAndTarget_ButNoSubject()
+    {
+        // The audit line for a grant made on an administrator credential alone (#1133). The canonical
+        // subject is withheld deliberately: it identifies a real person at the identity provider, and the
+        // provider plus the target account are what an operator needs to find the grant.
+        var logger = new CapturingLogger();
+        var target = Guid.Parse("a11ce000-0000-0000-0000-000000000001");
+
+        SsoAudit.LinkPreprovisioned(logger, "admin", "OpenID", "idp", target);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("[SSO Audit]", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("admin", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("OpenID", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("idp", entry.Message, StringComparison.Ordinal);
+        Assert.Contains(target.ToString(), entry.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LinkPreprovisioned_StripsLineEndings_SoAnActorOrProviderCannotForgeALogLine()
+    {
+        // Log forging (cs/log-forging): the actor is a username and the provider is a stored name, and a
+        // line ending in either would let a second, fabricated audit line be written by the first.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LinkPreprovisioned(logger, "admin\r\n[SSO Audit] forged", "OpenID", "idp\nforged", Guid.Empty);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LogoutRequested_LogsInformation_WithProviderAndCountOnly()
     {
         var logger = new CapturingLogger();

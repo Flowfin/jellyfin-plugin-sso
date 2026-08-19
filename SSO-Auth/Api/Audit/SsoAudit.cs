@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
@@ -235,6 +236,38 @@ internal static class SsoAudit
             "[SSO Audit] Configuration imported by an administrator: {OidProviders} OpenID and {SamlProviders} SAML provider(s) merged. Server-managed secrets and links were preserved; redacted secrets must be re-entered on this instance.",
             oidProviders,
             samlProviders);
+
+    /// <summary>
+    /// Records an administrator pre-provisioning a canonical link with no identity-provider round trip
+    /// (#1133). A grant of future login capability made on an administrator credential alone, so it is
+    /// warned rather than informed: it is the line an operator looks for when an account turns out to sign
+    /// in as somebody it should not.
+    /// </summary>
+    /// <remarks>
+    /// The canonical subject is deliberately NOT a field here. The audit trail already carries no raw
+    /// subject value (T-I1), the provider and the target account are what identify the grant for an
+    /// operator, and the subject would be the one member of the request that is an identifier for a real
+    /// person at the identity provider.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="actor">The elevated administrator who made the link.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider the link was written on.</param>
+    /// <param name="jellyfinUserId">The Jellyfin account the identity was linked to.</param>
+    internal static void LinkPreprovisioned(ILogger logger, string actor, string protocol, string provider, Guid jellyfinUserId)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Canonical link pre-provisioned by {Actor}: {Protocol} '{Provider}' -> Jellyfin user {UserId}, with no identity-provider response redeemed.",
+            actor?.ReplaceLineEndings(string.Empty),
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty),
+            jellyfinUserId);
+    }
 
     /// <summary>Records SSO-only login being turned on (#165), with the guaranteed break-glass survivor.</summary>
     /// <param name="logger">The logger.</param>

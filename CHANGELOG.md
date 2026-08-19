@@ -188,6 +188,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   reported as an orphan rather than dropped, which is the one place that state is
   visible at all. The roster is assembled from the link maps alone, so no
   provider secret, signing key or certificate can appear in it.
+- **An account can be linked to an identity before its first login (#1133).** A
+  new administrator-only endpoint writes the link from an identity-provider
+  subject to an existing Jellyfin account directly, so an account created by an
+  invite or provisioning tool signs in through SSO the first time rather than
+  starting as a password account somebody links by hand afterwards. The existing
+  link write is unchanged and still requires the person being linked to complete
+  a login at the identity provider; this one takes an administrator credential
+  instead, and differs in one behaviour because of it: a subject already linked
+  to a different account is refused and the existing link is left exactly as it
+  was, where the older write would have moved it. Sending the same mapping twice
+  succeeds, so a tool that retries a request whose answer it never saw does not
+  have to tell the two cases apart. A link is refused for a provider that does
+  not exist or is turned off, for an account id that no account holds, and for a
+  blank subject. Every link made this way is recorded as an audit event naming
+  the administrator, the provider and the account, and never the subject itself.
 
 ### Changed
 

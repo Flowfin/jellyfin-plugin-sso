@@ -37,6 +37,9 @@ internal enum CanonicalLinkWriteResult
 
     /// <summary>No provider of that mode/name exists; nothing was written.</summary>
     UnknownProvider,
+
+    /// <summary>The key is already held by a DIFFERENT Jellyfin user; nothing was written (#1133).</summary>
+    ConflictingUser,
 }
 
 /// <summary>
@@ -1115,6 +1118,47 @@ internal sealed class CanonicalLinkService
     /// <param name="issuer">The OpenID id_token issuer to issuer-bind the new link to (#186); null for SAML or an unauthenticated admin link, which leaves the link un-stamped (trust-on-first-use applies on its first login).</param>
     /// <returns>The write outcome.</returns>
     internal CanonicalLinkWriteResult TryCreateLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId, string? issuer = null)
+        => WriteLink(mode, provider, providerUserId, jellyfinUserId, issuer, refuseRebind: false);
+
+    /// <summary>
+    /// Creates a canonical link for a provisioning tool that holds no identity-provider response (#1133),
+    /// under the config lock. Same write as <see cref="TryCreateLink"/> with one difference, and the
+    /// difference is the whole point of the entry point: a key already held by a different Jellyfin user is
+    /// refused rather than repointed.
+    /// </summary>
+    /// <remarks>
+    /// The rebind refusal cannot be an extra check at the HTTP boundary. A read of the link map followed by
+    /// a write is two transactions, and a login completing between them would be silently overwritten by
+    /// the caller that read first. So the check lives inside the same <c>Mutate</c> as the write, which is
+    /// what makes "nothing was written" true of the conflict rather than merely likely.
+    /// <para>
+    /// <see cref="TryCreateLink"/> keeps its repoint on purpose and is not narrowed here. Its callers reach
+    /// it only after the human whose identity is being linked has completed a live flow at the identity
+    /// provider, so the subject presented there is one the caller demonstrably controls. This entry point
+    /// has no such proof behind it - an administrator credential is all it asks for - which is exactly why
+    /// the two differ.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
+    /// <param name="provider">The provider the link belongs to.</param>
+    /// <param name="providerUserId">The provider-side identity key (OpenID sub / SAML NameID).</param>
+    /// <param name="jellyfinUserId">The Jellyfin user to link the identity to.</param>
+    /// <returns>The write outcome, including <see cref="CanonicalLinkWriteResult.ConflictingUser"/>.</returns>
+    internal CanonicalLinkWriteResult TryPreprovisionLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId)
+        => WriteLink(mode, provider, providerUserId, jellyfinUserId, issuer: null, refuseRebind: true);
+
+    /// <summary>
+    /// The one canonical-link write, shared by the two entry points above so the fail-closed empty-key
+    /// guard, the provider lookup and the issuer stamp cannot drift between them.
+    /// </summary>
+    /// <param name="mode">The protocol the operation applies to.</param>
+    /// <param name="provider">The provider the link belongs to.</param>
+    /// <param name="providerUserId">The provider-side identity key.</param>
+    /// <param name="jellyfinUserId">The Jellyfin user to link the identity to.</param>
+    /// <param name="issuer">The OpenID id_token issuer to bind the new link to (#186), or null.</param>
+    /// <param name="refuseRebind">Whether a key already held by another Jellyfin user is refused instead of repointed.</param>
+    /// <returns>The write outcome.</returns>
+    private CanonicalLinkWriteResult WriteLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId, string? issuer, bool refuseRebind)
     {
         // Fail closed (#95), linking-side choke point: an SSO identity that did not resolve must not
         // create a link - an empty or whitespace key would persist a dead link no login can ever redeem.
@@ -1136,6 +1180,16 @@ internal sealed class CanonicalLinkService
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links))
             {
                 return CanonicalLinkWriteResult.UnknownProvider;
+            }
+
+            // The rebind refusal (#1133). Re-pointing an identity-provider subject at a second account is
+            // how a crafted provisioning call would move somebody else's identity onto an account it
+            // controls, so the pre-provision entry point refuses it and leaves the existing link intact.
+            // Repeating the SAME mapping is not a rebind and stays a success, so a tool that retries a
+            // request whose response it never saw does not have to distinguish the two.
+            if (refuseRebind && links.TryGetValue(providerUserId, out var held) && held != jellyfinUserId)
+            {
+                return CanonicalLinkWriteResult.ConflictingUser;
             }
 
             links[providerUserId] = jellyfinUserId;

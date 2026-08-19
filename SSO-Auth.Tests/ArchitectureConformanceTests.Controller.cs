@@ -296,7 +296,7 @@ public partial class ArchitectureConformanceTests
         // this expected count in the same PR that adds or removes a rate-limited endpoint (as the provider-form
         // roster rules do), so a change to the limiter surface is a conscious update here rather than a silent
         // drift the offender scan cannot see.
-        const int expectedTypedCallSites = 15;
+        const int expectedTypedCallSites = 16;
         var typedCall = new Regex("RateLimitCheck\\(\\s*SsoRateLimitClass\\.");
         var typedCallSites = ControllerSourceFiles()
             .Sum(path => typedCall.Matches(File.ReadAllText(path)).Count);
