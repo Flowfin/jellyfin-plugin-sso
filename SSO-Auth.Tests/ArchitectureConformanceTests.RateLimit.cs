@@ -53,6 +53,9 @@ public partial class ArchitectureConformanceTests
         // The per-subject link export (#1091): elevation-gated and read-only, but it answers per user id,
         // so an unthrottled one is a user-table enumeration an administrator can drive in a loop.
         "Links/Export/{jellyfinUserId}",
+        // The pre-provision link write (#1133): a config-XML persist under the global lock, and its 404 is
+        // an existence answer about a user id, so it is throttled for both reasons the two neighbours are.
+        "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}",
     };
 
     // Routes deliberately NOT rate-limited, each with the reason it is safe: an elevation-gated admin
@@ -196,6 +199,7 @@ public partial class ArchitectureConformanceTests
         "OID/Test/{provider}", "SAML/Test/{provider}", // admin probe of a STORED provider, 404 on a miss
         "SAML/metadata/{provider}", // SP metadata built for a stored provider
         "{mode}/Link/{provider}/{jellyfinUserId}", "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}", // link write against a stored, enabled provider
+        "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}", // pre-provision write against a stored, enabled provider (#1133)
 
         // Not an SSO provider name at all: Unregister's body parameter happens to be called `provider` and
         // carries a JELLYFIN AuthenticationProviderId, written to the user record so the account falls back

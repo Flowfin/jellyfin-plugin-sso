@@ -1661,6 +1661,66 @@ public class SSOController : ControllerBase
         || _canonicalLinks.LinksByUser(ProviderMode.Saml, jellyfinUserId).Any(entry => entry.Value.Any());
 
     /// <summary>
+    /// Pre-provisions a canonical link from an identity-provider subject to an existing Jellyfin account
+    /// (#1133), with no identity-provider response in the request, so an invite-born account created by a
+    /// provisioning tool is already SSO-linked before its first login. Requires administrator privileges.
+    /// </summary>
+    /// <remarks>
+    /// The self-service link write (<c>{mode}/Link/{provider}/{jellyfinUserId}</c>) redeems a live
+    /// authorize state or a signed assertion, so it structurally requires the linked human to complete a
+    /// flow at the identity provider; a tool holding only an administrator credential cannot drive it. This
+    /// route is that write without the round trip, and it differs in exactly one behaviour: a subject
+    /// already linked to a DIFFERENT account is refused with 409 and the stored link is left as it was.
+    /// Repeating the same mapping succeeds, so a retry after a lost response is safe.
+    /// <para>
+    /// The link is written unstamped by the OpenID issuer binding (#186), like every other administrator
+    /// link: no id_token was redeemed here, so there is no issuer to bind to, and the binding is taken on
+    /// the identity's first real login instead.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">The mode of the function; SAML or OID.</param>
+    /// <param name="provider">The provider the link belongs to.</param>
+    /// <param name="jellyfinUserId">The existing Jellyfin account the identity is linked to.</param>
+    /// <param name="canonicalName">The provider-side identity key: the OpenID stable subject claim, or the SAML NameID.</param>
+    /// <returns>No content on success, 400 on an empty key or an unknown provider, 404 when no such Jellyfin account exists, 409 when the identity is already linked elsewhere.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Links/Preprovision/{mode}/{provider}/{jellyfinUserId}")]
+    [Consumes(MediaTypeNames.Application.Json)]
+    public async Task<ActionResult> PreprovisionCanonicalLink([FromRoute] string mode, [FromRoute] string provider, [FromRoute] Guid jellyfinUserId, [FromBody] string canonicalName)
+    {
+        // Throttle after the elevation guard, before any work (#382, #516): the [Authorize] filter refuses a
+        // non-elevated caller before the body runs, so an unauthorized request never reaches the limiter and
+        // there is no rate-limit oracle. Past it, this shares the "link" bucket with the self-service link
+        // and unlink writes, because it drives the same config-XML persist under the global lock.
+        if (RateLimitCheck(SsoRateLimitClass.Link) is { } throttled)
+        {
+            return throttled;
+        }
+
+        // A user id nobody holds is a 404 rather than a link written against a GUID that resolves to no
+        // account: the endpoint exists to link an account a provisioning tool has ALREADY created, and a
+        // link to a non-existent account is unreachable bookkeeping that no login can ever redeem.
+        if (_userManager.GetUserById(jellyfinUserId) is null)
+        {
+            return NotFound("No Jellyfin account exists with that user id.");
+        }
+
+        var parsed = ParseMode(mode);
+        var result = _canonicalLinks.TryPreprovisionLink(parsed, provider, canonicalName, jellyfinUserId);
+        if (result == CanonicalLinkWriteResult.Created)
+        {
+            SsoAudit.LinkPreprovisioned(
+                _logger,
+                await ResolveActorAsync().ConfigureAwait(false),
+                parsed == ProviderMode.Oid ? OpenIdProtocol : SamlProtocol,
+                provider,
+                jellyfinUserId);
+        }
+
+        return FlowResponses.MapCanonicalLinkWrite(result);
+    }
+
+    /// <summary>
     /// Turns SSO-only login on (#165), designating <paramref name="breakGlassAdminUsername"/> as the account
     /// whose native password login is never disabled. Requires administrator privileges. Fail-closed: the
     /// last-admin guard runs first, and unless the designated account is an existing, enabled administrator
