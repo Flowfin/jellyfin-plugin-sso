@@ -5,9 +5,17 @@ name: Wiki Lint
 # clones the live wiki and fails on broken internal anchors, file:line citations
 # (the rule is to cite modules/types, not paths that move), and dead source links.
 #
-# Triggers: a weekly sweep, a manual run, and every push to main (so a merge that
-# moves a file the wiki links to is caught right away). Deliberately NOT on
-# pull_request: a pre-existing wiki typo must not red-X every unrelated code PR.
+# Triggers: every wiki page create or update (gollum), a weekly sweep, a manual
+# run, and every push to main (so a merge that moves a file the wiki links to is
+# caught right away). Deliberately NOT on pull_request: a pre-existing wiki typo
+# must not red-X every unrelated code PR.
+#
+# The gollum trigger is what attaches the guard to the thing it guards (#1383).
+# Without it the wiki was checked when THIS repository moved, by hand, or on
+# Monday, so a page pushed on a day with no code activity waited for the cron and
+# its coverage was a side effect of unrelated work. A wiki has no Actions of its
+# own and no pull request to hang a check on; gollum is the only event either
+# repository raises when a wiki page changes.
 #
 # The push trigger carries no paths filter, and it must not grow one. The dead
 # source link check resolves wiki links against the set of TRACKED paths, so the
@@ -16,6 +24,7 @@ name: Wiki Lint
 # enumeration of source locations therefore skips the very pushes that break the
 # lint, and leaves the failure to land on the next unrelated merge (#1151).
 on:
+  gollum:
   schedule:
     - cron: "0 5 * * 1" # Mondays 05:00 UTC
   workflow_dispatch:
@@ -25,8 +34,12 @@ on:
 permissions:
   contents: read
 
+# The event name is part of the group so a wiki edit and a code merge do not
+# cancel each other: gollum runs on the default branch, so on github.ref alone
+# both land in one group. Within one event cancelling is still right, because a
+# superseded run lints a wiki revision that no longer exists.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,5 +54,20 @@ jobs:
       - name: Clone the wiki
         # The wiki is public; a read-only anonymous clone needs no credentials.
         run: git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.wiki.git" "${RUNNER_TEMP}/wiki"
+      - name: Report the wiki revision this run read
+        # A green run otherwise says only that the wiki was clean at some moment,
+        # with no way to tell from the outside which revision that was (#1383).
+        # Read from the clone above rather than from the event payload, so it is
+        # the revision actually linted on every trigger and not only on gollum.
+        run: |
+          wiki_sha="$(git -C "${RUNNER_TEMP}/wiki" rev-parse HEAD)"
+          echo "Wiki revision linted: ${wiki_sha}"
+          {
+            echo "### Wiki Lint"
+            echo
+            echo "Wiki revision read: \`${wiki_sha}\`"
+            echo
+            echo "Code revision read: \`${GITHUB_SHA}\` (trigger: \`${GITHUB_EVENT_NAME}\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Lint the wiki against the code tree
         run: python3 scripts/wiki-lint.py "${RUNNER_TEMP}/wiki" "${GITHUB_WORKSPACE}"
