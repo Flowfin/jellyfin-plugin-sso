@@ -239,7 +239,7 @@ jobs:
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
-        run: test/e2e/phases/legacy-secret-migration.sh
+        run: bash test/e2e/phases/legacy-secret-migration.sh
 
       - name: Dump container logs on failure
         if: failure()
