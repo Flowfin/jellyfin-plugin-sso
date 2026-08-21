@@ -223,15 +223,22 @@ release, or a `providers: all` dispatch, on the Keycloak entry only.
 
 ### Losing the at-rest key fails closed
 
-`test/e2e/phases/kek-loss-fails-closed.sh` destroys the key that wraps the provider secrets and
+`test/e2e/phases/kek-loss-fails-closed.sh` takes away the key that wraps the provider secrets and
 requires the next login to be refused rather than fall back to plaintext or mint a replacement key.
-It copies the key aside first and puts it back byte for byte, because a regenerated key is a
-different key: the stored envelope would not open under it and the phase would end up proving that
-a restored backup fails. After the restore a `RELOGIN_ONLY` pass must go green, so the phase proves
-fail-closed rather than a permanently broken stack.
+It renames the key aside and renames it back, because a regenerated key is a different key: the
+stored envelope would not open under it and the phase would end up proving that a restored backup
+fails. After the key is back a `RELOGIN_ONLY` pass must go green, so the phase proves fail-closed
+rather than a permanently broken stack.
+
+A rename rather than a copy, and that is forced rather than chosen. The server writes the key as
+root inside the container with owner-only permissions, so on the bind mount nothing running as the
+ordinary user can read it. Renaming needs write and execute on the directory and no permission at
+all on the file, and it is the stronger statement anyway: the file that comes back is the same
+inode, which the phase pins, so "byte for byte" is a property of the operation rather than a
+checksum to trust.
 
 The refusal is driven by the phase itself, one request against `/sso/OID/start/<provider>`, and the
-same endpoint is probed **before** the key is destroyed. The harness exits non-zero on any failed
+same endpoint is probed **before** the key goes away. The harness exits non-zero on any failed
 login, so its exit code alone cannot separate a fail-closed refusal from a stack that broke for an
 unrelated reason; the control probe is what makes the refusal attributable. Jellyfin publishes no
 port to the host, so both probes run in a throwaway container on the compose network.
@@ -251,9 +258,11 @@ Through `bash`, because every tracked `.sh` in this repository is mode 644 and n
 an executable bit.
 
 A green run prints `KEK LOSS FAILS CLOSED PHASE PASSED`. In CI it runs under the same gate as the
-migration phase and directly after it, which is also where its precondition comes from: that phase
-leaves the persisted secret as an `ssoenc:v1` envelope, and destroying the key against a plaintext
-or absent secret would prove nothing.
+migration phase and immediately ahead of it. Its precondition is an `ssoenc:v1` envelope in the
+persisted configuration, which the secrets-at-rest assertion has just made, and taking the key away
+from a stack whose secret is plaintext proves nothing: that is the documented genuine-first-run
+path, where the server mints a fresh key and every login succeeds. The phase asserts the envelope
+itself rather than assuming what ran before it, and it leaves the stack as it found it.
 
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an

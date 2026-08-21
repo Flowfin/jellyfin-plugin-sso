@@ -21,13 +21,11 @@
 #
 #   control    the stack is started WITHOUT the harness and the challenge is probed once. A
 #              redirect here is the baseline the refusal below is measured against.
-#   copy       the key is copied aside before anything destroys it, and restored byte for byte.
-#              A regenerated key is a DIFFERENT key: the stored envelope would not open under it
-#              and the phase would end up proving that a restored backup fails, which is the
-#              opposite of its claim.
-#   destroy    the key file is removed with the stack STOPPED. SecretStore caches the key in
-#              memory for the process lifetime, so a delete under a live server proves nothing
-#              until it restarts.
+#   take away  the key is RENAMED aside with the stack STOPPED, never regenerated afterwards. A
+#              fresh key is a DIFFERENT key: the stored envelope would not open under it and the
+#              phase would end up proving that a restored backup fails, which is the opposite of
+#              its claim. Stopped, because SecretStore caches the key in memory for the process
+#              lifetime and taking it from a live server proves nothing until a restart.
 #   refuse     the stack is started again and the same challenge is probed. It must answer 500
 #              with the fail-closed message, and the persisted secret must still be the SAME
 #              ssoenc:v1 envelope - not plaintext, not blank, and not re-wrapped under a fresh key.
@@ -104,21 +102,30 @@ fi
 SECRET_BEFORE="$(secret_element)"
 pass "the at-rest key file is present at $KEYFILE"
 
-# The key is copied aside FIRST, and put back on any exit path that has already removed it. A
-# phase that dies between the delete and the restore would otherwise leave a stack whose secrets
-# are permanently unrecoverable, and locally that is a real directory rather than a runner about
-# to be discarded.
-KEEP="$(mktemp -d)"
-cp -p "$KEYFILE" "$KEEP/sso-secret.key"
-KEY_SUM="$(sha256sum < "$KEEP/sso-secret.key" | cut -d' ' -f1)"
+# The key is moved aside FIRST, and put back on any exit path that left it aside. A phase that
+# died between the two would otherwise leave a stack whose secrets are permanently unrecoverable,
+# and locally that is a real directory rather than a runner about to be discarded.
+#
+# A RENAME rather than a copy, into the same directory, and that is a constraint rather than a
+# preference. SecretStore creates the key with owner-only permissions and the server writes it as
+# root inside the container, so on the bind mount the file is mode 600 owned by root and nothing
+# running as the ordinary user can READ it. A rename needs write and execute on the DIRECTORY and
+# no permission at all on the file, and the plugin drop is created by the workflow and made
+# world-writable before the stack comes up. It is also the stronger statement: the file that comes
+# back is the same inode, so "byte for byte" is a property of the operation instead of a checksum
+# somebody has to trust. The inode is pinned below to say so out loud.
+KEPT="$KEYFILE.kept"
+[ ! -e "$KEPT" ] || die "$KEPT already exists - a previous run left a key aside and this one would overwrite it"
+KEY_INODE="$(stat -c %i "$KEYFILE")"
+KEY_SIZE="$(stat -c %s "$KEYFILE")"
 restore_key() {
-  if [ ! -e "$KEYFILE" ] && [ -e "$KEEP/sso-secret.key" ]; then
-    cp -p "$KEEP/sso-secret.key" "$KEYFILE"
+  if [ ! -e "$KEYFILE" ] && [ -e "$KEPT" ]; then
+    mv "$KEPT" "$KEYFILE"
     printf 'restored %s on exit\n' "$KEYFILE" >&2
   fi
 }
 trap restore_key EXIT
-pass "the key is copied aside (sha256 $KEY_SUM), so the restore below is the same key and not a new one"
+pass "the key to move aside is inode $KEY_INODE, $KEY_SIZE bytes"
 
 log "Control: the challenge answers normally while the key is present"
 docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
@@ -128,13 +135,14 @@ case "$PROBE_STATUS" in
   *) die "the control probe did not redirect ($PROBE_STATUS) - the stack is not healthy, so a refusal after the key is destroyed would not be attributable to the key" ;;
 esac
 
-log "Destroying the at-rest key"
-# Stopped first: SecretStore caches the key for the process lifetime, so a delete under a running
-# server changes nothing until it restarts, and the phase would read the cached key as a fallback.
+log "Taking the at-rest key away"
+# Stopped first: SecretStore caches the key for the process lifetime, so taking the file away from
+# a running server changes nothing until it restarts, and the phase would then be reading a cached
+# key as if the server had a fallback.
 docker compose -f "$COMPOSE" stop >/dev/null
-rm -f "$KEYFILE"
-[ ! -e "$KEYFILE" ] || die "the key file survived the delete at $KEYFILE"
-pass "the key file is gone while the configuration still holds the envelope"
+mv "$KEYFILE" "$KEPT"
+[ ! -e "$KEYFILE" ] || die "the key file is still at $KEYFILE"
+pass "the key is gone from $KEYFILE while the configuration still holds the envelope"
 
 log "The login is refused, fail-closed"
 docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
@@ -158,12 +166,12 @@ esac
   || die "the stored envelope changed while the key was missing, so something re-wrapped it under a new key: $(secret_element)"
 pass "the stored envelope is byte-identical to the one written before the key was destroyed"
 
-log "Restoring the key"
+log "Putting the key back"
 docker compose -f "$COMPOSE" stop >/dev/null
-cp -p "$KEEP/sso-secret.key" "$KEYFILE"
-[ "$(sha256sum < "$KEYFILE" | cut -d' ' -f1)" = "$KEY_SUM" ] \
-  || die "the restored key is not the key that was taken away"
-pass "the original key is back, byte for byte"
+mv "$KEPT" "$KEYFILE"
+[ "$(stat -c %i "$KEYFILE")" = "$KEY_INODE" ] && [ "$(stat -c %s "$KEYFILE")" = "$KEY_SIZE" ] \
+  || die "the key back at $KEYFILE is not the file that was taken away (inode $(stat -c %i "$KEYFILE"), $(stat -c %s "$KEYFILE") bytes)"
+pass "the original key is back: same inode, same size, and never copied"
 
 log "A login after the restore"
 # RELOGIN_ONLY, so the seed, the wizard and the two provider Add calls are skipped: a re-seed
