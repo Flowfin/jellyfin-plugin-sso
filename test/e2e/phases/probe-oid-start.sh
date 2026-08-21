@@ -20,17 +20,24 @@ if ! apk add --no-cache curl >/tmp/apk.out 2>&1; then
 fi
 say "PROBE-STAGE curl $(curl --version 2>/dev/null | head -1)"
 
+# READINESS IS THE PLUGIN'S OWN ROUTE, NOT THE SERVER'S. `/System/Info/Public` answers while the
+# server is still coming up: measured on a restarted stack, it succeeded on the first attempt and
+# the challenge then returned 503 carrying Jellyfin's startup splash page. `/sso/OID/GetNames` only
+# answers once the plugin is loaded, which is the state the probe is about, and it reads the
+# provider names out of the configuration without revealing any secret, so it answers exactly the
+# same way whether or not the at-rest key is there. That is what makes it usable as the readiness
+# gate on BOTH sides of this phase.
 i=0
-until curl -fsS -o /dev/null "$JELLYFIN_URL/System/Info/Public" 2>/tmp/ready.err; do
+until curl -fsS -o /dev/null "$JELLYFIN_URL/sso/OID/GetNames" 2>/tmp/ready.err; do
   i=$((i + 1))
   if [ "$i" -ge 150 ]; then
-    say "PROBE-ERROR Jellyfin did not answer $JELLYFIN_URL/System/Info/Public within 300s:"
+    say "PROBE-ERROR the plugin did not answer $JELLYFIN_URL/sso/OID/GetNames within 300s:"
     sed 's/^/  /' /tmp/ready.err
     exit 0
   fi
   sleep 2
 done
-say "PROBE-STAGE ready after $i retries"
+say "PROBE-STAGE ready after $i retries ($((i * 2))s)"
 
 # No -L: the healthy answer is the redirect itself, and following it would report the identity
 # provider's status instead of the plugin's.
