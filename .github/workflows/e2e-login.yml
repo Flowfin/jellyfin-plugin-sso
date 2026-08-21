@@ -199,6 +199,32 @@ jobs:
             fi
           done
 
+      - name: KEK loss fails closed (#1130)
+        # Takes away the key that wraps the at-rest provider secrets, restarts Jellyfin against the
+        # orphaned envelope and requires the login to be REFUSED rather than fall back to plaintext
+        # or mint a replacement key; then puts the key back and requires the login to work again. It
+        # was verified by hand once in the #717 live pass and nothing re-checked it since, so a
+        # regression to a fallback path would ship silently.
+        #
+        # The phase drives that one refusal itself, and probes the same endpoint BEFORE the key goes
+        # away, because the harness exits non-zero on any failed login and its exit code alone cannot
+        # tell a fail-closed refusal from a stack that broke for an unrelated reason.
+        #
+        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # reasons as the phase below: it costs extra login passes, and it is the one stack that can be
+        # re-run in place (the seeds behind Zitadel, Pocket ID and Kanidm are not idempotent). Runs on
+        # a green harness only, so a real login failure surfaces as the harness failure.
+        #
+        # AHEAD of the migration phase, deliberately. Its precondition is an ssoenc:v1 envelope in the
+        # persisted configuration, which the secrets-at-rest step above has just asserted, so it needs
+        # nothing from the step below - and being gated behind a phase that has never executed on any
+        # run would make this one unreachable. It leaves the stack exactly as it found it: the same key
+        # back in place, the configuration untouched, containers stopped rather than removed.
+        if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
+        env:
+          COMPOSE: ${{ matrix.compose }}
+        run: bash test/e2e/phases/kek-loss-fails-closed.sh
+
       - name: Legacy plaintext secret migrates to ssoenc:v1 (#1140)
         # A pre-#158 config carried its provider secret in plaintext. This plants one back into the
         # persisted configuration, restarts Jellyfin against it, and requires the login to keep working
