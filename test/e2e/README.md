@@ -241,7 +241,10 @@ The refusal is driven by the phase itself, one request against `/sso/OID/start/<
 same endpoint is probed **before** the key goes away. The harness exits non-zero on any failed
 login, so its exit code alone cannot separate a fail-closed refusal from a stack that broke for an
 unrelated reason; the control probe is what makes the refusal attributable. Jellyfin publishes no
-port to the host, so both probes run in a throwaway container on the compose network.
+port to the host, so both probes run in a throwaway container on the compose network, running
+`test/e2e/phases/probe-oid-start.sh` from a read-only bind mount. That probe never exits non-zero:
+it reports its own failures as `PROBE-ERROR` lines and the phase decides what a missing answer
+means, so a broken probe cannot be read as a refused login.
 
 The key lives inside the unpacked plugin drop, at
 `test/e2e/jellyfin/config/plugins/SSO-Auth/sso-secret.key`, rather than beside the configuration.

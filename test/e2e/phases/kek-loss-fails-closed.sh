@@ -54,37 +54,27 @@ secret_element() { grep -o '<OidSecret>[^<]*</OidSecret>' "$CONFIG" | head -1; }
 # One throwaway container on the compose network, because Jellyfin publishes no port to the host:
 # every service is reachable only by its service-DNS name from inside `ssonet`. --no-deps so this
 # never starts or restarts anything else, and the harness service is reused only for its image and
-# its network membership - its own command is replaced.
-on_network() { # $1 the shell program to run inside the container
-  docker compose -f "$COMPOSE" run --rm --no-deps -T --entrypoint sh harness -c "$1"
+# its network membership - its own command is replaced by the probe script, which is bind-mounted
+# in rather than handed over as a string. The first version passed the probe to `sh -c` and came
+# back with a status nothing in it can produce and a missing body file, and a script that arrives
+# as one argument through two layers cannot be read in the log it failed in.
+PHASES_DIR="${PHASES_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+probe_container() {
+  docker compose -f "$COMPOSE" run --rm --no-deps -T \
+    -v "$PHASES_DIR:/probe:ro" --entrypoint sh harness /probe/probe-oid-start.sh
 }
-
-# Waits for Jellyfin and probes the OpenID challenge once, printing two parseable lines. A failure
-# inside the container is reported as PROBE-ERROR rather than as a non-zero exit, so the caller
-# decides what a missing answer means instead of the run ending without a message.
-read -r -d '' PROBE <<'PROBE_SH' || true
-set -u
-apk add --no-cache curl >/dev/null 2>&1 || { echo "PROBE-ERROR could not install curl"; exit 0; }
-i=0
-while [ "$i" -lt 150 ]; do
-  curl -fsS -o /dev/null "$JELLYFIN_URL/System/Info/Public" 2>/dev/null && break
-  i=$((i + 1)); sleep 2
-done
-if [ "$i" -ge 150 ]; then echo "PROBE-ERROR Jellyfin did not answer /System/Info/Public within 300s"; exit 0; fi
-code="$(curl -sS -o /tmp/probe.body -w "%{http_code}" "$JELLYFIN_URL/sso/OID/start/$PROVIDER" 2>/dev/null || echo 000)"
-echo "PROBE-STATUS $code"
-echo "PROBE-BODY $(tr -d '\r\n' < /tmp/probe.body | cut -c1-300)"
-PROBE_SH
 
 PROBE_STATUS=""
 PROBE_BODY=""
 probe_challenge() { # $1 label; sets PROBE_STATUS and PROBE_BODY
   local out
-  out="$(on_network "$PROBE")" || die "$1: the probe container could not be started"
-  printf '%s\n' "$out" | sed -n 's/^PROBE-ERROR /  probe error: /p'
+  out="$(probe_container)" || die "$1: the probe container could not be started"
+  # Everything the probe said, indented, so a run that ends here says why rather than only that it
+  # got no answer.
+  printf '%s\n' "$out" | sed 's/^/  probe| /'
   PROBE_STATUS="$(printf '%s\n' "$out" | sed -n 's/^PROBE-STATUS //p' | tail -1)"
   PROBE_BODY="$(printf '%s\n' "$out" | sed -n 's/^PROBE-BODY //p' | tail -1)"
-  [ -n "$PROBE_STATUS" ] || die "$1: the probe returned no status - see the probe error above"
+  [ -n "$PROBE_STATUS" ] || die "$1: the probe returned no status - its own output is above"
   printf '  %s: status=%s body=%s\n' "$1" "$PROBE_STATUS" "$PROBE_BODY"
 }
 
