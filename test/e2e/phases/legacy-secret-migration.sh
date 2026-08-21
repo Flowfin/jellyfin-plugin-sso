@@ -52,8 +52,38 @@ case "$(secret_element)" in
 esac
 
 log "Planting a pre-#158 plaintext secret"
-# One element, matched on its own tags, so a value containing markup could not widen the edit.
-perl -i -pe "s#<OidSecret>[^<]*</OidSecret>#<OidSecret>${PLAINTEXT}</OidSecret>#" "$CONFIG"
+# THE EDIT HAPPENS INSIDE A CONTAINER, and that is a constraint rather than a preference (#1391).
+# `plugins/configurations/` is created by the SERVER at runtime, not by the workflow, so the
+# `chmod -R 0777 test/e2e/jellyfin` in the install step never reaches it: that step runs before the
+# stack comes up and the directory does not exist yet. An in-place edit writes a new file beside the
+# target and renames it over, which needs write permission on that DIRECTORY, and the ordinary
+# workflow user has none - `perl -i` answered "Cannot make temp name: Permission denied" and the
+# step died before it asserted anything. The file itself is written by the server as root, so a
+# plain redirect over it is refused for the same reason.
+#
+# The jellyfin service already bind-mounts ./jellyfin/config at /config and runs as root, so its own
+# definition is the shortest route to a writable handle: no second mount to keep in step with the
+# compose file, and no elevation on the host. `--no-deps` starts nothing else, `--rm` leaves nothing
+# behind, and the entrypoint is replaced so no server starts in it.
+#
+# The rewrite is a SPLIT rather than a pattern substitution, because the value being planted is a
+# secret read out of the compose configuration and every substitution syntax reserves characters a
+# secret may legitimately contain - sed and awk both re-read `&` in the replacement as the match.
+# Splitting on the tags and reassembling puts the value in verbatim, whatever is in it.
+#
+# One element, the FIRST, matched on its own tags, so a value containing markup could not widen the
+# edit: `%%` cuts at the first opening tag and `#` at the first closing one.
+docker compose -f "$COMPOSE" run --rm --no-deps -T \
+  -e "PLANT=$PLAINTEXT" --entrypoint sh jellyfin -c '
+    set -eu
+    f=/config/plugins/configurations/SSO-Auth.xml
+    c=$(cat "$f")
+    case "$c" in
+      *"<OidSecret>"*"</OidSecret>"*) ;;
+      *) echo "no OidSecret element to replace in $f" >&2; exit 1 ;;
+    esac
+    printf "%s<OidSecret>%s</OidSecret>%s" "${c%%<OidSecret>*}" "$PLANT" "${c#*</OidSecret>}" > "$f"
+  ' || die "the plant could not be written - the container edit of $CONFIG failed"
 grep -qF ">${PLAINTEXT}<" "$CONFIG" || die "the plant did not take - $CONFIG still holds no plaintext secret"
 grep -q 'ssoenc:v1:' "$CONFIG" && die "an ssoenc:v1 envelope survived the plant, so the config is not in the legacy shape"
 pass "the persisted secret is now plaintext, exactly as a pre-#158 config carried it"
