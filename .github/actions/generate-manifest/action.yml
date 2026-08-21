@@ -345,6 +345,60 @@ runs:
           | [.]
         ' "$work/plugin.json" > "$work/manifest.json"
 
+        # Base64 the manifest into a file and read it with jq --rawfile: the encoded blob outgrows the
+        # OS per-argument limit (MAX_ARG_STRLEN, ~128 KB) as the version list grows, which made jq abort
+        # with "Argument list too long" (E2BIG) once the manifest crossed it (#978). A file input is not
+        # subject to that limit; base64 -w0 emits no trailing newline, so $c is exactly the encoded blob.
+        # Both the bootstrap below and the ordinary commit send it, so it is encoded once, here.
+        base64 -w0 < "$work/manifest.json" > "$work/manifest.b64"
+
+        # DOES THE CHANNEL BRANCH EXIST? The contents endpoint at the end of this step writes into a
+        # branch that is already there and answers "Branch <name> not found (HTTP 404)" when it is not,
+        # so a channel branch that has gone missing stops the publish HERE - after the release for this
+        # run was created and sealed, which is the one thing a re-run cannot redo. Nothing else in the
+        # tree could put the branch back either: regenerate-manifest.yml, the by-hand recovery path,
+        # calls this same action and fails at the same line (#1386). So the branch is bootstrapped.
+        #
+        # matching-refs, not git/ref/heads/<branch>: it answers 200 with an array, so "the branch is
+        # absent" is an empty array while a network error, a revoked token or a permission the job does
+        # not hold all FAIL the call and red the run under set -e/pipefail. The single-ref endpoint
+        # answers 404 for absent and for several kinds of cannot-read alike, and this code CREATES
+        # something on that answer, so the two must not collapse into one exit code.
+        # The endpoint matches by PREFIX (heads/manifest-beta would also return heads/manifest-beta-old),
+        # so the ref is compared exactly rather than counted.
+        branch_exists="$(gh api "repos/${REPO}/git/matching-refs/heads/${BRANCH}" \
+          | jq -r --arg r "refs/heads/${BRANCH}" 'any(.[]; .ref == $r)')"
+
+        if [ "$branch_exists" != "true" ]; then
+          # A channel branch is a publishing surface, not a copy of the source: Jellyfin fetches exactly
+          # one file from it. So it is created with a history of its own (no parents) holding only the
+          # manifest, rather than branched off main, which would serve the whole checkout from a URL
+          # nobody reads it from and would make every later manifest commit a commit on top of main.
+          #
+          # This cannot open a channel that a leg was not already about to write: it runs inside the
+          # manifest step, which is reached only after that leg's own gates - including the explicit
+          # refusal in regenerate-manifest.yml that keeps the retired stable channel empty (#954).
+          #
+          # Serialization is what makes the create safe rather than racy: every writer of a channel
+          # joins the publish-manifest-<channel> concurrency group with cancel-in-progress false, so two
+          # runs cannot bootstrap the same branch at once. Should one ever get there anyway, the ref
+          # POST answers 422 and this run goes red with the release sealed but unpublished, which is the
+          # same failure as today rather than a new one, and never a manifest written to a guessed ref.
+          blob_sha="$(jq -nc --rawfile c "$work/manifest.b64" '{content:$c, encoding:"base64"}' \
+            | gh api -X POST "repos/${REPO}/git/blobs" --input - --jq '.sha')"
+          tree_sha="$(jq -nc --arg p "$MANIFEST_FILE" --arg s "$blob_sha" \
+            '{tree:[{path:$p, mode:"100644", type:"blob", sha:$s}]}' \
+            | gh api -X POST "repos/${REPO}/git/trees" --input - --jq '.sha')"
+          commit_sha="$(jq -nc --arg t "$tree_sha" \
+            --arg m "Create ${BRANCH} and publish the Jellyfin plugin repository." \
+            '{message:$m, tree:$t, parents:[]}' \
+            | gh api -X POST "repos/${REPO}/git/commits" --input - --jq '.sha')"
+          jq -nc --arg r "refs/heads/${BRANCH}" --arg s "$commit_sha" '{ref:$r, sha:$s}' \
+            | gh api -X POST "repos/${REPO}/git/refs" --input - >/dev/null
+          echo "created ${BRANCH} and committed $final_total versions to ${BRANCH}/${MANIFEST_FILE}"
+          exit 0
+        fi
+
         # Commit only when something changed, so an unchanged regeneration does not add an
         # empty commit to the manifest branch on every publish.
         current_sha="$(gh api "repos/${REPO}/contents/${MANIFEST_FILE}?ref=${BRANCH}" --jq '.sha' 2>/dev/null || true)"
@@ -356,11 +410,6 @@ runs:
           fi
         fi
 
-        # Base64 the manifest into a file and read it with jq --rawfile: the encoded blob outgrows the
-        # OS per-argument limit (MAX_ARG_STRLEN, ~128 KB) as the version list grows, which made jq abort
-        # with "Argument list too long" (E2BIG) once the manifest crossed it (#978). A file input is not
-        # subject to that limit; base64 -w0 emits no trailing newline, so $c is exactly the encoded blob.
-        base64 -w0 < "$work/manifest.json" > "$work/manifest.b64"
         payload="$(jq -nc --arg m "Regenerate Jellyfin plugin repository." --arg b "$BRANCH" \
           --rawfile c "$work/manifest.b64" --arg s "${current_sha:-}" \
           '{message:$m, branch:$b, content:$c} + (if $s == "" then {} else {sha:$s} end)')"
