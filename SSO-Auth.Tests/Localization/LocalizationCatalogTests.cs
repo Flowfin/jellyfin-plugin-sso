@@ -17,13 +17,21 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// fallback chain terminates on, so every embedded catalog must be a flat string→string map with no blank
 /// values, and every non-English catalog must carry EXACTLY the English key set - a missing key would blank
 /// (it falls back, but a translator's catalog claiming completeness must be complete), an orphan key is dead
-/// data. This is the standing drift guard for when the full language set lands (a later sub-unit).
+/// data. Which cultures ship is declared by <c>CommittedCultures</c> rather than read off the catalogs, so
+/// a catalog cannot be lost, or arrive unread, without a check saying so (#1154).
 /// </summary>
 public class LocalizationCatalogTests
 {
     private const string ResourcePrefix = "Jellyfin.Plugin.SSO_Auth.Localization.";
     private const string ResourceSuffix = ".json";
     private const string EnglishResource = ResourcePrefix + "en" + ResourceSuffix;
+
+    // THE COMMITTED CULTURE SET, stated here and NOT derived from the catalogs on disk. The catalogs are
+    // what these checks are about, so an expectation read out of them would be deleted along with the file
+    // it was meant to protect, and the suite would stay green through the loss. A culture belongs on this
+    // list once a person has read its catalog (#1154), so the list grows by a change that adds a name here
+    // beside the file, never by a file arriving on its own.
+    private static readonly string[] CommittedCultures = ["en"];
 
     // Any type in the plugin assembly anchors GetManifestResourceStream to the resource-bearing assembly.
     private static readonly Assembly PluginAssembly = typeof(SsoLocalizer).Assembly;
@@ -32,6 +40,9 @@ public class LocalizationCatalogTests
         PluginAssembly.GetManifestResourceNames()
             .Where(name => name.StartsWith(ResourcePrefix, System.StringComparison.Ordinal)
                 && name.EndsWith(ResourceSuffix, System.StringComparison.Ordinal));
+
+    // The placeholder form i18n.js substitutes in format(): /\{(\w+)\}/g.
+    private static readonly Regex PlaceholderPattern = new(@"\{(?<name>\w+)\}", RegexOptions.Compiled);
 
     // `data-i18n="key"` and the allowlisted attribute form `data-i18n-title="key"`.
     private static readonly Regex MarkupKeyPattern = new(@"data-i18n(?:-[a-z-]+)?=""(?<key>[^""]+)""", RegexOptions.Compiled);
@@ -379,4 +390,81 @@ public class LocalizationCatalogTests
             Assert.True(orphan.Count == 0, $"{resource}: orphan keys not in English: {string.Join(", ", orphan)}");
         }
     }
+
+    [Fact]
+    public void EveryCommittedCulture_ShipsACatalog()
+    {
+        var shipped = CatalogResources().ToHashSet(System.StringComparer.Ordinal);
+
+        var absent = CommittedCultures
+            .Select(culture => ResourcePrefix + culture + ResourceSuffix)
+            .Where(resource => !shipped.Contains(resource))
+            .ToList();
+
+        Assert.True(absent.Count == 0, "committed cultures shipping no catalog: " + string.Join(", ", absent));
+    }
+
+    [Fact]
+    public void EveryShippedCatalog_IsACommittedCulture()
+    {
+        var committed = CommittedCultures
+            .Select(culture => ResourcePrefix + culture + ResourceSuffix)
+            .ToHashSet(System.StringComparer.Ordinal);
+
+        var undeclared = CatalogResources()
+            .Where(resource => !committed.Contains(resource))
+            .ToList();
+
+        Assert.True(undeclared.Count == 0, "catalogs no one is recorded as having read: " + string.Join(", ", undeclared));
+    }
+
+    [Fact]
+    public void TheLocalizer_LoadsExactlyTheCommittedCultures()
+    {
+        // The two checks above read the embedded RESOURCE. SsoLocalizer skips a catalog that is not a flat
+        // string→string map, so a file can be shipped, pass both of them, and still not exist at runtime -
+        // its keys silently fall through the chain to English. This is the same set seen from the side the
+        // served surfaces actually use.
+        Assert.Equal(
+            CommittedCultures.OrderBy(culture => culture, System.StringComparer.Ordinal).ToList(),
+            SsoLocalizer.AvailableCultures.OrderBy(culture => culture, System.StringComparer.Ordinal).ToList());
+    }
+
+    [Fact]
+    public void EveryNonEnglishCatalog_CarriesTheEnglishPlaceholdersPerKey()
+    {
+        // i18n.js substitutes `{name}` from a params object and leaves an unknown name verbatim, so a
+        // translation that drops a placeholder loses the value it was carrying and one that renames it
+        // prints the brace form at the user. Neither is a missing key, so the key-set guard cannot see it.
+        var english = ReadCatalog(EnglishResource);
+        var faults = new List<string>();
+
+        foreach (var resource in CatalogResources().Where(name => name != EnglishResource))
+        {
+            foreach (var entry in ReadCatalog(resource))
+            {
+                if (!english.TryGetValue(entry.Key, out var englishValue))
+                {
+                    // An orphan key is the key-set guard's finding; reporting it twice hides this one.
+                    continue;
+                }
+
+                var expected = Placeholders(englishValue);
+                var actual = Placeholders(entry.Value);
+                if (!expected.SetEquals(actual))
+                {
+                    faults.Add(
+                        $"{resource}: key '{entry.Key}' carries [{string.Join(",", actual.Order(System.StringComparer.Ordinal))}]"
+                        + $", English carries [{string.Join(",", expected.Order(System.StringComparer.Ordinal))}]");
+                }
+            }
+        }
+
+        Assert.True(faults.Count == 0, "placeholder drift: " + string.Join(" | ", faults));
+    }
+
+    private static HashSet<string> Placeholders(string value) =>
+        PlaceholderPattern.Matches(value)
+            .Select(match => match.Groups["name"].Value)
+            .ToHashSet(System.StringComparer.Ordinal);
 }
