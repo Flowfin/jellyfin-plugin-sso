@@ -221,6 +221,40 @@ test/e2e/phases/legacy-secret-migration.sh
 A green run prints `LEGACY SECRET MIGRATION PHASE PASSED`. In CI it runs on a release, a beta
 release, or a `providers: all` dispatch, on the Keycloak entry only.
 
+### Losing the at-rest key fails closed
+
+`test/e2e/phases/kek-loss-fails-closed.sh` destroys the key that wraps the provider secrets and
+requires the next login to be refused rather than fall back to plaintext or mint a replacement key.
+It copies the key aside first and puts it back byte for byte, because a regenerated key is a
+different key: the stored envelope would not open under it and the phase would end up proving that
+a restored backup fails. After the restore a `RELOGIN_ONLY` pass must go green, so the phase proves
+fail-closed rather than a permanently broken stack.
+
+The refusal is driven by the phase itself, one request against `/sso/OID/start/<provider>`, and the
+same endpoint is probed **before** the key is destroyed. The harness exits non-zero on any failed
+login, so its exit code alone cannot separate a fail-closed refusal from a stack that broke for an
+unrelated reason; the control probe is what makes the refusal attributable. Jellyfin publishes no
+port to the host, so both probes run in a throwaway container on the compose network.
+
+The key lives inside the unpacked plugin drop, at
+`test/e2e/jellyfin/config/plugins/SSO-Auth/sso-secret.key`, rather than beside the configuration.
+Run the phase after a green canonical pass, on the stopped but not torn-down stack:
+
+```sh
+docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+
+bash test/e2e/phases/kek-loss-fails-closed.sh
+```
+
+Through `bash`, because every tracked `.sh` in this repository is mode 644 and none of them carries
+an executable bit.
+
+A green run prints `KEK LOSS FAILS CLOSED PHASE PASSED`. In CI it runs under the same gate as the
+migration phase and directly after it, which is also where its precondition comes from: that phase
+leaves the persisted secret as an `ssoenc:v1` envelope, and destroying the key against a plaintext
+or absent secret would prove nothing.
+
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an
 already-initialised Jellyfin. These three are seeded imperatively against stateful storage and their seeds
