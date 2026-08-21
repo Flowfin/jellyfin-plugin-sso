@@ -55,7 +55,7 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 - **Role-based access control** - map identity-provider groups/roles to login, administrator, library folders, Live TV, generic permissions, and a per-group parental-rating ceiling.
 - **Hardened, fail-closed login path** - identities bound to the stable `sub` / `NameID`, fail-closed SAML and `id_token` validation, and SSRF-guarded avatar fetches.
 - **Optional SSO-only login** - disable password login for every account except a designated break-glass admin, behind a fail-closed last-admin guard.
-- **Avatar sync, Quick Connect, and self-service account linking.**
+- **Avatar sync, Quick Connect, and self-service account linking.** Which client reaches SSO by which mechanism, and what has actually been exercised: [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
 - **Tested** - a growing xUnit suite over the security-critical paths, with CI (build, format, CodeQL) on every change.
 
 How this plugin compares to Jellyfin's built-in auth, the official LDAP plugin, and the archived 9p4 plugin: see the [Comparison](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Comparison) wiki page.
@@ -79,7 +79,7 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 2. Go to **Dashboard → Plugins → Catalog**, find **Community SSO for Jellyfin**, and install it.
 3. **Restart Jellyfin.**
 
-This project publishes only to the **beta channel** for now - a stable channel opens with the first stable release. The plugin GUID is unchanged from the original `9p4` plugin, so it installs over an existing one in place and keeps your configuration. Build-from-source, the release channels, client (Quick Connect) support, and migrating from the old `9p4` manifest are covered on the [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) wiki page.
+This project publishes only to the **beta channel** for now - a stable channel opens with the first stable release. The plugin GUID is unchanged from the original `9p4` plugin, so it installs over an existing one in place and keeps your configuration. Build-from-source, the release channels, and migrating from the old `9p4` manifest are covered on the [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) wiki page; which clients can complete an SSO sign-in, and by which mechanism, is on [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
 
 ## Configuration
 
@@ -89,7 +89,7 @@ Configure your providers on the plugin's settings page (**Dashboard → Plugins 
 
 Full documentation lives in the **[Wiki](https://github.com/Flowfin/jellyfin-plugin-sso/wiki)**:
 
-- [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) · [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) · [Login Flow](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Login-Flow) · [Security Model](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model) · [Troubleshooting](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Troubleshooting)
+- [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) · [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) · [Login Flow](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Login-Flow) · [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility) · [Security Model](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model) · [Troubleshooting](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Troubleshooting)
 - Project policies: [Governance](GOVERNANCE.md) · [Support & security updates](SECURITY.md#supported-versions--security-updates) · [Remediation & secrets policy](docs/SECURITY-REMEDIATION-POLICY.md)
 
 The plugin's own served pages are translatable from JSON catalogs, no C# involved. [Translating the UI](CONTRIBUTING.md#translating-the-ui) lists the supported languages, the catalog format, and how to add one.
