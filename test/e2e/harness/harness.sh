@@ -945,6 +945,47 @@ idp_oidc_login() {
 }
 
 # --------------------------------------------------------------------------------------------------
+# Phase 3b - the shape of the authorize request the plugin issues, read off the wire (#1127)
+# --------------------------------------------------------------------------------------------------
+# The in-process pin Challenge_SendsNoNonce_AndBindsTheCodeWithPkceS256 asserts what the plugin BUILDS.
+# This asserts what the identity provider is actually SENT, on the real stack, which is the same thing
+# only until something in between changes. Same trigger as that pin: it goes red the day a `nonce`
+# appears in the authorize request without a validator on the callback, which is the CVE-2026-42206
+# shape, and the day the code binding stops being PKCE S256.
+#
+# It runs in the ordinary series rather than as a gated phase of its own. The series has a provider up
+# already, and the whole assertion is one /start, so a separate phase would pay the stack setup twice
+# for one request. Ungated also means every provider harness asserts it, not only the canonical one.
+#
+# Deliberately NOT a mismatched-nonce negative. There is nothing bound at /start for a callback to
+# mismatch - #1157 enumerated every site that could emit or read an authentication-request nonce and
+# recorded that none is sent - so such a phase would be green for a reason unrelated to what it claims.
+log "== Authorize request shape: no nonce, PKCE S256 =="
+SHAPE_JAR="$(mktemp)"
+SHAPE_HDR="$(mktemp)"
+# Sets the global `auth_url` that auth_url_param reads. At top level rather than inside $(...), so a
+# `fail` here reaches the run's FAILURES counter instead of dying with a subshell.
+auth_url="$(oid_start "$SHAPE_JAR" "$SHAPE_HDR")" || die "authorize shape: /start issued no redirect"
+
+case "$auth_url" in
+  *[?\&]nonce=*) fail "the authorize request carries a nonce, and nothing on the callback validates one" ;;
+  *)             pass "the authorize request carries no nonce" ;;
+esac
+
+SHAPE_METHOD="$(auth_url_param code_challenge_method)"
+SHAPE_CHALLENGE="$(auth_url_param code_challenge)"
+if [ "$SHAPE_METHOD" = "S256" ]; then
+  pass "the authorize request binds the code with code_challenge_method=S256"
+else
+  fail "the authorize request does not bind the code with S256 (code_challenge_method='$SHAPE_METHOD')"
+fi
+if [ -n "$SHAPE_CHALLENGE" ]; then
+  pass "the authorize request carries a code_challenge"
+else
+  fail "the authorize request carries code_challenge_method='$SHAPE_METHOD' with no code_challenge"
+fi
+
+# --------------------------------------------------------------------------------------------------
 # Phase 4 - full OIDC round-trip for alice (milestone 2)
 # --------------------------------------------------------------------------------------------------
 log "== OIDC round-trip: alice (expect success) =="
