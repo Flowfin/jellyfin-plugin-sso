@@ -470,4 +470,5 @@ docs/*
 !docs/README.md
 !docs/SECURITY-REMEDIATION-POLICY.md
 !docs/ROADMAP.md
+!docs/ACCOUNT-MANAGEMENT-API.md
 StrykerOutput/
