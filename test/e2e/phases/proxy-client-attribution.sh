@@ -200,11 +200,16 @@ in_jellyfin "set -eu; mv -f '$CONTAINER_CONFIG.kept' '$CONTAINER_CONFIG'; mv -f 
     || die "a copy is still sitting beside the configuration, so the restore did not complete"
 [ "$(grep -o '<EnableRateLimit>[^<]*</EnableRateLimit>' "$CONFIG" | head -1)" = "$RATE_BEFORE" ] \
     || die "the limiter setting in $CONFIG is not what this phase found ($RATE_BEFORE), so the restore left the stack in a state the canonical pass did not create"
-docker compose -f "$COMPOSE" stop jellyfin >/dev/null
-docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
+docker compose -f "$COMPOSE" stop >/dev/null
 pass "the limiter settings and the known-proxies list are back as the canonical pass left them"
 
 log "A login after the restore"
+# STOPPED above and brought up by this `up`, rather than started separately first. `start` returns
+# when the container is running, not when the server is listening, and the harness then raced it:
+# its own readiness check passed against a server still coming up and the next request answered
+# "Failed to connect to jellyfin port 8096 after 1 ms". Letting `up` bring the stack up cold is what
+# the phase beside this one does, and the harness's wait is written for exactly that.
+#
 # RELOGIN_ONLY, so the seed, the wizard and the two provider Add calls are skipped and the
 # persisted provider configuration this phase spent the run not touching is read back (#1123).
 RELOGIN_ONLY=true docker compose -f "$COMPOSE" up \
