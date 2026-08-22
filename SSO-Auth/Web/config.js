@@ -903,49 +903,70 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // Computes the exact redirect_uri the login uses, so the admin can register it verbatim at the IdP (#724).
-  // Mirrors the server-side build (OidcRedirectUriBuilder): the canonical base (the Base URL Override when
-  // set, else this server's address) plus the fixed /sso/OID/redirect/<provider> path. The provider name is
-  // appended raw (names are validated to exclude URI-reserved characters, #336), matching the server, which
-  // appends the route-decoded name without re-encoding so the string equals the login's byte-for-byte.
-  computeRedirectUri: (page, providerName) => {
-    const override = page.querySelector("#BaseUrlOverride").value.trim();
-    const raw = override || ApiClient.serverAddress() || "";
-    let base;
-    try {
-      // Mirror the server's CanonicalBaseUrl (System.Uri.GetLeftPart(UriPartial.Path)) so the shown value
-      // equals what the login sends: `origin` lowercases scheme + host AND elides the default port
-      // (443/80), exactly as System.Uri does, while pathname keeps any sub-path; query/fragment are
-      // dropped and the trailing slash trimmed. A raw string strip alone would show a non-canonical override
-      // (e.g. `https://X.COM:443`) that the login then normalizes away, causing a redirect_uri mismatch.
-      const u = new URL(raw);
-      base = u.origin + u.pathname.replace(/\/+$/, "");
-    } catch (e) {
-      // Not a parseable absolute URL yet (admin mid-typing, or a bare host): best-effort fall back to the
-      // raw value with only trailing slashes stripped so the field still shows something.
-      base = raw.replace(/\/+$/, "");
-    }
-    return base + "/sso/OID/redirect/" + providerName;
-  },
-  // Live-updates the read-only redirect-URI field; empty (placeholder) until a provider name is entered. Sets
-  // .value only (never innerHTML, #221). Called on name/override input, on load, on reset, and at init.
+  // Serial of the most recent redirect-URI request. A reply for an older provider name must never land in
+  // the field after a newer one has already answered it, which per-keystroke requests otherwise allow.
+  redirectUriSerial: 0,
+  // Debounce handle for the same request: the field follows the provider-name and base-URL-override inputs,
+  // and each update is now a round trip rather than a local computation.
+  redirectUriTimer: null,
+  // Live-updates the read-only redirect-URI field from the SERVER, the one producer of these bytes (#1303).
+  // The page used to compose the value itself - the canonical base and the path spelling both - so what an
+  // administrator registered at the identity provider was a second computation of what the login sends. A
+  // divergence between the two does not fail here. It fails at the identity provider, as a redirect_uri
+  // mismatch that reads as a plugin bug, and nothing in this repository ever learns about it. There is
+  // deliberately NO local fallback: one would restore that second producer at the moment it is least likely
+  // to be noticed. Sets .value only (never innerHTML, #221). Called on name/override input, on load, on
+  // reset, and at init.
   updateRedirectUri: (page) => {
     const field = page.querySelector("#OidRedirectUri");
     if (!field) {
       return;
     }
-    const name = page.querySelector("#OidProviderName").value.trim();
-    field.value = name
-      ? ssoConfigurationPage.computeRedirectUri(page, name)
-      : "";
-    field.placeholder = name
-      ? ""
-      : "Enter a provider name above to see the redirect URI";
+
     // A name/override change invalidates any previous "copied" confirmation.
     const status = page.querySelector("#OidRedirectUri-copied");
     if (status) {
       status.textContent = "";
     }
+
+    const name = page.querySelector("#OidProviderName").value.trim();
+    const serial = (ssoConfigurationPage.redirectUriSerial += 1);
+    field.value = "";
+
+    if (ssoConfigurationPage.redirectUriTimer) {
+      clearTimeout(ssoConfigurationPage.redirectUriTimer);
+      ssoConfigurationPage.redirectUriTimer = null;
+    }
+
+    if (!name) {
+      field.placeholder = "Enter a provider name above to see the redirect URI";
+      return;
+    }
+
+    field.placeholder = "Loading the redirect URI…";
+    ssoConfigurationPage.redirectUriTimer = setTimeout(() => {
+      ApiClient.getJSON(
+        ApiClient.getUrl("sso/OID/RedirectUri/" + encodeURIComponent(name)),
+      ).then(
+        (value) => {
+          if (serial !== ssoConfigurationPage.redirectUriSerial) {
+            return;
+          }
+          field.value = typeof value === "string" ? value : "";
+          field.placeholder = "";
+        },
+        // A rejection is a 404 for a provider that has not been saved yet, or a transport/authorization
+        // failure. Say what to do; never show a value the server did not produce.
+        () => {
+          if (serial !== ssoConfigurationPage.redirectUriSerial) {
+            return;
+          }
+          field.value = "";
+          field.placeholder =
+            "Save this provider to see its exact redirect URI";
+        },
+      );
+    }, 250);
   },
   copyRedirectUri: (page) => {
     const field = page.querySelector("#OidRedirectUri");

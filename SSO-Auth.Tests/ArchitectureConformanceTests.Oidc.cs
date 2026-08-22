@@ -138,21 +138,13 @@ public partial class ArchitectureConformanceTests
         Assert.Equal("options.RedirectUri = redirectUri;", assignment.Text);
     }
 
-    [Fact]
-    public void TheAdminPagesRedirectUriPreview_StillMirrorsTheServersPath()
-    {
-        // The admin config page computes the same string in JavaScript so an administrator can register it
-        // verbatim at the identity provider (#724). It is a second producer of these bytes in a language no
-        // C# rule reaches, and it hard-codes the new-path spelling. Nothing made the two move together, so a
-        // server-side path change would leave the page telling admins to register a URL the login never
-        // sends, and the failure appears at the identity provider rather than in this suite. Pinned here
-        // rather than deduplicated: the duplication itself is #1303.
-        var preview = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
-        Assert.Contains(
-            $"return base + \"{OidcCallbackPathFragment}redirect/\" + providerName;",
-            preview,
-            StringComparison.Ordinal);
-    }
+    // The rule that stood here pinned the admin page's own JavaScript composition of the redirect_uri
+    // against the server's path fragment. #1303 removed the composition rather than keeping the two copies
+    // aligned, so this rule has no subject left: the page fetches the value from OID/RedirectUri and the
+    // server is the only producer of these bytes. What replaced it is
+    // OidcRedirectUriField_IsReadOnly_AndIsFilledFromTheServerRatherThanComposedInThePage in the LoginPath
+    // partial, which refuses a composition coming BACK into config.js, and the call-site walk above, which
+    // now covers the display path because it reaches the same builder over the same canonical base.
 
     [Fact]
     public void TheProvisionedUsernameAllowlist_StillMirrorsTheRecordedHostRule()

@@ -834,6 +834,33 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the exact OpenID <c>redirect_uri</c> a stored provider's login sends, so the admin config page
+    /// can show it for verbatim registration at the identity provider instead of composing a second copy of
+    /// it in JavaScript (#1303). The flow service composes it, over the same builder and the same canonical
+    /// base the challenge uses, so there is one producer of these bytes.
+    /// </summary>
+    /// <remarks>
+    /// Elevation-gated like the other admin endpoints: the value is not a secret, but it reveals a
+    /// provider's configured base-URL override, and only an administrator has any use for it. Read-only -
+    /// it starts no flow, writes nothing, and makes no outbound request, so it takes no rate-limit class.
+    /// An unknown provider is the same 404 the other per-provider admin reads return; the page turns that
+    /// into "save the provider first" rather than showing a value for a provider that does not exist.
+    /// </remarks>
+    /// <param name="provider">The stored OpenID provider whose redirect_uri to compose.</param>
+    /// <returns>The redirect_uri, or 404 when the provider is not configured.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("OID/RedirectUri/{provider}")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult OidRedirectUri(string provider)
+    {
+        var redirectUri = _oidc.ChallengeRedirectUriDisplay(provider, Request);
+
+        return redirectUri is null
+            ? NotFound(NoMatchingProviderMessage)
+            : Ok(redirectUri);
+    }
+
+    /// <summary>
     /// This is a debug endpoint to list all running OpenID flows. Requires administrator privileges.
     /// </summary>
     /// <returns>The list of OpenID flows in progress.</returns>

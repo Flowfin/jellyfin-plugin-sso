@@ -206,6 +206,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The redirect URI on the settings page now comes from the server (#1303).**
+  The page used to work the value out for itself, in the browser, from the base
+  URL override and a fixed path. That made two things compose a string an
+  identity provider compares letter for letter, and when the two disagreed the
+  login did not fail on this server: it failed at the provider, with a
+  `redirect_uri` mismatch that looks like a plugin fault and that nobody here
+  ever sees. The field now shows what the server answers, so what is registered
+  at the provider and what the login sends are the same string with one author.
+  There is no local fallback, which has one visible cost: the field is filled in
+  for a provider that has been saved, and a provider still being typed shows
+  "Save this provider to see its exact redirect URI" instead of a preview. One
+  case is not covered and the field's help text names it: both sign-in routes
+  stay live, and users who still start at the older `/sso/OID/p/<name>` address
+  send the older `/sso/OID/r/<name>` form, which has to be registered as well.
+
 - **A role claim the plugin could not read now says so in the log (#1149).** A
   mistyped role-claim path and a provider that genuinely sends no roles used to
   look identical from outside: both ended with an empty role set and no entry,
