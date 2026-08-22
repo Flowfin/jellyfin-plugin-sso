@@ -39,6 +39,9 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     private static readonly string[] ExpectedElevationActions =
     {
         "OidAdd", "OidDel", "OidProviders", "OidTest", "OidStates",
+        // The redirect_uri the admin page displays (#1303): read-only, and elevation-gated because it
+        // answers with a provider's configured base-URL override and only an administrator has a use for it.
+        "OidRedirectUri",
         "SamlAdd", "SamlDel", "SamlProviders", "SamlTest", "SamlImportMetadata",
         "ExportConfig", "ImportConfig", "Unregister", "ExportLinks", "ExportUserLinks",
         // The SSO-only login admin surface (#165): the mode toggle, the break-glass designation, and status.

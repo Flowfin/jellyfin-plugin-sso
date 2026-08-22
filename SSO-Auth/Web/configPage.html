@@ -571,13 +571,14 @@
                   </div>
 
                   <!--
-                    Read-only computed redirect URI (#724): shows the exact redirect_uri the login uses, so an
-                    admin can register it verbatim at the identity provider (a wrong value is the most common
-                    OIDC setup failure). NO sso-* marker class and read-only, so it is not a persisting field
+                    Read-only redirect URI (#724): shows the exact redirect_uri the login uses, so an admin can
+                    register it verbatim at the identity provider (a wrong value is the most common OIDC setup
+                    failure). NO sso-* marker class and read-only, so it is not a persisting field
                     (listArgumentsByType must not pick it up, and it stays out of the
                     ProviderFormFieldIds_MatchOidConfigProperties contract, like OidProviderName). Its value is
-                    set via .value in config.js (never innerHTML, #221). It mirrors the server-side build:
-                    Base URL Override when set, else this server's address, + /sso/OID/redirect/<name>.
+                    set via .value in config.js (never innerHTML, #221). That value is FETCHED from
+                    sso/OID/RedirectUri/<name> rather than composed here (#1303): the server builds the bytes
+                    the login sends, so this page cannot show a second, drifting computation of them.
                   -->
                   <div class="inputContainer">
                     <label
@@ -611,13 +612,19 @@
                     ></div>
                     <div class="fieldDescription" id="OidRedirectUri-help">
                       The exact redirect URI the login uses. Register it
-                      verbatim at your identity provider. It updates as you type
-                      the provider name above. Derived from the
+                      verbatim at your identity provider. The server builds it
+                      and this field shows what the server answered, so it is
+                      the same string the login sends rather than a copy of it.
+                      Save the provider first: an unsaved one has nothing for
+                      the server to answer for. It is built from the
                       <strong>Base URL Override</strong> (in the Advanced
                       section) when set, otherwise this server's address; if you
-                      sit behind a reverse proxy, set that override so this
-                      matches what the login actually sends. The legacy spelling
-                      <code>/sso/OID/r/&lt;name&gt;</code> also works.
+                      sit behind a reverse proxy, set that override and save, so
+                      this matches what the login actually sends. Users who
+                      still start at the legacy
+                      <code>/sso/OID/p/&lt;name&gt;</code> route send the legacy
+                      <code>/sso/OID/r/&lt;name&gt;</code> spelling instead;
+                      register that one too if any of them do.
                     </div>
                   </div>
 

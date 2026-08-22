@@ -68,6 +68,11 @@ public partial class ArchitectureConformanceTests
         "OID/Add/{provider}", "SAML/Add/{provider}", "OID/Del/{provider}", "SAML/Del/{provider}", // elevated config CRUD
         "OID/Get", "SAML/Get", "OID/GetNames", "SAML/GetNames", "OID/States", // read-only listings
         "SAML/Test/{provider}", // LOCAL certificate parse - no outbound fetch (unlike OID/Test)
+        // Elevated read of a stored provider's redirect_uri for the admin page (#1303): pure string
+        // composition over the config already in memory, no outbound fetch and no write. Its 404 answers
+        // whether a PROVIDER exists, which the elevation-gated OID/Get already lists in full, so it is
+        // not the per-user-id enumeration surface that made the two Links routes throttled neighbours.
+        "OID/RedirectUri/{provider}",
         "Config/Export", "Config/Import", // elevated config transfer
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "Config/Links/Export", // elevated read-only link snapshot (#1126), in-memory, no outbound fetch
@@ -197,6 +202,7 @@ public partial class ArchitectureConformanceTests
         "OID/logout/{provider}", "SAML/logout/{provider}", "SAML/Logout/{provider}", "OID/backchannel-logout/{provider}", // logout: resolves a stored provider
         "OID/Del/{provider}", "SAML/Del/{provider}", // removal: an already-stored name, or a no-op
         "OID/Test/{provider}", "SAML/Test/{provider}", // admin probe of a STORED provider, 404 on a miss
+        "OID/RedirectUri/{provider}", // admin read of a STORED provider's redirect_uri, 404 on a miss (#1303)
         "SAML/metadata/{provider}", // SP metadata built for a stored provider
         "{mode}/Link/{provider}/{jellyfinUserId}", "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}", // link write against a stored, enabled provider
         "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}", // pre-provision write against a stored, enabled provider (#1133)

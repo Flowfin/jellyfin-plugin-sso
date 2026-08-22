@@ -835,6 +835,33 @@ internal sealed class OidcLoginService
         return new OidcClient(options);
     }
 
+    /// <summary>
+    /// Composes the challenge <c>redirect_uri</c> for a stored provider so the admin page can DISPLAY the
+    /// bytes the login sends instead of computing a second copy of them in the browser (#1303). It runs the
+    /// same <see cref="OidcRedirectUriBuilder"/> over the same canonical base the challenge runs, so the
+    /// value an administrator registers at the identity provider and the value the authorization request
+    /// carries have one producer and cannot drift apart. Read-only: it touches no state and starts no flow.
+    /// </summary>
+    /// <param name="provider">The stored provider name, appended raw exactly as the login appends it.</param>
+    /// <param name="request">The admin request whose scheme/host/path-base the canonical base falls back to.</param>
+    /// <returns>The redirect_uri, or <see langword="null"/> when no such provider is configured.</returns>
+    public string? ChallengeRedirectUriDisplay(string provider, HttpRequest request)
+    {
+        var config = FindOidConfig(provider);
+        if (config is null)
+        {
+            return null;
+        }
+
+        // The new-path spelling, fixed rather than read from config.NewPath. That field is the LAST OBSERVED
+        // spelling and defaults to the legacy one, so a provider nobody has logged in with yet would be shown
+        // a route its first login does not use - the very failure this display exists to prevent. Every
+        // sign-in entry point the plugin renders is the "/start/" route (LoginButton), which produces this
+        // spelling. The legacy "/p/" start route stays live and sends the "/r/" form; a deployment whose
+        // users still arrive on it registers that form instead, and this display does not cover that case.
+        return OidcRedirectUriBuilder.ChallengeRedirectUri(RequestBaseUrl(request, config), true, provider);
+    }
+
     // Resolves the canonical base URL from the live request and the provider's overrides - the same pure
     // CanonicalBaseUrl.Resolve decision (#242) SamlLoginService.GetRequestBase feeds for SAML. Kept as a
     // thin local read so this flow tier is self-contained.
