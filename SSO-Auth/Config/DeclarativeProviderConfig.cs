@@ -3,6 +3,7 @@
 
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
@@ -34,7 +35,8 @@ internal enum DeclarativeLoadOutcome
 /// <summary>
 /// Applies a provider configuration document mounted into the container over the stored configuration at
 /// startup (#1095), so a deployment can describe its identity providers in a file it owns rather than by
-/// clicking through the settings page. The foundation of #828; the secret-reference form (#1096), the
+/// clicking through the settings page. The foundation of #828; the secrets it carries are references rather
+/// than values and are resolved by <see cref="DeclarativeSecretReference"/> (#1096), while the
 /// environment-variable source (#1097), the read-only admin surface (#1104) and the documentation (#1116)
 /// are siblings and are deliberately not here.
 /// </summary>
@@ -54,8 +56,22 @@ internal enum DeclarativeLoadOutcome
 /// stored one of that name, a provider the document does not name is left exactly as it is, and the
 /// server-managed link maps and issuer bindings survive the apply because
 /// <see cref="ServerManagedFields"/> re-injects them. A blank secret in the document keeps the stored
-/// secret, so a document that carries none does not blank one out. A secret written into the document IS
-/// applied, which is what #1096 replaces with a reference form.
+/// secret, so a document that carries none does not blank one out.
+/// </para>
+/// <para>
+/// A secret is never written into the document. <see cref="DeclarativeSecretReference"/> resolves the
+/// <c>Env</c> and <c>File</c> reference forms into it just before it is deserialized (#1096), and refuses a
+/// document that spells a secret out, so the file this loader reads can live wherever the deployment keeps
+/// the rest of its configuration without carrying a client secret or a signing key there. A reference that
+/// cannot be resolved rejects the whole document exactly like any other fault; nothing falls back to a blank
+/// secret, because a blank one is KEPT rather than applied and would leave the server running on its
+/// previous secret with nothing said about it.
+/// </para>
+/// <para>
+/// A resolved secret the store already holds is put back to blank before the merge, so the encrypted value
+/// at rest survives untouched. Without that the restart-loop promise below would not survive the first
+/// reference: what is stored is an envelope and what a reference resolves to is the plaintext inside it, so
+/// the two never compare equal and every boot would rewrite <c>config.xml</c>.
 /// </para>
 /// <para>
 /// The link maps survive with ONE exception, inherited whole from the import path rather than invented
@@ -101,8 +117,16 @@ internal static class DeclarativeProviderConfig
     /// </summary>
     /// <param name="store">The configuration store to apply the document through.</param>
     /// <param name="logger">The logger a rejection is reported on.</param>
+    /// <param name="revealStoredSecret">
+    /// Recovers the plaintext of a secret as the store holds it, so a reference resolving to what is already
+    /// stored leaves the at-rest envelope alone (#1096). Null skips that comparison, which costs a rewrite
+    /// rather than correctness.
+    /// </param>
     /// <returns>What the load did.</returns>
-    internal static DeclarativeLoadOutcome ApplyFromEnvironment(ProviderConfigStore store, ILogger? logger)
+    internal static DeclarativeLoadOutcome ApplyFromEnvironment(
+        ProviderConfigStore store,
+        ILogger? logger,
+        Func<string?, string?>? revealStoredSecret = null)
     {
         try
         {
@@ -111,7 +135,10 @@ internal static class DeclarativeProviderConfig
                 Environment.GetEnvironmentVariable(SourcePathVariable),
                 File.Exists,
                 path => File.ReadAllText(path),
-                logger);
+                logger,
+                Environment.GetEnvironmentVariable,
+                ReadReferenceFile,
+                revealStoredSecret);
         }
 #pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
@@ -142,13 +169,22 @@ internal static class DeclarativeProviderConfig
     /// <param name="exists">Answers whether the path names a readable document.</param>
     /// <param name="read">Reads the document's text.</param>
     /// <param name="logger">The logger a rejection is reported on.</param>
+    /// <param name="readEnvironmentVariable">Reads a variable a secret reference names; the process environment by default.</param>
+    /// <param name="readReferenceFile">Reads a file a secret reference names, null when it cannot be read; the filesystem by default.</param>
+    /// <param name="revealStoredSecret">
+    /// Recovers the plaintext of a secret as the store holds it (#1096). Null skips the comparison that keeps
+    /// an unchanged secret's at-rest envelope, which costs a rewrite rather than correctness.
+    /// </param>
     /// <returns>What the load did.</returns>
     internal static DeclarativeLoadOutcome Apply(
         ProviderConfigStore store,
         string? sourcePath,
         Func<string, bool> exists,
         Func<string, string> read,
-        ILogger? logger)
+        ILogger? logger,
+        Func<string, string?>? readEnvironmentVariable = null,
+        Func<string, string?>? readReferenceFile = null,
+        Func<string?, string?>? revealStoredSecret = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(exists);
@@ -202,10 +238,23 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, reason);
         }
 
+        // The secrets arrive as references and are resolved into the document HERE, after the repeated-member
+        // screen and before the deserializer, so the pass that decides a secret reads the same bytes the
+        // screen just cleared and hands the deserializer a document with no reference left in it (#1096).
+        if (!DeclarativeSecretReference.TryResolve(
+            text,
+            readEnvironmentVariable ?? Environment.GetEnvironmentVariable,
+            readReferenceFile ?? ReadReferenceFile,
+            out var resolvedText,
+            out var secretRejection))
+        {
+            return Reject(logger, sourcePath, secretRejection ?? "a secret reference could not be resolved");
+        }
+
         ConfigExportDocument? document;
         try
         {
-            document = JsonSerializer.Deserialize<ConfigExportDocument>(text, ReadOptions);
+            document = JsonSerializer.Deserialize<ConfigExportDocument>(resolvedText, ReadOptions);
         }
         catch (JsonException ex)
         {
@@ -224,6 +273,8 @@ internal static class DeclarativeProviderConfig
         string? rejection = null;
         var changed = store.Read(live =>
         {
+            KeepWhatIsAlreadyStored(document.Configuration, live, revealStoredSecret);
+
             var candidate = live.DetachedCopy();
             try
             {
@@ -280,6 +331,119 @@ internal static class DeclarativeProviderConfig
 
         AuditInsecureOptions(logger, document.Configuration);
         return DeclarativeLoadOutcome.Applied;
+    }
+
+    // The filesystem behind a secret reference. A path that cannot be read is null rather than an exception,
+    // because every way of failing to read one is the same answer to the only question the resolver asks -
+    // "does this reference produce a secret" - and the resolver turns that answer into a refusal naming the
+    // path. The document's own read keeps its typed catches: there the reason reaches the operator.
+    private static string? ReadReferenceFile(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    // A resolved secret that is ALREADY the stored one is put back to blank, so the merge keeps the encrypted
+    // value at rest instead of writing the plaintext over it. Without this the loader's restart-loop promise
+    // dies at the first reference: what is stored is an ssoenc: envelope, what a reference resolves to is the
+    // plaintext inside it, the two never compare equal, and every boot rewrites config.xml with a freshly
+    // nonced envelope. Blank means keep, which is the rule ServerManagedFields already carries for every
+    // other write path, so this reaches the outcome through that rule rather than beside it.
+    private static void KeepWhatIsAlreadyStored(PluginConfiguration? incoming, PluginConfiguration live, Func<string?, string?>? reveal)
+    {
+        if (incoming is null || reveal is null)
+        {
+            return;
+        }
+
+        if (incoming.OidConfigs is { } oidConfigs && live.OidConfigs is { } storedOid)
+        {
+            foreach (var kvp in oidConfigs)
+            {
+                if (kvp.Value is null
+                    || string.IsNullOrWhiteSpace(kvp.Value.OidSecret)
+                    || !storedOid.TryGetValue(kvp.Key, out var stored)
+                    || stored is null)
+                {
+                    continue;
+                }
+
+                // Only while the provider's identity is unchanged. On a repoint ServerManagedFields drops the
+                // stored secret ON PURPOSE (#186), so blanking here would hand that provider no secret at all
+                // - the one case where "already stored" is true and keeping it is still wrong.
+                if (!string.Equals(kvp.Value.OidEndpoint, stored.OidEndpoint, StringComparison.Ordinal)
+                    || !string.Equals(kvp.Value.OidClientId, stored.OidClientId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (IsAlreadyStored(reveal, stored.OidSecret, kvp.Value.OidSecret))
+                {
+                    kvp.Value.OidSecret = null;
+                }
+            }
+        }
+
+        if (incoming.SamlConfigs is { } samlConfigs && live.SamlConfigs is { } storedSaml)
+        {
+            foreach (var kvp in samlConfigs)
+            {
+                if (kvp.Value is null || !storedSaml.TryGetValue(kvp.Key, out var stored) || stored is null)
+                {
+                    continue;
+                }
+
+                // No identity guard on this arm, because ServerManagedFields has none either: a SAML signing
+                // key is never transmitted, so blank-means-keep holds for it whatever else the document moved.
+                if (IsAlreadyStored(reveal, stored.SamlSigningKeyPfx, kvp.Value.SamlSigningKeyPfx))
+                {
+                    kvp.Value.SamlSigningKeyPfx = null;
+                }
+
+                if (IsAlreadyStored(reveal, stored.SamlRolloverSigningKeyPfx, kvp.Value.SamlRolloverSigningKeyPfx))
+                {
+                    kvp.Value.SamlRolloverSigningKeyPfx = null;
+                }
+            }
+        }
+    }
+
+    private static bool IsAlreadyStored(Func<string?, string?> reveal, string? stored, string? resolved)
+    {
+        if (string.IsNullOrWhiteSpace(resolved) || string.IsNullOrEmpty(stored))
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(reveal(stored), resolved, StringComparison.Ordinal);
+        }
+        catch (CryptographicException)
+        {
+            // A stored envelope this instance can no longer read - the key file is gone. Answering "not the
+            // same" hands that case to the merge and the persist boundary, which already fail closed on
+            // exactly that pairing, rather than deciding it here on a comparison that could not be made.
+            return false;
+        }
     }
 
     // A mounted file that turns off a default-on protection has to leave the same [SSO Audit] trace a form
