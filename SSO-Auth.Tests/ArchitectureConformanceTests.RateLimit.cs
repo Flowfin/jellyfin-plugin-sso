@@ -53,6 +53,10 @@ public partial class ArchitectureConformanceTests
         // The per-subject link export (#1091): elevation-gated and read-only, but it answers per user id,
         // so an unthrottled one is a user-table enumeration an administrator can drive in a loop.
         "Links/Export/{jellyfinUserId}",
+        // The link-backup restore (#1129): the same config-XML persist under the global lock as the two
+        // link writes above, in bulk, and its refusal names usernames this instance does not hold, which
+        // an unthrottled caller could drive in a loop as a user-table oracle.
+        "Config/Links/Import",
         // The pre-provision link write (#1133): a config-XML persist under the global lock, and its 404 is
         // an existence answer about a user id, so it is throttled for both reasons the two neighbours are.
         "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}",

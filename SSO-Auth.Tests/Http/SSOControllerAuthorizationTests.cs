@@ -52,6 +52,9 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // The linked-account roster (#1119): read-only, and elevation-gated because it names every linked
         // account on the server.
         "LinkedAccountRoster",
+        // The link-backup restore (#1129): it rebinds identity-provider subjects onto accounts other than
+        // the caller's, in bulk, with no identity-provider response behind any of them.
+        "ImportLinks",
         // The pre-provision link write (#1133): it grants an identity-provider subject the ability to sign
         // in as an account other than the caller's, with no identity-provider response behind it.
         "PreprovisionCanonicalLink",

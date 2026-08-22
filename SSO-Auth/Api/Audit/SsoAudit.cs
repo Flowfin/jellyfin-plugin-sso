@@ -238,6 +238,37 @@ internal static class SsoAudit
             samlProviders);
 
     /// <summary>
+    /// Records an administrator restoring an account-link backup (#1129). Every restored link is a grant
+    /// of future login capability made on an administrator credential alone and with no identity-provider
+    /// round trip, in bulk, so it is warned rather than informed for the same reason the single
+    /// pre-provision write below is: it is the line an operator looks for when an account turns out to
+    /// sign in as somebody it should not.
+    /// </summary>
+    /// <remarks>
+    /// The canonical subjects are deliberately not fields here, exactly as they are not on the single
+    /// write below (T-I1). The per-provider counts are what tell an operator whether the restore matched
+    /// the backup they applied, and a subject is the one value in that document that identifies a real
+    /// person at the identity provider.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="actor">The elevated administrator who applied the backup.</param>
+    /// <param name="totalLinks">How many links the import restored in total.</param>
+    /// <param name="perProvider">A rendered "Protocol 'provider': n" list, one entry per provider that got links back.</param>
+    internal static void LinksImported(ILogger logger, string actor, int totalLinks, string perProvider)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Account-link backup restored by {Actor}: {TotalLinks} link(s) rebound to this instance's accounts, with no identity-provider response redeemed. Per provider: {PerProvider}.",
+            actor?.ReplaceLineEndings(string.Empty),
+            totalLinks,
+            perProvider?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
     /// Records an administrator pre-provisioning a canonical link with no identity-provider round trip
     /// (#1133). A grant of future login capability made on an administrator credential alone, so it is
     /// warned rather than informed: it is the line an operator looks for when an account turns out to sign
