@@ -469,4 +469,5 @@ AGENTS.md
 docs/*
 !docs/README.md
 !docs/SECURITY-REMEDIATION-POLICY.md
+!docs/ROADMAP.md
 StrykerOutput/
