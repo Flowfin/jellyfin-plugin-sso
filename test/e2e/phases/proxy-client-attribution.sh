@@ -149,8 +149,14 @@ grep -q "<string>$PROXY_ADDR</string>" "$NETWORK_CONFIG" \
 pass "$PROXY_ADDR is a known proxy"
 
 log "Restarting Jellyfin against both edits, and bringing the proxy up"
+# KEYCLOAK IS STARTED TOO, AND FORGETTING IT COST A RUN. The phase before this one ends with
+# `docker compose up --abort-on-container-exit`, which stops every container when the harness exits,
+# so this phase inherits a stopped stack rather than a running one. Starting only Jellyfin left the
+# identity provider down, the challenge answered 400 with "the authorization server's discovery
+# document could not be read", and the control refused to let the run mean anything - which is what
+# the control is for. The phase beside this one starts both for the same reason.
 docker compose -f "$COMPOSE" stop jellyfin >/dev/null
-docker compose -f "$COMPOSE" start jellyfin >/dev/null
+docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
 docker compose -f "$COMPOSE" --profile proxy up -d proxy >/dev/null
 pass "the stack is running with a proxy in front of Jellyfin"
 
@@ -195,7 +201,7 @@ in_jellyfin "set -eu; mv -f '$CONTAINER_CONFIG.kept' '$CONTAINER_CONFIG'; mv -f 
 [ "$(grep -o '<EnableRateLimit>[^<]*</EnableRateLimit>' "$CONFIG" | head -1)" = "$RATE_BEFORE" ] \
     || die "the limiter setting in $CONFIG is not what this phase found ($RATE_BEFORE), so the restore left the stack in a state the canonical pass did not create"
 docker compose -f "$COMPOSE" stop jellyfin >/dev/null
-docker compose -f "$COMPOSE" start jellyfin >/dev/null
+docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
 pass "the limiter settings and the known-proxies list are back as the canonical pass left them"
 
 log "A login after the restore"
