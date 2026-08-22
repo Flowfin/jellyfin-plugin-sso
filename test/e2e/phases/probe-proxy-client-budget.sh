@@ -62,7 +62,18 @@ challenge() { # $1 forwarded client address; echoes the status
         || echo "000"
 }
 
-say "PROBE-CONTROL $(challenge "$CLIENT_A")"
+# The control's BODY is reported as well as its status. A control that does not redirect ends the
+# phase, and "it answered 400" without the body leaves the next run guessing which of the several
+# 400 arms it was: the plugin renders a distinct message for each one.
+control_code="$(curl -sS -o /tmp/control.body -w '%{http_code}' \
+    -H "X-Test-Client: $CLIENT_A" \
+    "$PROXY_URL/sso/OID/start/$PROVIDER" 2>/tmp/control.err || echo "000")"
+say "PROBE-CONTROL $control_code"
+if [ -s /tmp/control.body ]; then
+    say "PROBE-CONTROL-BODY $(tr -d '\r\n' < /tmp/control.body | cut -c1-300)"
+else
+    say "PROBE-CONTROL-BODY "
+fi
 
 # The exhaust loop reports every status it saw, not only the last one, so a run that ends without a
 # 429 says what the endpoint answered instead of only that the expected one never arrived.
