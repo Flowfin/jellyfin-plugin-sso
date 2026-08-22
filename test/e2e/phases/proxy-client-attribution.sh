@@ -134,19 +134,11 @@ grep -q "<RateLimitMaxAttempts>$MAX_ATTEMPTS</RateLimitMaxAttempts>" "$CONFIG" \
     || die "the attempt budget was not written into $CONFIG"
 pass "the limiter is on with $MAX_ATTEMPTS attempts per ${WINDOW_SECONDS}s"
 
-log "Naming the proxy in Jellyfin's known proxies"
-# Both spellings, because an empty list serializes as a self-closing element and a populated one
-# does not, and which of the two is on disk depends on what the wizard wrote.
-in_jellyfin "set -eu
-    if grep -q '<KnownProxies */>' '$CONTAINER_NETWORK'; then
-        sed -i \"s|<KnownProxies */>|<KnownProxies><string>\$PROXY_ADDR</string></KnownProxies>|\" '$CONTAINER_NETWORK'
-    else
-        sed -i \"s|<KnownProxies>.*</KnownProxies>|<KnownProxies><string>\$PROXY_ADDR</string></KnownProxies>|\" '$CONTAINER_NETWORK'
-    fi" \
-    || die "the known-proxies list could not be written into $NETWORK_CONFIG"
-grep -q "<string>$PROXY_ADDR</string>" "$NETWORK_CONFIG" \
-    || die "the proxy address is not in $NETWORK_CONFIG after the edit; without it Jellyfin ignores the forwarded header and both clients collapse to the proxy, which would red this phase for a configuration reason rather than a plugin one"
-pass "$PROXY_ADDR is a known proxy"
+log "NOT naming the proxy in Jellyfin's known proxies (falsifier branch, never merged)"
+# THIS BRANCH EXISTS TO BE RED. The known-proxies write is deleted, so Jellyfin has no reason to
+# trust the forwarded header and both clients collapse to the proxy's own address. If the phase
+# still passes without it, the phase is not measuring what it claims to measure.
+pass "the known-proxies list is deliberately left empty"
 
 log "Restarting Jellyfin against both edits, and bringing the proxy up"
 # KEYCLOAK IS STARTED TOO, AND FORGETTING IT COST A RUN. The phase before this one ends with
