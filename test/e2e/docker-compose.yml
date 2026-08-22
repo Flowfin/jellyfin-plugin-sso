@@ -87,6 +87,26 @@ services:
     networks:
       - ssonet
 
+  proxy:
+    # A reverse proxy in front of Jellyfin, for the client-attribution phase only (#1125). It sits
+    # behind a compose profile, so an ordinary run of this stack never starts it and the per-PR path
+    # is byte-identical to what it was; the phase brings it up with
+    # `docker compose --profile proxy up -d proxy`.
+    #
+    # The static address is load-bearing rather than tidiness. Jellyfin rewrites the client address
+    # from X-Forwarded-For only when the immediate peer is listed in its own "Known proxies"
+    # setting, and the phase writes THIS address into that list before restarting the server. A
+    # dynamically allocated address could not be written into a configuration file before the
+    # container exists. .200 is far above where Docker starts allocating, so it cannot collide with
+    # the services that come up first.
+    profiles: ["proxy"]
+    image: nginx:1.27-alpine
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      ssonet:
+        ipv4_address: 11.0.0.200
+
 networks:
   ssonet:
     driver: bridge
