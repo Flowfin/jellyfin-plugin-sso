@@ -27,11 +27,15 @@ set -euo pipefail
 
 COMPOSE="${COMPOSE:-test/e2e/docker-compose.yml}"
 CONFIG="${CONFIG:-test/e2e/jellyfin/config/plugins/configurations/SSO-Auth.xml}"
-# The test Keycloak's bootstrap administrator, as the canonical compose file declares it. Passed in
-# rather than defaulted inside the probe, so the credentials this phase uses are readable in the file
-# that runs it.
-KC_ADMIN_USER="${KC_ADMIN_USER:-admin}"
-KC_ADMIN_PASS="${KC_ADMIN_PASS:-admin}"
+# The realm administrator the rotation is performed as: a user of the e2e realm seeded in
+# `test/e2e/keycloak/e2e-realm.json` with the realm-management `realm-admin` role, NOT the server's
+# bootstrap administrator in the master realm. The master realm keeps Keycloak's default
+# `sslRequired: external` and refuses a plaintext request from any address it does not consider
+# private, which this compose network deliberately is not; the e2e realm sets `sslRequired: none`.
+# Passed in rather than only defaulted inside the probe, so the credentials this phase uses are
+# readable in the file that runs it.
+KC_ADMIN_USER="${KC_ADMIN_USER:-realmadmin}"
+KC_ADMIN_PASS="${KC_ADMIN_PASS:-realmadmin}"
 
 log()  { printf '%s\n' "== $* =="; }
 die()  { printf '::error::%s\n' "$*" >&2; exit 1; }

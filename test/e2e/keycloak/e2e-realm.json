@@ -94,6 +94,25 @@
   ],
   "users": [
     {
+      "username": "realmadmin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "realmadmin@example.com",
+      "firstName": "Realm",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "realmadmin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [],
+      "clientRoles": {
+        "realm-management": ["realm-admin"]
+      }
+    },
+    {
       "username": "alice",
       "enabled": true,
       "emailVerified": true,

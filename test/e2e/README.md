@@ -295,6 +295,14 @@ one, so the retired key stays in the realm and merely stops being used, and dele
 component at the end restores the realm exactly. Disabling would also remove the key from the JWKS
 the OpenID half of this stack reads, which is a second change the phase is not about.
 
+It authenticates as `realmadmin`, a user of the e2e realm seeded with the realm-management
+`realm-admin` role, and not as the server's bootstrap administrator. That is forced rather than
+chosen: the master realm keeps Keycloak's default `sslRequired: external`, which refuses a plaintext
+request from any address Keycloak does not treat as private, and this compose network sits on
+`11.0.0.0/24` precisely because the plugin's SSRF guard has to treat it as public. The e2e realm sets
+`sslRequired: none`, so a realm-admin token minted there is the route to the admin API that this
+stack's plaintext http leaves open.
+
 Like the two phases above it, the work happens in a throwaway container on the compose network
 (`test/e2e/phases/probe-saml-rollover.sh`), because neither Jellyfin nor Keycloak publishes a port to
 the host, and the probe never exits non-zero: it reports `PROBE-PASS` / `PROBE-FAIL` / `PROBE-ERROR`

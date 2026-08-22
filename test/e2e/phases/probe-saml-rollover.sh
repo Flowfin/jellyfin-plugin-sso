@@ -37,12 +37,17 @@ REALM="${REALM:-e2e}"
 PROVIDER="${PROVIDER:-keycloak}"
 ADMIN_USER="${JF_ADMIN_USER:-e2eadmin}"
 ADMIN_PASS="${JF_ADMIN_PASS:-e2e-admin-pw}"
-# The identity provider's bootstrap administrator. These are the credentials the canonical compose
-# file states for its own test Keycloak (KC_BOOTSTRAP_ADMIN_USERNAME / _PASSWORD); nothing secret is
-# introduced by naming them, and the host passes them in so this file carries no default the host
-# cannot see.
-KC_ADMIN_USER="${KC_ADMIN_USER:-admin}"
-KC_ADMIN_PASS="${KC_ADMIN_PASS:-admin}"
+# The administrator this phase rotates a key as. It is a user of the E2E REALM carrying the
+# realm-management `realm-admin` role, seeded in e2e-realm.json, rather than the server's bootstrap
+# administrator in the master realm, and that is forced rather than chosen. The master realm keeps
+# Keycloak's default `sslRequired: external`, which refuses a plaintext request from any address
+# Keycloak does not consider private, and the compose network is deliberately on 11.0.0.0/24 - a
+# range chosen precisely because the plugin's SSRF guard treats it as public. So the master realm
+# answers the token request with "HTTPS required" from this network, measured on the run linked in
+# the commit that changed this. The e2e realm sets `sslRequired: none`, and a realm-admin token
+# minted there administers that realm.
+KC_ADMIN_USER="${KC_ADMIN_USER:-realmadmin}"
+KC_ADMIN_PASS="${KC_ADMIN_PASS:-realmadmin}"
 # carol is the SAML user the canonical round-trip drives, and she carries the jellyfin-access role
 # the stored provider configuration gates on.
 SAML_USER="${SAML_USER:-carol}"
@@ -99,21 +104,6 @@ until curl -fsS -o /dev/null "$KEYCLOAK/realms/$REALM/protocol/saml/descriptor" 
 done
 stage "the identity provider serves its SAML descriptor after $i retries ($((i * 2))s)"
 
-# The e2e realm answering does not mean the MASTER realm does, and the admin token below is minted
-# there. The stack was started seconds ago by the host half, so this is gated separately rather than
-# read off the gate above.
-i=0
-until curl -fsS -o /dev/null "$KEYCLOAK/realms/master/.well-known/openid-configuration" 2>/tmp/kcmaster.err; do
-  i=$((i + 1))
-  if [ "$i" -ge 90 ]; then
-    oops "the identity provider's master realm did not answer within 180s:"
-    sed 's/^/  /' /tmp/kcmaster.err
-    exit 0
-  fi
-  sleep 2
-done
-stage "the identity provider's master realm answers after $i retries ($((i * 2))s)"
-
 # --------------------------------------------------------------------------------------------------
 # Credentials
 # --------------------------------------------------------------------------------------------------
@@ -134,7 +124,7 @@ stage "Jellyfin administrator token acquired"
 # and knowing why.
 kc_token_request() {
   curl -sS -o /tmp/kctoken.out -w '%{http_code}' -X POST \
-    "$KEYCLOAK/realms/master/protocol/openid-connect/token" \
+    "$KEYCLOAK/realms/$REALM/protocol/openid-connect/token" \
     --data-urlencode 'client_id=admin-cli' --data-urlencode 'grant_type=password' \
     --data-urlencode "username=$KC_ADMIN_USER" --data-urlencode "password=$KC_ADMIN_PASS" \
     2>/tmp/kctoken.err
@@ -157,11 +147,15 @@ stage "identity-provider admin token acquired after $i retries (HTTP $KC_TOKEN_S
 
 kc() { curl -sS -H "Authorization: Bearer $KC_TOKEN" "$@"; }
 
-REALM_ID="$(kc "$KEYCLOAK/admin/realms/$REALM" 2>/dev/null | jq -r '.id // empty')"
+# The first call against the admin API, so its status and body are reported rather than reduced to a
+# missing id: this is where a token that was minted but does not administer anything shows up.
+REALM_STATUS="$(kc -o /tmp/realm.out -w '%{http_code}' "$KEYCLOAK/admin/realms/$REALM" 2>/dev/null || true)"
+REALM_ID="$(jq -r '.id // empty' /tmp/realm.out 2>/dev/null || true)"
 if [ -z "$REALM_ID" ]; then
-  oops "could not read the realm id, which the new key provider has to be parented to"
+  oops "the admin API did not return the realm id, which the new key provider has to be parented to (HTTP $REALM_STATUS): $(head -c 300 /tmp/realm.out 2>/dev/null)"
   exit 0
 fi
+stage "the admin API answers for realm '$REALM'"
 
 # --------------------------------------------------------------------------------------------------
 # Helpers: the plugin's stored certificate, and the identity provider's signing keys
@@ -332,6 +326,10 @@ trap cleanup EXIT
 # --------------------------------------------------------------------------------------------------
 # The starting state
 # --------------------------------------------------------------------------------------------------
+# The signing-key inventory, by algorithm, status and priority and nothing else: no key material and
+# no certificate. It is what a reading of the two thumbprints below needs when they disagree.
+stage "signing keys before the rotation: $(kc "$KEYCLOAK/admin/realms/$REALM/keys" 2>/dev/null | jq -r '[.keys[]? | select(.use=="SIG") | "\(.algorithm)/\(.status)/priority=\(.providerPriority // 0)"] | join(" ")')"
+
 ORIGINAL_CERT="$(active_sig_cert)"
 if [ -z "$ORIGINAL_CERT" ]; then
   oops "the identity provider reports no active RS256 signing key, so there is nothing to rotate away from"
