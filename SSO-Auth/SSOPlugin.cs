@@ -71,7 +71,13 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // persists through ConfigStore, and it returns an outcome rather than throwing - a file the operator
         // got wrong must not take the plugin, and with it every SSO login on the server, offline. With no
         // source path configured it reads nothing, writes nothing and logs nothing.
-        DeclarativeProviderConfig.ApplyFromEnvironment(ConfigStore, logger);
+        // The reveal delegate lets the loader tell a resolved secret that is ALREADY the stored one from a
+        // genuine rotation (#1096), so an unchanged mount leaves the at-rest envelope alone instead of
+        // rewriting it on every boot. A delegate rather than the store itself, because the loader has no
+        // business with the data-encryption key beyond that one comparison - and Secrets stays lazy: nothing
+        // touches the key file unless a document actually carries a reference over a provider that has a
+        // stored secret.
+        DeclarativeProviderConfig.ApplyFromEnvironment(ConfigStore, logger, stored => Secrets.Reveal(stored));
     }
 
     /// <summary>

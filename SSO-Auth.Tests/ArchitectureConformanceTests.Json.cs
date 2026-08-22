@@ -92,6 +92,14 @@ public partial class ArchitectureConformanceTests
         // member named twice on this surface decides a client id, an endpoint or a secret, so it is refused
         // rather than resolved by whichever of the two parsers happens to read it.
         ["SSO-Auth/Config/DeclarativeProviderConfig.cs"] = "SSO-Auth/Config/DeclarativeProviderConfig.cs",
+
+        // The same document, re-read as a node tree to resolve the secret references in it (#1096). The gate
+        // is the loader rather than this file, and the ordering is what makes that true: the pass runs
+        // between the screen and the deserializer, over bytes the screen has already cleared, so a document
+        // naming a member twice never reaches it. It is named here rather than folded into the entry above
+        // because what this read decides is the narrower and sharper half - which environment variable or
+        // which file supplies a client secret or a signing key.
+        ["SSO-Auth/Config/DeclarativeSecretReference.cs"] = "SSO-Auth/Config/DeclarativeProviderConfig.cs",
     };
 
     // Sites over bytes the plugin itself shipped or produced, each with the reason it is not provider
