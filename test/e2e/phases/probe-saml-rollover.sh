@@ -99,6 +99,21 @@ until curl -fsS -o /dev/null "$KEYCLOAK/realms/$REALM/protocol/saml/descriptor" 
 done
 stage "the identity provider serves its SAML descriptor after $i retries ($((i * 2))s)"
 
+# The e2e realm answering does not mean the MASTER realm does, and the admin token below is minted
+# there. The stack was started seconds ago by the host half, so this is gated separately rather than
+# read off the gate above.
+i=0
+until curl -fsS -o /dev/null "$KEYCLOAK/realms/master/.well-known/openid-configuration" 2>/tmp/kcmaster.err; do
+  i=$((i + 1))
+  if [ "$i" -ge 90 ]; then
+    oops "the identity provider's master realm did not answer within 180s:"
+    sed 's/^/  /' /tmp/kcmaster.err
+    exit 0
+  fi
+  sleep 2
+done
+stage "the identity provider's master realm answers after $i retries ($((i * 2))s)"
+
 # --------------------------------------------------------------------------------------------------
 # Credentials
 # --------------------------------------------------------------------------------------------------
@@ -111,15 +126,34 @@ if [ -z "$JF_TOKEN" ]; then
 fi
 stage "Jellyfin administrator token acquired"
 
-KC_TOKEN="$(curl -sS -X POST "$KEYCLOAK/realms/master/protocol/openid-connect/token" \
-  -d 'client_id=admin-cli' -d 'grant_type=password' \
-  --data-urlencode "username=$KC_ADMIN_USER" --data-urlencode "password=$KC_ADMIN_PASS" 2>/dev/null \
-  | jq -r '.access_token // empty')"
+# The direct grant Keycloak's own kcadm uses, retried because the admin endpoints can lag the realm
+# endpoints on a just-restarted server, and REPORTED rather than reduced to "no token": the first
+# version of this file swallowed the status and the body, and a run that ended here said only that
+# something had refused it. The body of a refusal from a test identity provider carries no secret -
+# it is an OAuth error code and its description - and it is the difference between one more dispatch
+# and knowing why.
+kc_token_request() {
+  curl -sS -o /tmp/kctoken.out -w '%{http_code}' -X POST \
+    "$KEYCLOAK/realms/master/protocol/openid-connect/token" \
+    --data-urlencode 'client_id=admin-cli' --data-urlencode 'grant_type=password' \
+    --data-urlencode "username=$KC_ADMIN_USER" --data-urlencode "password=$KC_ADMIN_PASS" \
+    2>/tmp/kctoken.err
+}
+KC_TOKEN=""
+KC_TOKEN_STATUS=""
+i=0
+while [ "$i" -lt 10 ]; do
+  KC_TOKEN_STATUS="$(kc_token_request || true)"
+  KC_TOKEN="$(jq -r '.access_token // empty' /tmp/kctoken.out 2>/dev/null || true)"
+  [ -n "$KC_TOKEN" ] && break
+  i=$((i + 1))
+  sleep 3
+done
 if [ -z "$KC_TOKEN" ]; then
-  oops "could not authenticate against the identity provider's admin API, so no key could be rotated"
+  oops "the identity provider refused an admin token for '$KC_ADMIN_USER' after $i attempts (last HTTP $KC_TOKEN_STATUS): $(head -c 400 /tmp/kctoken.out 2>/dev/null) $(head -c 200 /tmp/kctoken.err 2>/dev/null)"
   exit 0
 fi
-stage "identity-provider admin token acquired"
+stage "identity-provider admin token acquired after $i retries (HTTP $KC_TOKEN_STATUS)"
 
 kc() { curl -sS -H "Authorization: Bearer $KC_TOKEN" "$@"; }
 
