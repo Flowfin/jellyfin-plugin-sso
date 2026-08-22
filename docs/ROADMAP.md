@@ -163,6 +163,25 @@ and the only option on every current release line - lives on
 [Native OIDC Coexistence](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Native-OIDC-Coexistence), together with the link-model
 migration honesty.
 
+## Future directions
+
+The EU Digital Identity Wallet, defined by eIDAS 2.0 (Regulation (EU) 2024/1183)
+and presented to a relying party over OpenID4VP and OpenID4VCI, is recorded here
+as a possible future identity-provider direction. It is not planned, it is not
+implemented, and nothing in the plugin speaks either protocol.
+
+A deployment that wants wallet login before any of that can put a verifier
+speaking OpenID4VP in front of this plugin and let the plugin consume it as an
+ordinary OpenID Connect provider, which needs no plugin change. No recipe for
+that arrangement is published here yet.
+
+Whether a verifier is ever built into the plugin depends on conditions outside
+the project: a relying-party registration route a self-hoster can actually use,
+a maintained .NET verifier library, and wallet verification arriving in the
+identity providers people already run. Issue
+[#762](https://github.com/Flowfin/jellyfin-plugin-sso/issues/762) carries the
+reading behind this entry.
+
 ## Following along
 
 - The [SSO Roadmap board](https://github.com/users/iderex/projects/1) is the live
