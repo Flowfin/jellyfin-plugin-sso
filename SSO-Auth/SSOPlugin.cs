@@ -65,6 +65,13 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // created lazily on the first encrypt (a save) - never at load - so startup does no key I/O.
         _secrets = new Lazy<SecretStore>(() => new SecretStore(Path.Combine(DataFolderPath, "sso-secret.key")));
         Instance = this;
+
+        // #1095: a deployment that mounts a provider document gets it applied over the stored configuration
+        // here, before anything can serve a login against the old one. Last in the constructor because it
+        // persists through ConfigStore, and it returns an outcome rather than throwing - a file the operator
+        // got wrong must not take the plugin, and with it every SSO login on the server, offline. With no
+        // source path configured it reads nothing, writes nothing and logs nothing.
+        DeclarativeProviderConfig.ApplyFromEnvironment(ConfigStore, logger);
     }
 
     /// <summary>

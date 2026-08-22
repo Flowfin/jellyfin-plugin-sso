@@ -3,6 +3,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Xml;
 using System.Xml.Serialization;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
@@ -148,6 +151,43 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
         // this to null (it is JSON-ignored), so a later write under the config lock must land in a stored map.
         get => _logoutSessions ??= new SerializableDictionary<string, LogoutSession>();
         set => _logoutSessions = value;
+    }
+
+    /// <summary>
+    /// Renders this configuration in the exact form the host persists it in, so one configuration can be
+    /// compared against another (#1095). Every persisted field counts, secrets and server-managed maps
+    /// included, which is what a JSON rendering cannot offer: that boundary withholds the secrets and drops
+    /// the link maps by design, so two configurations differing only in a secret compare as equal there.
+    /// It lives on this type rather than beside its caller because the XML stack is confined to the
+    /// persistence model and the SAML module, and this is the persistence model.
+    /// </summary>
+    /// <returns>The persisted XML form of this configuration.</returns>
+    internal string ToPersistedForm()
+    {
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        new XmlSerializer(typeof(PluginConfiguration)).Serialize(writer, this);
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// Makes a detached copy of this configuration through the persisted form, so a caller can try a change
+    /// on it and decide whether to keep it while the live object never holds a half-applied state (#1095).
+    /// </summary>
+    /// <returns>An independent configuration carrying the same persisted fields.</returns>
+    internal PluginConfiguration DetachedCopy()
+    {
+        // These bytes are this object's own output rather than anything that arrived from outside, and the
+        // reader is still hardened the way every other XML read in this plugin is: no DTD, no resolver. A
+        // parse that is safe only because of where its input came from is one refactor away from not being.
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+        };
+
+        using var text = new StringReader(ToPersistedForm());
+        using var reader = XmlReader.Create(text, settings);
+        return (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader)!;
     }
 }
 

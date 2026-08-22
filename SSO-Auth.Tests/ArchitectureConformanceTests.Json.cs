@@ -82,6 +82,16 @@ public partial class ArchitectureConformanceTests
         // already-validated token, so the screen runs in the reading file on the string, ahead of
         // Newtonsoft, over exactly the scopes the walk descends through.
         ["SSO-Auth/Api/Oidc/OidcAuthorizeStateBuilder.cs"] = "SSO-Auth/Api/Oidc/OidcAuthorizeStateBuilder.cs",
+
+        // The declarative provider document read off a mounted path at startup (#1095). The gate is in the
+        // reading file, like the two claim reads above and for the same reason: the bytes arrive as a file
+        // rather than as a response, so there is no transport for a handler to sit in front of, and the
+        // screen runs on the text before the deserializer is consulted. Every object scope is screened
+        // rather than a named subset - this caller hands the whole document to a deserializer whose indexed
+        // member set it does not control, which is the discovery posture rather than the claim-walk one. A
+        // member named twice on this surface decides a client id, an endpoint or a secret, so it is refused
+        // rather than resolved by whichever of the two parsers happens to read it.
+        ["SSO-Auth/Config/DeclarativeProviderConfig.cs"] = "SSO-Auth/Config/DeclarativeProviderConfig.cs",
     };
 
     // Sites over bytes the plugin itself shipped or produced, each with the reason it is not provider
