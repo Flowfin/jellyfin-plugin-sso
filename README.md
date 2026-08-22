@@ -90,6 +90,7 @@ Configure your providers on the plugin's settings page (**Dashboard → Plugins 
 Full documentation lives in the **[Wiki](https://github.com/Flowfin/jellyfin-plugin-sso/wiki)**:
 
 - [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) · [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) · [Login Flow](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Login-Flow) · [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility) · [Security Model](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model) · [Troubleshooting](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Troubleshooting)
+- Building a provisioning tool (Wizarr, jfa-go, a request manager)? The [Account-management API](docs/ACCOUNT-MANAGEMENT-API.md) page covers creating an account that is SSO-linked before its first login.
 - Project policies: [Governance](GOVERNANCE.md) · [Support & security updates](SECURITY.md#supported-versions--security-updates) · [Remediation & secrets policy](docs/SECURITY-REMEDIATION-POLICY.md)
 
 The plugin's own served pages are translatable from JSON catalogs, no C# involved. [Translating the UI](CONTRIBUTING.md#translating-the-ui) lists the supported languages, the catalog format, and how to add one.
