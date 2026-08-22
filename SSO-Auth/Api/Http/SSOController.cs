@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -1521,6 +1522,89 @@ public class SSOController : ControllerBase
                 }
             }
         }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Restores an account-link backup (<c>Config/Links/Export</c>) onto this instance (#1129), rebinding
+    /// every link to the user id this server holds for that username today. Requires administrator
+    /// privileges. The counterpart to the export, and the half that completes a server migration: a
+    /// rebuilt user database issues new ids, so the stored links point at ids that no longer resolve and
+    /// only a username-keyed document can be restored against it.
+    /// </summary>
+    /// <remarks>
+    /// Fail-closed and atomic. The whole document is validated before a single link is written, and the
+    /// mutation runs inside <c>MutateConfiguration</c>, which persists nothing when the lambda throws, so
+    /// a rebuilt server either gets its complete link table back or is left exactly as it was. A
+    /// half-applied link table is the worst outcome available here, because it looks restored and is not.
+    /// <para>
+    /// The refusal that matters is the repoint: a canonical name this instance already links to a
+    /// DIFFERENT account is rejected rather than overwritten, so a crafted backup file cannot remap an
+    /// identity-provider subject onto an administrator's account. The import also never creates a Jellyfin
+    /// account, never creates a provider and never invents a user id, so it cannot bring a new principal
+    /// into existence - it only rebinds what both sides already hold.
+    /// </para>
+    /// </remarks>
+    /// <param name="document">The link export document to restore.</param>
+    /// <returns>No content on success, or 400 when the document is missing, unsupported, or carries an entry this instance cannot restore.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Config/Links/Import")]
+    [RequestSizeLimit(ConfigImportMaxBytes)]
+    [Consumes(MediaTypeNames.Application.Json)]
+    public async Task<ActionResult> ImportLinks([FromBody] LinkExportDocument document)
+    {
+        // Throttle after the elevation guard, before any work (#382, #516): the [Authorize] filter refuses
+        // a non-elevated caller before the body runs, so an unauthorized request never reaches the limiter
+        // and there is no rate-limit oracle. Past it, this shares the "link" bucket with the single link
+        // writes, because it is the same config-XML persist under the global lock - in bulk - and because
+        // its refusal names usernames this instance does not hold, which an unthrottled caller could drive
+        // in a loop as a user-table oracle.
+        if (RateLimitCheck(SsoRateLimitClass.Link) is { } throttled)
+        {
+            return throttled;
+        }
+
+        if (document is null)
+        {
+            return BadRequest("The link import document is missing or is not valid JSON.");
+        }
+
+        // Every username the document names is resolved BEFORE the lock is taken, and the importer then
+        // reads this snapshot rather than the user manager. A document can carry thousands of entries, and
+        // resolving each one inside MutateConfiguration would hold the global configuration lock across
+        // that many user-manager calls - blocking every login for the duration. Same discipline as
+        // ExportUserLinks, which resolves its one username outside the lock for the same reason. A name
+        // resolved a moment before the lock is the same answer a name resolved inside it would have given,
+        // except in a race with an account being renamed or deleted, where the import's own refusal rules
+        // are what decide the outcome either way.
+        var directory = document.Links
+            .Where(entry => !string.IsNullOrWhiteSpace(entry?.Username))
+            .Select(entry => entry.Username!)
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(username => username, username => _userManager.GetUserByName(username)?.Id, StringComparer.Ordinal);
+
+        IReadOnlyList<LinkImportCount> restored;
+        try
+        {
+            // Validate-then-write lives in the Config helper; the mutation persists only if it returns
+            // without throwing, so a rejected document leaves the stored link table untouched.
+            restored = SSOPlugin.Instance.MutateConfiguration(
+                configuration => LinkImport.Apply(configuration, document, username => directory.GetValueOrDefault(username)));
+        }
+        catch (ArgumentException ex)
+        {
+            // The importer throws ArgumentException for an unsupported version and for every unrestorable
+            // entry. Strip line endings from the echoed message so a username inside it cannot split a log
+            // line (cs/log-forging is sanitized inline at the emission point, never behind a helper).
+            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
+        }
+
+        SsoAudit.LinksImported(
+            _logger,
+            await ResolveActorAsync().ConfigureAwait(false),
+            restored.Sum(count => count.Links),
+            string.Join(", ", restored.Select(count => $"{count.Protocol} '{count.Provider}': {count.Links.ToString(CultureInfo.InvariantCulture)}")));
 
         return NoContent();
     }
