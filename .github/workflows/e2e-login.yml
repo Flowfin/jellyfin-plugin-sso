@@ -241,6 +241,30 @@ jobs:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/legacy-secret-migration.sh
 
+      - name: Two clients behind one proxy are budgeted apart (#1125)
+        # Puts an nginx front end in front of Jellyfin, names it in the server's known proxies, and
+        # requires that exhausting one forwarded client's rate-limit budget does NOT throttle a
+        # second forwarded client arriving through the same proxy. It was verified by hand once in
+        # the #717 live pass and nothing in test/e2e put a proxy in front of Jellyfin at all, so a
+        # regression that collapsed every client behind a proxy into one bucket would ship silently
+        # and lock a whole site out on one client's noise.
+        #
+        # The audit half of #1125 is deliberately absent: the audit trail records no client address
+        # and is not going to start, so there is nothing there to assert against.
+        #
+        # The proxy sits behind a compose profile and this step is the only thing that starts it, so
+        # the per-PR harness run is unchanged. Release and `providers: all` only, and only on the
+        # canonical Keycloak stack, for the same reasons as the phases above: it costs extra login
+        # passes, and it is the one stack that can be re-run in place. Runs on a green harness only,
+        # so a real login failure surfaces as the harness failure.
+        #
+        # AHEAD of the rollover phase below, which mutates the identity provider. This one only
+        # edits Jellyfin's own persisted files and puts both back.
+        if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
+        env:
+          COMPOSE: ${{ matrix.compose }}
+        run: bash test/e2e/phases/proxy-client-attribution.sh
+
       - name: SAML signing-cert rollover, the new cert validates and the old one is refused (#1128)
         # Rotates the realm's SAML signing key mid-run, imports the new certificate into the plugin,
         # and requires all three of the issue's clauses in ONE run: an assertion signed by the

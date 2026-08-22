@@ -267,6 +267,43 @@ from a stack whose secret is plaintext proves nothing: that is the documented ge
 path, where the server mints a fresh key and every login succeeds. The phase asserts the envelope
 itself rather than assuming what ran before it, and it leaves the stack as it found it.
 
+### Two clients behind one proxy are budgeted apart
+
+`test/e2e/phases/proxy-client-attribution.sh` puts an nginx front end in front of Jellyfin, names it
+in the server's known proxies, and requires that exhausting one forwarded client's rate-limit budget
+does not throttle a second forwarded client arriving through the same proxy. Until it existed
+nothing here put a proxy in front of Jellyfin at all, and a regression that collapsed every client
+behind a proxy into one bucket would have locked a whole site out on one client's noise.
+
+**What is under test is not what it looks like.** The plugin deliberately never reads
+`X-Forwarded-For`: `SsoRateLimiter` documents the connection's remote address as the only input,
+because a client-supplied header would let an attacker rotate keys to evade the limiter or pin a
+victim's address to lock them out. What the phase proves is that the plugin sits correctly on top of
+the host's forwarded-headers handling. The known-proxies setting is therefore written by the phase
+rather than assumed; without it both clients collapse to the proxy and the run would red for a
+configuration reason rather than a plugin one.
+
+**The forwarded addresses are not arbitrary.** `SsoRateLimiter.NormalizeClientKey` refuses to
+attribute a non-public source at all, and the documentation ranges somebody reaches for first
+(`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) are all blocked by `IpAddressClassifier`. A
+phase written with them would exhaust nothing, prove nothing, and look like a passing test. The two
+clients are on `11.0.9.0/24`, for the same reason the harness network itself is on `11.0.0.0/24`,
+and outside that subnet so they cannot collide with a container.
+
+**The assertion that carries the phase is the second client's first request.** If the limiter keyed
+on the proxy hop, the first client's exhaustion would be the second client's exhaustion, and that
+request would answer 429. A control request before the exhaust loop keeps the 429 attributable: a
+stack that was already refusing would produce one for free.
+
+The proxy sits behind a compose profile, so an ordinary `docker compose up` of this stack never
+starts it and the per-PR path is unchanged. The phase edits only Jellyfin's own persisted files, the
+plugin configuration and the network configuration, copies both aside first and puts them back on
+every exit path, and finishes with a `RELOGIN_ONLY` pass so it proves the stack was left working
+rather than merely left.
+
+The audit half of #1125 is deliberately absent. The audit trail records no client address and is not
+going to start, so there is nothing there to assert against.
+
 ### The SAML signing certificate is rotated mid-run
 
 `test/e2e/phases/saml-cert-rollover.sh` rotates the Keycloak realm's SAML signing key while the stack
