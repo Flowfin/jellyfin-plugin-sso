@@ -70,18 +70,48 @@ if [ ! -s "$NETWORK_CONFIG" ]; then
 fi
 grep -q '<KnownProxies' "$NETWORK_CONFIG" \
     || die "no <KnownProxies> element in $NETWORK_CONFIG - this Jellyfin does not carry the setting this phase depends on, and writing one blindly would be a guess"
-pass "both configuration files are present and the known-proxies element exists"
+RATE_BEFORE="$(grep -o '<EnableRateLimit>[^<]*</EnableRateLimit>' "$CONFIG" | head -1)"
+[ -n "$RATE_BEFORE" ] \
+    || die "no <EnableRateLimit> element in $CONFIG - the phase would have nothing to switch on and nothing to put back"
+pass "both configuration files are present, the known-proxies element exists, and the limiter reads $RATE_BEFORE"
 
 CONFIG_KEPT="$CONFIG.kept"
 NETWORK_KEPT="$NETWORK_CONFIG.kept"
 [ ! -e "$CONFIG_KEPT" ] || die "$CONFIG_KEPT already exists - a previous run left a copy aside and this one would overwrite it"
 [ ! -e "$NETWORK_KEPT" ] || die "$NETWORK_KEPT already exists - a previous run left a copy aside and this one would overwrite it"
-cp "$CONFIG" "$CONFIG_KEPT"
-cp "$NETWORK_CONFIG" "$NETWORK_KEPT"
+
+# EVERY WRITE UNDER THE BIND MOUNT HAPPENS INSIDE A CONTAINER, and that is a constraint rather than
+# a preference (#1391, measured again here). `plugins/configurations/` is created by the SERVER at
+# runtime, so the `chmod -R 0777 test/e2e/jellyfin` in the install step never reaches it: that step
+# runs before the stack comes up and the directory does not exist yet. Both files are written by the
+# server as root, and copying one aside needs write permission on the DIRECTORY, which the ordinary
+# workflow user has none of - the first run of this phase died on exactly that, at `cp`, before it
+# asserted anything.
+#
+# The jellyfin service already bind-mounts ./jellyfin/config at /config and runs as root, so its own
+# definition is the shortest route to a writable handle: no second mount to keep in step with the
+# compose file, and no elevation on the host. `--no-deps` starts nothing else, `--rm` leaves nothing
+# behind, and the entrypoint is replaced so no server starts in it. Reads stay on the host, where
+# they work.
+in_jellyfin() { # $1 the shell program to run as root against /config
+    docker compose -f "$COMPOSE" run --rm --no-deps -T \
+        -e "PROXY_ADDR=$PROXY_ADDR" \
+        -e "MAX_ATTEMPTS=$MAX_ATTEMPTS" \
+        -e "WINDOW_SECONDS=$WINDOW_SECONDS" \
+        --entrypoint sh jellyfin -c "$1"
+}
+
+CONTAINER_CONFIG="/config/plugins/configurations/SSO-Auth.xml"
+CONTAINER_NETWORK="/config/config/network.xml"
+
+in_jellyfin "set -eu; cp -p '$CONTAINER_CONFIG' '$CONTAINER_CONFIG.kept'; cp -p '$CONTAINER_NETWORK' '$CONTAINER_NETWORK.kept'" \
+    || die "the two configuration files could not be copied aside"
 
 restore_config() {
-    [ -e "$CONFIG_KEPT" ] && mv -f "$CONFIG_KEPT" "$CONFIG" && printf 'restored %s on exit\n' "$CONFIG" >&2
-    [ -e "$NETWORK_KEPT" ] && mv -f "$NETWORK_KEPT" "$NETWORK_CONFIG" && printf 'restored %s on exit\n' "$NETWORK_CONFIG" >&2
+    in_jellyfin "set -eu
+        [ -e '$CONTAINER_CONFIG.kept' ] && mv -f '$CONTAINER_CONFIG.kept' '$CONTAINER_CONFIG'
+        [ -e '$CONTAINER_NETWORK.kept' ] && mv -f '$CONTAINER_NETWORK.kept' '$CONTAINER_NETWORK'
+        exit 0" >/dev/null 2>&1 || printf 'the restore on exit did not complete - check %s and %s\n' "$CONFIG" "$NETWORK_CONFIG" >&2
     docker compose -f "$COMPOSE" --profile proxy stop proxy >/dev/null 2>&1 || true
     return 0
 }
@@ -92,11 +122,12 @@ log "Switching the limiter on with a small budget"
 # The limiter's settings are deliberately NOT importable through the API (ConfigImport refuses
 # them, so a foreign document cannot silently disable a DoS control), which is why this is an edit
 # to the persisted configuration and a restart rather than an HTTP call.
-sed -i \
-    -e "s|<EnableRateLimit>[^<]*</EnableRateLimit>|<EnableRateLimit>true</EnableRateLimit>|" \
-    -e "s|<RateLimitMaxAttempts>[^<]*</RateLimitMaxAttempts>|<RateLimitMaxAttempts>$MAX_ATTEMPTS</RateLimitMaxAttempts>|" \
-    -e "s|<RateLimitWindowSeconds>[^<]*</RateLimitWindowSeconds>|<RateLimitWindowSeconds>$WINDOW_SECONDS</RateLimitWindowSeconds>|" \
-    "$CONFIG"
+in_jellyfin "set -eu; sed -i \
+    -e \"s|<EnableRateLimit>[^<]*</EnableRateLimit>|<EnableRateLimit>true</EnableRateLimit>|\" \
+    -e \"s|<RateLimitMaxAttempts>[^<]*</RateLimitMaxAttempts>|<RateLimitMaxAttempts>\$MAX_ATTEMPTS</RateLimitMaxAttempts>|\" \
+    -e \"s|<RateLimitWindowSeconds>[^<]*</RateLimitWindowSeconds>|<RateLimitWindowSeconds>\$WINDOW_SECONDS</RateLimitWindowSeconds>|\" \
+    '$CONTAINER_CONFIG'" \
+    || die "the limiter settings could not be written into $CONFIG"
 grep -q "<EnableRateLimit>true</EnableRateLimit>" "$CONFIG" \
     || die "the limiter is still off in $CONFIG after the edit - the element was not where the edit expected it: $(grep -o '<EnableRateLimit>[^<]*</EnableRateLimit>' "$CONFIG" || echo 'element absent')"
 grep -q "<RateLimitMaxAttempts>$MAX_ATTEMPTS</RateLimitMaxAttempts>" "$CONFIG" \
@@ -106,11 +137,13 @@ pass "the limiter is on with $MAX_ATTEMPTS attempts per ${WINDOW_SECONDS}s"
 log "Naming the proxy in Jellyfin's known proxies"
 # Both spellings, because an empty list serializes as a self-closing element and a populated one
 # does not, and which of the two is on disk depends on what the wizard wrote.
-if grep -q '<KnownProxies */>' "$NETWORK_CONFIG"; then
-    sed -i "s|<KnownProxies */>|<KnownProxies><string>$PROXY_ADDR</string></KnownProxies>|" "$NETWORK_CONFIG"
-else
-    sed -i "s|<KnownProxies>.*</KnownProxies>|<KnownProxies><string>$PROXY_ADDR</string></KnownProxies>|" "$NETWORK_CONFIG"
-fi
+in_jellyfin "set -eu
+    if grep -q '<KnownProxies */>' '$CONTAINER_NETWORK'; then
+        sed -i \"s|<KnownProxies */>|<KnownProxies><string>\$PROXY_ADDR</string></KnownProxies>|\" '$CONTAINER_NETWORK'
+    else
+        sed -i \"s|<KnownProxies>.*</KnownProxies>|<KnownProxies><string>\$PROXY_ADDR</string></KnownProxies>|\" '$CONTAINER_NETWORK'
+    fi" \
+    || die "the known-proxies list could not be written into $NETWORK_CONFIG"
 grep -q "<string>$PROXY_ADDR</string>" "$NETWORK_CONFIG" \
     || die "the proxy address is not in $NETWORK_CONFIG after the edit; without it Jellyfin ignores the forwarded header and both clients collapse to the proxy, which would red this phase for a configuration reason rather than a plugin one"
 pass "$PROXY_ADDR is a known proxy"
@@ -155,8 +188,12 @@ esac
 
 log "Putting the configuration back"
 docker compose -f "$COMPOSE" --profile proxy stop proxy >/dev/null
-mv -f "$CONFIG_KEPT" "$CONFIG"
-mv -f "$NETWORK_KEPT" "$NETWORK_CONFIG"
+in_jellyfin "set -eu; mv -f '$CONTAINER_CONFIG.kept' '$CONTAINER_CONFIG'; mv -f '$CONTAINER_NETWORK.kept' '$CONTAINER_NETWORK'" \
+    || die "the two configuration files could not be put back"
+[ ! -e "$CONFIG_KEPT" ] && [ ! -e "$NETWORK_KEPT" ] \
+    || die "a copy is still sitting beside the configuration, so the restore did not complete"
+[ "$(grep -o '<EnableRateLimit>[^<]*</EnableRateLimit>' "$CONFIG" | head -1)" = "$RATE_BEFORE" ] \
+    || die "the limiter setting in $CONFIG is not what this phase found ($RATE_BEFORE), so the restore left the stack in a state the canonical pass did not create"
 docker compose -f "$COMPOSE" stop jellyfin >/dev/null
 docker compose -f "$COMPOSE" start jellyfin >/dev/null
 pass "the limiter settings and the known-proxies list are back as the canonical pass left them"
