@@ -241,6 +241,28 @@ jobs:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/legacy-secret-migration.sh
 
+      - name: SAML signing-cert rollover, the new cert validates and the old one is refused (#1128)
+        # Rotates the realm's SAML signing key mid-run, imports the new certificate into the plugin,
+        # and requires all three of the issue's clauses in ONE run: an assertion signed by the
+        # rotated-in key mints a usable session, an assertion signed by the retired key is refused
+        # with a pinned 400, and the plugin's stored SamlCertificate observably changes. The
+        # wrong-certificate rejection is unit covered and a live rotation was demonstrated by hand
+        # once in the #717 pass, but nothing has driven rotate-then-relogin end to end since.
+        #
+        # LAST of the phases, deliberately. It is the only one that mutates the IDENTITY PROVIDER
+        # rather than Jellyfin, and although it removes the key provider it added, a phase after it
+        # would be reading a realm this one has written to. Nothing here depends on the two phases
+        # above: the order is about what this one leaves behind, not about what it needs.
+        #
+        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # reasons as the two phases above, plus one of its own: it is the only entry in the matrix
+        # whose identity provider exposes an admin API this phase can rotate a signing key through.
+        # Runs on a green harness only, so a real login failure surfaces as the harness failure.
+        if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
+        env:
+          COMPOSE: ${{ matrix.compose }}
+        run: bash test/e2e/phases/saml-cert-rollover.sh
+
       - name: Dump container logs on failure
         if: failure()
         env:

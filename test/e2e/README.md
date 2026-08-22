@@ -267,6 +267,64 @@ from a stack whose secret is plaintext proves nothing: that is the documented ge
 path, where the server mints a fresh key and every login succeeds. The phase asserts the envelope
 itself rather than assuming what ran before it, and it leaves the stack as it found it.
 
+### The SAML signing certificate is rotated mid-run
+
+`test/e2e/phases/saml-cert-rollover.sh` rotates the Keycloak realm's SAML signing key while the stack
+is up, imports the new certificate into the plugin, and requires three things in one run: an
+assertion signed by the rotated-in key mints a usable Jellyfin session, an assertion signed by the
+retired key is refused with a pinned 400, and the plugin's stored `SamlCertificate` observably
+changes across the rotation. The wrong-certificate rejection is unit covered and a live rotation was
+demonstrated by hand once in the #717 pass, but nothing had driven rotate-then-relogin end to end.
+
+**The old-certificate assertion is a fresh one, not a replay,** and the difference is the whole
+value of the phase. A replayed assertion is refused by the one-time cache whatever certificate the
+plugin holds, so a 400 would have proved the replay guard rather than the rotation. Every assertion
+here comes from its own `/start` and is never presented twice, so the only thing wrong with the
+refused one is the key that signed it. The plugin answers both cases with the same uniform body,
+which is exactly why the two must not be confused at the door.
+
+**The falsifier is the part to read.** A refusal sitting between two successes could be the clock
+rather than the certificate: assertions carry a `NotOnOrAfter` and rotating takes time. So a second
+pre-rotation assertion is captured in the same breath as the first, held through the rotation, and
+posted after the original certificate has been imported back. It is strictly older at that moment
+than the refused one was at its refusal, and it is accepted. If age explained the refusal, it would
+be refused too.
+
+The rotation adds an `rsa-generated` key provider at a higher priority rather than disabling the old
+one, so the retired key stays in the realm and merely stops being used, and deleting the added
+component at the end restores the realm exactly. Disabling would also remove the key from the JWKS
+the OpenID half of this stack reads, which is a second change the phase is not about.
+
+It authenticates as `realmadmin`, a user of the e2e realm seeded with the realm-management
+`realm-admin` role, and not as the server's bootstrap administrator. That is forced rather than
+chosen: the master realm keeps Keycloak's default `sslRequired: external`, which refuses a plaintext
+request from any address Keycloak does not treat as private, and this compose network sits on
+`11.0.0.0/24` precisely because the plugin's SSRF guard has to treat it as public. The e2e realm sets
+`sslRequired: none`, so a realm-admin token minted there is the route to the admin API that this
+stack's plaintext http leaves open.
+
+Like the two phases above it, the work happens in a throwaway container on the compose network
+(`test/e2e/phases/probe-saml-rollover.sh`), because neither Jellyfin nor Keycloak publishes a port to
+the host, and the probe never exits non-zero: it reports `PROBE-PASS` / `PROBE-FAIL` / `PROBE-ERROR`
+lines and the host half decides what each one means. A transcript with no final `PROBE-DONE` line is
+a failure here rather than a clean pass, because a probe killed half way leaves exactly the same
+absence of failures as one that passed. The host half is what reads the persisted configuration off
+the bind mount, so the claim that the stored certificate changed rests on the file on disk and not
+only on what the plugin says about itself.
+
+Run it after a green canonical pass, on the stopped but not torn-down stack:
+
+```sh
+docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+
+bash test/e2e/phases/saml-cert-rollover.sh
+```
+
+A green run prints `SAML SIGNING-CERT ROLLOVER PHASE PASSED`. In CI it runs under the same gate as
+the two phases above and last of the three, because it is the only one that writes to the identity
+provider rather than to Jellyfin.
+
 **The Zitadel, Pocket ID and Kanidm stacks cannot be re-run in place.** Every other provider is seeded from a file
 (an imported realm, a reapplied blueprint, or a static config) and the driver deliberately reuses an
 already-initialised Jellyfin. These three are seeded imperatively against stateful storage and their seeds
