@@ -109,6 +109,33 @@ public class DeclarativeEnvironmentConfigTests
     }
 
     [Fact]
+    public void ASamlProviderSpelledInVariables_IsApplied()
+    {
+        // The SAML map had no end-to-end case at all: every applying test above spells an OpenID provider,
+        // and the only other mention of SamlConfigs in this file is the reflection walk, which never runs the
+        // loader. So "both provider maps are the declared surface" was carried by one of the two being
+        // exercised. This is the second, and it is also the shape the naming-scheme example in
+        // DeclarativeEnvironmentConfig's own documentation now uses, so that example is a run rather than a
+        // sentence somebody wrote (#1116).
+        var (store, live, persisted) = CreateStore();
+
+        Assert.Equal(
+            DeclarativeLoadOutcome.Applied,
+            Load(
+                store,
+                Variables(
+                    ($"{DeclarativeEnvironmentConfig.Prefix}SamlConfigs__idp__SamlEndpoint", "https://idp.example.invalid/sso"),
+                    ($"{DeclarativeEnvironmentConfig.Prefix}SamlConfigs__idp__SamlClientId", "jellyfin"),
+                    ($"{DeclarativeEnvironmentConfig.Prefix}SamlConfigs__idp__Enabled", "true"))));
+
+        var applied = Assert.IsType<PluginConfiguration>(Assert.Single(persisted));
+        Assert.Equal("https://idp.example.invalid/sso", applied.SamlConfigs["idp"].SamlEndpoint);
+        Assert.Equal("jellyfin", applied.SamlConfigs["idp"].SamlClientId);
+        Assert.True(applied.SamlConfigs["idp"].Enabled);
+        Assert.True(live.SamlConfigs["idp"].Enabled);
+    }
+
+    [Fact]
     public void AProviderNobodyDeclared_IsLeftExactlyAsItIs()
     {
         // The precedence is a MERGE, inherited from the import the file source already goes through. A
