@@ -1356,6 +1356,28 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Reports which providers a declarative source decided on this boot (#1102), so the config page can
+    /// render them as managed instead of letting an admin edit a form the next start wins back (#1104).
+    /// Requires administrator privileges, like the other config endpoints. Read-only - it changes nothing,
+    /// and it carries provider NAMES only: no field value, no secret and no reference, so nothing here is
+    /// sensitive even where the whole set is.
+    /// </summary>
+    /// <returns>The managed provider set; both lists empty when no declarative source is configured.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Config/Managed")]
+    public ActionResult<ManagedProviderSetDocument> ManagedProviders()
+    {
+        // The set is process state decided during plugin construction, not configuration, so this reads no
+        // provider and takes no config lock beyond the one the store holds for its own field.
+        var managed = SSOPlugin.Instance.ConfigStore.ManagedProviders;
+        return Ok(new ManagedProviderSetDocument
+        {
+            OidConfigs = managed.OidConfigs,
+            SamlConfigs = managed.SamlConfigs,
+        });
+    }
+
+    /// <summary>
     /// Exports the account-link table as a portable, username-keyed document (#1126). Requires
     /// administrator privileges. Read-only - it changes nothing.
     /// </summary>

@@ -78,6 +78,11 @@ public partial class ArchitectureConformanceTests
         // not the per-user-id enumeration surface that made the two Links routes throttled neighbours.
         "OID/RedirectUri/{provider}",
         "Config/Export", "Config/Import", // elevated config transfer
+        // Elevated read-only report of which providers a declarative source decided (#1102): process
+        // state settled during plugin construction, so it reads no provider, takes no outbound fetch and
+        // writes nothing. It answers with NAMES the elevation-gated Config/Export already lists in full,
+        // so repeating it discloses nothing that route does not, and it takes no caller-supplied id.
+        "Config/Managed",
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "Config/Links/Export", // elevated read-only link snapshot (#1126), in-memory, no outbound fetch
         "Links/Roster", // elevated read-only link roster (#1119), in-memory, no outbound fetch, takes no caller-supplied id

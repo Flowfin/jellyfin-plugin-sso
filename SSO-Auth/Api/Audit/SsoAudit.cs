@@ -212,6 +212,28 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty));
     }
 
+    /// <summary>
+    /// Records a config-page save whose changes to a declaratively managed provider were ignored (#1102). The
+    /// provider is decided by the mounted document or the environment, so the stored value was kept and the
+    /// posted one discarded. Warning rather than Information: an administrator has just made an edit the
+    /// server did not take, and the settings page is where they would otherwise wait for it to hold.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name. No field value is recorded - the point is which provider, not what was posted.</param>
+    internal static void DeclarativeWriteIgnored(ILogger logger, string protocol, string provider)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Configuration save ignored for {Protocol} provider '{Provider}': it is managed by a declarative source, so the stored value was kept. Edit the source and restart the server to change it.",
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty));
+    }
+
     /// <summary>Records that a provider's authorization server does not advertise PKCE S256 support (#141).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The provider name.</param>

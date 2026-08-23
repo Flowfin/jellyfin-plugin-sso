@@ -49,6 +49,26 @@ internal sealed class ProviderConfigStore
     }
 
     /// <summary>
+    /// Gets the providers a declarative source decided on this boot (#1102). Empty on an installation that
+    /// configures none, which is every installation built before those sources existed.
+    /// </summary>
+    internal DeclarativeManagedProviders ManagedProviders { get; private set; } = DeclarativeManagedProviders.None;
+
+    /// <summary>
+    /// Records that a declarative source has applied <paramref name="applied"/>, so every provider it names is
+    /// frozen against the config-page save from here on (#1102). Called by the loaders once a document has
+    /// been accepted; a rejected document records nothing, because it changed nothing.
+    /// </summary>
+    /// <param name="applied">The configuration the source applied.</param>
+    internal void RecordDeclarativelyManaged(PluginConfiguration? applied)
+    {
+        lock (Sync)
+        {
+            ManagedProviders = ManagedProviders.Including(applied);
+        }
+    }
+
+    /// <summary>
     /// Reads a value from the live configuration under the same lock as <see cref="Mutate(Action{PluginConfiguration})"/>,
     /// so a read cannot tear against a concurrent write of a (non-thread-safe) configuration collection.
     /// </summary>
@@ -117,6 +137,7 @@ internal sealed class ProviderConfigStore
     {
         ArgumentNullException.ThrowIfNull(configuration);
         List<(string Protocol, string Provider, IReadOnlyList<string> Options)>? insecureToAudit = null;
+        var declarativeWritesIgnored = new List<(string Protocol, string Provider)>();
         lock (Sync)
         {
             if (configuration is PluginConfiguration incoming && !ReferenceEquals(incoming, _live()))
@@ -134,6 +155,14 @@ internal sealed class ProviderConfigStore
 
                 ServerManagedFields.Preserve(incoming, _live());
 
+                // #1102: a provider a declarative source named is decided by that source, so the config-page
+                // save gets the stored (declarative) provider back rather than the posted one. AFTER the
+                // re-injection above, never before: that is what makes an untouched provider compare equal to
+                // the stored one, so the audit below reports a save that actually tried to change a managed
+                // provider instead of firing on every unrelated settings change. Nothing happens here on an
+                // installation that configures no declarative source.
+                ManagedProviders.Reinject(incoming, _live(), declarativeWritesIgnored);
+
                 // Snapshot which providers were saved with an insecure option (#140) while under the
                 // lock, but emit the warnings AFTER releasing it (below) - logging must not run inside
                 // the global config lock, where a slow provider would block concurrent config access.
@@ -150,6 +179,14 @@ internal sealed class ProviderConfigStore
             foreach (var (protocol, provider, options) in insecureToAudit)
             {
                 SsoAudit.InsecureOptionsEnabled(_logger, protocol, provider, options);
+            }
+        }
+
+        if (_logger != null)
+        {
+            foreach (var (protocol, provider) in declarativeWritesIgnored)
+            {
+                SsoAudit.DeclarativeWriteIgnored(_logger, protocol, provider);
             }
         }
     }
