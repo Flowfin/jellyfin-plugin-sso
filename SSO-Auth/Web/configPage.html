@@ -475,6 +475,22 @@
               </p>
 
               <!--
+                The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
+                reason the editor title does not: config.js OWNS this text, writing it only for a provider
+                the server reports as declaratively managed, and the catalog is applied asynchronously - a
+                marker would let a late applyTo() paint the sentence over an editor whose provider is
+                ordinary and editable. The wording is localized at its source instead, through tr(). The
+                state is in the text and not in colour alone (#221), and role="status" announces it to a
+                screen reader when the editor is opened.
+              -->
+              <p
+                class="fieldDescription sso-managed-note"
+                id="sso-managed-note"
+                role="status"
+                hidden
+              ></p>
+
+              <!--
                 Start from a template (#726): a NON-persisting picker (no marker class, so it is never
                 saved and the conformance scan ignores it). Choosing a provider pre-fills only the
                 non-secret provider-specific fields (scopes, role-claim path, username claim, an endpoint
@@ -2117,6 +2133,22 @@
                 <span class="sso-required" aria-hidden="true">*</span>
                 are required.
               </p>
+
+              <!--
+                The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
+                reason the editor title does not: config.js OWNS this text, writing it only for a provider
+                the server reports as declaratively managed, and the catalog is applied asynchronously - a
+                marker would let a late applyTo() paint the sentence over an editor whose provider is
+                ordinary and editable. The wording is localized at its source instead, through tr(). The
+                state is in the text and not in colour alone (#221), and role="status" announces it to a
+                screen reader when the editor is opened.
+              -->
+              <p
+                class="fieldDescription sso-managed-note"
+                id="saml-managed-note"
+                role="status"
+                hidden
+              ></p>
 
               <!--
                 Start from a template (#726): the SAML counterpart of the OpenID picker above.

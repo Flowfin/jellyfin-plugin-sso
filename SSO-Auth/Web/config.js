@@ -196,7 +196,124 @@ const ssoConfigurationPage = {
   // backwards and would cause alert fatigue on well-configured providers. Do not add an OFF-direction
   // surfacing for them either: it would be noisy on the default.
   sensitiveFieldIds: ["AllowExistingAccountLink"],
+  // #1104. Which providers a declarative source decided, as the server reports them (#1102). Fetched once
+  // per configuration load and held as a promise, so an editor opened before the answer arrives still waits
+  // for it instead of rendering an editable form over a managed provider.
+  //
+  // ADVISORY ONLY, and that is the reason the failure arm below gives up rather than defending. The guard is
+  // on the server: a save to a managed provider keeps the stored value and is audited whether or not this
+  // page ever learned the provider was managed. So a report that does not arrive leaves the page exactly as
+  // it behaved before this existed, which costs a confusing edit; treating an unreachable report as "assume
+  // everything is managed" would instead lock an administrator out of forms the server would have accepted.
+  managedProviders: { OidConfigs: [], SamlConfigs: [] },
+  managedProvidersLoaded: null,
+  loadManagedProviders: () => {
+    ssoConfigurationPage.managedProvidersLoaded = ApiClient.getJSON(
+      ApiClient.getUrl("sso/Config/Managed"),
+    ).then(
+      (report) => {
+        ssoConfigurationPage.managedProviders = {
+          OidConfigs: Array.isArray(report && report.OidConfigs)
+            ? report.OidConfigs
+            : [],
+          SamlConfigs: Array.isArray(report && report.SamlConfigs)
+            ? report.SamlConfigs
+            : [],
+        };
+      },
+      () => {
+        ssoConfigurationPage.managedProviders = {
+          OidConfigs: [],
+          SamlConfigs: [],
+        };
+      },
+    );
+    return ssoConfigurationPage.managedProvidersLoaded;
+  },
+  // The unit is the PROVIDER and not the field, which is the server's measurement rather than this page's
+  // simplification: the declarative merge replaces a named provider whole, so a field the document omits
+  // comes back at its default at the next start. A form that greyed out three fields and left the rest
+  // editable would tell the administrator the opposite of what happens.
+  isManagedProvider: (protocol, provider_name) => {
+    if (!provider_name) {
+      return false;
+    }
+    const names =
+      protocol === "saml"
+        ? ssoConfigurationPage.managedProviders.SamlConfigs
+        : ssoConfigurationPage.managedProviders.OidConfigs;
+    return Array.isArray(names) && names.indexOf(provider_name) !== -1;
+  },
+  // The controls that stay usable on a managed provider: they read, they never write a provider field, and
+  // they are the ones an administrator most needs while diagnosing a provider they cannot edit here.
+  managedReadOnlyActions: [
+    "TestProvider",
+    "CopyRedirectUri",
+    "saml-TestProvider",
+    "saml-CopyAcsUrl",
+    "saml-CopyMetadataUrl",
+  ],
+  // Render the open editor as managed or as ordinary. Applied AFTER the provider has been loaded, because
+  // the role-map and folder-list widgets create their controls during that load and a pass made before it
+  // would leave every one of them editable. Always applied on both arms, so switching from a managed
+  // provider to an ordinary one restores the form rather than leaving it frozen.
+  applyManagedState: (page, protocol, provider_name) => {
+    const formId =
+      protocol === "saml" ? "sso-new-saml-provider" : "sso-new-oidc-provider";
+    const noteId =
+      protocol === "saml" ? "saml-managed-note" : "sso-managed-note";
+    const form = page.querySelector("#" + formId);
+    const note = page.querySelector("#" + noteId);
+    if (!form) {
+      return Promise.resolve();
+    }
+
+    const pending =
+      ssoConfigurationPage.managedProvidersLoaded || Promise.resolve();
+    return pending.then(() => {
+      // The editor may have moved on while the report was in flight. The selector is the state holder the
+      // save path already reads, so comparing against it is comparing against what would actually be saved.
+      const selectorId =
+        protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
+      const selector = page.querySelector(selectorId);
+      if (selector && selector.value !== provider_name) {
+        return;
+      }
+
+      const managed = ssoConfigurationPage.isManagedProvider(
+        protocol,
+        provider_name,
+      );
+
+      form
+        .querySelectorAll("input, select, textarea, button")
+        .forEach((element) => {
+          if (
+            ssoConfigurationPage.managedReadOnlyActions.indexOf(element.id) !==
+            -1
+          ) {
+            return;
+          }
+          element.disabled = managed;
+        });
+
+      if (note) {
+        // textContent, never innerHTML (#221). The text is fixed and carries no provider value, so nothing
+        // from the configuration reaches the DOM here at all.
+        note.textContent = managed
+          ? tr(
+              "config.managed_by_file_note",
+              "This provider is set by a configuration file or by environment variables, so it cannot be edited here. Change it at that source and restart Jellyfin. A save made here would keep the stored value and leave a record in the log.",
+            )
+          : "";
+        note.hidden = !managed;
+      }
+    });
+  },
   loadConfiguration: (page) => {
+    // Refreshed with the configuration itself: a provider that stopped being declaratively managed between
+    // two loads must not keep a frozen form, and one that started being managed must not keep an open one.
+    ssoConfigurationPage.loadManagedProviders();
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
         ssoConfigurationPage.populateProviders(page, config.OidConfigs);
@@ -339,6 +456,9 @@ const ssoConfigurationPage = {
       tr("config.new_provider", "New provider"),
     );
     ssoConfigurationPage.syncDependentFields(page);
+    // A new provider is never managed - no source has named it yet - so this arm exists to RESTORE a form
+    // left frozen by a managed provider opened just before (#1104).
+    ssoConfigurationPage.applyManagedState(page, "oid", "");
     ssoConfigurationPage.showEditor(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
     page.querySelector("#OidProviderName").focus();
@@ -900,6 +1020,8 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.syncDependentFields(page);
         // Reflect the loaded provider's name + base-URL override in the computed redirect URI (#724).
         ssoConfigurationPage.updateRedirectUri(page);
+        // Last, so the role-map and folder-list controls the calls above created are covered too (#1104).
+        ssoConfigurationPage.applyManagedState(page, "oid", provider_name);
       },
     );
   },
@@ -1587,6 +1709,8 @@ const ssoConfigurationPage = {
       tr("config.new_provider", "New provider"),
     );
     ssoConfigurationPage.syncSamlDependentFields(page);
+    // Restores a form left frozen by a managed provider opened just before (#1104); a new one is never managed.
+    ssoConfigurationPage.applyManagedState(page, "saml", "");
     ssoConfigurationPage.showSamlEditor(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
     page.querySelector("#saml-provider-name").focus();
@@ -1782,6 +1906,8 @@ const ssoConfigurationPage = {
 
         ssoConfigurationPage.syncSamlDependentFields(page);
         ssoConfigurationPage.updateSamlUrls(page);
+        // Last, for the same reason as the OpenID arm (#1104).
+        ssoConfigurationPage.applyManagedState(page, "saml", provider_name);
       },
     );
   },
