@@ -30,8 +30,19 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// <code>
 /// JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__OidClientId=jellyfin
 /// JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__Roles__0=media
-/// JELLYFIN_SSO_CONFIG__EnableRateLimit=true
+/// JELLYFIN_SSO_CONFIG__SamlConfigs__idp__Enabled=true
 /// </code>
+/// <para>
+/// EVERY LINE OF THAT EXAMPLE NAMES A PATH INSIDE ONE OF THE TWO PROVIDER MAPS, which is a correctness
+/// requirement rather than a preference. A variable naming a member of the configuration itself is refused
+/// by the two-provider-maps rule below, and a refusal takes the WHOLE source down with it, so an operator who
+/// copied an example carrying one would get no declarative configuration at all - not the provider lines
+/// applied and the offending one ignored. The third line read <c>EnableRateLimit</c> until #1116, which is
+/// that mistake standing in the canonical statement of the scheme, contradicting the paragraph that refuses
+/// it. <c>ASettingTheApplyDoesNotReach_IsRefusedRatherThanDropped</c> pins the refusal and
+/// <c>ASamlProviderSpelledInVariables_IsApplied</c> pins that the replacement line is a shape this source
+/// accepts, so the example is exercised rather than asserted.
+/// </para>
 /// <para>
 /// The steps are resolved against the configuration model itself rather than against a hand-written table
 /// of field names, so a field cannot be silently unconfigurable: a property added to
