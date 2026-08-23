@@ -69,5 +69,6 @@
   "config.oidc_do_not_load_profile_label": "Do Not Load Profile Information",
   "config.oidc_do_not_load_profile_help": "May be required for Cloudflare OpenID",
   "config.oidc_scheme_override_help": "If the plugin is redirecting to an insecure URL, set this to \"https\"",
-  "config.oidc_port_override_help": "If the plugin is redirecting to an incorrect port, set this to the appropiate port"
+  "config.oidc_port_override_help": "If the plugin is redirecting to an incorrect port, set this to the appropiate port",
+  "config.managed_by_file_note": "This provider is set by a configuration file or by environment variables, so it cannot be edited here. Change it at that source and restart Jellyfin. A save made here would keep the stored value and leave a record in the log."
 }
