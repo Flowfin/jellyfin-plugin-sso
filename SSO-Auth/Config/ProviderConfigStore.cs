@@ -60,11 +60,16 @@ internal sealed class ProviderConfigStore
     /// been accepted; a rejected document records nothing, because it changed nothing.
     /// </summary>
     /// <param name="applied">The configuration the source applied.</param>
-    internal void RecordDeclarativelyManaged(PluginConfiguration? applied)
+    /// <param name="source">
+    /// What names the source in a refusal an administrator reads: the document's path, or the environment
+    /// variable prefix. Carried per provider so a write door that refuses can say where to make the change
+    /// instead, which is the difference between a refusal and a dead end (#1415).
+    /// </param>
+    internal void RecordDeclarativelyManaged(PluginConfiguration? applied, string source)
     {
         lock (Sync)
         {
-            ManagedProviders = ManagedProviders.Including(applied);
+            ManagedProviders = ManagedProviders.Including(applied, source);
         }
     }
 

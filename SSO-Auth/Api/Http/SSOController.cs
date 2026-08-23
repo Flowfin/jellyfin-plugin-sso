@@ -674,6 +674,47 @@ public class SSOController : ControllerBase
         }
     }
 
+    // The refusal every elevated write door gives for a declaratively managed provider (#1415), defined once
+    // so five doors and their tests cannot drift into five wordings. It names the source, because a refusal
+    // that does not say where the change belongs leaves an administrator with nowhere to make it.
+    private static string ManagedProviderRefusal(string protocol, string provider, string source) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"The {protocol} provider '{provider}' is managed by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
+
+    /// <summary>
+    /// Refuses an elevated single-provider write against a provider a declarative source decided (#1415), and
+    /// audits the refusal so an operator reading the log sees why nothing changed.
+    /// </summary>
+    /// <remarks>
+    /// REFUSE rather than the config-page save's ignore-and-keep, and the difference is what the caller asked
+    /// for. A settings-page save posts the WHOLE configuration, so a managed provider inside it is almost
+    /// always an untouched form field riding along with an unrelated edit, and refusing the save would block
+    /// that edit; the freeze there keeps the stored value and lets the rest through. These four doors carry a
+    /// single-provider intent and nothing else, so there is no unrelated work to protect: honouring the call
+    /// while doing nothing would report success for a change that did not happen.
+    /// <para>
+    /// Runs BEFORE the body validators on the Add doors, because a managed provider's posted body is never
+    /// applied and its shape therefore decides nothing. That also keeps the door from answering a body
+    /// complaint an administrator would then fix, only to meet this refusal on the next attempt.
+    /// </para>
+    /// </remarks>
+    /// <param name="door">The route being refused, for the audit line.</param>
+    /// <param name="protocol">The protocol label, <c>OpenID</c> or <c>SAML</c>.</param>
+    /// <param name="provider">The provider the caller named.</param>
+    /// <param name="source">What names the owning source, or null when the provider is not managed and the call proceeds.</param>
+    /// <exception cref="ArgumentException">The provider is declaratively managed.</exception>
+    private void RejectManagedProviderWrite(string door, string protocol, string provider, string? source)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        SsoAudit.DeclarativeWriteRefused(_logger, door, protocol, provider, source);
+        throw new ArgumentException(ManagedProviderRefusal(protocol, provider, source), nameof(provider));
+    }
+
     /// <summary>
     /// Adds an OpenID auth configuration. Requires administrator privileges. If the provider already exists, it will be removed and readded.
     /// </summary>
@@ -683,6 +724,7 @@ public class SSOController : ControllerBase
     [HttpPost("OID/Add/{provider}")]
     public void OidAdd(string provider, [FromBody] OidConfig config)
     {
+        RejectManagedProviderWrite("OID/Add", OpenIdProtocol, provider, SSOPlugin.Instance.ConfigStore.ManagedProviders.OidSource(provider));
         RejectNullProviderBody(config);
         RejectInvalidBaseUrlOverride(config.BaseUrlOverride);
         // Reject a malformed generic permission-role mapping (#164) at the door, exactly like the base-URL
@@ -738,6 +780,7 @@ public class SSOController : ControllerBase
     [HttpGet("OID/Del/{provider}")]
     public void OidDel(string provider)
     {
+        RejectManagedProviderWrite("OID/Del", OpenIdProtocol, provider, SSOPlugin.Instance.ConfigStore.ManagedProviders.OidSource(provider));
         var removed = SSOPlugin.Instance.MutateConfiguration(configuration => configuration.OidConfigs.Remove(provider));
         if (removed)
         {
@@ -1201,6 +1244,7 @@ public class SSOController : ControllerBase
     [HttpPost("SAML/Add/{provider}")]
     public OkResult SamlAdd(string provider, [FromBody] SamlConfig newConfig)
     {
+        RejectManagedProviderWrite("SAML/Add", SamlProtocol, provider, SSOPlugin.Instance.ConfigStore.ManagedProviders.SamlSource(provider));
         RejectNullProviderBody(newConfig);
         RejectInvalidBaseUrlOverride(newConfig.BaseUrlOverride);
         RejectInvalidSamlSloEndpoint(newConfig.SamlSloEndpoint);
@@ -1251,6 +1295,7 @@ public class SSOController : ControllerBase
     [HttpGet("SAML/Del/{provider}")]
     public OkResult SamlDel(string provider)
     {
+        RejectManagedProviderWrite("SAML/Del", SamlProtocol, provider, SSOPlugin.Instance.ConfigStore.ManagedProviders.SamlSource(provider));
         var removed = SSOPlugin.Instance.MutateConfiguration(configuration => configuration.SamlConfigs.Remove(provider));
         if (removed)
         {
@@ -1489,6 +1534,26 @@ public class SSOController : ControllerBase
         if (document is null)
         {
             return BadRequest("The configuration import document is missing or is not valid JSON.");
+        }
+
+        // #1415: a document naming a declaratively managed provider refuses the WHOLE import, before anything
+        // is merged. The whole document rather than the offending providers, because an import is already
+        // all-or-nothing on every other rejection (one invalid provider rejects the document), and because
+        // dropping part of a document silently is the worse failure: an administrator restoring a backup
+        // would be told it succeeded and would have no way to see which providers did not arrive. Refusing
+        // names them, so the repair is to delete those entries from the document and import the rest.
+        var managed = SSOPlugin.Instance.ConfigStore.ManagedProviders.NamedIn(document.Configuration);
+        if (managed.Count > 0)
+        {
+            foreach (var (protocol, provider, source) in managed)
+            {
+                SsoAudit.DeclarativeWriteRefused(_logger, "Config/Import", protocol, provider, source);
+            }
+
+            var (firstProtocol, firstProvider, firstSource) = managed[0];
+            return BadRequest(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
         }
 
         try

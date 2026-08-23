@@ -331,7 +331,7 @@ internal static class DeclarativeProviderConfig
         // nothing still decided the providers it names - it agrees with the store rather than being absent
         // from it - so releasing those providers to the config page whenever a restart happens to find the
         // mount already applied would make the freeze depend on whether anything moved.
-        store.RecordDeclarativelyManaged(document.Configuration);
+        store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
 
         if (!changed)
         {
