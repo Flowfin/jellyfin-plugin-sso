@@ -206,6 +206,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **A misspelled protocol segment on a link route now answers 400 (#1399).**
+  The three account-link routes carry an `oid` or `saml` segment in their path,
+  and a value that is neither used to throw. The refusal was correct and is
+  unchanged; what the caller saw afterwards was not decided by this plugin but
+  by whatever the server does with an exception, which made it the one refusal
+  on that surface an integration could not rely on while its four neighbours
+  each answer a chosen status with a chosen message. All three routes now answer
+  `400` with the same fixed sentence naming the two accepted values. The
+  sentence never repeats what was sent, so a mistyped segment is not reflected
+  back into the response. This matters where the segment comes from a
+  provisioning tool's own configuration, which is the ordinary way a wrong one
+  arrives.
+
 - **The redirect URI on the settings page now comes from the server (#1303).**
   The page used to work the value out for itself, in the browser, from the base
   URL override and a fixed path. That made two things compose a string an
