@@ -11,6 +11,33 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **Providers can be declared entirely in environment variables (#1097).** A
+  deployment that describes its identity providers in a mounted file can now
+  describe them in its own environment instead, under the same rules and through
+  the same apply. A variable names a path into the configuration with `__`
+  between the steps, which is the separator a compose file or a Kubernetes
+  manifest already uses elsewhere, so
+  `JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__OidClientId` sets the client id of
+  the provider called `keycloak`, and `__Roles__0` sets the first entry of a
+  list. The names are resolved against the configuration itself rather than
+  against a list somebody maintains, so every field of an OpenID or SAML
+  provider is settable under its own name, and a field added later is settable
+  the day it arrives. Setting none of these leaves the server behaving exactly as
+  it did before. A variable the plugin cannot place refuses the whole
+  environment instead of applying the rest: a misspelled name, a value that is
+  not the field's type, a gap in a numbered list, and a name aimed at something
+  the server manages for itself are all refusals, and a refusal leaves the stored
+  configuration untouched. Two things are worth knowing before writing one. A
+  provider is declared whole, exactly as it is in a mounted file, because the
+  merge works provider by provider: naming a single field of a provider that
+  already exists leaves the rest of that provider at its defaults, and on an
+  OpenID provider that counts as repointing it, which clears its account links.
+  And where a file and the environment both describe the same provider, the
+  environment is applied second and wins, while a provider neither of them names
+  is left exactly as it was. The rate-limit tuning and the SSO-only switch are
+  not settable this way, because no declarative source applies them; a variable
+  naming one is refused rather than quietly ignored.
+
 - **The account-link roster now reports the last SSO login (#1120).** Each link
   in the roster carries the moment a login last signed in through it, so an
   administrator can tell a live link from one nobody has used. Nothing is added

@@ -78,6 +78,14 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // touches the key file unless a document actually carries a reference over a provider that has a
         // stored secret.
         DeclarativeProviderConfig.ApplyFromEnvironment(ConfigStore, logger, stored => Secrets.Reveal(stored));
+
+        // #1097: the environment half of the same source, applied AFTER the file so that where both name a
+        // field the environment wins - the deployment's own variables are the closer of the two to the
+        // process, and a mounted file is the shared artefact they override. Both merge over what is stored
+        // rather than replacing it, through the same ConfigImport. Applied separately rather than merged
+        // into one document, so an environment the operator got wrong leaves an accepted file standing
+        // instead of taking it down as well. With no variable set it reads nothing and writes nothing.
+        DeclarativeEnvironmentConfig.ApplyFromEnvironment(ConfigStore, logger, stored => Secrets.Reveal(stored));
     }
 
     /// <summary>

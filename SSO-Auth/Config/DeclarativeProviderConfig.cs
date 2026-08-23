@@ -266,6 +266,35 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, "the file holds no document");
         }
 
+        return ApplyDocument(store, document, sourcePath, logger, revealStoredSecret);
+    }
+
+    /// <summary>
+    /// Applies an already-parsed document to <paramref name="store"/>, which is everything the two
+    /// declarative sources do identically once each has produced a document (#1097).
+    /// </summary>
+    /// <remarks>
+    /// The whole of the atomicity, the merge precedence, the restart-loop promise and the insecure-option
+    /// audit live here rather than at either caller, so the mounted file and the environment cannot come to
+    /// disagree about them. What each caller owns is only the way it turns its own source into a document
+    /// and refuses one it cannot.
+    /// </remarks>
+    /// <param name="store">The configuration store to apply the document through.</param>
+    /// <param name="document">The parsed document.</param>
+    /// <param name="sourcePath">What names the source in a log line: the document's path, or the variable prefix.</param>
+    /// <param name="logger">The logger a rejection is reported on.</param>
+    /// <param name="revealStoredSecret">Recovers the plaintext of a secret as the store holds it (#1096); null skips that comparison.</param>
+    /// <returns>What the apply did.</returns>
+    internal static DeclarativeLoadOutcome ApplyDocument(
+        ProviderConfigStore store,
+        ConfigExportDocument document,
+        string sourcePath,
+        ILogger? logger,
+        Func<string?, string?>? revealStoredSecret)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(document);
+
         // Applied to a DETACHED COPY of the live configuration first. That is what makes the whole document
         // validate before anything is mutated, and it is also the comparison that keeps a restart loop from
         // rewriting config.xml: the copy either refuses the document or shows exactly what the live
@@ -482,11 +511,21 @@ internal static class DeclarativeProviderConfig
         }
     }
 
-    // A rejection is Error rather than Warning: the operator asked for this file to decide the providers,
-    // and the server is now running on something else. The reason is echoed with its line endings stripped
-    // at the emission point, because it can quote a provider name that came out of the file
-    // (cs/log-forging is sanitized inline, never behind a helper).
-    private static DeclarativeLoadOutcome Reject(ILogger? logger, string sourcePath, string reason)
+    /// <summary>
+    /// Reports a rejection and answers <see cref="DeclarativeLoadOutcome.Rejected"/>, shared by both
+    /// declarative sources so a refused file and a refused environment read identically in the log.
+    /// </summary>
+    /// <remarks>
+    /// Error rather than Warning: the operator asked for this source to decide the providers, and the server
+    /// is now running on something else. The reason is echoed with its line endings stripped at the emission
+    /// point, because it can quote a provider name that came out of the source (cs/log-forging is sanitized
+    /// inline, never behind a helper).
+    /// </remarks>
+    /// <param name="logger">The logger the rejection is reported on.</param>
+    /// <param name="sourcePath">What names the source: the document's path, or the variable prefix.</param>
+    /// <param name="reason">Why the source was refused.</param>
+    /// <returns>Always <see cref="DeclarativeLoadOutcome.Rejected"/>.</returns>
+    internal static DeclarativeLoadOutcome Reject(ILogger? logger, string sourcePath, string reason)
     {
         if (logger?.IsEnabled(LogLevel.Error) == true)
         {
