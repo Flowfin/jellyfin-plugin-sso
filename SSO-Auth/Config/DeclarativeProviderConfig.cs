@@ -327,6 +327,12 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, rejection);
         }
 
+        // Recorded before both accepting returns below, and on BOTH of them (#1102). A document that changed
+        // nothing still decided the providers it names - it agrees with the store rather than being absent
+        // from it - so releasing those providers to the config page whenever a restart happens to find the
+        // mount already applied would make the freeze depend on whether anything moved.
+        store.RecordDeclarativelyManaged(document.Configuration);
+
         if (!changed)
         {
             if (logger?.IsEnabled(LogLevel.Debug) == true)

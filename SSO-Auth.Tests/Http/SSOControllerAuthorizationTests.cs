@@ -43,7 +43,7 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // answers with a provider's configured base-URL override and only an administrator has a use for it.
         "OidRedirectUri",
         "SamlAdd", "SamlDel", "SamlProviders", "SamlTest", "SamlImportMetadata",
-        "ExportConfig", "ImportConfig", "Unregister", "ExportLinks", "ExportUserLinks",
+        "ExportConfig", "ImportConfig", "ManagedProviders", "Unregister", "ExportLinks", "ExportUserLinks",
         // The SSO-only login admin surface (#165): the mode toggle, the break-glass designation, and status.
         "EnableSsoOnly", "DisableSsoOnly", "DesignateBreakGlassAdmin", "SsoOnlyStatus",
         // The per-account SSO-managed report (#1136): read-only, and elevation-gated because it answers for
