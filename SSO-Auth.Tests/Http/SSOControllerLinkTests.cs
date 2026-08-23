@@ -88,25 +88,68 @@ public class SSOControllerLinkTests
     }
 
     [Fact]
-    public async Task AddCanonicalLink_AuthorizedButInvalidMode_Throws()
+    public async Task AddCanonicalLink_AuthorizedButInvalidMode_Returns400()
     {
         var harness = ForCaller(isAdmin: true, callerId: Target);
 
         // The guard passes (admin), so the mode dispatch runs and rejects an unknown mode fail-closed.
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            harness.Controller.AddCanonicalLink("ldap", "keycloak", Target, new AuthResponse()));
+        // #1399: the rejection is a status this repository chose, not one the host's exception middleware
+        // chose for it. Delete the RefuseUnknownMode arm in the controller and this assertion goes red,
+        // because the call throws out of the controller instead of returning.
+        var result = await harness.Controller.AddCanonicalLink("ldap", "keycloak", Target, new AuthResponse());
+
+        Assert.Equal(400, Assert.IsType<BadRequestObjectResult>(result).StatusCode);
     }
 
     [Fact]
-    public async Task DeleteCanonicalLink_AuthorizedButInvalidMode_Throws()
+    public async Task DeleteCanonicalLink_AuthorizedButInvalidMode_Returns400()
     {
         // #369: the DELETE route parses {mode} at the same boundary as the add route, so an unknown mode is
         // rejected there once - fail closed, exactly like AddCanonicalLink - rather than being forwarded raw
         // to the service to throw deep inside TryGetLinks. Pins the previously-untested DELETE invalid-mode path.
         var harness = ForCaller(isAdmin: true, callerId: Target);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            harness.Controller.DeleteCanonicalLink("ldap", "keycloak", Target, "sub-1"));
+        var result = await harness.Controller.DeleteCanonicalLink("ldap", "keycloak", Target, "sub-1");
+
+        Assert.Equal(400, Assert.IsType<BadRequestObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public async Task EveryModeCarryingRoute_RefusesAnUnknownModeWithTheSameBody()
+    {
+        // #1399: three routes carry a {mode} segment and all three route it through one parse. The value of
+        // deciding the status here is that an integrator can depend on it, which only holds if the three
+        // agree - so the body is asserted, not just the status, and the assertion is made across all three
+        // rather than on the one route that happened to be measured.
+        var harness = ForCaller(isAdmin: true, callerId: Target);
+
+        // The pre-provision route answers 404 for a user id nobody holds before it looks at {mode}, so the
+        // account has to exist for that route to reach the parse at all.
+        harness.UserManager.GetUserById(Target).Returns(TestUsers.Named("caller", Target));
+
+        var add = await harness.Controller.AddCanonicalLink("ldap", "keycloak", Target, new AuthResponse());
+        var delete = await harness.Controller.DeleteCanonicalLink("ldap", "keycloak", Target, "sub-1");
+        var preprovision = await harness.Controller.PreprovisionCanonicalLink("ldap", "keycloak", Target, "sub-1");
+
+        foreach (var result in new[] { add, delete, preprovision })
+        {
+            var refusal = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal(400, refusal.StatusCode);
+            Assert.Equal("The mode segment must be 'oid' or 'saml'.", refusal.Value);
+        }
+    }
+
+    [Fact]
+    public async Task AnUnknownMode_IsRefusedWithoutEchoingWhatTheCallerSent()
+    {
+        // The refusal body is fixed text. Echoing the supplied token would reflect caller-controlled bytes
+        // into a response an administrator's tooling renders, and there is nothing an integrator learns from
+        // seeing their own typo repeated that the fixed sentence does not already tell them.
+        var harness = ForCaller(isAdmin: true, callerId: Target);
+
+        var result = await harness.Controller.AddCanonicalLink("<script>ldap</script>", "keycloak", Target, new AuthResponse());
+
+        Assert.Equal("The mode segment must be 'oid' or 'saml'.", Assert.IsType<BadRequestObjectResult>(result).Value);
     }
 
     [Fact]

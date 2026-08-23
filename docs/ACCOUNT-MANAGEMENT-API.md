@@ -51,12 +51,12 @@ it on, and it keys on the connection's remote address only. Of the endpoints on
 this page:
 
 - the pre-provision write, the unlink and the link-backup restore share the
-  `link` budget (`SSOController.cs:1806`, `:1974`, `:1563`)
-- the revoke has its own `unregister` budget (`SSOController.cs:1658`)
+  `link` budget (`SSOController.cs:1810`, `:1974`, `:1563`)
+- the revoke has its own `unregister` budget (`SSOController.cs:1662`)
 - the per-account link export has its own `export` budget
-  (`SSOController.cs:1428`)
+  (`SSOController.cs:1432`)
 - the SSO-managed status read and the two per-user link listings are not
-  rate-limited at all (`SSOController.cs:1741`, `:2020`, `:2038`)
+  rate-limited at all (`SSOController.cs:1745`, `:2020`, `:2038`)
 
 When the limiter refuses a request the response is `429` with a plain-text body
 and a `Retry-After` header carrying whole seconds
@@ -100,7 +100,7 @@ Content-Type: application/json
 "the-canonical-name"
 ```
 
-`SSOController.cs:1798`. `mode` is `oid` or `saml`, case-insensitive. `provider`
+`SSOController.cs:1802`. `mode` is `oid` or `saml`, case-insensitive. `provider`
 is the provider name as configured on the settings page. `jellyfinUserId` is the
 GUID of an account that already exists. The body is a bare JSON string, not an
 object.
@@ -114,13 +114,13 @@ exactly one behaviour, described under the conflict below.
 
 Responses:
 
-| Status | Meaning                                                                 |
-| ------ | ----------------------------------------------------------------------- |
-| 204    | The link was written, or the identical mapping already existed          |
-| 400    | The canonical name was empty, or no provider of that name is configured |
-| 404    | No Jellyfin account holds that user id                                  |
-| 409    | That canonical name is already linked to a different Jellyfin account   |
-| 429    | The `link` budget for this client is exhausted; see `Retry-After`       |
+| Status | Meaning                                                                                                     |
+| ------ | ----------------------------------------------------------------------------------------------------------- |
+| 204    | The link was written, or the identical mapping already existed                                              |
+| 400    | The canonical name was empty, `mode` is neither `oid` nor `saml`, or no provider of that name is configured |
+| 404    | No Jellyfin account holds that user id                                                                      |
+| 409    | That canonical name is already linked to a different Jellyfin account                                       |
+| 429    | The `link` budget for this client is exhausted; see `Retry-After`                                           |
 
 The 409 is the collision behaviour worth designing around. Repeating the same
 mapping succeeds with 204, so a retry after a lost response is safe. Rebinding a
@@ -139,11 +139,16 @@ capability, and every grant path treats a disabled provider like a deleted one
 disabled, because disable-then-clean-up is the ordinary workflow
 (`CanonicalLinkService.cs:1225-1228`).
 
-A `mode` that is neither `oid` nor `saml` throws at the parse boundary
-(`SSOController.cs:2106`, pinned by
-`SSO-Auth.Tests/Http/SSOControllerLinkTests.cs:91`). What status the caller then
-sees is decided by the server's exception middleware rather than by this plugin,
-so do not depend on a particular one; send a valid mode.
+A `mode` that is neither `oid` nor `saml` is refused with `400` and the body
+`The mode segment must be 'oid' or 'saml'.` The parse happens once at the
+controller boundary and all three routes carrying a `{mode}` segment answer
+identically (`SSOController.cs:2132`, pinned across the three by
+`SSO-Auth.Tests/Http/SSOControllerLinkTests.cs:118`). The body is fixed text and
+never repeats the token that was sent.
+
+Until #1399 this input threw and the status was whatever the server's exception
+middleware produced, which made it the one refusal on this surface a caller could
+not depend on. It is decided here now.
 
 A successful write is audited as a pre-provision, naming the administrator that
 drove it (`SSO-Auth/Api/Audit/SsoAudit.cs:288`).
@@ -158,7 +163,7 @@ to bind to, and the binding is taken on the identity's first real login instead.
 GET /sso/SSO-Managed/Status/{jellyfinUserId}
 ```
 
-`SSOController.cs:1741`. Returns `200` with two booleans, or `404` when no such
+`SSOController.cs:1745`. Returns `200` with two booleans, or `404` when no such
 account exists.
 
 ```json
@@ -185,7 +190,7 @@ GET /sso/oid/links/{jellyfinUserId}
 GET /sso/saml/links/{jellyfinUserId}
 ```
 
-`SSOController.cs:2038` and `:2020`. One protocol each. Both return a map of
+`SSOController.cs:2056` and `:2020`. One protocol each. Both return a map of
 provider name to the list of canonical names linked to that account under that
 provider, so an account with no links under a configured provider yields an empty
 list rather than a missing key.
@@ -199,7 +204,7 @@ check lets a user read their own links. An administrator reads anybody's.
 GET /sso/Links/Export/{jellyfinUserId}
 ```
 
-`SSOController.cs:1421`. Both protocols at once, in the same document shape the
+`SSOController.cs:1425`. Both protocols at once, in the same document shape the
 whole-table export produces, or `404` when no such account exists. This is the
 route to use when answering a data-subject access request for one person, since
 it produces that subject's linkages without handing over everybody else's.
@@ -216,14 +221,14 @@ Content-Type: application/json
 <the document GET /sso/Config/Links/Export produced>
 ```
 
-`SSOController.cs:1552`. Restores an account-link backup onto this instance,
+`SSOController.cs:1556`. Restores an account-link backup onto this instance,
 rebinding every link to the user id this server holds for that username today.
 It is the half that completes a server migration: links are stored against
 Jellyfin user ids, a rebuilt user database issues new ids, and only a
 username-keyed document can be restored against it.
 
 The document it accepts is exactly what `GET /sso/Config/Links/Export` returns
-(`SSOController.cs:1368`). Post that file back unmodified; nothing has to be
+(`SSOController.cs:1372`). Post that file back unmodified; nothing has to be
 rewritten between the two calls.
 
 ### The document shape
@@ -271,7 +276,7 @@ rather than restored onto a provider no login would resolve.
 Every entry is checked before a single link is written, and the first failure
 rejects the whole document (`LinkImport.cs:64-85`, `:174-182`). The mutation runs
 inside `MutateConfiguration`, which persists nothing when the mutation throws
-(`SSOController.cs:1592-1593`), so a rejected import leaves the stored link table
+(`SSOController.cs:1596-1597`), so a rejected import leaves the stored link table
 exactly as it was. This is the property to know before running it once: the
 instance either gets its complete link table back or is left untouched, and there
 is no half-applied state that looks restored and is not.
@@ -317,11 +322,11 @@ holding is what locates the entry instead (`LinkImport.cs:265-271`).
 | Status | Meaning                                                                                                                         |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 204    | The document was applied; every link it named is now bound to this instance's accounts                                          |
-| 400    | The body bound to nothing: `The link import document is missing or is not valid JSON.` (`SSOController.cs:1570`)                |
-| 400    | The version is unsupported, or an entry is unrestorable; the body carries the refusal text above (`SSOController.cs:1595-1600`) |
+| 400    | The body bound to nothing: `The link import document is missing or is not valid JSON.` (`SSOController.cs:1574`)                |
+| 400    | The version is unsupported, or an entry is unrestorable; the body carries the refusal text above (`SSOController.cs:1599-1604`) |
 | 429    | The `link` budget for this client is exhausted; see `Retry-After`                                                               |
 
-The route carries a one-mebibyte request-size limit (`SSOController.cs:1553`,
+The route carries a one-mebibyte request-size limit (`SSOController.cs:1557`,
 `:62`). A larger body is refused by the server before the action runs, so the
 plugin decides neither the status nor the body in that case.
 
@@ -345,21 +350,21 @@ last.
 DELETE /sso/{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}
 ```
 
-`SSOController.cs:1961`. Removes exactly one mapping.
+`SSOController.cs:1974`. Removes exactly one mapping.
 
-| Status | Meaning                                                               |
-| ------ | --------------------------------------------------------------------- |
-| 200    | The link was removed                                                  |
-| 400    | No provider of that name is configured                                |
-| 403    | The caller may not edit that user's links                             |
-| 404    | No link is registered for that canonical name                         |
-| 409    | The canonical name is registered, but to a different Jellyfin user id |
-| 429    | The `link` budget for this client is exhausted                        |
+| Status | Meaning                                                                       |
+| ------ | ----------------------------------------------------------------------------- |
+| 200    | The link was removed                                                          |
+| 400    | `mode` is neither `oid` nor `saml`, or no provider of that name is configured |
+| 403    | The caller may not edit that user's links                                     |
+| 404    | No link is registered for that canonical name                                 |
+| 409    | The canonical name is registered, but to a different Jellyfin user id         |
+| 429    | The `link` budget for this client is exhausted                                |
 
 Removing a user's last link across both protocols also revokes their active
 sessions, because a link removal only fails future logins closed and a token
 minted earlier would otherwise stay valid until it expired
-(`SSOController.cs:1995-1997`). Removing a link while the user still holds another one
+(`SSOController.cs:2013-2015`). Removing a link while the user still holds another one
 does not revoke, so unlinking one provider does not log somebody out of a session
 they legitimately hold through another.
 
@@ -372,7 +377,7 @@ Content-Type: application/json
 "the-fallback-auth-provider-id"
 ```
 
-`SSOController.cs:1648`. Note that this one is keyed on the username, not on the
+`SSOController.cs:1652`. Note that this one is keyed on the username, not on the
 user id, unlike everything else above. The body is a bare JSON string naming the
 authentication provider the account is switched back to.
 
@@ -387,7 +392,7 @@ A revoke is not durable against re-adoption. When the provider the person signs
 in through has `AllowExistingAccountLink` enabled, a later SSO login can re-adopt
 the same-named local account and the link comes back. With the fail-closed
 default, where adoption is off, the revoke is durable
-(`SSOController.cs:1671-1674`).
+(`SSOController.cs:1675-1678`).
 
 A revoke of one's own account terminates one's own sessions too, including the
 administrator session that issued the call.

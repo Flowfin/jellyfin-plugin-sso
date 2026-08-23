@@ -52,6 +52,10 @@ public class SSOController : ControllerBase
     // defined once (#318).
     private const string NoMatchingProviderMessage = LoginStatusMapper.NoMatchingProviderMessage;
 
+    // The refusal body for an unrecognized {mode} route token (#1399), named here beside the other fixed
+    // refusal wordings. It names the two accepted tokens and never echoes the supplied one.
+    private const string UnknownModeMessage = "The mode segment must be 'oid' or 'saml'.";
+
     // Display names for the audit log (the internal link-map mode tokens are the lowercase "oid"/"saml").
     private const string OpenIdProtocol = "OpenID";
     private const string SamlProtocol = "SAML";
@@ -1816,7 +1820,11 @@ public class SSOController : ControllerBase
             return NotFound("No Jellyfin account exists with that user id.");
         }
 
-        var parsed = ParseMode(mode);
+        if (RefuseUnknownMode(mode, out var parsed) is { } unknownMode)
+        {
+            return unknownMode;
+        }
+
         var result = _canonicalLinks.TryPreprovisionLink(parsed, provider, canonicalName, jellyfinUserId);
         if (result == CanonicalLinkWriteResult.Created)
         {
@@ -1941,7 +1949,12 @@ public class SSOController : ControllerBase
             return throttled;
         }
 
-        return ParseMode(mode) switch
+        if (RefuseUnknownMode(mode, out var parsed) is { } unknownMode)
+        {
+            return unknownMode;
+        }
+
+        return parsed switch
         {
             ProviderMode.Saml => SamlLink(provider, jellyfinUserId, authResponse),
             ProviderMode.Oid => OidLink(provider, jellyfinUserId, authResponse),
@@ -1976,7 +1989,12 @@ public class SSOController : ControllerBase
             return throttled;
         }
 
-        var removal = _canonicalLinks.TryRemoveLink(ParseMode(mode), provider, canonicalName, jellyfinUserId);
+        if (RefuseUnknownMode(mode, out var parsed) is { } unknownMode)
+        {
+            return unknownMode;
+        }
+
+        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId);
 
         // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
         // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
@@ -2101,12 +2119,18 @@ public class SSOController : ControllerBase
     // Parse the {mode} route token once, at the HTTP boundary (#369): every link endpoint routes its raw
     // route string through here, so the protocol is validated in exactly one place and the typed
     // ProviderMode is threaded inward - no inner layer re-parses or re-compares the string. Fail closed: an
-    // unknown token throws (an ArgumentException, surfacing as the same rejection the two former divergent
-    // ToLower()/ToLowerInvariant() dispatches produced), never defaulting to a protocol.
-    private static ProviderMode ParseMode(string mode) =>
-        ProviderModeParser.TryParse(mode, out var parsed)
-            ? parsed
-            : throw new ArgumentException($"{mode} is not a valid choice between 'saml' and 'oid'", nameof(mode));
+    // unknown token refuses, never defaulting to a protocol.
+    //
+    // The refusal is a mapped 400 rather than a throw (#1399). Fail-closed is unchanged; what changed is who
+    // decides the wire behaviour. A throw left the status and the body to the host's exception middleware,
+    // making this the one input on this surface whose answer is not decided in this repository, while every
+    // neighbouring refusal renders a chosen status with a chosen body (400 empty key, 400 unknown provider,
+    // 404 unknown user id, 409 subject linked elsewhere). A route token typed wrong in a provisioning tool's
+    // configuration is the ordinary way this input arrives, so an integrator needs a status they can depend
+    // on. The body names the two accepted tokens and never echoes the supplied one, which would reflect
+    // caller-controlled text into the response.
+    private static BadRequestObjectResult? RefuseUnknownMode(string mode, out ProviderMode parsed) =>
+        ProviderModeParser.TryParse(mode, out parsed) ? null : new BadRequestObjectResult(UnknownModeMessage);
 
     // Fronts a rate-limited endpoint with the shared per-client gate (#128, #160, #382, #516): null when the
     // request may proceed, else the throttled outcome the single mapper renders (#474). The anonymous login
