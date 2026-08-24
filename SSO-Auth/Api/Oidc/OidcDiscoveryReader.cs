@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Duende.IdentityModel.Client;
 using Duende.IdentityModel.OidcClient;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Microsoft.Extensions.Logging;
 
@@ -135,6 +136,11 @@ internal static class OidcDiscoveryReader
                 // reports the generic cause rather than a specific wrong one. Nothing on the login path
                 // branches on it: that path fails closed on `Available` alone. The bound above is on the
                 // TEXT this entry carries, and none of it travels on that record: the reason is an enum.
+                // #1139: counted on THIS exit as well as on the catch-all below. The two are the same event
+                // to an operator - the document could not be read - and the library reports most real
+                // failures (unreachable, policy refusal, bad status) here without ever throwing, so counting
+                // only the catch would report a healthy provider through an outage.
+                SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
                 return OidcDiscoveryResult.Refused(screen.Refusal);
             }
 
@@ -168,6 +174,10 @@ internal static class OidcDiscoveryReader
                 e,
                 "Could not read the OpenID discovery document for provider {Provider}; the login fails closed rather than proceeding on unverified discovery facts.",
                 provider?.ReplaceLineEndings(string.Empty));
+
+            // #1139: the catch-all arm is the fetch-error counter, because it is where every unreadable
+            // document ends up - a network failure, a timeout, a body that will not parse.
+            SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
             return OidcDiscoveryResult.Unavailable;
         }
     }

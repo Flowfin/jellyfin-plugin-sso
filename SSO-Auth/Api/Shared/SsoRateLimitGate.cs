@@ -4,6 +4,7 @@
 using System;
 using System.Net;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Microsoft.AspNetCore.Http;
@@ -71,6 +72,14 @@ internal static class SsoRateLimitGate
         {
             return null;
         }
+
+        // #1139: counted here rather than inside RecordThrottledHit, for two reasons that point the same way.
+        // That tally is DRAINED to zero by the interval gate below, which is what its single log line needs
+        // and the opposite of what a monotonic counter is; and the endpoint class - the breakdown an operator
+        // alerts on - exists here and not in the limiter, which is keyed on it but never told which one it is.
+        // One call beside an existing record, not a second tally of the same event: the limiter's count feeds
+        // the log line, this one feeds the scrape.
+        SsoMetrics.RequestThrottled(endpointClass);
 
         // Bounded observability signal (#195): so an operator can notice a sustained brute-force or a
         // reverse proxy misconfigured to pool every client into one bucket, without the notice itself

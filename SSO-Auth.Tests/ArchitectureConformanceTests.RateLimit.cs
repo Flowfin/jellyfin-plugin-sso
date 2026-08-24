@@ -83,6 +83,13 @@ public partial class ArchitectureConformanceTests
         // writes nothing. It answers with NAMES the elevation-gated Config/Export already lists in full,
         // so repeating it discloses nothing that route does not, and it takes no caller-supplied id.
         "Config/Managed",
+        // Elevated read-only counter exposition (#1139): in-memory tallies rendered to text, no outbound
+        // fetch and no write. Exempt for a reason the neighbours above do not have - a scraper is SUPPOSED to
+        // poll this route, every fifteen seconds forever, so a throttle here would break the one caller it
+        // exists for, and would break it silently as a gap in a graph rather than as an error anybody sees.
+        // What it discloses is provider names the elevation-gated OID/Get already lists in full plus counts
+        // about the caller's own server, and it takes no caller-supplied id.
+        "Metrics",
         "SSO-Only/Status", "SSO-Only/Enable", "SSO-Only/Disable", "SSO-Only/BreakGlassAdmin", // elevated mode control
         "Config/Links/Export", // elevated read-only link snapshot (#1126), in-memory, no outbound fetch
         "Links/Roster", // elevated read-only link roster (#1119), in-memory, no outbound fetch, takes no caller-supplied id

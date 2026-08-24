@@ -18,6 +18,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
@@ -1421,6 +1422,36 @@ public class SSOController : ControllerBase
             SamlConfigs = managed.SamlConfigs,
         });
     }
+
+    /// <summary>
+    /// Publishes the auth-path counters as Prometheus text exposition (#1139), so an operator can alert on a
+    /// rate of failed logins, provisioning or provider-fetch errors instead of grepping the Jellyfin log.
+    /// Requires administrator privileges. Read-only - it changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// NOT ANONYMOUS, and that is the reason it sits on this controller beside the other operator surfaces
+    /// rather than on a conventional unauthenticated <c>/metrics</c>. The exposition names which providers a
+    /// server has and how often logins against them fail, which is reconnaissance: a caller who cannot log in
+    /// could read the provider inventory and watch their own attempts land. A scraper is given a token like
+    /// any other Jellyfin API client.
+    /// </para>
+    /// <para>
+    /// No counter carries a username, a subject or a claim value. Every label is either a configured provider
+    /// name or a member of a closed vocabulary, which <see cref="SsoMetrics"/> holds by its signatures and
+    /// <c>SsoMetricsStore</c> backstops with a series cap.
+    /// </para>
+    /// </remarks>
+    /// <returns>The exposition text.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Metrics")]
+    [Produces(MediaTypeNames.Text.Plain)]
+    public ActionResult Metrics() => new ContentResult
+    {
+        Content = PrometheusExposition.Render(SsoMetricsStore.Snapshot(), SsoMetricsStore.RefusedSeries),
+        ContentType = PrometheusExposition.ContentType,
+        StatusCode = StatusCodes.Status200OK,
+    };
 
     /// <summary>
     /// Exports the account-link table as a portable, username-keyed document (#1126). Requires

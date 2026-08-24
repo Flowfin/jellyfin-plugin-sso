@@ -12,6 +12,7 @@ using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
@@ -357,6 +358,10 @@ internal sealed class OidcLoginService
                 _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization-response processing failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty), result.Error?.ReplaceLineEndings(string.Empty), result.ErrorDescription?.ReplaceLineEndings(string.Empty));
             }
 
+            // #1139: the code exchange is the other server-to-provider fetch, and it is counted apart from
+            // discovery because the two are fixed in different places - a broken token endpoint is a client
+            // secret or a network route, an unreadable discovery document is neither.
+            SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Token);
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error logging in.");
         }
 
