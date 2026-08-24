@@ -234,6 +234,33 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty));
     }
 
+    /// <summary>
+    /// Records an elevated write door refusing to alter or delete a declaratively managed provider (#1415).
+    /// The config-page save IGNORES such a write and keeps the stored value (see
+    /// <see cref="DeclarativeWriteIgnored"/>); these doors carry a single-provider intent that cannot be
+    /// half-honoured, so they refuse instead and nothing is written. Warning for the same reason: an
+    /// administrator has just asked for a change the server did not make.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="door">The route that was refused, e.g. <c>OID/Del</c>.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name. No field value is recorded - the point is which provider, not what was posted.</param>
+    /// <param name="source">What names the source that owns the provider, so the line says where the change belongs.</param>
+    internal static void DeclarativeWriteRefused(ILogger logger, string door, string protocol, string provider, string source)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] {Door} refused for {Protocol} provider '{Provider}': it is managed by the declarative source {Source}, so nothing was written. Edit that source and restart the server to change it.",
+            door?.ReplaceLineEndings(string.Empty),
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty),
+            source?.ReplaceLineEndings(string.Empty));
+    }
+
     /// <summary>Records that a provider's authorization server does not advertise PKCE S256 support (#141).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The provider name.</param>

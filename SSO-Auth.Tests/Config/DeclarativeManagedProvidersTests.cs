@@ -387,4 +387,77 @@ public class DeclarativeManagedProvidersTests
 
         Assert.Equal(linked, ((PluginConfiguration)persisted.Last()).OidConfigs["keycloak"].CanonicalLinks["sub-1"]);
     }
+
+    [Fact]
+    public void AFileDeclaredProvider_CarriesThePathAsItsSource()
+    {
+        // #1415: a write door that refuses has to say WHERE the change belongs, and the two sources are
+        // edited in different places. Pinned on the loader rather than only at the door, so the attribution
+        // is proven at the point it is recorded instead of at a point a test could hand-feed it.
+        var (store, _, _, _) = CreateStore();
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        Assert.Equal("/run/secrets/sso.json", store.ManagedProviders.OidSource("keycloak"));
+        Assert.Null(store.ManagedProviders.OidSource("never-declared"));
+        Assert.Null(store.ManagedProviders.SamlSource("keycloak"));
+    }
+
+    [Fact]
+    public void AnEnvironmentDeclaredProvider_CarriesTheVariablePrefixAsItsSource()
+    {
+        // The other source, and the reason the attribution is not a path: an operator told to edit
+        // "/run/secrets/sso.json" for a provider that came out of the environment would look at a file that
+        // does not name it.
+        var (store, _, _, _) = CreateStore();
+        var variables = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [DeclarativeEnvironmentConfig.Prefix + "OidConfigs__keycloak__OidEndpoint"] = Endpoint,
+            [DeclarativeEnvironmentConfig.Prefix + "OidConfigs__keycloak__OidClientId"] = "from-the-environment",
+        };
+
+        Assert.Equal(DeclarativeLoadOutcome.Applied, DeclarativeEnvironmentConfig.Apply(store, variables, null));
+
+        Assert.Equal(DeclarativeEnvironmentConfig.Prefix, store.ManagedProviders.OidSource("keycloak"));
+    }
+
+    [Fact]
+    public void WhereBothSourcesNameOneProvider_TheAttributionIsTheOneThatAppliedLast()
+    {
+        // The sources apply in sequence and the environment is applied second, so the stored provider is the
+        // environment's. Attributing it to the file would send an operator to edit a value the next start
+        // would overwrite again, which is a worse answer than no attribution at all.
+        var (store, _, _, _) = CreateStore();
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var variables = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [DeclarativeEnvironmentConfig.Prefix + "OidConfigs__keycloak__OidEndpoint"] = Endpoint,
+            [DeclarativeEnvironmentConfig.Prefix + "OidConfigs__keycloak__OidClientId"] = "from-the-environment",
+        };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, DeclarativeEnvironmentConfig.Apply(store, variables, null));
+
+        Assert.Equal(DeclarativeEnvironmentConfig.Prefix, store.ManagedProviders.OidSource("keycloak"));
+    }
+
+    [Fact]
+    public void ASecondSourceThatNamesNothing_ReleasesNothingTheFirstOneDeclared()
+    {
+        // The union rule the set already carried, re-asserted now that each name also carries a value: a
+        // dictionary rebuild that dropped the earlier entries would silently reopen every write door on a
+        // provider the file owns.
+        var (store, _, _, _) = CreateStore();
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        Assert.Equal(
+            DeclarativeLoadOutcome.NotConfigured,
+            DeclarativeEnvironmentConfig.Apply(store, new Dictionary<string, string?>(StringComparer.Ordinal), null));
+
+        Assert.Equal("/run/secrets/sso.json", store.ManagedProviders.OidSource("keycloak"));
+    }
 }

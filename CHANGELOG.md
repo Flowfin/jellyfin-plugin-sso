@@ -332,6 +332,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A provider a mounted file or the environment declared can no longer be
+  altered or deleted through the plugin's other administrator endpoints
+  (#1415).** The settings page already kept the declared value and discarded
+  what was posted over it, but that only covered the one route the page saves
+  through. Four endpoints wrote by a different door, and importing a
+  configuration wrote by a fifth, so an administrator adding or deleting a
+  declared provider through the API replaced or removed it until the next
+  restart put it back, and every login against that provider could fail in the
+  meantime with nothing in the log saying why. All five now refuse, and the
+  refusal names the provider and the source that decided it, so the change can
+  be made where it will survive a restart. A configuration import that names a
+  declared provider is refused whole rather than applied with those providers
+  quietly dropped, and it says how many it found, so a restore that cannot be
+  completed is never reported as one that was. A provider no source declared
+  adds, deletes and imports exactly as before, which is every provider on a
+  server that declares none.
+
 - **A back-channel logout token can no longer break the check that decides
   whether it is one (#1349).** The plugin looks for a fixed member in a logout
   token's `events` claim, and found it with the same call #1340 took out of the

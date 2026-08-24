@@ -48,7 +48,7 @@ public class SSOControllerManagedProvidersTests
         var declared = new PluginConfiguration();
         declared.OidConfigs["keycloak"] = new OidConfig { OidClientId = "client-1" };
         declared.SamlConfigs["adfs"] = new SamlConfig { SamlEndpoint = "https://adfs.example.invalid/sso" };
-        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared);
+        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared, "/config/sso.json");
 
         var reported = Reported(harness);
 
@@ -71,7 +71,7 @@ public class SSOControllerManagedProvidersTests
 
         var declared = new PluginConfiguration();
         declared.OidConfigs["keycloak"] = new OidConfig { OidClientId = "client-1" };
-        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared);
+        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared, "/config/sso.json");
 
         var json = JsonSerializer.Serialize(Reported(harness));
 

@@ -40,28 +40,37 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// </remarks>
 internal sealed class DeclarativeManagedProviders
 {
+    /// <summary>The protocol label a refusal and an audit line name an OpenID provider by.</summary>
+    internal const string OpenIdProtocol = "OpenID";
+
+    /// <summary>The protocol label a refusal and an audit line name a SAML provider by.</summary>
+    internal const string SamlProtocol = "SAML";
+
     /// <summary>
     /// The set of an installation that configures no declarative source: nothing is managed, nothing is
     /// frozen, and the config page behaves exactly as it did before this existed.
     /// </summary>
     internal static readonly DeclarativeManagedProviders None = new(
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal));
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new Dictionary<string, string>(StringComparer.Ordinal));
 
-    private readonly HashSet<string> _oid;
-    private readonly HashSet<string> _saml;
+    // Name -> what names the source that owns it. A dictionary rather than a set because a refusal that
+    // cannot say WHICH source decided a provider leaves an administrator with nothing to edit: the two
+    // sources are a mounted document and the environment, and they are changed in different places.
+    private readonly Dictionary<string, string> _oid;
+    private readonly Dictionary<string, string> _saml;
 
-    private DeclarativeManagedProviders(HashSet<string> oid, HashSet<string> saml)
+    private DeclarativeManagedProviders(Dictionary<string, string> oid, Dictionary<string, string> saml)
     {
         _oid = oid;
         _saml = saml;
     }
 
     /// <summary>Gets the OpenID provider names the declarative sources named, ordered so the report is stable.</summary>
-    internal IReadOnlyList<string> OidConfigs => _oid.OrderBy(name => name, StringComparer.Ordinal).ToList();
+    internal IReadOnlyList<string> OidConfigs => _oid.Keys.OrderBy(name => name, StringComparer.Ordinal).ToList();
 
     /// <summary>Gets the SAML provider names the declarative sources named, ordered so the report is stable.</summary>
-    internal IReadOnlyList<string> SamlConfigs => _saml.OrderBy(name => name, StringComparer.Ordinal).ToList();
+    internal IReadOnlyList<string> SamlConfigs => _saml.Keys.OrderBy(name => name, StringComparer.Ordinal).ToList();
 
     /// <summary>Gets a value indicating whether no provider is declaratively managed.</summary>
     internal bool IsEmpty => _oid.Count == 0 && _saml.Count == 0;
@@ -73,19 +82,66 @@ internal sealed class DeclarativeManagedProviders
     /// the first source's providers.
     /// </summary>
     /// <param name="applied">The configuration a source just applied; null adds nothing.</param>
+    /// <param name="source">
+    /// What names the source in a refusal: the document's path, or the environment variable prefix. Where
+    /// both sources name one provider the LAST one wins the attribution, because the sources apply in
+    /// sequence and the later one is the value the store now holds.
+    /// </param>
     /// <returns>The widened set.</returns>
-    internal DeclarativeManagedProviders Including(PluginConfiguration? applied)
+    internal DeclarativeManagedProviders Including(PluginConfiguration? applied, string source)
     {
         if (applied is null)
         {
             return this;
         }
 
-        var oid = new HashSet<string>(_oid, StringComparer.Ordinal);
-        var saml = new HashSet<string>(_saml, StringComparer.Ordinal);
-        Add(oid, applied.OidConfigs);
-        Add(saml, applied.SamlConfigs);
+        var oid = new Dictionary<string, string>(_oid, StringComparer.Ordinal);
+        var saml = new Dictionary<string, string>(_saml, StringComparer.Ordinal);
+        Add(oid, applied.OidConfigs, source);
+        Add(saml, applied.SamlConfigs, source);
         return new DeclarativeManagedProviders(oid, saml);
+    }
+
+    /// <summary>
+    /// Answers what names the source that owns the OpenID provider <paramref name="name"/>, or null where no
+    /// declarative source named it and every write door is open on it exactly as it always was.
+    /// </summary>
+    /// <param name="name">The OpenID provider name a write door was asked to alter or delete.</param>
+    /// <returns>The source, or null when the provider is not declaratively managed.</returns>
+    internal string? OidSource(string name) => Source(_oid, name);
+
+    /// <summary>
+    /// Answers what names the source that owns the SAML provider <paramref name="name"/>, or null where no
+    /// declarative source named it.
+    /// </summary>
+    /// <param name="name">The SAML provider name a write door was asked to alter or delete.</param>
+    /// <returns>The source, or null when the provider is not declaratively managed.</returns>
+    internal string? SamlSource(string name) => Source(_saml, name);
+
+    /// <summary>
+    /// Answers every managed provider <paramref name="incoming"/> names, so a whole-document write door
+    /// (<c>Config/Import</c>) can refuse before it merges anything and say which providers stopped it.
+    /// </summary>
+    /// <remarks>
+    /// Ordered by protocol then by name, so one document produces the same refusal on two runs and a test can
+    /// pin the wording. The comparison is by NAME only: the unit of management is the provider, so a document
+    /// naming a managed one is refused whether or not the fields it carries differ from the stored ones.
+    /// Comparing values instead would admit a document that happens to agree today through a door the next
+    /// edit of that same document walks straight past.
+    /// </remarks>
+    /// <param name="incoming">The document's configuration payload; null names nothing.</param>
+    /// <returns>The (protocol, provider, source) of each managed provider the payload names; empty when it names none.</returns>
+    internal IReadOnlyList<(string Protocol, string Provider, string Source)> NamedIn(PluginConfiguration? incoming)
+    {
+        if (incoming is null || IsEmpty)
+        {
+            return [];
+        }
+
+        var named = new List<(string Protocol, string Provider, string Source)>();
+        Collect(_oid, OpenIdProtocol, incoming.OidConfigs, named);
+        Collect(_saml, SamlProtocol, incoming.SamlConfigs, named);
+        return named;
     }
 
     /// <summary>
@@ -111,11 +167,11 @@ internal sealed class DeclarativeManagedProviders
             return;
         }
 
-        Reinject(_oid, "OpenID", incoming.OidConfigs, live.OidConfigs, ignored, (holder, name, provider) => holder.OidConfigs[name] = provider);
-        Reinject(_saml, "SAML", incoming.SamlConfigs, live.SamlConfigs, ignored, (holder, name, provider) => holder.SamlConfigs[name] = provider);
+        Reinject(_oid, OpenIdProtocol, incoming.OidConfigs, live.OidConfigs, ignored, (holder, name, provider) => holder.OidConfigs[name] = provider);
+        Reinject(_saml, SamlProtocol, incoming.SamlConfigs, live.SamlConfigs, ignored, (holder, name, provider) => holder.SamlConfigs[name] = provider);
     }
 
-    private static void Add<T>(HashSet<string> names, SerializableDictionary<string, T>? providers)
+    private static void Add<T>(Dictionary<string, string> names, SerializableDictionary<string, T>? providers, string source)
         where T : ProviderConfigBase
     {
         if (providers is null)
@@ -125,14 +181,40 @@ internal sealed class DeclarativeManagedProviders
 
         foreach (var kvp in providers)
         {
-            names.Add(kvp.Key);
+            names[kvp.Key] = source;
+        }
+    }
+
+    private static string? Source(Dictionary<string, string> managed, string name) =>
+        name is not null && managed.TryGetValue(name, out var source) ? source : null;
+
+    private static void Collect<T>(
+        Dictionary<string, string> managed,
+        string protocol,
+        SerializableDictionary<string, T>? incoming,
+        List<(string Protocol, string Provider, string Source)> named)
+        where T : ProviderConfigBase
+    {
+        if (incoming is null)
+        {
+            return;
+        }
+
+        foreach (var kvp in incoming.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+        {
+            // A null-valued entry carries nothing to import and is skipped by the merge (#538), so refusing
+            // on one would refuse a document that could not have altered the managed provider anyway.
+            if (kvp.Value is not null && managed.TryGetValue(kvp.Key, out var source))
+            {
+                named.Add((protocol, kvp.Key, source));
+            }
         }
     }
 
     // One loop for both protocols: the maps differ only in the concrete provider type, and every rule below
     // - freeze, re-add, report a difference - is the same on either.
     private static void Reinject<T>(
-        HashSet<string> managed,
+        Dictionary<string, string> managed,
         string protocol,
         SerializableDictionary<string, T>? incoming,
         SerializableDictionary<string, T>? live,
@@ -145,7 +227,7 @@ internal sealed class DeclarativeManagedProviders
             return;
         }
 
-        foreach (var name in managed)
+        foreach (var name in managed.Keys)
         {
             if (!live.TryGetValue(name, out var stored) || stored is null)
             {
