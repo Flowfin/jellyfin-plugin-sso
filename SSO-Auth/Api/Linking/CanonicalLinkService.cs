@@ -14,6 +14,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -559,6 +560,7 @@ internal sealed class CanonicalLinkService
         if (wrote)
         {
             SsoAudit.AccountAdopted(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, username);
+            SsoMetrics.AccountProvisioned(ProvisioningOutcome.Adopted);
         }
 
         return adoptedUserId;
@@ -621,6 +623,12 @@ internal sealed class CanonicalLinkService
 
         var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
         user.AuthenticationProviderId = SsoManagedProviderId.Value;
+
+        // #1139: counted where the account comes into existence, not at the pending-approval audit below.
+        // That line fires only for a provider that holds new accounts for approval, so counting there would
+        // report zero creations on every server that does not - the majority - while accounts were being made
+        // on each of them.
+        SsoMetrics.AccountProvisioned(ProvisioningOutcome.Created);
 
         // The provider's static provisioning template (#1099), applied HERE and only here: this is the one
         // arm on which an account is brand new, which is what lets an administrator's later per-user edit

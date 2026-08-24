@@ -4,6 +4,7 @@
 using System;
 using System.Globalization;
 using System.Net.Mime;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -61,7 +62,33 @@ internal static class LoginStatusMapper
     /// <param name="outcome">The login outcome to translate.</param>
     /// <returns>The HTTP action result.</returns>
     /// <exception cref="InvalidOperationException">The outcome is Throttled (needs the response) or an unmapped case.</exception>
-    internal static ActionResult ToActionResult(LoginOutcome outcome) => outcome switch
+    internal static ActionResult ToActionResult(LoginOutcome outcome)
+    {
+        Count(outcome);
+        return Render(outcome);
+    }
+
+    // #1139: the ~14 rejection branches upstream all render here, so one call site counts every one of them
+    // and no branch added later can be forgotten. Success is NOT counted here - it is counted at the mint,
+    // which is the only place that knows a session was actually issued - and Throttled cannot arrive: the
+    // response-aware overload renders it directly and this overload throws on it, so the throttle counter
+    // lives at the gate with its endpoint class instead.
+    private static void Count(LoginOutcome outcome)
+    {
+        switch (outcome)
+        {
+            case LoginOutcome.Denied:
+                SsoMetrics.LoginDenied();
+                break;
+            case LoginOutcome.Rejected rejected:
+                SsoMetrics.LoginFailed(rejected.Reason);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static ActionResult Render(LoginOutcome outcome) => outcome switch
     {
         LoginOutcome.Success success => new OkObjectResult(success.Session),
         LoginOutcome.Denied => Emit(StatusCodes.Status401Unauthorized, PermissionDeniedMessage),

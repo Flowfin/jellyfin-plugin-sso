@@ -11,6 +11,30 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **Counters for the sign-in path, on a metrics endpoint an operator can scrape
+  (#1139).** Until now the only signal about logins was the log, and a log line
+  cannot be alerted on: nobody can ask it how many sign-ins failed in the last
+  five minutes. `GET /SSO/Metrics` answers that. It publishes, in the Prometheus
+  text format any monitoring system reads, how many sign-ins succeeded per
+  provider, how many were refused and for which of the reasons the plugin gives,
+  how many accounts were created or taken over, how many requests the rate
+  limiter turned away and for which kind of endpoint, and how many
+  server-to-provider fetches failed, telling an unreadable discovery document
+  apart from a failed code exchange because the two are fixed in different
+  places. Every counter is published even at zero, so an alert on a rate can be
+  written before the thing it watches for has ever happened. The route needs
+  administrator rights like every other operator surface here: the counters name
+  which providers a server has and how often sign-ins against them fail, which
+  is reconnaissance for somebody who cannot sign in, so a scraper is given a
+  token like any other client. No counter carries a username, an identity-
+  provider subject or a claim value; a breakdown is either a provider name from
+  the configuration or one member of a fixed list. The number of distinct
+  breakdowns the plugin will hold is capped, and a scrape that hit that cap says
+  so on the same scrape rather than looking complete. Nothing is persisted and
+  the counts start again at each restart, which is what a monitoring system
+  expects of a counter. Installations that scrape nothing are unaffected: the
+  endpoint answers when it is asked and does nothing otherwise.
+
 - **Providers can be declared entirely in environment variables (#1097).** A
   deployment that describes its identity providers in a mounted file can now
   describe them in its own environment instead, under the same rules and through

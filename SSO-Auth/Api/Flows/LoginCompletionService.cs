@@ -9,6 +9,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
+using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Authentication;
@@ -180,6 +181,11 @@ internal sealed class LoginCompletionService
             remoteEndPointResolver,
             () => _canonicalLinks.IsIdentityStillLinked(identity.LinkMode, identity.Provider, identity.Subject, userId)).ConfigureAwait(false);
         SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, identity.Username, identity.Admin);
+
+        // #1139: counted beside the audit line rather than at a new hook point, so the counter and the trail
+        // cannot come apart. Here rather than in the status mapper because a success reaches the mapper too,
+        // and counting at both would double every login.
+        SsoMetrics.LoginSucceeded(identity.Provider);
 
         // Stamp the link the login resolved (#1120), at the one point that knows both that the mint succeeded
         // and which link carried it. Placed AFTER the mint on purpose: a refused or failed login must leave no
