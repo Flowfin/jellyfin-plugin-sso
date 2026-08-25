@@ -22,10 +22,10 @@ that, and until it is closed this page is derived rather than tested.
 A migration needs two downloads, not one, and neither is a substitute for the
 other.
 
-| File          | Endpoint                                                            | What it is                                                                   |
-| ------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Configuration | `GET /sso/Config/Export` (`SSO-Auth/Api/Http/SSOController.cs:1396`) | Every provider's settings, redacted: no secret and no link map               |
-| Account links | `GET /sso/Config/Links/Export` (`SSOController.cs:1470`)            | One entry per account link, keyed by Jellyfin username rather than by user id |
+| File          | Endpoint                                                             | What it is                                                                    |
+| ------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Configuration | `GET /sso/Config/Export` (`SSO-Auth/Api/Http/SSOController.cs:1396`) | Every provider's settings, redacted: no secret and no link map                |
+| Account links | `GET /sso/Config/Links/Export` (`SSOController.cs:1470`)             | One entry per account link, keyed by Jellyfin username rather than by user id |
 
 Both are also reachable from the plugin's settings page, from the two blocks of
 the transfer section (`SSO-Auth/Web/configPage.html:185` for the configuration
@@ -88,17 +88,17 @@ mapping this instance already holds is not a repoint and succeeds
 Each of these survives neither file, and each omission is a decision with a
 reason rather than a gap.
 
-| Not restored                                                                            | Where the decision is                       | Why                                                                                                                                                       |
+| Not restored                                                                            | Where the decision is                       | Why                                                                                                                                                         |
 | --------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider secrets and SAML signing keys                                                  | `ConfigExport.cs`, the summary on the class | Withheld at the JSON boundary by `WriteOnlySecretConverter`, so the document carries no plaintext secret and no `ssoenc:` envelope                         |
-| The at-rest data key `sso-secret.key`                                                   | `SSO-Auth/SSOPlugin.cs:66`                  | It lives in its own file beside the configuration and is never part of the configuration object at all                                                     |
+| Provider secrets and SAML signing keys                                                  | `ConfigExport.cs`, the summary on the class | Withheld at the JSON boundary by `WriteOnlySecretConverter`, so the document carries no plaintext secret and no `ssoenc:` envelope                          |
+| The at-rest data key `sso-secret.key`                                                   | `SSO-Auth/SSOPlugin.cs:66`                  | It lives in its own file beside the configuration and is never part of the configuration object at all                                                      |
 | Rate-limit tuning (`EnableRateLimit`, `RateLimitMaxAttempts`, `RateLimitWindowSeconds`) | `ConfigImport.cs:85-90`                     | Instance-local operational tuning, and a scalar has no blank-means-keep signal, so importing it would let a partial document silently disable a DoS control |
-| The SSO-only globals (`DisablePasswordLogin`, `BreakGlassAdminUsername`)                | `ConfigImport.cs:63-73`                     | Validated fail-closed on import but never applied; the mode is turned on through its own elevated, audited endpoints, which also run the per-user sweep    |
-| `SsoOnlyRepointedUserIds`                                                               | `PluginConfiguration.cs:127`                | Bookkeeping about accounts this instance took a password door away from; it describes this user database, not the next one                                 |
-| `LogoutSessions`                                                                        | `PluginConfiguration.cs:147`                | Per-session single-logout state written at login and removed at logout; nothing on a rebuilt server has a session to log out                               |
+| The SSO-only globals (`DisablePasswordLogin`, `BreakGlassAdminUsername`)                | `ConfigImport.cs:63-73`                     | Validated fail-closed on import but never applied; the mode is turned on through its own elevated, audited endpoints, which also run the per-user sweep     |
+| `SsoOnlyRepointedUserIds`                                                               | `PluginConfiguration.cs:127`                | Bookkeeping about accounts this instance took a password door away from; it describes this user database, not the next one                                  |
+| `LogoutSessions`                                                                        | `PluginConfiguration.cs:147`                | Per-session single-logout state written at login and removed at logout; nothing on a rebuilt server has a session to log out                                |
 | `CanonicalLinkDeadlines`                                                                | `PluginConfiguration.cs:557`                | The role-mapped access deadlines are not fields of the link backup document (`LinkExportDocument.cs`), so a time-limited link comes back without its expiry |
-| `CanonicalLinkLastLogins`                                                               | `SSO-Auth/Config/LinkExport.cs:111-116`     | A login instant is an observation, not restorable state: writing it back would assert a login that never happened on the new server                        |
-| A provider's `NewPath`                                                                  | `ConfigImport.cs:131`                       | Runtime state recording which redirect-path spelling the last challenge used; meaningless across instances, so the target keeps its own                    |
+| `CanonicalLinkLastLogins`                                                               | `SSO-Auth/Config/LinkExport.cs:111-116`     | A login instant is an observation, not restorable state: writing it back would assert a login that never happened on the new server                         |
+| A provider's `NewPath`                                                                  | `ConfigImport.cs:131`                       | Runtime state recording which redirect-path spelling the last challenge used; meaningless across instances, so the target keeps its own                     |
 
 Two of those are worth planning around rather than only knowing about.
 **Re-enter the secrets** as step 3, or every provider that arrived from the file
