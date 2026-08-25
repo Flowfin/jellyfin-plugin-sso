@@ -445,6 +445,58 @@
                   >
                   to get the endpoint, client id and secret from your provider.
                 </p>
+                <!--
+                  First-run guided path (#1085). The steps NAME the controls that already exist inside the
+                  editor and put them in order; they add no second Add button, no second template picker and
+                  no control of their own, so there is nothing here that can drift out of step with the form
+                  it describes. It is advisory: the button below opens the same editor it always did, and an
+                  administrator who knows the form can ignore the list and fill it in any order. Each step is
+                  a single text node so the localization applier can replace it (#913).
+                -->
+                <p
+                  class="fieldDescription"
+                  data-i18n="config.first_run_oidc_lead"
+                >
+                  Adding your first provider is five steps, and this button
+                  starts them:
+                </p>
+                <ol class="sso-first-run-steps">
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_oidc_step_1"
+                  >
+                    Pick your identity provider from Start from a template,
+                    which fills the endpoint shape and the scopes for you.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_oidc_step_2"
+                  >
+                    Paste the OpenID endpoint, the client id and the client
+                    secret from your provider.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_oidc_step_3"
+                  >
+                    Copy the redirect URI this page computes and register it at
+                    your provider.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_oidc_step_4"
+                  >
+                    Run Test Connection to check the endpoint answers before
+                    anyone tries to log in.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_oidc_step_5"
+                  >
+                    Save. The provider joins the SSO providers list above, and
+                    its button appears on the sign-in page.
+                  </li>
+                </ol>
                 <button
                   id="AddProviderEmpty"
                   is="emby-button"
@@ -2163,6 +2215,59 @@
                   identity provider. You can import the endpoint and signing
                   certificate straight from your IdP's metadata below.
                 </p>
+                <!--
+                  First-run guided path (#1085). The steps NAME the controls that already exist inside the
+                  editor and put them in order; they add no second Add button, no second template picker and
+                  no control of their own, so there is nothing here that can drift out of step with the form
+                  it describes. It is advisory: the button below opens the same editor it always did, and an
+                  administrator who knows the form can ignore the list and fill it in any order. Each step is
+                  a single text node so the localization applier can replace it (#913).
+                -->
+                <p
+                  class="fieldDescription"
+                  data-i18n="config.first_run_saml_lead"
+                >
+                  Adding your first SAML provider is five steps, and this button
+                  starts them:
+                </p>
+                <ol class="sso-first-run-steps">
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_saml_step_1"
+                  >
+                    Pick your identity provider from Start from a template, or
+                    import its metadata to fill the endpoint and the signing
+                    certificate at once.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_saml_step_2"
+                  >
+                    Check the SAML endpoint, the client id and the IdP signing
+                    certificate the import filled in.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_saml_step_3"
+                  >
+                    Copy the reply URL and the metadata URL this page computes
+                    and register them at your provider.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_saml_step_4"
+                  >
+                    Run Test Connection to check the certificate and the
+                    endpoint before anyone tries to log in.
+                  </li>
+                  <li
+                    class="fieldDescription"
+                    data-i18n="config.first_run_saml_step_5"
+                  >
+                    Save. The provider joins the SAML providers list above, and
+                    its button appears on the sign-in page.
+                  </li>
+                </ol>
                 <button
                   id="saml-AddProviderEmpty"
                   is="emby-button"

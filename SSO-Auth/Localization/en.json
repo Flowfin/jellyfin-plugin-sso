@@ -103,5 +103,17 @@
   "config.readiness_url_ready": "Shown on this form. Register it at your identity provider.",
   "config.readiness_toggles_row": "Insecure or sensitive options",
   "config.readiness_toggles_none": "None of the flagged options is active on this provider.",
-  "config.readiness_toggles_some": "Active: {options}"
+  "config.readiness_toggles_some": "Active: {options}",
+  "config.first_run_oidc_lead": "Adding your first provider is five steps, and this button starts them:",
+  "config.first_run_oidc_step_1": "Pick your identity provider from Start from a template, which fills the endpoint shape and the scopes for you.",
+  "config.first_run_oidc_step_2": "Paste the OpenID endpoint, the client id and the client secret from your provider.",
+  "config.first_run_oidc_step_3": "Copy the redirect URI this page computes and register it at your provider.",
+  "config.first_run_oidc_step_4": "Run Test Connection to check the endpoint answers before anyone tries to log in.",
+  "config.first_run_oidc_step_5": "Save. The provider joins the SSO providers list above, and its button appears on the sign-in page.",
+  "config.first_run_saml_lead": "Adding your first SAML provider is five steps, and this button starts them:",
+  "config.first_run_saml_step_1": "Pick your identity provider from Start from a template, or import its metadata to fill the endpoint and the signing certificate at once.",
+  "config.first_run_saml_step_2": "Check the SAML endpoint, the client id and the IdP signing certificate the import filled in.",
+  "config.first_run_saml_step_3": "Copy the reply URL and the metadata URL this page computes and register them at your provider.",
+  "config.first_run_saml_step_4": "Run Test Connection to check the certificate and the endpoint before anyone tries to log in.",
+  "config.first_run_saml_step_5": "Save. The provider joins the SAML providers list above, and its button appears on the sign-in page."
 }
