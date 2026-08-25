@@ -223,6 +223,71 @@
                 </button>
 
                 <div id="ConfigTransferResult"></div>
+
+                <!--
+                  Account-link transfer (#1131). The SECOND file of a migration, kept in the same section as
+                  the configuration transfer so an administrator meets both together, and separated from it
+                  by its own heading because the two files differ in the way that matters: the configuration
+                  export is redacted, this one is not. It carries usernames paired with identity-provider
+                  subject identifiers, which is why the server makes an administrator ask for it explicitly
+                  (SSOController.ExportLinks) rather than folding it into the configuration export. Both
+                  endpoints are elevation-gated; the import is validated whole and applied atomically, and it
+                  refuses a canonical name this instance already links to a different account, so a crafted
+                  file cannot remap a subject onto another account. Status is rendered with textContent,
+                  never innerHTML (#221).
+                -->
+                <h3
+                  class="checkboxListLabel"
+                  data-i18n="config.link_transfer_title"
+                >
+                  Export / Import Account Links
+                </h3>
+                <div
+                  class="fieldDescription"
+                  data-i18n="config.link_transfer_help"
+                >
+                  Account links are stored against Jellyfin user ids, which a
+                  rebuilt user database does not reissue, so a migration needs
+                  this second file as well as the configuration file above. It
+                  is keyed on usernames and is NOT redacted: it contains
+                  usernames and the identity-provider subject identifiers behind
+                  each link, so treat it as identity data. Import restores every
+                  link onto the account this server holds for that username
+                  today, and rejects the whole file rather than restoring part
+                  of it if it names a user or a provider this instance does not
+                  have, or a link this instance already holds for a different
+                  account. Requires administrator privileges.
+                </div>
+
+                <button
+                  id="ExportLinks"
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit block emby-button"
+                >
+                  <span data-i18n="config.export_links"
+                    >Export Account Links</span
+                  >
+                </button>
+
+                <input
+                  id="ImportLinksFile"
+                  type="file"
+                  accept="application/json,.json"
+                  style="display: none"
+                />
+                <button
+                  id="ImportLinks"
+                  is="emby-button"
+                  type="button"
+                  class="raised button-alt block emby-button"
+                >
+                  <span data-i18n="config.import_links"
+                    >Import Account Links</span
+                  >
+                </button>
+
+                <div id="LinkTransferResult"></div>
               </div>
             </div>
           </form>

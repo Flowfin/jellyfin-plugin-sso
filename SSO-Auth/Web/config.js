@@ -1450,6 +1450,133 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.renderTransferMessage(container, message);
       });
   },
+  // Account-link export (#1131). The second half of a migration: the configuration export deliberately
+  // withholds the link maps, and a rebuilt user database reissues every id the links are stored against, so
+  // the links travel in their own username-keyed file. Same Blob download as exportConfig - never
+  // navigation - so the admin's auth header is sent and nothing lands in a URL. The file is NOT redacted,
+  // and the status line says so rather than leaving the admin to infer it from the config export's wording.
+  exportLinks: (page) => {
+    const container = page.querySelector("#LinkTransferResult");
+    ssoConfigurationPage.renderTransferMessage(
+      container,
+      tr("config.link_export_running", "Exporting account links…"),
+    );
+
+    return ApiClient.getJSON(ApiClient.getUrl("sso/Config/Links/Export")).then(
+      (document_json) => {
+        const blob = new Blob([JSON.stringify(document_json, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = window.document.createElement("a");
+        anchor.href = url;
+        anchor.download = "sso-account-links.json";
+        window.document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        ssoConfigurationPage.renderTransferMessage(
+          container,
+          tr(
+            "config.link_export_done",
+            "Exported. This file is not redacted: it carries usernames and the identity-provider subject identifier behind each link.",
+          ),
+        );
+      },
+      () =>
+        ssoConfigurationPage.renderTransferMessage(
+          container,
+          tr(
+            "config.link_export_failed",
+            "Could not export the account links. Make sure you are signed in as an administrator, then try again.",
+          ),
+        ),
+    );
+  },
+  // Account-link import (#1131). Parses locally first, so a file that is not JSON is reported here and
+  // never sent. The server validates the whole document before writing a single link and persists nothing
+  // when it refuses, so a rejection leaves the stored link table exactly as it was.
+  //
+  // Unlike importConfig, a refusal reports the SERVER's reason. The refusals that matter here name the
+  // entry that could not be restored - an unknown username, an absent provider, a canonical name this
+  // instance already links to a different account - and a generic message would leave an admin with a file
+  // they cannot fix. The reason is admin-supplied data (it echoes the file the admin chose) returned to
+  // that same admin, and it reaches the DOM through renderTransferMessage's textContent, so it is inert.
+  // A rejection body that cannot be read falls back to the generic message rather than showing nothing.
+  importLinks: (page, file) => {
+    const container = page.querySelector("#LinkTransferResult");
+    if (!file) {
+      return Promise.resolve();
+    }
+
+    ssoConfigurationPage.renderTransferMessage(
+      container,
+      tr("config.link_import_running", "Importing account links…"),
+    );
+    return file
+      .text()
+      .then((text) => {
+        let document_json;
+        try {
+          document_json = JSON.parse(text);
+        } catch (e) {
+          throw new Error("not-json");
+        }
+
+        return ApiClient.fetch({
+          type: "POST",
+          url: ApiClient.getUrl("sso/Config/Links/Import"),
+          data: JSON.stringify(document_json),
+          contentType: "application/json",
+        });
+      })
+      .then(() => {
+        ssoConfigurationPage.renderTransferMessage(
+          container,
+          tr(
+            "config.link_import_done",
+            "Imported. Each link was restored onto the account this server holds for its username today.",
+          ),
+        );
+      })
+      .catch((e) => {
+        if (e && e.message === "not-json") {
+          ssoConfigurationPage.renderTransferMessage(
+            container,
+            tr(
+              "config.link_import_not_json",
+              "That file is not valid JSON. Choose an account-link file exported from this plugin.",
+            ),
+          );
+          return;
+        }
+
+        // ApiClient.fetch rejects with the Response on a non-2xx status, so the refusal text is read off it
+        // when it is there. Anything else - an expired session, a network failure, a rejection shape this
+        // does not recognise - falls through to the generic message.
+        const generic = tr(
+          "config.link_import_failed",
+          "Could not import the account links. The file was rejected by the server, or you are not signed in as an administrator.",
+        );
+        const body =
+          e && typeof e.text === "function" ? e.text() : Promise.reject();
+
+        return Promise.resolve(body).then(
+          (reason) =>
+            ssoConfigurationPage.renderTransferMessage(
+              container,
+              reason
+                ? tr(
+                    "config.link_import_rejected",
+                    "The server rejected the file: {reason}",
+                    { reason: String(reason) },
+                  )
+                : generic,
+            ),
+          () => ssoConfigurationPage.renderTransferMessage(container, generic),
+        );
+      });
+  },
   renderTransferMessage: (container, message) => {
     container.replaceChildren();
     const line = window.document.createElement("p");
@@ -2557,6 +2684,27 @@ export default function initSsoConfigurationPage(view) {
     // Clear the input so choosing the same file again re-triggers change.
     e.target.value = "";
     ssoConfigurationPage.importConfig(view, file);
+  });
+
+  // Account-link transfer (#1131): the exact parallel of the configuration pair above, against its own
+  // endpoints and its own status region, so one file's outcome never overwrites the other's.
+  view.querySelector("#ExportLinks").addEventListener("click", (e) => {
+    ssoConfigurationPage.exportLinks(view);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#ImportLinks").addEventListener("click", (e) => {
+    view.querySelector("#ImportLinksFile").click();
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#ImportLinksFile").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    // Clear the input so choosing the same file again re-triggers change.
+    e.target.value = "";
+    ssoConfigurationPage.importLinks(view, file);
   });
 
   view.querySelector("#sso-self-service-link").href =
