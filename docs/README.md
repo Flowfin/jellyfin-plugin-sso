@@ -13,11 +13,14 @@ Start there for:
 - **[Security Model](https://github.com/iderex/jellyfin-plugin-sso/wiki/Security-Model)**
 - **[Troubleshooting](https://github.com/iderex/jellyfin-plugin-sso/wiki/Troubleshooting)**
 
-Two pages in this folder are published here rather than in the Wiki, because
+Three pages in this folder are published here rather than in the Wiki, because
 each is written for somebody reading the source alongside it:
 
 - **[Account-management API](ACCOUNT-MANAGEMENT-API.md)** - creating an account
   that is SSO-linked before its first login.
+- **[Server migration and rebuild](SERVER-MIGRATION.md)** - the two backup
+  files, the order they have to be restored in, and what is deliberately never
+  restored.
 - **[Threat model: the trusted-header path](THREAT-MODEL-TRUSTED-HEADER.md)** -
   a STRIDE pass over reverse-proxy forward-auth, and the deployment conditions
   the plugin cannot verify. Evaluation material, not a description of a shipped
