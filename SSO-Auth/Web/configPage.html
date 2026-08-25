@@ -540,6 +540,32 @@
               </p>
 
               <!--
+                Readiness panel (#1083). One aggregate answer to "is this provider ready for a login
+                attempt, and if not what is left?", assembled from signals the page already has: the
+                required fields on this form, the inline validation messages beside them, the last Test
+                Connection outcome, the computed redirect URI, and the flagged security toggles.
+                ADVISORY ONLY - it never blocks Save, it never writes a toggle's `.checked`, and it issues
+                no request of its own. Every row carries its state as words (#221), never as colour alone,
+                and the field names in a row are read from the form's own labels rather than restated
+                here, so a relabelled field cannot drift against this panel. Rows are built with
+                createElement/textContent, so nothing reaches the DOM as markup.
+              -->
+              <section class="sso-readiness" id="OidReadiness">
+                <h4
+                  class="checkboxListLabel"
+                  data-i18n="config.readiness_title"
+                >
+                  Readiness
+                </h4>
+                <ul
+                  class="sso-readiness-list"
+                  id="OidReadinessList"
+                  role="status"
+                  aria-live="polite"
+                ></ul>
+              </section>
+
+              <!--
                 The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
                 reason the editor title does not: config.js OWNS this text, writing it only for a provider
                 the server reports as declaratively managed, and the catalog is applied asynchronously - a
@@ -2198,6 +2224,32 @@
                 <span class="sso-required" aria-hidden="true">*</span>
                 are required.
               </p>
+
+              <!--
+                Readiness panel (#1083). One aggregate answer to "is this provider ready for a login
+                attempt, and if not what is left?", assembled from signals the page already has: the
+                required fields on this form, the inline validation messages beside them, the last Test
+                Connection outcome, the computed reply URL (ACS), and the flagged security toggles.
+                ADVISORY ONLY - it never blocks Save, it never writes a toggle's `.checked`, and it issues
+                no request of its own. Every row carries its state as words (#221), never as colour alone,
+                and the field names in a row are read from the form's own labels rather than restated
+                here, so a relabelled field cannot drift against this panel. Rows are built with
+                createElement/textContent, so nothing reaches the DOM as markup.
+              -->
+              <section class="sso-readiness" id="saml-Readiness">
+                <h4
+                  class="checkboxListLabel"
+                  data-i18n="config.readiness_title"
+                >
+                  Readiness
+                </h4>
+                <ul
+                  class="sso-readiness-list"
+                  id="saml-ReadinessList"
+                  role="status"
+                  aria-live="polite"
+                ></ul>
+              </section>
 
               <!--
                 The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
