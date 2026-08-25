@@ -466,6 +466,11 @@ const ssoConfigurationPage = {
   resetEditor: (page) => {
     const form_elements = ssoConfigurationPage.listArgumentsByType(page);
 
+    // A Test Connection result belongs to the provider it was run against (#1083). Clearing it here means
+    // the next provider opened reads as "not yet tested" rather than inheriting a verdict about a
+    // different endpoint.
+    ssoConfigurationPage.readinessTestState.oid = null;
+
     page.querySelector("#OidProviderName").value = "";
 
     form_elements.text_fields.forEach((id) => {
@@ -1022,6 +1027,8 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.updateRedirectUri(page);
         // Last, so the role-map and folder-list controls the calls above created are covered too (#1104).
         ssoConfigurationPage.applyManagedState(page, "oid", provider_name);
+        // The panel summarises the fields and toggles this call just wrote (#1083).
+        ssoConfigurationPage.refreshReadiness(page, "oid");
       },
     );
   },
@@ -1062,6 +1069,7 @@ const ssoConfigurationPage = {
 
     if (!name) {
       field.placeholder = "Enter a provider name above to see the redirect URI";
+      ssoConfigurationPage.refreshReadiness(page, "oid");
       return;
     }
 
@@ -1076,6 +1084,7 @@ const ssoConfigurationPage = {
           }
           field.value = typeof value === "string" ? value : "";
           field.placeholder = "";
+          ssoConfigurationPage.refreshReadiness(page, "oid");
         },
         // A rejection is a 404 for a provider that has not been saved yet, or a transport/authorization
         // failure. Say what to do; never show a value the server did not produce.
@@ -1086,6 +1095,7 @@ const ssoConfigurationPage = {
           field.value = "";
           field.placeholder =
             "Save this provider to see its exact redirect URI";
+          ssoConfigurationPage.refreshReadiness(page, "oid");
         },
       );
     }, 250);
@@ -1328,14 +1338,259 @@ const ssoConfigurationPage = {
     return ApiClient.getJSON(
       ApiClient.getUrl("sso/OID/Test/" + encodeURIComponent(provider_name)),
     ).then(
-      (result) => ssoConfigurationPage.renderTestResult(container, result),
+      (result) => {
+        ssoConfigurationPage.renderTestResult(container, result);
+        ssoConfigurationPage.recordTestOutcome(
+          page,
+          "oid",
+          Boolean(result && result.Ok),
+        );
+      },
       // A rejection is a transport/authorization failure or an unconfigured provider (404). Keep the
       // message generic and actionable: it never reflects a server-side secret.
-      () =>
+      () => {
         ssoConfigurationPage.renderTestMessage(
           container,
           "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
-        ),
+        );
+        ssoConfigurationPage.recordTestOutcome(page, "oid", false);
+      },
+    );
+  },
+  // Remember the outcome of a Test Connection so the readiness panel (#1083) can report reachability
+  // without issuing a second request of its own. A rejection is recorded as a failure rather than left
+  // unknown: the row must not read as "not yet tested" after a test the admin watched fail.
+  recordTestOutcome: (page, key, ok) => {
+    ssoConfigurationPage.readinessTestState[key] = ok;
+    ssoConfigurationPage.refreshReadiness(page, key);
+  },
+  // ---- Readiness panel (#1083) ----
+  // The last Test Connection outcome per protocol, so the reachability row can report it WITHOUT
+  // re-issuing the request. null means "not yet tested in this page session", which is what a provider
+  // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
+  // so a previous provider's result cannot be read as this one's.
+  readinessTestState: { oid: null, saml: null },
+  // What each editor's panel is made of. Everything here is an id that already exists on the form: the
+  // panel adds no field, no request and no state of its own beyond the test outcome above.
+  readinessSpecs: {
+    oid: {
+      listId: "OidReadinessList",
+      testKey: "oid",
+      requiredIds: ["OidProviderName", "OidEndpoint", "OidClientId"],
+      errorIds: [
+        "OidProviderName",
+        "OidEndpoint",
+        "OidClientId",
+        "RoleClaim",
+        "OidScopes",
+        "BaseUrlOverride",
+      ],
+      urlId: "OidRedirectUri",
+    },
+    saml: {
+      listId: "saml-ReadinessList",
+      testKey: "saml",
+      requiredIds: [
+        "saml-provider-name",
+        "saml-SamlEndpoint",
+        "saml-SamlClientId",
+        "saml-SamlCertificate",
+      ],
+      errorIds: [
+        "saml-provider-name",
+        "saml-SamlEndpoint",
+        "saml-SamlClientId",
+        "saml-SamlCertificate",
+        "saml-SamlSecondaryCertificate",
+        "saml-BaseUrlOverride",
+      ],
+      urlId: "saml-AcsUrl",
+    },
+  },
+  // A field's human name, taken from the form's own <label>. Restating the names here would give the panel
+  // a second copy of every label to drift against, and the label is already localized, so reading it keeps
+  // the panel in the page's language for free.
+  //
+  // The two label idioms on this page are read differently, and both are needed: a text/textarea field has
+  // a sibling `<label for=...>` whose OWN text is the name, with the required marker and the "(optional)"
+  // hint as child elements to be dropped; a checkbox is WRAPPED in a bare `<label>` whose text lives in a
+  // child `<span>`, so there the direct text nodes are empty and the whole label's text is the name. Taking
+  // the direct text nodes first and falling back to the full text covers both without asking which is which.
+  // The id is the last resort, so an unlabelled control still names itself rather than rendering blank.
+  readinessFieldName: (page, id) => {
+    const field = page.querySelector("#" + id);
+    const label =
+      page.querySelector('label[for="' + id + '"]') ||
+      (field && field.closest("label"));
+    if (!label) {
+      return id;
+    }
+    const direct = [...label.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent)
+      .join(" ");
+    const text = (direct.trim() ? direct : label.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\(optional\)$/i, "")
+      .trim()
+      .replace(/[:*]+$/, "")
+      .trim();
+    return text || id;
+  },
+  // Which of the spec's fields are empty, and which are currently showing an inline validation message.
+  // The empties are read from the VALUES rather than by re-running the validators, so typing into a blank
+  // required field clears its row immediately and no premature "is required" error is forced onto a field
+  // the admin has not left yet. The warnings are read from the validators' own output boxes, so the panel
+  // and the message beside the field cannot disagree.
+  readinessFieldStates: (page, spec) => {
+    const named = (ids) =>
+      ids.map((id) => ssoConfigurationPage.readinessFieldName(page, id));
+    const missing = spec.requiredIds.filter((id) => {
+      const field = page.querySelector("#" + id);
+      return !field || !String(field.value || "").trim();
+    });
+    const warned = spec.errorIds.filter((id) => {
+      const box = page.querySelector("#" + id + "-error");
+      return Boolean(box && !box.hidden && box.textContent);
+    });
+    return { missing: named(missing), warned: named(warned) };
+  },
+  // The flagged security toggles that are currently ON. Reads `.checked`; it never assigns one, so the
+  // danger-zone isolation the editor relies on is untouched by rendering this panel.
+  readinessActiveToggles: (page, key) => {
+    const ids =
+      key === "saml"
+        ? ssoConfigurationPage.samlInsecureFieldIds
+            .concat(ssoConfigurationPage.samlSensitiveFieldIds)
+            .map((id) => "saml-" + id)
+        : ssoConfigurationPage.insecureFieldIds.concat(
+            ssoConfigurationPage.sensitiveFieldIds,
+          );
+    return ids
+      .filter((id) => {
+        const el = page.querySelector("#" + id);
+        return Boolean(el && el.checked);
+      })
+      .map((id) => ssoConfigurationPage.readinessFieldName(page, id));
+  },
+  // One row. The state word is part of the text, never a colour on its own (#221), and the row is built
+  // with textContent so a value echoed into a field name could not reach the DOM as markup.
+  appendReadinessRow: (list, ok, label, detail) => {
+    const item = document.createElement("li");
+    item.classList.add("fieldDescription");
+    const state = ok
+      ? tr("config.readiness_ready", "Ready")
+      : tr("config.readiness_attention", "Needs attention");
+    item.textContent = state + " - " + label + " - " + detail;
+    list.appendChild(item);
+  },
+  // Rebuild a panel from the form's current state. Cheap and idempotent, so it is safe to call from a
+  // field event; it issues no request and reads nothing the page does not already hold.
+  refreshReadiness: (page, key) => {
+    const spec = ssoConfigurationPage.readinessSpecs[key];
+    const list = page.querySelector("#" + spec.listId);
+    if (!list) {
+      return;
+    }
+    list.replaceChildren();
+
+    const states = ssoConfigurationPage.readinessFieldStates(page, spec);
+    ssoConfigurationPage.appendReadinessRow(
+      list,
+      states.missing.length === 0,
+      tr("config.readiness_required_row", "Required fields"),
+      states.missing.length === 0
+        ? tr(
+            "config.readiness_required_ok",
+            "Every required field on this form is filled in.",
+          )
+        : tr("config.readiness_required_missing", "Still empty: {fields}", {
+            fields: states.missing.join(", "),
+          }),
+    );
+
+    ssoConfigurationPage.appendReadinessRow(
+      list,
+      states.warned.length === 0,
+      tr("config.readiness_warnings_row", "Field warnings"),
+      states.warned.length === 0
+        ? tr(
+            "config.readiness_warnings_none",
+            "No field on this form is reporting a problem.",
+          )
+        : tr(
+            "config.readiness_warnings_some",
+            "Reporting a problem: {fields}",
+            { fields: states.warned.join(", ") },
+          ),
+    );
+
+    const tested = ssoConfigurationPage.readinessTestState[spec.testKey];
+    ssoConfigurationPage.appendReadinessRow(
+      list,
+      tested === true,
+      tr("config.readiness_test_row", "Endpoint test"),
+      tested === null
+        ? tr(
+            "config.readiness_test_untested",
+            "Not yet tested. Save the provider, then use Test Connection.",
+          )
+        : tested
+          ? tr(
+              "config.readiness_test_pass",
+              "The last Test Connection reached this provider.",
+            )
+          : tr(
+              "config.readiness_test_fail",
+              "The last Test Connection did not reach this provider.",
+            ),
+    );
+
+    // The two computed URLs become available at DIFFERENT moments, so the row says which: the SAML reply
+    // URL is composed on the page as soon as a name is typed, while the OpenID redirect URI is produced by
+    // the server and answers 404 until the provider has been saved. Both branches carry their key and their
+    // English at the tr() call itself rather than through the spec above: a key reached through a variable
+    // is invisible to the catalog's own reference scan, which reports it as an orphan and would have to be
+    // told about this indirection to stop.
+    const urlField = page.querySelector("#" + spec.urlId);
+    const urlShown = Boolean(urlField && String(urlField.value || "").trim());
+    const urlReady = tr(
+      "config.readiness_url_ready",
+      "Shown on this form. Register it at your identity provider.",
+    );
+    ssoConfigurationPage.appendReadinessRow(
+      list,
+      urlShown,
+      key === "saml"
+        ? tr("config.readiness_acs_row", "Reply URL (ACS)")
+        : tr("config.readiness_redirect_row", "Redirect URI"),
+      urlShown
+        ? urlReady
+        : key === "saml"
+          ? tr(
+              "config.readiness_acs_pending",
+              "Computed once the provider has a name. Register it at your identity provider.",
+            )
+          : tr(
+              "config.readiness_redirect_pending",
+              "Available once the provider is saved. Register it at your identity provider.",
+            ),
+    );
+
+    const active = ssoConfigurationPage.readinessActiveToggles(page, key);
+    ssoConfigurationPage.appendReadinessRow(
+      list,
+      active.length === 0,
+      tr("config.readiness_toggles_row", "Insecure or sensitive options"),
+      active.length === 0
+        ? tr(
+            "config.readiness_toggles_none",
+            "None of the flagged options is active on this provider.",
+          )
+        : tr("config.readiness_toggles_some", "Active: {options}", {
+            options: active.join(", "),
+          }),
     );
   },
   renderTestMessage: (container, message) => {
@@ -1843,6 +2098,9 @@ const ssoConfigurationPage = {
     page.querySelector("#saml-provider-name").focus();
   },
   resetSamlEditor: (page) => {
+    // Same reason as resetEditor above (#1083).
+    ssoConfigurationPage.readinessTestState.saml = null;
+
     const form_elements = ssoConfigurationPage.listSamlArgumentsByType(page);
 
     page.querySelector("#saml-provider-name").value = "";
@@ -2035,6 +2293,8 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.updateSamlUrls(page);
         // Last, for the same reason as the OpenID arm (#1104).
         ssoConfigurationPage.applyManagedState(page, "saml", provider_name);
+        // The panel summarises the fields and toggles this call just wrote (#1083).
+        ssoConfigurationPage.refreshReadiness(page, "saml");
       },
     );
   },
@@ -2080,6 +2340,7 @@ const ssoConfigurationPage = {
     if (status) {
       status.textContent = "";
     }
+    ssoConfigurationPage.refreshReadiness(page, "saml");
   },
   // Copy a read-only computed SAML URL to the clipboard, with the same secure-context/execCommand fallback
   // and inert status announcement as copyRedirectUri (#724). fieldId/label identify which URL was copied.
@@ -2482,12 +2743,21 @@ const ssoConfigurationPage = {
     return ApiClient.getJSON(
       ApiClient.getUrl("sso/SAML/Test/" + encodeURIComponent(provider_name)),
     ).then(
-      (result) => ssoConfigurationPage.renderTestResult(container, result),
-      () =>
+      (result) => {
+        ssoConfigurationPage.renderTestResult(container, result);
+        ssoConfigurationPage.recordTestOutcome(
+          page,
+          "saml",
+          Boolean(result && result.Ok),
+        );
+      },
+      () => {
         ssoConfigurationPage.renderTestMessage(
           container,
           "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
-        ),
+        );
+        ssoConfigurationPage.recordTestOutcome(page, "saml", false);
+      },
     );
   },
 };
@@ -2886,6 +3156,25 @@ export default function initSsoConfigurationPage(view) {
 
   // Populate the computed URLs once at init (blank editor shows the placeholders until a name is typed).
   ssoConfigurationPage.updateSamlUrls(view);
+
+  // ---- Readiness panel (#1083) ----
+  // Advisory and read-only: these handlers re-read the form and rebuild the panel. They set no value,
+  // check no box, and issue no request, so nothing here can change what a Save would send.
+  [
+    ["#sso-editor", "oid"],
+    ["#saml-editor", "saml"],
+  ].forEach(([selector, key]) => {
+    const editor = view.querySelector(selector);
+    if (!editor) {
+      return;
+    }
+    ["input", "change"].forEach((type) =>
+      editor.addEventListener(type, () =>
+        ssoConfigurationPage.refreshReadiness(view, key),
+      ),
+    );
+    ssoConfigurationPage.refreshReadiness(view, key);
+  });
 
   // ---- Provider template pickers (#726) ----
   ssoConfigurationPage.populatePresetPicker(view, "OidPreset", OIDC_PRESETS);
