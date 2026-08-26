@@ -83,6 +83,12 @@ public partial class ArchitectureConformanceTests
         // writes nothing. It answers with NAMES the elevation-gated Config/Export already lists in full,
         // so repeating it discloses nothing that route does not, and it takes no caller-supplied id.
         "Config/Managed",
+        // Elevated read-only aggregate configuration check (#1084): it evaluates the configuration already
+        // in memory against the same rules the save path uses, makes NO outbound request of its own, writes
+        // nothing and takes no caller-supplied id. Its whole design point is that it does not fan out to the
+        // provider Test routes - those are throttled, share one bucket, and a fan-out would empty it - so
+        // throttling this one would guard a surface that spends nothing.
+        "Config/Check",
         // Elevated read-only counter exposition (#1139): in-memory tallies rendered to text, no outbound
         // fetch and no write. Exempt for a reason the neighbours above do not have - a scraper is SUPPOSED to
         // poll this route, every fifteen seconds forever, so a throttle here would break the one caller it

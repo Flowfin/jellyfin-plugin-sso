@@ -44,6 +44,10 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         "OidRedirectUri",
         "SamlAdd", "SamlDel", "SamlProviders", "SamlTest", "SamlImportMetadata",
         "ExportConfig", "ImportConfig", "ManagedProviders", "Unregister", "ExportLinks", "ExportUserLinks",
+        // The aggregate configuration check (#1084): read-only, and elevation-gated because it names every
+        // configured provider and what is wrong with it, which is an inventory an unauthenticated caller has
+        // no business reading.
+        "CheckProviders",
         // The SSO-only login admin surface (#165): the mode toggle, the break-glass designation, and status.
         "EnableSsoOnly", "DisableSsoOnly", "DesignateBreakGlassAdmin", "SsoOnlyStatus",
         // The per-account SSO-managed report (#1136): read-only, and elevation-gated because it answers for
