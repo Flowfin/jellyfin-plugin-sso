@@ -11,6 +11,33 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A provisioning policy can be named once and shared by several providers
+  (#1105).** The policy written onto a brand-new account at creation used to
+  exist only as a block inside one provider, so a deployment wanting the same
+  starting permissions on two providers had to write them twice and keep the two
+  copies in step by hand. A configuration can now hold named provisioning
+  profiles, and a provider says which one its new accounts get - the `guest`
+  profile beside the default one, pointed at from as many providers as should
+  share it. Nothing changes for a provider that names no profile: it keeps its
+  own inline template, which is every provider configured before this existed,
+  and an existing configuration provisions exactly as it did. A profile is
+  judged by the same checks an inline template is, so it cannot become a second
+  route to the permissions the plugin refuses to write from configuration -
+  administrator, all-folders, Live TV and the account-disable flag are rejected
+  in a profile exactly as they are in a template. Two states are refused on
+  save rather than persisted: a provider naming a profile the configuration does
+  not define, and a provider naming a profile while still carrying an inline
+  template, which would be two account-creation policies with nothing saying
+  which one won. If a name somehow stops resolving anyway - a configuration file
+  edited around the save path - the account is created with no policy written at
+  all rather than falling back to the inline block, so a profile that was
+  replaced can never come back on the next first login. Profiles travel with a
+  configuration export and are merged back by an import, so a provider and the
+  policy it points at do not arrive separately. The plugin's settings page does
+  not yet offer a profile editor: profiles are configured through the admin API,
+  a configuration file, or an import, and a dashboard save leaves them
+  untouched.
+
 - **Counters for the sign-in path, on a metrics endpoint an operator can scrape
   (#1139).** Until now the only signal about logins was the log, and a log line
   cannot be alerted on: nobody can ask it how many sign-ins failed in the last

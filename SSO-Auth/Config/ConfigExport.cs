@@ -53,6 +53,13 @@ internal static class ConfigExport
         RateLimitWindowSeconds = live.RateLimitWindowSeconds,
         OidConfigs = ShallowCopy(live.OidConfigs),
         SamlConfigs = ShallowCopy(live.SamlConfigs),
+
+        // The named provisioning profiles travel with the providers that point at them (#1105): a document
+        // carrying a provider whose profile it left behind would be refused on import by the validator, which
+        // is the fail-closed direction but would make the export useless. They hold no secret - a template is
+        // permissions and playback preferences - so the redaction the provider maps rely on has nothing to do
+        // here.
+        ProvisioningProfiles = ShallowCopy(live.ProvisioningProfiles),
     };
 
     private static SerializableDictionary<string, T> ShallowCopy<T>(SerializableDictionary<string, T> source)

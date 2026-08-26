@@ -25,6 +25,7 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     {
         SamlConfigs = new SerializableDictionary<string, SamlConfig>();
         OidConfigs = new SerializableDictionary<string, OidConfig>();
+        ProvisioningProfiles = new SerializableDictionary<string, ProvisioningPolicyTemplate>();
         RateLimitMaxAttempts = 30;
         RateLimitWindowSeconds = 60;
     }
@@ -40,6 +41,22 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     /// </summary>
     [XmlElement("OidConfigs")]
     public SerializableDictionary<string, OidConfig> OidConfigs { get; set; }
+
+    /// <summary>
+    /// Gets or sets the named provisioning profiles a provider can point at (#1105). Each entry is a
+    /// provisioning template (#1099/#1100) under a name, so several providers can share one policy and a
+    /// deployment can keep more than one - the <c>guest</c> profile beside the default one. Empty on every
+    /// installation that defines none, which is every installation built before this existed.
+    /// <para>
+    /// A provider gets its profile by naming it in <see cref="ProviderConfigBase.ProvisioningProfile"/>. A
+    /// provider that names none keeps using its own inline
+    /// <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>, so a configuration written before this
+    /// existed provisions byte-identically. Naming both is refused on save: one account-creation policy has
+    /// one authoritative source, exactly as the dedicated permissions do.
+    /// </para>
+    /// </summary>
+    [XmlElement("ProvisioningProfiles")]
+    public SerializableDictionary<string, ProvisioningPolicyTemplate> ProvisioningProfiles { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the anonymous SSO flow endpoints are rate-limited
@@ -462,6 +479,22 @@ public abstract class ProviderConfigBase
     /// </para>
     /// </summary>
     public ProvisioningPolicyTemplate? ProvisioningPolicyTemplate { get; set; }
+
+    /// <summary>
+    /// Gets or sets the name of the <see cref="PluginConfiguration.ProvisioningProfiles"/> entry written onto
+    /// this provider's BRAND-NEW accounts (#1105). Blank - the default - leaves the provider on its own inline
+    /// <see cref="ProvisioningPolicyTemplate"/>, so a configuration written before profiles existed provisions
+    /// unchanged.
+    /// <para>
+    /// Setting both this and the inline template is refused on save, and so is naming a profile the
+    /// configuration does not define: a provider whose policy cannot be resolved would otherwise be persisted
+    /// and then quietly provision nothing. At creation the resolution is deliberately one-way with no
+    /// fallback - a name that no longer resolves writes NO policy rather than reaching back to the inline
+    /// template, so a profile deleted behind the validator's back can never hand a new account a permission
+    /// set the administrator had replaced.
+    /// </para>
+    /// </summary>
+    public string? ProvisioningProfile { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the role-to-parental-rating mapping

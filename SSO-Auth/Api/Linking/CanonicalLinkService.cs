@@ -691,14 +691,22 @@ internal sealed class CanonicalLinkService
     // The provider's provisioning template (#1099), read under the config lock in its own short transaction
     // rather than threaded down from the caller, so the create arm reads the configuration that is live when
     // the account is actually made. A missing provider, or one stored with a null config object (#350),
-    // carries no template and writes nothing - the same fail-closed skip every other read here uses.
+    // carries no template and writes nothing - the same fail-closed skip every other read here uses. Which
+    // template a provider gets - its named profile or its own inline one (#1105) - is ProvisioningPolicy's
+    // rule, resolved inside the same transaction so the profile set and the name pointing at it are read
+    // together and a concurrent save cannot be seen half-applied.
     private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider) =>
-        _configStore.Read(configuration => mode switch
+        _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider)));
+
+    // The stored provider object the read above resolves its template from, or null when the provider is
+    // gone or was stored with a null config object (#350).
+    private static ProviderConfigBase? ProviderConfigFor(PluginConfiguration configuration, ProviderMode mode, string provider) =>
+        mode switch
         {
-            ProviderMode.Saml => configuration.SamlConfigs.TryGetValue(provider, out var saml) ? saml?.ProvisioningPolicyTemplate : null,
-            ProviderMode.Oid => configuration.OidConfigs.TryGetValue(provider, out var oid) ? oid?.ProvisioningPolicyTemplate : null,
+            ProviderMode.Saml => configuration.SamlConfigs.TryGetValue(provider, out var saml) ? saml : null,
+            ProviderMode.Oid => configuration.OidConfigs.TryGetValue(provider, out var oid) ? oid : null,
             _ => null,
-        });
+        };
 
     // The name a BRAND-NEW account is created under (#1137). Jellyfin's CreateUserAsync throws for a name
     // outside its own character set, so an IdP that emits one (the 9p4#199 shape) used to fail the login
