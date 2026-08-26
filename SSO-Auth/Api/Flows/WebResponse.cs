@@ -297,12 +297,9 @@ function showReturnLink() {
 const ssoBaseUrl = " + JsonSerializer.Serialize(punycodeBaseUrl) + @";
 const ssoProvider = " + JsonSerializer.Serialize(provider) + @";
 const ssoMode = " + JsonSerializer.Serialize(mode) + @";
-async function link(request) {
-    const jfCredentialsString = localStorage.getItem(""jellyfin_credentials"");
+async function link(jfCredentials, request) {
+    if (jfCredentials == null) return;
 
-    if (jfCredentialsString == null) return;
-
-    const jfCredentials = JSON.parse(jfCredentialsString);
     const jfUser = jfCredentials['Servers'][0]['UserId'];
     const jfToken = jfCredentials['Servers'][0]['AccessToken'];
 
@@ -333,24 +330,36 @@ async function link(request) {
 }
 
 async function main() {
-    localStorage.removeItem('jellyfin_credentials');
-    document.getElementById('iframe-main').src = ssoBaseUrl + '/web/index.html';
+    // #self-link-credential-race: capture the CURRENT tab's session BEFORE anything below touches
+    // localStorage. The link leg authenticates as the user who is already signed in (that's how they
+    // reached /SSOViews/linking), so it needs THIS session's token. Wiping credentials first - as the
+    // login leg does below, to force a clean iframe bootstrap for a brand-new session - destroys the
+    // one thing the link leg needs, and the iframe-reload race that follows may or may not repopulate
+    // an authenticated (non-anonymous) session before the wait loop moves on, silently sending the
+    // request down the wrong leg (Auth instead of Link) when it doesn't.
+    var preLinkCredentials = null;
+    if (" + (isLinking ? "true" : "false") + @") {
+        var preLinkCredentialsString = localStorage.getItem(""jellyfin_credentials"");
+        if (preLinkCredentialsString != null) {
+            preLinkCredentials = JSON.parse(preLinkCredentialsString);
+        }
+    }
 
     var data = " + JsonSerializer.Serialize(data) + @";
-    while (localStorage.getItem(""_deviceId2"") == null ||
-        localStorage.getItem(""jellyfin_credentials"") == null ||
-        JSON.parse(localStorage.getItem(""jellyfin_credentials""))['Servers'][0]['Id'] == null) {
-        // If localStorage isn't initialized yet, try again.
-        await sleep(100);
-    }
-    var deviceId = localStorage.getItem(""_deviceId2"");
-    var appName = ""Jellyfin Web"";
-    var appVersion = ""10.8.0"";
-    var deviceName = getDeviceName();
 
-    var request = {deviceId, appName, appVersion, deviceName, data};
+    if (preLinkCredentials != null && preLinkCredentials['Servers']?.[0]?.['UserId'] != null) {
+        // Fast path: a live session for the account being linked is already in hand, so skip the
+        // wipe-and-reload dance below entirely - it exists to bootstrap a FRESH session for the login
+        // leg, which is not what linking needs and only risks losing the session linking depends on.
+        while (localStorage.getItem(""_deviceId2"") == null) {
+            await sleep(100);
+        }
+        var linkDeviceId = localStorage.getItem(""_deviceId2"");
+        var linkAppName = ""Jellyfin Web"";
+        var linkAppVersion = ""10.8.0"";
+        var linkDeviceName = getDeviceName();
+        var linkRequest = {deviceId: linkDeviceId, appName: linkAppName, appVersion: linkAppVersion, deviceName: linkDeviceName, data};
 
-    if (" + (isLinking ? "true" : "false") + @") {
         // Linking is NOT a login round-trip, so a DEFINITIVE link outcome is terminal here - the page does
         // NOT go on to post to .../Auth (#614). The Link leg one-time-consumes the assertion / state token,
         // so the old unconditional follow-on Auth post could never redeem it: it fail-closed at the mint leg
@@ -359,9 +368,9 @@ async function main() {
         //   - A 2xx is a completed link: show success and stop (do not attempt a login).
         //   - A non-2xx is a rejected link (#344): the provider is disabled (#343), the caller is not
         //     allowed, or the request is throttled - surface it and stop, never fall through to a login.
-        //   - A missing status (undefined: no stored credentials, or a network error) keeps the prior
-        //     behavior of proceeding to the auth leg, since that outcome cannot be told apart from success.
-        var linkStatus = await link(request);
+        //   - A missing status (undefined: a network error) keeps the prior behavior of proceeding to the
+        //     auth leg, since that outcome cannot be told apart from success.
+        var linkStatus = await link(preLinkCredentials, linkRequest);
         if (linkStatus !== undefined) {
             const linked = linkStatus >= 200 && linkStatus < 300;
             document.querySelector('p').textContent =
@@ -376,6 +385,22 @@ async function main() {
             return;
         }
     }
+
+    localStorage.removeItem('jellyfin_credentials');
+    document.getElementById('iframe-main').src = ssoBaseUrl + '/web/index.html';
+
+    while (localStorage.getItem(""_deviceId2"") == null ||
+        localStorage.getItem(""jellyfin_credentials"") == null ||
+        JSON.parse(localStorage.getItem(""jellyfin_credentials""))['Servers'][0]['Id'] == null) {
+        // If localStorage isn't initialized yet, try again.
+        await sleep(100);
+    }
+    var deviceId = localStorage.getItem(""_deviceId2"");
+    var appName = ""Jellyfin Web"";
+    var appVersion = ""10.8.0"";
+    var deviceName = getDeviceName();
+
+    var request = {deviceId, appName, appVersion, deviceName, data};
 
     var url = ssoBaseUrl + '/sso/' + ssoMode + '/Auth/' + encodeURIComponent(ssoProvider);
 
