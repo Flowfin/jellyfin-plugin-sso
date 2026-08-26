@@ -58,7 +58,7 @@ internal static class SsoHttp
     /// The plugin's outbound User-Agent: product token, assembly file version, and project URL.
     /// </summary>
     internal static readonly string UserAgent =
-        $"Jellyfin-Plugin-SSO-Auth +{FileVersionInfo.GetVersionInfo(typeof(SsoHttp).Assembly.Location).FileVersion} (https://github.com/iderex/jellyfin-plugin-sso)";
+        $"Jellyfin-Plugin-SSO-Auth +{FileVersionInfo.GetVersionInfo(typeof(SsoHttp).Assembly.Location).FileVersion} (https://github.com/Flowfin/jellyfin-plugin-sso)";
 
     /// <summary>
     /// Returns an SSRF-hardened outbound client from the factory (whose primary handler is

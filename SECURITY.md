@@ -6,7 +6,7 @@ seriously and handled with priority over all other work.
 ## Reporting a vulnerability
 
 Please report vulnerabilities **privately** via GitHub's
-[private vulnerability reporting](https://github.com/iderex/jellyfin-plugin-sso/security/advisories/new)
+[private vulnerability reporting](https://github.com/Flowfin/jellyfin-plugin-sso/security/advisories/new)
 ("Report a vulnerability" on the Security tab of this repository).
 
 Please do **not** open a public issue for an exploitable vulnerability. A public
@@ -38,7 +38,7 @@ consistently - they are not a contractual SLA.
   matrix). A security fix ships for **all ABI builds of the latest release**
   at the same time.
 - **When a future major line replaces 4.x** (the planned JF12-native 5.0 line -
-  [#743](https://github.com/iderex/jellyfin-plugin-sso/issues/743)), the intent
+  [#743](https://github.com/Flowfin/jellyfin-plugin-sso/issues/743)), the intent
   is to keep shipping **security fixes for the previous line for at least six
   months** after the new line's first stable release.
 - **End of support is announced**, not silent: in `CHANGELOG.md` and the
@@ -46,7 +46,7 @@ consistently - they are not a contractual SLA.
   months' notice before the final security update of a line.
 
 Release integrity, channels and the soak/promotion model are described in the
-[Releasing](https://github.com/iderex/jellyfin-plugin-sso/wiki/Releasing)
+[Releasing](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing)
 wiki page.
 
 ## Verifying a release download
@@ -62,7 +62,7 @@ downloading a release zip you can verify it was produced by this repository's
 release pipeline and has not been tampered with:
 
 ```sh
-gh attestation verify <plugin>.zip --repo iderex/jellyfin-plugin-sso
+gh attestation verify <plugin>.zip --repo Flowfin/jellyfin-plugin-sso
 ```
 
 The provenance attestation complements the checksum sidecars - it does not
@@ -118,7 +118,7 @@ integrity is covered by the SLSA attestation and the checksum sidecars above.
 - **Dependabot** opens dependency-update pull requests; a dependency-review check blocks a pull request that introduces or upgrades to a known-vulnerable dependency; and the build fails on any known-vulnerable dependency, transitive ones included.
 - Pull requests to `main` run CodeQL, a Trojan-Source/Unicode check, and a build with warnings treated as errors; a GitHub Actions workflow audit (zizmor) and repository-specific security-invariant checks (Opengrep) run on every pull request. A scheduled OpenSSF Scorecard scan audits the repository's supply-chain posture and publishes its results to code scanning. Changes to the login path additionally go through an adversarial security review before they merge.
 
-For how these controls together cover what an automated PR reviewer would catch - and the one accepted residual - see [Review Gate](https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate). The plugin's [OpenSSF Best Practices](https://www.bestpractices.dev/projects/13660) passing level reflects the same controls. For the authentication surface mapped to OWASP ASVS 5.0 and the OAuth 2.0 Security BCP (RFC 9700) - Met / Partial / N-A with source citations and honestly-recorded residuals - see the [Security Conformance self-assessment](https://github.com/iderex/jellyfin-plugin-sso/wiki/Security-Conformance).
+For how these controls together cover what an automated PR reviewer would catch - and the one accepted residual - see [Review Gate](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate). The plugin's [OpenSSF Best Practices](https://www.bestpractices.dev/projects/13660) passing level reflects the same controls. For the authentication surface mapped to OWASP ASVS 5.0 and the OAuth 2.0 Security BCP (RFC 9700) - Met / Partial / N-A with source citations and honestly-recorded residuals - see the [Security Conformance self-assessment](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Conformance).
 
 ## Single Logout security posture
 
@@ -198,5 +198,5 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   integrates or redistributes this plugin **commercially** becomes responsible
   for the CRA manufacturer obligations for their product; this project's
   artifacts help (release provenance and checksums above, a dependency SBOM is
-  planned - [#763](https://github.com/iderex/jellyfin-plugin-sso/issues/763)
+  planned - [#763](https://github.com/Flowfin/jellyfin-plugin-sso/issues/763)
   tracks OpenVEX), but do not transfer that responsibility.

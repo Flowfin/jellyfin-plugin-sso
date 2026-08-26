@@ -18,7 +18,7 @@ the PR run already validated it). Additional self-hostable identity providers ge
 (`test/e2e/zitadel/`, OIDC), **Pocket ID** (`test/e2e/pocket-id/`, OIDC) and **Kanidm**
 (`test/e2e/kanidm/`, OIDC) are all implemented - every self-hostable provider in the README table now has
 one. The programme is tracked in
-[#919](https://github.com/iderex/jellyfin-plugin-sso/issues/919). The **full provider matrix runs at a
+[#919](https://github.com/Flowfin/jellyfin-plugin-sso/issues/919). The **full provider matrix runs at a
 release and a beta-release** - never on a routine merge, so the cross-provider pass is release-gate
 evidence, not a per-commit cost - **and on a manual dispatch with `providers: all`**, which is how a newly
 added harness is proven green before a release rather than on release day. A provider joins that matrix by

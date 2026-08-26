@@ -1,7 +1,7 @@
 # Fuzzing the untrusted-input parse surface (#402)
 
 This project is the coverage-guided fuzz harness prototype for the plugin's login-path parsers, and the
-written evaluation behind [Scorecard alert #36 (Fuzzing)](https://github.com/iderex/jellyfin-plugin-sso/issues/402).
+written evaluation behind [Scorecard alert #36 (Fuzzing)](https://github.com/Flowfin/jellyfin-plugin-sso/issues/402).
 It is the concrete harness the weekly scheduled job (#174) runs.
 
 It is **out of band**: not part of `SSO-Auth.sln`, so a normal `dotnet build` / `dotnet test` never

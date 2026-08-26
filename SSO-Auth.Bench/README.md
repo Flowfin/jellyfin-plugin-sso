@@ -2,7 +2,7 @@
 
 An in-process characterization of the OpenID login path: how long `OidChallenge` and `OidCallback`
 take inside the plugin, serially and under concurrent callers. It is the measuring instrument for
-[#1117](https://github.com/iderex/jellyfin-plugin-sso/issues/1117); capturing baseline numbers on a
+[#1117](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1117); capturing baseline numbers on a
 controlled machine is a separate piece of work.
 
 ## Running it
