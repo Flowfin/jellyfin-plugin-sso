@@ -23,7 +23,7 @@
 # claimed the opposite until #1027. Do not restate the required set here, where
 # it drifts unnoticed; print it:
 #
-#   gh api repos/iderex/jellyfin-plugin-sso/rules/branches/main \
+#   gh api repos/Flowfin/jellyfin-plugin-sso/rules/branches/main \
 #     --jq '.[] | select(.type=="required_status_checks")
 #           | .parameters.required_status_checks[].context'
 name: CodeQL

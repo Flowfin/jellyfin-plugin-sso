@@ -66,7 +66,7 @@ ever drift, the policy is corrected or the gate is fixed, never papered over.
   or a note in the PR) - silent dismissal is not an option. False positives in
   the Opengrep ruleset are fixed in the ruleset itself, never waived ad hoc.
 - **Accepted residuals** are documented where they live: the
-  [Review Gate](https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate)
+  [Review Gate](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate)
   wiki page records the known accepted residual(s) of the overall gate stack.
   A dependency advisory triaged as not-exploitable is not a residual of this
   kind - it is a published statement in `security/vex/openvex.json`, under

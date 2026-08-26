@@ -20,7 +20,7 @@ project claims otherwise nowhere. The quality gates that stand in for a review
 team are the CI gate (build with warnings-as-errors, the full test suite,
 conformance checks, CodeQL, supply-chain checks) and the adversarial multi-lens
 security review run on every change to the login path (see the
-[Review Gate](https://github.com/iderex/jellyfin-plugin-sso/wiki/Review-Gate)
+[Review Gate](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate)
 wiki page).
 
 ## Decision-making
@@ -29,7 +29,7 @@ wiki page).
   issue → branch → tests → review gates → PR → CI-green merge.
 - **Scope and releases** I decide, guided by the project's maturity ladder;
   releases follow the
-  [Releasing](https://github.com/iderex/jellyfin-plugin-sso/wiki/Releasing)
+  [Releasing](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing)
   (channel/soak promotion).
 - **Security decisions outrank feature decisions.** Anything touching the login
   path passes the adversarial review gate before merge.
@@ -59,4 +59,4 @@ A one-person project carries an honest bus factor of one. Mitigations in place:
 
 Structural one-person limits (what badge levels this ceiling caps) are tracked
 openly in the maturity-map work
-([#749](https://github.com/iderex/jellyfin-plugin-sso/issues/749)).
+([#749](https://github.com/Flowfin/jellyfin-plugin-sso/issues/749)).
