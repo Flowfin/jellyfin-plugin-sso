@@ -6,7 +6,7 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "iderex",
+    "owner": "Flowfin",
     "versions": [
       {
         "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.58).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Replace the naming-scheme example the loader refuses [#1116] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1413\n* Freeze declaratively managed providers against the config-page save by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1414\n* Render a declaratively managed provider read-only in the config page by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1416\n* Refuse every elevated write door to a declaratively managed provider by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1417\n* Publish the auth-path counters on an elevation-gated metrics endpoint by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1418\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.43...5.0.0-JF12-beta.58",
@@ -129,6 +129,14 @@
         "version": "5.0.0.41"
       },
       {
+        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.46).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Add account-link export and import to the config page transfer section by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1420\n* Answer provider readiness in one panel on both provider editors by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1421\n* Name the five first-run steps in both empty provider states by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1422\n* Document the server-migration order and what a restore never carries by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1423\n* Document the metrics endpoint and point the README at it by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1425\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.44...4.3.0-beta.46",
+        "checksum": "c64b88a141dcc46af392648e66aa21b5",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.46/community-sso-for-jellyfin_4.3.0.46.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-08-26T04:50:22Z",
+        "version": "4.3.0.46"
+      },
+      {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.44).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Replace the naming-scheme example the loader refuses [#1116] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1413\n* Freeze declaratively managed providers against the config-page save by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1414\n* Render a declaratively managed provider read-only in the config page by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1416\n* Refuse every elevated write door to a declaratively managed provider by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1417\n* Publish the auth-path counters on an elevation-gated metrics endpoint by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1418\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.43...4.3.0-beta.44",
         "checksum": "64ec0aed56c3809e8c3c5b7d6ade7ec8",
         "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.44/community-sso-for-jellyfin_4.3.0.44.zip",
@@ -239,14 +247,6 @@
         "targetAbi": "10.11.0.0",
         "timestamp": "2026-08-08T05:07:17Z",
         "version": "4.3.0.28"
-      },
-      {
-        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.27).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/iderex/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Have the logout validator derive its own validation basis [#1176] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1261\n* Derive the HTTP entry-point surface by reflection [#1159] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1262\n* Close the base-class route around the file-local test scans by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1263\n* Pin the duplicate-key posture at the screened discovery seam by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1264\n* Read one comment-form list from both conformance scans by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1226\n* Refuse commit-message characters outside an explicit set [#1006] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1265\n* Settle and date the publish-closure artifact before reading it [#1072] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1266\n* Hold every plugin JSON parse site to a declared table [#1187] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1277\n* Pin the SAML ACS URL to one composition site [#1163] by @iderex in https://github.com/iderex/jellyfin-plugin-sso/pull/1278\n\n\n**Full Changelog**: https://github.com/iderex/jellyfin-plugin-sso/compare/4.3.0-beta.26...4.3.0-beta.27",
-        "checksum": "c2b9ab45ca368b55ecd88527df302302",
-        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.27/community-sso-for-jellyfin_4.3.0.27.zip",
-        "targetAbi": "10.11.0.0",
-        "timestamp": "2026-08-07T05:48:50Z",
-        "version": "4.3.0.27"
       }
     ]
   }
