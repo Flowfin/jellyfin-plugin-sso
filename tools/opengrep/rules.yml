@@ -1,9 +1,11 @@
 # Opengrep (open-source Semgrep fork) rules that enforce this repo's greppable
 # security invariants as lint rules - one rule per invariant, added as each is
 # discovered (rule-per-regression). Deliberately narrow and low-false-positive:
-# these are `generic`-mode token patterns, NOT semantic C# analysis, so they do
-# not depend on the C# language parser (whose modern-C#/.NET 9 support is still
-# maturing) and cannot silently mis-parse a file into a false negative. Every
+# these run in `generic` mode - token patterns, or a regex where the subject is
+# an exact byte sequence rather than code - and NOT semantic C# analysis, so they
+# do not depend on the C# language parser (whose modern-C#/.NET 9 support is
+# still maturing) and cannot silently mis-parse a file into a false negative. A
+# rule that departs from the token-pattern shape says why at the rule. Every
 # rule is verified to produce zero findings on the current clean tree; a rule
 # fires only when an invariant regresses.
 #
@@ -146,3 +148,46 @@ rules:
     paths:
       include:
         - "SSO-Auth/**/*.cs"
+
+  # Invariant (links / identity, #1430): every reference a reader or a machine
+  # follows names the CURRENT repository path. The pre-transfer path
+  # `iderex/jellyfin-plugin-sso` resolves only through GitHub's rename redirect,
+  # which is not a property of this tree and is maintained by nothing here: it
+  # stops the moment any account creates a repository under the old name, and
+  # from then on those references do not 404 - they point at somebody else's
+  # repository. A 404 is visible; a wrong destination is not, and two of the
+  # references #1430 repaired were the private vulnerability-report routes.
+  # #1285 fixed one instance of this class and closed; the class came back
+  # across 21 files anyway, which is what rule-per-regression is for (#1432).
+  #
+  # `iderex` ALONE IS NOT THE SUBJECT and must keep passing: it is the author
+  # field in security/vex/openvex.json and the account named in several
+  # documents. The subject is the repository path and nothing narrower.
+  #
+  # This is the one rule here written as a regex rather than a generic-mode
+  # token pattern, and the reason is the sentence above. Generic mode matches a
+  # token sequence across intervening whitespace and newlines, so `iderex` on
+  # one JSON line and `jellyfin-plugin-sso` on another could satisfy a token
+  # pattern that no reader would call an occurrence of the path. The subject is
+  # an exact byte sequence in prose, so the means that matches bytes is the one
+  # that states it.
+  - id: no-pre-transfer-repo-path
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Do not name the pre-transfer repository path `iderex/jellyfin-plugin-sso`.
+      Name the current one, `Flowfin/jellyfin-plugin-sso`: the old path resolves
+      only through GitHub's rename redirect, and the moment a repository exists
+      under that name these references point at it instead of 404ing (#1430).
+    patterns:
+      - pattern-regex: iderex/jellyfin-plugin-sso
+    paths:
+      exclude:
+        # CHANGELOG.md keeps its references deliberately (#1430): each entry
+        # records what was true when it was written, and rewriting a landed
+        # entry's URL edits the record rather than repairing a link. A rule
+        # that refused them would refuse honest text and would be turned off.
+        - "CHANGELOG.md"
+        # This rule file necessarily contains the banned string as its own
+        # pattern and in the prose above - do not scan it against itself.
+        - "tools/opengrep/**"
