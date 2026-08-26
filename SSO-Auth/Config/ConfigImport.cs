@@ -79,7 +79,19 @@ internal static class ConfigImport
         //    passed so a reserved-character name this instance already holds stays importable.
         ProviderConfigValidator.Validate(imported, live);
 
-        // 2. Only now - with the document proven valid - merge each provider. ServerManagedFields.Preserve is
+        // 2. The named provisioning profiles the imported providers point at (#1105), upserted before the
+        //    providers themselves so the target never holds, even momentarily, a provider naming a profile it
+        //    has not got. Unlike the rate-limit scalars this IS imported: a profile is admin policy that
+        //    travels with the providers referencing it, and leaving it behind would strand every imported
+        //    provider on a name that resolves to nothing - which provisions no policy at all rather than the
+        //    intended one. Upsert, like the providers: a profile the target defines and the document does not
+        //    survives untouched. A profile the document REDEFINES is replaced, and that reaches the target's
+        //    own providers pointing at that name - deliberate, since a shared name is the whole point of a
+        //    profile, and the alternative (silently keeping the target's version) would make an import that
+        //    reported success provision by a policy the administrator did not import.
+        MergeProfiles(live, imported);
+
+        // 3. Only now - with the document proven valid - merge each provider. ServerManagedFields.Preserve is
         //    the SAME re-injection the config-page save and OID/SAML Add use, so blank-means-keep for secrets
         //    and the server-managed link/issuer maps behave identically on every write path (#318). The
         //    global rate-limit settings (EnableRateLimit/RateLimitMaxAttempts/RateLimitWindowSeconds) are
@@ -132,6 +144,29 @@ internal static class ConfigImport
             }
 
             live[kvp.Key] = kvp.Value;
+        }
+    }
+
+    // Upserts the imported profile set into the target. A null or absent set carries nothing and leaves the
+    // target's profiles alone, which is every document exported before profiles existed. A null-valued entry
+    // would resolve to "no policy" at provisioning while looking like a defined profile, so it is skipped
+    // rather than stored - the same tolerance the provider merge gives a null-valued provider (#538).
+    private static void MergeProfiles(PluginConfiguration live, PluginConfiguration imported)
+    {
+        if (imported.ProvisioningProfiles is null)
+        {
+            return;
+        }
+
+        live.ProvisioningProfiles ??= new SerializableDictionary<string, ProvisioningPolicyTemplate>();
+        foreach (var kvp in imported.ProvisioningProfiles)
+        {
+            if (kvp.Value is null)
+            {
+                continue;
+            }
+
+            live.ProvisioningProfiles[kvp.Key] = kvp.Value;
         }
     }
 }

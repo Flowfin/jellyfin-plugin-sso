@@ -54,6 +54,11 @@ internal static class ProviderConfigValidator
     /// <exception cref="ArgumentException">A provider fails any per-provider rule.</exception>
     internal static void Validate(PluginConfiguration incoming, PluginConfiguration live)
     {
+        // The profile set first: a provider's reference below is only as good as the profile it names, and a
+        // profile carrying a permission the plugin may not write must be refused whether or not any provider
+        // points at it yet (#1105).
+        ValidateProvisioningProfiles(incoming.ProvisioningProfiles);
+
         if (incoming.OidConfigs != null)
         {
             foreach (var kvp in incoming.OidConfigs)
@@ -65,6 +70,7 @@ internal static class ProviderConfigValidator
                 ValidateParentalRatingMappings("OpenID", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
                 ValidateGuestAccessDurations("OpenID", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("OpenID", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
+                ValidateProvisioningProfileReference("OpenID", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
                 ValidateAcrRequirement(kvp.Key, kvp.Value);
             }
         }
@@ -87,6 +93,7 @@ internal static class ProviderConfigValidator
                 ValidateParentalRatingMappings("SAML", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
                 ValidateGuestAccessDurations("SAML", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("SAML", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
+                ValidateProvisioningProfileReference("SAML", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
             }
         }
     }
@@ -358,13 +365,17 @@ internal static class ProviderConfigValidator
     /// <param name="template">The provisioning template to check.</param>
     /// <exception cref="ArgumentException">The template names an invalid or dedicated permission, or carries a negative number.</exception>
     internal static void ValidateProvisioningTemplate(string protocol, string provider, ProvisioningPolicyTemplate? template)
+        => ValidateTemplateFields($"{protocol} provider '{(provider ?? string.Empty).ReplaceLineEndings(string.Empty)}'", template);
+
+    // The template checks themselves, over whatever names the template being judged - a provider carrying an
+    // inline one, or a named profile several providers share (#1105). One implementation, so a profile cannot
+    // carry a permission the inline surface refuses.
+    private static void ValidateTemplateFields(string subject, ProvisioningPolicyTemplate? template)
     {
         if (template == null)
         {
             return;
         }
-
-        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
 
         foreach (var entry in template.Permissions ?? new System.Collections.Generic.List<ProvisionedPermissionEntry>())
         {
@@ -390,7 +401,7 @@ internal static class ProviderConfigValidator
                 _ => $"names '{echoPerm}', which is not a known Jellyfin permission",
             };
             throw new ArgumentException(
-                $"{protocol} provider '{echoName}' has an invalid provisioning template: it {reason}. Each entry's Permission must be the exact name of a Jellyfin PermissionKind (for example EnableContentDownloading) other than IsAdministrator, EnableAllFolders, EnableLiveTvAccess, EnableLiveTvManagement, or IsDisabled.",
+                $"{subject} has an invalid provisioning template: it {reason}. Each entry's Permission must be the exact name of a Jellyfin PermissionKind (for example EnableContentDownloading) other than IsAdministrator, EnableAllFolders, EnableLiveTvAccess, EnableLiveTvManagement, or IsDisabled.",
                 nameof(template));
         }
 
@@ -400,14 +411,14 @@ internal static class ProviderConfigValidator
         if (template.RemoteClientBitrateLimit < 0)
         {
             throw new ArgumentException(
-                $"{protocol} provider '{echoName}' has an invalid provisioning template: the remote-client bitrate limit must be zero or greater (zero means no limit; leave it unset to keep Jellyfin's default).",
+                $"{subject} has an invalid provisioning template: the remote-client bitrate limit must be zero or greater (zero means no limit; leave it unset to keep Jellyfin's default).",
                 nameof(template));
         }
 
         if (template.MaxActiveSessions < 0)
         {
             throw new ArgumentException(
-                $"{protocol} provider '{echoName}' has an invalid provisioning template: the maximum active sessions must be zero or greater (zero means unlimited; leave it unset to keep Jellyfin's default).",
+                $"{subject} has an invalid provisioning template: the maximum active sessions must be zero or greater (zero means unlimited; leave it unset to keep Jellyfin's default).",
                 nameof(template));
         }
 
@@ -422,8 +433,85 @@ internal static class ProviderConfigValidator
         {
             var echoMode = string.Concat(template.SubtitleMode.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
             throw new ArgumentException(
-                $"{protocol} provider '{echoName}' has an invalid provisioning template: it names subtitle mode '{echoMode}', which is not a known Jellyfin SubtitlePlaybackMode. Use the exact enum name (for example Default, Always, OnlyForced, or Smart), or leave it unset to keep Jellyfin's default.",
+                $"{subject} has an invalid provisioning template: it names subtitle mode '{echoMode}', which is not a known Jellyfin SubtitlePlaybackMode. Use the exact enum name (for example Default, Always, OnlyForced, or Smart), or leave it unset to keep Jellyfin's default.",
                 nameof(template));
+        }
+    }
+
+    /// <summary>
+    /// Rejects a named provisioning-profile set (#1105) that carries an unnamed or invalid profile. Each
+    /// profile is judged by exactly the checks an inline template gets, so a policy cannot reach through a
+    /// profile what the inline surface refuses by name - the dedicated permissions and <c>IsDisabled</c>
+    /// above all. A configuration that defines no profile configures nothing here and is tolerated.
+    /// </summary>
+    /// <param name="profiles">The profile set to check.</param>
+    /// <exception cref="ArgumentException">A profile is unnamed, or its template fails the template checks.</exception>
+    internal static void ValidateProvisioningProfiles(SerializableDictionary<string, ProvisioningPolicyTemplate>? profiles)
+    {
+        if (profiles == null)
+        {
+            return;
+        }
+
+        foreach (var kvp in profiles)
+        {
+            if (string.IsNullOrWhiteSpace(kvp.Key))
+            {
+                throw new ArgumentException(
+                    "A provisioning profile has a blank name. Every profile needs a name, because a name is the only thing a provider can point at; an unnamed one could never be selected and would be persisted as dead configuration.",
+                    nameof(profiles));
+            }
+
+            ValidateTemplateFields(
+                $"Provisioning profile '{string.Concat(kvp.Key.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty)}'",
+                kvp.Value);
+        }
+    }
+
+    // A provider names the profile its new accounts get (#1105). Two states are refused rather than
+    // tolerated, and both would otherwise be silent: a name no profile answers to would persist and then
+    // provision NOTHING at the next first login (the resolution is fail-closed and does not fall back), and a
+    // provider carrying a name AND an inline template would have two account-creation policies with nothing
+    // saying which one won. The rule is cross-object, so it is checked here on the whole incoming
+    // configuration rather than on the provider alone - the same reason the SSO-only guard is.
+
+    /// <summary>
+    /// Rejects a provider that names a provisioning profile the configuration does not define, or that names
+    /// one while also carrying its own inline template (#1105). A provider naming no profile is untouched and
+    /// keeps its inline template, which is every provider written before profiles existed.
+    /// </summary>
+    /// <param name="protocol">The protocol label ("OpenID" or "SAML") echoed in the rejection message.</param>
+    /// <param name="provider">The provider name, echoed (control-stripped) in the rejection message.</param>
+    /// <param name="config">The provider configuration to check; <see langword="null"/> names nothing.</param>
+    /// <param name="profiles">The profile set the name must resolve in.</param>
+    /// <exception cref="ArgumentException">The named profile is undefined, or the provider also carries an inline template.</exception>
+    internal static void ValidateProvisioningProfileReference(
+        string protocol,
+        string provider,
+        ProviderConfigBase? config,
+        SerializableDictionary<string, ProvisioningPolicyTemplate>? profiles)
+    {
+        var profile = config?.ProvisioningProfile;
+        if (string.IsNullOrWhiteSpace(profile))
+        {
+            return;
+        }
+
+        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+        var echoProfile = string.Concat(profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+
+        if (config!.ProvisioningPolicyTemplate != null)
+        {
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' names the provisioning profile '{echoProfile}' and also carries its own inline provisioning template. A provider's new accounts get exactly one policy, so keep the profile and remove the inline template, or clear the profile name.",
+                nameof(config));
+        }
+
+        if (profiles == null || !profiles.ContainsKey(profile))
+        {
+            throw new ArgumentException(
+                $"{protocol} provider '{echoName}' names the provisioning profile '{echoProfile}', which this configuration does not define. Define the profile, or clear the name - a provider pointing at a missing profile provisions nothing rather than falling back.",
+                nameof(config));
         }
     }
 

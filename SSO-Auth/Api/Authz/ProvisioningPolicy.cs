@@ -38,6 +38,43 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 internal static class ProvisioningPolicy
 {
     /// <summary>
+    /// Resolves which template a provider's brand-new accounts get (#1105): the named
+    /// <see cref="PluginConfiguration.ProvisioningProfiles"/> entry when the provider names one, and
+    /// otherwise the provider's own inline <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>.
+    /// </summary>
+    /// <remarks>
+    /// A name that resolves to nothing writes NO policy, and deliberately does not fall back to the inline
+    /// template. The save path refuses both a dangling name and a provider carrying a name AND an inline
+    /// template (<see cref="ProviderConfigValidator.ValidateProvisioningProfiles"/>), so neither state
+    /// arrives through a validated write; what is left is a configuration file edited by hand around the
+    /// validator, and there the fail-closed answer is to write nothing. Falling back would hand the new
+    /// account the very permission set the administrator replaced when they pointed the provider elsewhere.
+    /// </remarks>
+    /// <param name="configuration">The live plugin configuration, read for its profile set.</param>
+    /// <param name="provider">The provider the account is being created for; <see langword="null"/> resolves to no template.</param>
+    /// <returns>The template to apply, or <see langword="null"/> when the provider configures none.</returns>
+    internal static ProvisioningPolicyTemplate? TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        if (provider is null)
+        {
+            return null;
+        }
+
+        var profile = provider.ProvisioningProfile;
+        if (string.IsNullOrWhiteSpace(profile))
+        {
+            return provider.ProvisioningPolicyTemplate;
+        }
+
+        return configuration.ProvisioningProfiles != null
+            && configuration.ProvisioningProfiles.TryGetValue(profile, out var named)
+                ? named
+                : null;
+    }
+
+    /// <summary>
     /// Applies the provider's template to a freshly created user, in memory. The caller persists.
     /// </summary>
     /// <param name="user">The brand-new Jellyfin account.</param>
