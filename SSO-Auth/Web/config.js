@@ -1593,6 +1593,143 @@ const ssoConfigurationPage = {
           }),
     );
   },
+  // ---- Aggregate configuration check (#1084) ----
+  // ONE action over every configured provider, answered by the server at `sso/Config/Check`. The evaluation
+  // is NOT the per-provider panel above: that one reads the form in front of the administrator, and there is
+  // exactly one form, so it can only ever answer about the provider currently loaded. Loading each provider
+  // into the editor in turn to read the panel would end with the last one loaded, which this issue's own
+  // acceptance forbids - a run must leave every provider's form values and toggles byte-identical. So the
+  // aggregate is asked of the configuration rather than of the DOM.
+  //
+  // What IS reused is the naming: a missing setting is reported by the id the form gives that field, and the
+  // label is read off the form through readinessFieldName, so the check speaks the page's language and a
+  // relabelled field cannot drift against it.
+  //
+  // ADVISORY. This writes into its own list and nowhere else: no provider field, no toggle, no request that
+  // changes anything. A failure leaves the page exactly as it was.
+  renderCheckRow: (list, ok, label, detail) => {
+    const item = document.createElement("li");
+    item.classList.add("fieldDescription");
+    const state = ok
+      ? tr("config.readiness_ready", "Ready")
+      : tr("config.readiness_attention", "Needs attention");
+    // textContent: a provider name and a server refusal message both reach this line, and neither may
+    // arrive as markup (#221).
+    item.textContent = state + " - " + label + " - " + detail;
+    list.appendChild(item);
+  },
+  renderCheckNote: (list, message) => {
+    const item = document.createElement("li");
+    item.classList.add("fieldDescription");
+    item.textContent = message;
+    list.appendChild(item);
+  },
+  // One row's detail sentence, in the order an administrator acts on it: what is empty, then what the save
+  // path would refuse, then whether the provider is switched on at all. A provider an administrator turned
+  // off is NOT reported as needing attention - it is a deliberate state, and flagging it would train them to
+  // ignore the list - so the sentence says so and the row's own verdict is left alone.
+  checkRowDetail: (page, row) => {
+    const parts = [];
+    const missing = Array.isArray(row.MissingFields) ? row.MissingFields : [];
+    if (missing.length > 0) {
+      const prefix = row.Protocol === "SAML" ? "saml-" : "";
+      parts.push(
+        tr("config.readiness_required_missing", "Still empty: {fields}", {
+          fields: missing
+            .map((field) =>
+              ssoConfigurationPage.readinessFieldName(page, prefix + field),
+            )
+            .join(", "),
+        }),
+      );
+    }
+
+    if (row.Problem) {
+      parts.push(String(row.Problem));
+    }
+
+    if (parts.length === 0) {
+      parts.push(
+        tr(
+          "config.check_ready_detail",
+          "Nothing in this provider's configuration would refuse a login.",
+        ),
+      );
+    }
+
+    if (!row.Enabled) {
+      parts.push(
+        tr(
+          "config.check_disabled",
+          "It is switched off, so no button for it appears on the sign-in page.",
+        ),
+      );
+    }
+
+    return parts.join(" ");
+  },
+  checkAllProviders: (page) => {
+    const list = page.querySelector("#sso-config-check-result");
+    if (!list) {
+      return Promise.resolve();
+    }
+
+    list.replaceChildren();
+    ssoConfigurationPage.renderCheckNote(
+      list,
+      tr("config.check_running", "Checking every configured provider…"),
+    );
+
+    return ApiClient.getJSON(ApiClient.getUrl("sso/Config/Check")).then(
+      (report) => {
+        const rows =
+          report && Array.isArray(report.Providers) ? report.Providers : [];
+        list.replaceChildren();
+
+        if (rows.length === 0) {
+          ssoConfigurationPage.renderCheckNote(
+            list,
+            tr(
+              "config.check_none",
+              "No provider is configured yet, so there is nothing to check.",
+            ),
+          );
+          return;
+        }
+
+        rows.forEach((row) => {
+          ssoConfigurationPage.renderCheckRow(
+            list,
+            row.Ready === true,
+            String(row.Protocol || "") + " " + String(row.Provider || ""),
+            ssoConfigurationPage.checkRowDetail(page, row),
+          );
+        });
+
+        // Stated on every run rather than left out. The check makes no request to any identity provider, so
+        // a list with no "needs attention" row does not mean every provider answers - and an administrator
+        // reading silence as reachability is the one wrong conclusion this action could produce.
+        ssoConfigurationPage.renderCheckNote(
+          list,
+          tr(
+            "config.check_reachability",
+            "Reachability was not checked. Use Test Connection in a provider's own editor to see whether it answers.",
+          ),
+        );
+      },
+      // Generic and input-independent, like the neighbouring admin actions: it never reflects a server value.
+      () => {
+        list.replaceChildren();
+        ssoConfigurationPage.renderCheckNote(
+          list,
+          tr(
+            "config.check_failed",
+            "Could not run the check. Make sure you are signed in as an administrator, then try again.",
+          ),
+        );
+      },
+    );
+  },
   renderTestMessage: (container, message) => {
     container.replaceChildren();
     const line = document.createElement("p");
@@ -2932,6 +3069,13 @@ export default function initSsoConfigurationPage(view) {
 
   view.querySelector("#SaveSingleLogout").addEventListener("click", (e) => {
     ssoConfigurationPage.saveSingleLogout(view);
+    e.preventDefault();
+    return false;
+  });
+
+  // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
+  view.querySelector("#CheckAllProviders").addEventListener("click", (e) => {
+    ssoConfigurationPage.checkAllProviders(view);
     e.preventDefault();
     return false;
   });

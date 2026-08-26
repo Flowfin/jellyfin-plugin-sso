@@ -1424,6 +1424,28 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Answers, for every configured OpenID and SAML provider at once, whether a login against it would get
+    /// past the configuration and why not (#1084) - the aggregate "Configuration check" the redesigned
+    /// settings page dropped. Requires administrator privileges, like the other config endpoints. Read-only:
+    /// it evaluates the configuration already in memory and writes nothing, so running it leaves every
+    /// provider's stored values byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// ADVISORY, and it makes no outbound request. Whether an identity provider ANSWERS is what the
+    /// per-provider Test routes are for; probing them all from here would spend one shared throttle budget
+    /// (both pass <see cref="SsoRateLimitClass.Test"/>) and the 429s that followed would name working
+    /// providers as broken. So the report says what it checked and leaves reachability to the consumer to
+    /// disclose as unchecked.
+    /// </remarks>
+    /// <returns>One row per configured provider; an empty list where none is configured.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Config/Check")]
+    public ActionResult<ProviderCheckDocument> CheckProviders()
+    {
+        return Ok(SSOPlugin.Instance.ReadConfiguration(ProviderCheck.Build));
+    }
+
+    /// <summary>
     /// Publishes the auth-path counters as Prometheus text exposition (#1139), so an operator can alert on a
     /// rate of failed logins, provisioning or provider-fetch errors instead of grepping the Jellyfin log.
     /// Requires administrator privileges. Read-only - it changes nothing.

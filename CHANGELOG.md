@@ -11,6 +11,26 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **One action checks every configured provider at once (#1084).** The settings
+  page could say whether the provider currently open in the editor looks
+  complete, and nothing could say it about the others: an administrator with six
+  providers had to open six forms to find the one that would refuse a login.
+  A "Configuration check" section above the provider lists now answers for all
+  of them in one press - every OpenID and SAML provider, whether a login against
+  it would get past the configuration, and what is wrong where it would not. The
+  answer comes from the server rather than from the form, which is what lets it
+  cover providers nobody has opened, and it is the same judgement a save is
+  refused by: the reason a row gives is the message the save path itself would
+  produce, so the check and the settings page cannot disagree about one
+  provider. Required settings that are still empty are named through the form's
+  own labels, so the report speaks the page's language. Advisory in both
+  directions - it never blocks a save and it changes nothing, so running it
+  leaves every provider's stored values and toggles exactly as they were. A
+  provider that is switched off is reported as switched off rather than as
+  broken. What the check does NOT do is contact any identity provider, and it
+  says so on every run: reachability is what Test Connection in a provider's own
+  editor is for, and fanning out probes here would empty the throttle budget
+  those routes share and report working providers as unreachable.
 - **A provisioning policy can be named once and shared by several providers
   (#1105).** The policy written onto a brand-new account at creation used to
   exist only as a block inside one provider, so a deployment wanting the same

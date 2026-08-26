@@ -115,5 +115,13 @@
   "config.first_run_saml_step_2": "Check the SAML endpoint, the client id and the IdP signing certificate the import filled in.",
   "config.first_run_saml_step_3": "Copy the reply URL and the metadata URL this page computes and register them at your provider.",
   "config.first_run_saml_step_4": "Run Test Connection to check the certificate and the endpoint before anyone tries to log in.",
-  "config.first_run_saml_step_5": "Save. The provider joins the SAML providers list above, and its button appears on the sign-in page."
+  "config.first_run_saml_step_5": "Save. The provider joins the SAML providers list above, and its button appears on the sign-in page.",
+  "config.check_lead": "Checks every configured OpenID and SAML provider against the same rules a save is refused by, and lists the ones a login would fail on. It changes nothing and never blocks a save. Whether an identity provider answers is not part of this check: use Test Connection in a provider's own editor for that.",
+  "config.check_all_providers": "Check all providers",
+  "config.check_running": "Checking every configured provider…",
+  "config.check_none": "No provider is configured yet, so there is nothing to check.",
+  "config.check_ready_detail": "Nothing in this provider's configuration would refuse a login.",
+  "config.check_disabled": "It is switched off, so no button for it appears on the sign-in page.",
+  "config.check_reachability": "Reachability was not checked. Use Test Connection in a provider's own editor to see whether it answers.",
+  "config.check_failed": "Could not run the check. Make sure you are signed in as an administrator, then try again."
 }

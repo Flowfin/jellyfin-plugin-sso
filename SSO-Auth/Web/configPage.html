@@ -399,6 +399,55 @@
           </form>
 
           <!--
+            Configuration check (#1084): ONE action across every configured OpenID and SAML provider,
+            restoring the aggregate check the #365 redesign dropped. It sits above both workspaces because it
+            answers about both; the per-provider readiness panel (#1083) inside each editor answers about the
+            form in front of you, and the two do not overlap.
+
+            ADVISORY. The button is outside both provider forms and carries no sso-* marker class, so it is
+            not a provider field and the save contract does not see it. The handler reads a report and writes
+            into the list below; it assigns no field and no toggle, which is what keeps a run from changing
+            what a subsequent Save would persist. Every row is rendered with textContent and states its
+            outcome in words rather than in colour alone (#221).
+          -->
+          <form id="sso-config-check" class="esqConfigurationForm">
+            <div
+              class="verticalSection"
+              is="emby-collapse"
+              title="Configuration check"
+            >
+              <div class="collapseContent">
+                <div class="fieldDescription" data-i18n="config.check_lead">
+                  Checks every configured OpenID and SAML provider against the
+                  same rules a save is refused by, and lists the ones a login
+                  would fail on. It changes nothing and never blocks a save.
+                  Whether an identity provider answers is not part of this
+                  check: use Test Connection in a provider's own editor for
+                  that.
+                </div>
+
+                <button
+                  id="CheckAllProviders"
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit block emby-button"
+                >
+                  <span data-i18n="config.check_all_providers"
+                    >Check all providers</span
+                  >
+                </button>
+
+                <ul
+                  class="sso-readiness-list"
+                  id="sso-config-check-result"
+                  role="status"
+                  aria-live="polite"
+                ></ul>
+              </div>
+            </div>
+          </form>
+
+          <!--
             Provider workspace (#365 UI redesign). The provider LIST replaces the old select -> Load flow:
             each saved OpenID provider is a card (name + type badge + enabled/disabled pill); clicking a card
             loads it into the editor below. The hidden <select id="selectProvider"> is retained as the state
