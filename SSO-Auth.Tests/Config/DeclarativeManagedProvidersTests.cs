@@ -71,6 +71,12 @@ public class DeclarativeManagedProvidersTests
         return posted;
     }
 
+    private static IReadOnlyList<string> IgnoredProfileWrites(CapturingLogger log) =>
+        log.Entries
+            .Where(e => e.Message.Contains("Configuration save ignored for provisioning profile", StringComparison.Ordinal))
+            .Select(e => e.Message)
+            .ToList();
+
     private static IReadOnlyList<string> IgnoredWrites(CapturingLogger log) =>
         log.Entries
             .Where(e => e.Message.Contains("Configuration save ignored", StringComparison.Ordinal))
@@ -523,4 +529,150 @@ public class DeclarativeManagedProvidersTests
 
         Assert.Equal("/run/secrets/sso.json", store.ManagedProviders.OidSource("keycloak"));
     }
+
+    [Fact]
+    public void ASaveToADeclarativelyDefinedProfile_KeepsTheDeclarativeValue_AndAuditsTheIgnoredWrite()
+    {
+        // The provider is frozen; the profile it provisions THROUGH was not. A managed provider writes its
+        // named profile onto every brand-new account, so a save that redefines that profile changes what the
+        // provider grants without naming the provider at all - the same silent fight this issue exists to
+        // end, reached one object over.
+        var (store, live, persisted, log) = CreateStore();
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        document.OidConfigs["keycloak"] = new OidConfig
+        {
+            OidEndpoint = Endpoint,
+            OidClientId = "from-the-file",
+            ProvisioningProfile = "guest",
+        };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var posted = PostedFrom(live);
+        posted.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 4242 };
+        store.Save(posted);
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal(1, saved.ProvisioningProfiles["guest"].MaxActiveSessions);
+
+        var ignored = Assert.Single(IgnoredProfileWrites(log));
+        Assert.Contains("guest", ignored, StringComparison.Ordinal);
+
+        // The audit names WHICH profile, never what was posted to it.
+        Assert.DoesNotContain("4242", ignored, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ASaveToAProfileNoSourceDefined_StillSavesNormally()
+    {
+        // The freeze is scoped to what a source DEFINED, exactly as it is for providers. A deployment that
+        // takes one profile from a file and writes a second by hand must keep the second editable.
+        var (store, live, persisted, log) = CreateStore();
+        live.ProvisioningProfiles["hand-made"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 2 };
+
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var posted = PostedFrom(live);
+        posted.ProvisioningProfiles["hand-made"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 9 };
+        store.Save(posted);
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal(9, saved.ProvisioningProfiles["hand-made"].MaxActiveSessions);
+        Assert.Equal(1, saved.ProvisioningProfiles["guest"].MaxActiveSessions);
+        Assert.Empty(IgnoredProfileWrites(log));
+    }
+
+    [Fact]
+    public void ASaveThatDropsADeclarativelyDefinedProfile_PutsItBack()
+    {
+        // Deleting one is never a durable intent - the next start defines it again - but between the two
+        // moments every account a managed provider creates gets NO policy at all, because the resolution
+        // deliberately does not fall back (#1106).
+        var (store, live, persisted, log) = CreateStore();
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var posted = PostedFrom(live);
+        posted.ProvisioningProfiles.Remove("guest");
+        store.Save(posted);
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal(1, saved.ProvisioningProfiles["guest"].MaxActiveSessions);
+        Assert.Single(IgnoredProfileWrites(log));
+    }
+
+    [Fact]
+    public void ASaveThatPostsANullProfileSet_StillKeepsTheDeclarativeProfiles()
+    {
+        // The shape an explicit null in the posted body produces, which is a different one from an omitted
+        // key: the loop returns at its own null check before re-adding anything, so a save shaped this way
+        // deletes the whole set AND audits nothing. The same hole the provider collections carried (#1441).
+        var (store, live, persisted, log) = CreateStore();
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var posted = PostedFrom(live);
+        posted.ProvisioningProfiles = null!;
+        store.Save(posted);
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal(1, saved.ProvisioningProfiles["guest"].MaxActiveSessions);
+        Assert.Single(IgnoredProfileWrites(log));
+    }
+
+    [Fact]
+    public void NoDeclarativeSource_LeavesTheProfileSetAlone()
+    {
+        // The same pin the providers carry: an installation that mounts nothing must save its profiles
+        // exactly as one built before this existed.
+        var (store, live, persisted, log) = CreateStore();
+        live.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+
+        var posted = PostedFrom(live);
+        posted.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 9 };
+        store.Save(posted);
+
+        Assert.True(store.ManagedProviders.IsEmpty);
+        Assert.Equal(9, ((PluginConfiguration)persisted.Single()).ProvisioningProfiles["guest"].MaxActiveSessions);
+        Assert.Empty(IgnoredProfileWrites(log));
+    }
+
+    [Fact]
+    public void ADocumentRedefiningAManagedProfile_IsNamedForTheWholeDocumentRefusal()
+    {
+        // What the import door reads. A document carrying NO provider reaches this, which is why the
+        // provider-name refusal beside it cannot stand in for it.
+        var (store, _, _, _) = CreateStore();
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var incoming = new PluginConfiguration();
+        incoming.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 999 };
+        incoming.ProvisioningProfiles["from-elsewhere"] = new ProvisioningPolicyTemplate();
+
+        Assert.Empty(store.ManagedProviders.NamedIn(incoming));
+        var named = Assert.Single(store.ManagedProviders.ProfilesNamedIn(incoming));
+        Assert.Equal("guest", named.Profile);
+        Assert.Equal("/run/secrets/sso.json", named.Source);
+    }
+
+    [Fact]
+    public void ADocumentRedefiningNoManagedProfile_NamesNothing()
+    {
+        var (store, _, _, _) = CreateStore();
+        var document = new PluginConfiguration();
+        document.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        var incoming = new PluginConfiguration();
+        incoming.ProvisioningProfiles["from-elsewhere"] = new ProvisioningPolicyTemplate();
+
+        Assert.Empty(store.ManagedProviders.ProfilesNamedIn(incoming));
+    }
+
 }

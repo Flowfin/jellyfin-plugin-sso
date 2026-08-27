@@ -266,4 +266,79 @@ public class SSOControllerManagedWriteDoorTests
         Assert.DoesNotContain('\n', message);
         Assert.DoesNotContain('\r', message);
     }
+
+    [Fact]
+    public void ImportConfig_DocumentRedefiningAManagedProfile_RefusesTheWholeDocument()
+    {
+        // The sixth door, one object over from the fifth. A managed provider writes its named provisioning
+        // profile onto every account it creates, so a document that names NO provider and only redefines that
+        // profile changes what the managed provider grants - past a refusal that reads provider names only.
+        var harness = new SsoControllerHarness(c =>
+        {
+            c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+            c.OidConfigs["keycloak"] = new OidConfig { OidClientId = "declared-client", ProvisioningProfile = "guest" };
+        });
+
+        Manage(declared =>
+        {
+            declared.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+            declared.OidConfigs["keycloak"] = new OidConfig { OidClientId = "declared-client", ProvisioningProfile = "guest" };
+        });
+
+        var imported = new PluginConfiguration();
+        imported.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 999 };
+        imported.ProvisioningProfiles["from-elsewhere"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 5 };
+        var document = new ConfigExportDocument { FormatVersion = ConfigExport.FormatVersion, Configuration = imported };
+
+        var refusal = Assert.IsType<BadRequestObjectResult>(harness.Controller.ImportConfig(document));
+
+        AssertNamesTheSource(harness, Assert.IsType<string>(refusal.Value), "guest");
+        Assert.Equal(1, SSOPlugin.Instance.ReadConfiguration(c => c.ProvisioningProfiles["guest"].MaxActiveSessions));
+
+        // Nothing of the document was applied, which is the whole-document half of the refusal.
+        Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.ProvisioningProfiles.ContainsKey("from-elsewhere")));
+    }
+
+    [Fact]
+    public void ImportConfig_DocumentRedefiningNoManagedProfile_StillMerges()
+    {
+        // The half that would otherwise break in silence for every installation that defines a profile by
+        // hand: a document carrying a profile no source declared must still import.
+        var harness = new SsoControllerHarness(c =>
+            c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 });
+
+        Manage(declared =>
+            declared.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 });
+
+        var imported = new PluginConfiguration();
+        imported.ProvisioningProfiles["from-elsewhere"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 5 };
+        var document = new ConfigExportDocument { FormatVersion = ConfigExport.FormatVersion, Configuration = imported };
+
+        Assert.IsType<NoContentResult>(harness.Controller.ImportConfig(document));
+
+        Assert.Equal(5, SSOPlugin.Instance.ReadConfiguration(c => c.ProvisioningProfiles["from-elsewhere"].MaxActiveSessions));
+        Assert.Equal(1, SSOPlugin.Instance.ReadConfiguration(c => c.ProvisioningProfiles["guest"].MaxActiveSessions));
+    }
+
+    [Fact]
+    public void ImportConfig_ProfileRefusalIsSingleLine_SoItCannotSplitALogLine()
+    {
+        // The source is a path an operator supplies, so it is not trusted to be one line, and the echoed
+        // body is the place a line ending would reach a log through a caller.
+        var harness = new SsoControllerHarness(c =>
+            c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 });
+
+        var declared = new PluginConfiguration();
+        declared.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared, "/mnt/sso.json\nINJECTED audit line");
+
+        var imported = new PluginConfiguration();
+        imported.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 999 };
+        var refusal = Assert.IsType<BadRequestObjectResult>(harness.Controller.ImportConfig(
+            new ConfigExportDocument { FormatVersion = ConfigExport.FormatVersion, Configuration = imported }));
+
+        var message = Assert.IsType<string>(refusal.Value);
+        Assert.DoesNotContain('\n', message);
+        Assert.DoesNotContain('\r', message);
+    }
 }
