@@ -703,8 +703,30 @@ internal sealed class CanonicalLinkService
     // template a provider gets - its named profile or its own inline one (#1105) - is ProvisioningPolicy's
     // rule, resolved inside the same transaction so the profile set and the name pointing at it are read
     // together and a concurrent save cannot be seen half-applied.
-    private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider, string? provisioningProfile) =>
-        _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider), provisioningProfile));
+    private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider, string? provisioningProfile)
+    {
+        var resolution = _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider), provisioningProfile));
+
+        // The previously silent arm (#1106). A name that resolves to nothing writes NO policy and never
+        // falls back - deliberately, because falling back would hand the group an administrator singled out
+        // for a narrower profile the wider one instead. What that costs is visibility: the account comes out
+        // carrying Jellyfin's bare new-user defaults, which is byte-identical to a provider that configured
+        // no template at all, so without this line nothing anywhere says a configured name failed to
+        // resolve. Warning rather than error: the login succeeded and the account exists, and what is asked
+        // for is a configuration repair. Emitted only here, on the create arm, so it fires once per account
+        // rather than on every login of one.
+        if (resolution.UnresolvedProfile is not null && _logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "SSO provisioning via {Mode}/{Provider}: provisioning profile {Profile} ({Source}) is not defined, so the new account was created with NO provisioning policy. The resolution deliberately does not fall back; define that profile or remove the reference.",
+                mode.ToToken(),
+                provider.ReplaceLineEndings(string.Empty),
+                resolution.UnresolvedProfile.ReplaceLineEndings(string.Empty),
+                resolution.SelectedByRole ? "selected by a role mapping" : "the provider default");
+        }
+
+        return resolution.Template;
+    }
 
     // The stored provider object the read above resolves its template from, or null when the provider is
     // gone or was stored with a null config object (#350).

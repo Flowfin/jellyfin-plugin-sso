@@ -60,29 +60,33 @@ internal static class ProvisioningPolicy
     /// matched no row. A selected name is authoritative: it never falls back to the provider's own default,
     /// for the reason in the remarks.
     /// </param>
-    /// <returns>The template to apply, or <see langword="null"/> when the provider configures none.</returns>
-    internal static ProvisioningPolicyTemplate? TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider, string? selectedProfile = null)
+    /// <returns>
+    /// The template to apply and, when a configured name pointed at no profile, that name - so the caller
+    /// can say so in the log rather than provisioning an account with nothing at all, silently (#1106).
+    /// </returns>
+    internal static ProvisioningTemplateResolution TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider, string? selectedProfile = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
         if (provider is null)
         {
-            return null;
+            return default;
         }
 
         // The role-selected profile (#1106) wins over the provider's own default, because that is the whole
         // point of the row: it names where THIS login goes instead of where the provider sends everyone else.
         // An unmatched login arrives here with null and the resolution below is byte-identical to #1105's.
-        var profile = string.IsNullOrWhiteSpace(selectedProfile) ? provider.ProvisioningProfile : selectedProfile;
+        var selectedByRole = !string.IsNullOrWhiteSpace(selectedProfile);
+        var profile = selectedByRole ? selectedProfile : provider.ProvisioningProfile;
         if (string.IsNullOrWhiteSpace(profile))
         {
-            return provider.ProvisioningPolicyTemplate;
+            return new ProvisioningTemplateResolution(provider.ProvisioningPolicyTemplate, null, false);
         }
 
         return configuration.ProvisioningProfiles != null
             && configuration.ProvisioningProfiles.TryGetValue(profile, out var named)
-                ? named
-                : null;
+                ? new ProvisioningTemplateResolution(named, null, selectedByRole)
+                : new ProvisioningTemplateResolution(null, profile, selectedByRole);
     }
 
     /// <summary>
@@ -171,4 +175,23 @@ internal static class ProvisioningPolicy
 
         return written;
     }
+
+    /// <summary>
+    /// What <see cref="TemplateFor(PluginConfiguration, ProviderConfigBase, string)"/> decided: the template
+    /// to write, and the profile name that pointed at nothing when one did.
+    /// </summary>
+    /// <remarks>
+    /// The unresolved name is carried out rather than swallowed because the fail-closed answer and the
+    /// invisible one are the same account otherwise: no policy is written either way, so an administrator
+    /// whose profile was renamed sees a new account with Jellyfin's bare defaults and nothing anywhere
+    /// saying which name did not resolve. The resolution itself stays a pure function of the configuration;
+    /// the caller owns the log, because only the caller knows this is the create arm.
+    /// </remarks>
+    /// <param name="Template">The template to apply, or <see langword="null"/> when there is none to apply.</param>
+    /// <param name="UnresolvedProfile">The configured profile name that resolved to nothing, or <see langword="null"/> when nothing was left unresolved.</param>
+    /// <param name="SelectedByRole">Whether the name came from a role row (#1106) rather than from the provider's own default (#1105); false whenever <see cref="UnresolvedProfile"/> is null.</param>
+    internal readonly record struct ProvisioningTemplateResolution(
+        ProvisioningPolicyTemplate? Template,
+        string? UnresolvedProfile,
+        bool SelectedByRole);
 }
