@@ -497,6 +497,29 @@ public abstract class ProviderConfigBase
     public string? ProvisioningProfile { get; set; }
 
     /// <summary>
+    /// Gets or sets the ordered role-to-provisioning-profile rows this provider selects a new account's
+    /// profile with (#1106). The FIRST row whose roles the login holds decides, so the order the
+    /// administrator wrote is the precedence; a login matching no row falls to
+    /// <see cref="ProvisioningProfile"/>, and a provider naming neither keeps its own inline
+    /// <see cref="ProvisioningPolicyTemplate"/>. No rows is the whole of "off", which is why there is no
+    /// separate switch beside it: an empty map already means the feature does nothing, and a second switch
+    /// would be a second place for it to be half-enabled from. Null and an empty list are both "no rows" -
+    /// a configuration serialized without this element deserializes to an empty list rather than to null, so
+    /// the resolver answers the same to either spelling and neither is the privileged one.
+    /// <para>
+    /// A row naming a profile the configuration does not define is refused on save, exactly as
+    /// <see cref="ProvisioningProfile"/> is. At creation the resolution stays one-way with no fallback: a
+    /// name that no longer resolves writes NO policy rather than reaching back to the provider default. That
+    /// matters more here than it does one level up, because a row exists to send one group somewhere
+    /// NARROWER than the default - falling back would hand exactly those accounts the wider policy the
+    /// administrator had moved them off, silently.
+    /// </para>
+    /// </summary>
+    [XmlArray("ProvisioningProfileRoleMappings")]
+    [XmlArrayItem(typeof(ProvisioningProfileRoleMap), ElementName = "ProvisioningProfileRoleMappings")]
+    public List<ProvisioningProfileRoleMap>? ProvisioningProfileRoleMappings { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the role-to-parental-rating mapping
     /// (<see cref="ParentalRatingRoleMappings"/>) is applied at login (#736). Off by default (fail closed):
     /// a deployment that does not set it sees no change on upgrade. Gated additionally by
@@ -1158,6 +1181,26 @@ public class GuestAccessDurationRoleMap
     /// <summary>
     /// Gets or sets the roles the duration applies to. A login holding any of these roles provisions with the
     /// deadline; a login holding none provisions with no deadline at all.
+    /// </summary>
+    public string[]? Roles { get; set; }
+}
+
+/// <summary>
+/// One row of a provider's ordered role-to-provisioning-profile map (#1106): the roles that select a named
+/// provisioning profile for a brand-new account.
+/// </summary>
+public class ProvisioningProfileRoleMap
+{
+    /// <summary>
+    /// Gets or sets the name of the <see cref="PluginConfiguration.ProvisioningProfiles"/> entry a matching
+    /// login is provisioned from. A blank name selects nothing: it is refused on save, and skipped at
+    /// creation so a hand-edited configuration cannot turn one dead row into a failed login.
+    /// </summary>
+    public string? Profile { get; set; }
+
+    /// <summary>
+    /// Gets or sets the roles this row applies to. A login holding any of them matches the row; a login
+    /// holding none moves on to the next row.
     /// </summary>
     public string[]? Roles { get; set; }
 }

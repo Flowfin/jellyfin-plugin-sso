@@ -71,6 +71,7 @@ internal static class ProviderConfigValidator
                 ValidateGuestAccessDurations("OpenID", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("OpenID", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateProvisioningProfileReference("OpenID", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
+                ValidateProvisioningProfileRoleMappings("OpenID", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
                 ValidateAcrRequirement(kvp.Key, kvp.Value);
             }
         }
@@ -94,6 +95,7 @@ internal static class ProviderConfigValidator
                 ValidateGuestAccessDurations("SAML", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("SAML", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateProvisioningProfileReference("SAML", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
+                ValidateProvisioningProfileRoleMappings("SAML", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
             }
         }
     }
@@ -512,6 +514,77 @@ internal static class ProviderConfigValidator
             throw new ArgumentException(
                 $"{protocol} provider '{echoName}' names the provisioning profile '{echoProfile}', which this configuration does not define. Define the profile, or clear the name - a provider pointing at a missing profile provisions nothing rather than falling back.",
                 nameof(config));
+        }
+    }
+
+    // A provider may also select the profile per login, from the roles the identity provider sent (#1106).
+    // The rows are refused for the same two reasons the provider-level name is, and both would otherwise be
+    // silent: a row naming no profile is dead configuration that can never select anything, and a row naming
+    // a profile the configuration does not define would persist and then provision NOTHING for exactly the
+    // group it was written for (the resolution is fail-closed and does not fall back). Cross-object like the
+    // reference check above, so it is checked against the whole incoming configuration rather than the
+    // provider alone. An unmatched login is not this check's business: it falls to the provider default,
+    // which the check above already covers.
+
+    /// <summary>
+    /// Rejects a provider whose role-to-provisioning-profile rows (#1106) name no profile, list no roles, or
+    /// name a profile the configuration does not define. A provider configuring no rows is untouched, which
+    /// is every provider written before this existed.
+    /// </summary>
+    /// <param name="protocol">The protocol label ("OpenID" or "SAML") echoed in the rejection message.</param>
+    /// <param name="provider">The provider name, echoed (control-stripped) in the rejection message.</param>
+    /// <param name="config">The provider configuration to check; <see langword="null"/> configures no rows.</param>
+    /// <param name="profiles">The profile set every row's name must resolve in.</param>
+    /// <exception cref="ArgumentException">A row names no profile, lists no roles, or names an undefined profile.</exception>
+    internal static void ValidateProvisioningProfileRoleMappings(
+        string protocol,
+        string provider,
+        ProviderConfigBase? config,
+        SerializableDictionary<string, ProvisioningPolicyTemplate>? profiles)
+    {
+        var mappings = config?.ProvisioningProfileRoleMappings;
+        if (mappings == null)
+        {
+            return;
+        }
+
+        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+
+        foreach (var mapping in mappings)
+        {
+            // A null entry selects nothing and is tolerated, the same way every other role map here tolerates
+            // one: it contributes nothing at runtime and refusing it would fail a save over a stray element.
+            if (mapping == null)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(mapping.Profile))
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has a role-to-provisioning-profile row naming no profile. A row exists to send matching logins to a named profile, so a row without one could never select anything and would be persisted as dead configuration.",
+                    nameof(config));
+            }
+
+            var echoProfile = string.Concat(mapping.Profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+
+            // A row listing no role never matches, so it would sit in the map looking like a rule while
+            // selecting nothing - the same failure ValidateParentalRatingMappings refuses for the same reason.
+            // A row whose every entry is blank is the same state written differently, so both are refused
+            // here: the runtime matcher skips blank entries (#935), which would make such a row dead too.
+            if (mapping.Roles == null || !mapping.Roles.Any(role => !string.IsNullOrWhiteSpace(role)))
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has a role-to-provisioning-profile row for '{echoProfile}' that lists no roles. A row with no roles can never match a login, so list the roles it is for or remove the row.",
+                    nameof(config));
+            }
+
+            if (profiles == null || !profiles.ContainsKey(mapping.Profile.Trim()))
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has a role-to-provisioning-profile row naming '{echoProfile}', which this configuration does not define. Define the profile, or remove the row - a row pointing at a missing profile provisions nothing for the logins it matches rather than falling back to the provider default.",
+                    nameof(config));
+            }
         }
     }
 

@@ -211,8 +211,16 @@ internal sealed class CanonicalLinkService
     /// adopted one was selected BY its name. Default off, in which case the resolved account's name is never
     /// touched, which is what every deployment does today.
     /// </param>
+    /// <param name="provisioningProfile">
+    /// The provisioning-profile name the login's roles selected (#1106). Like the duration above this is the
+    /// CREATE ARM ONLY: it decides which policy a brand-new account is written from, and every other arm
+    /// ignores it, so a later login can never re-apply a template over an administrator's per-user edit. It
+    /// arrives as a NAME and is resolved against the profile set inside this service's own locked
+    /// configuration read, so the set and the name pointing into it are read together. Default null, in which
+    /// case the provider's own default resolution (#1105) decides - which is every login before this existed.
+    /// </param>
     /// <returns>The resolved Jellyfin user id.</returns>
-    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null, bool syncUsername = false)
+    internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null, bool syncUsername = false, string? provisioningProfile = null)
     {
         // Defense in depth (#95, #155): a login that resolved no stable identity key (OpenID sub /
         // SAML NameID) or no username must never create, adopt, or look up an account. Both callbacks
@@ -284,7 +292,7 @@ internal sealed class CanonicalLinkService
                 return AdoptExistingAccount(mode, provider, canonicalKey, username, issuer, existingAccount!, adoptionGate, decision.UserId);
 
             case AccountLinkAction.CreateNewAccount:
-                return await CreateNewAccountAsync(mode, provider, canonicalKey, username, issuer, candidates.LegacyLink, provisionDisabled, provisionedAccessDuration).ConfigureAwait(false);
+                return await CreateNewAccountAsync(mode, provider, canonicalKey, username, issuer, candidates.LegacyLink, provisionDisabled, provisionedAccessDuration, provisioningProfile).ConfigureAwait(false);
 
             case AccountLinkAction.RejectNameTaken:
                 throw RejectNameTaken(candidates.LegacyLink, mode, provider, username);
@@ -585,7 +593,7 @@ internal sealed class CanonicalLinkService
     // when a now-orphaned legacy link is being left behind. When provisionDisabled is set (the provider's
     // ProvisionNewUsersDisabled policy, #737), the brand-new account is created disabled and persisted here
     // so it exists inert for an administrator to approve; the caller then refuses the login without minting.
-    private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled, TimeSpan? provisionedAccessDuration)
+    private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled, TimeSpan? provisionedAccessDuration, string? provisioningProfile)
     {
         // Resolved FIRST, ahead of the orphan warning below (#1137). That warning states that a fresh
         // account is being provisioned and the legacy target is now orphaned; a refusal after it would
@@ -636,7 +644,7 @@ internal sealed class CanonicalLinkService
         // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
         // an account created inert already carries its policy when an administrator comes to enable it,
         // rather than getting it on a first login that may never happen.
-        ProvisioningPolicy.ApplyAtProvisioning(user, ProvisioningTemplateFor(mode, provider));
+        ProvisioningPolicy.ApplyAtProvisioning(user, ProvisioningTemplateFor(mode, provider, provisioningProfile));
         // https://jonathancrozier.com/blog/how-to-generate-a-cryptographically-secure-random-string-in-dot-net-with-c-sharp
         user.Password = _cryptoProvider.CreatePasswordHash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))).ToString();
 
@@ -695,8 +703,8 @@ internal sealed class CanonicalLinkService
     // template a provider gets - its named profile or its own inline one (#1105) - is ProvisioningPolicy's
     // rule, resolved inside the same transaction so the profile set and the name pointing at it are read
     // together and a concurrent save cannot be seen half-applied.
-    private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider) =>
-        _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider)));
+    private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider, string? provisioningProfile) =>
+        _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider), provisioningProfile));
 
     // The stored provider object the read above resolves its template from, or null when the provider is
     // gone or was stored with a null config object (#350).
