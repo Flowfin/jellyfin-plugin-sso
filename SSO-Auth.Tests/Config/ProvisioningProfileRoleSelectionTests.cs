@@ -8,7 +8,9 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
@@ -354,6 +356,35 @@ public class ProvisioningProfileRoleSelectionTests
         var state = SamlAuthorizeStateBuilder.Build(new[] { "guest" }, config);
 
         Assert.Equal("guest", state.ProvisioningProfile);
+    }
+
+    [Fact]
+    public async Task ARoleSelectedProfileNamingADedicatedPermission_WritesNothingEvenWhenItReachesTheWriter()
+    {
+        // The escalation question this feature raises, answered by execution rather than by argument. The
+        // roles come from the identity provider, so if a role row could reach a profile that grants
+        // administrator, an identity provider that lied about one role would mint an admin at first login.
+        // It cannot: the selection only ever names an entry in the profile set, and every entry is judged by
+        // the same checks an inline template is, with the writer's own refusal underneath (#1099, #165
+        // Finding H1). This asserts the second line rather than the first, because the first is a save-time
+        // refusal and this is the state a hand-edited configuration can still produce.
+        var configuration = new PluginConfiguration();
+        configuration.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate
+        {
+            Permissions = new List<ProvisionedPermissionEntry>
+            {
+                new ProvisionedPermissionEntry { Permission = nameof(PermissionKind.IsAdministrator), Granted = true },
+                new ProvisionedPermissionEntry { Permission = nameof(PermissionKind.IsDisabled), Granted = true },
+            },
+        };
+        configuration.OidConfigs["kc"] = new OidConfig { Enabled = true };
+        var (service, users) = BuildFor(configuration);
+        var created = Provisionable(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisioningProfile: "guest");
+
+        Assert.False(created.HasPermission(PermissionKind.IsAdministrator));
+        Assert.False(created.HasPermission(PermissionKind.IsDisabled));
     }
 
     // The save path: the states the resolver above is only tolerant of because this refuses them.
