@@ -258,6 +258,7 @@ internal sealed class SamlAssertionValidator
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
             ExpiresAtUtc = ReadExpiry(config, samlResponse),
             GuestAccessDuration = derived.GuestAccessDuration,
+            ProvisioningProfile = derived.ProvisioningProfile,
         });
         return true;
     }

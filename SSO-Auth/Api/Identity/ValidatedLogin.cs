@@ -62,4 +62,7 @@ internal sealed record ValidatedLogin
 
     /// <summary>Gets the fixed access duration the login's roles resolved (#1146), or null when the provider maps no role to a duration or the login held none. A DURATION, not an instant: it is anchored to the moment an account is actually provisioned, and it is read on that arm only.</summary>
     internal TimeSpan? GuestAccessDuration { get; init; }
+
+    /// <summary>Gets the provisioning-profile name the login's roles selected (#1106), or null when the provider configures no role rows or the login matched none (fall through to the provider's own default). A NAME, not a template: it is resolved against the profile set inside the create arm's own locked configuration read, and it is read on that arm only.</summary>
+    internal string? ProvisioningProfile { get; init; }
 }

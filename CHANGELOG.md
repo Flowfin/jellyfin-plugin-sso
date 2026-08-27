@@ -57,6 +57,37 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   not yet offer a profile editor: profiles are configured through the admin API,
   a configuration file, or an import, and a dashboard save leaves them
   untouched.
+- **A provider can pick which provisioning profile a new account gets from the
+  login's own roles (#1106).** Naming one profile per provider (#1105) meant a
+  deployment wanting guests to start narrower than staff needed a second
+  provider, a second client registration at the identity provider, and a second
+  sign-in button - for a difference that the identity provider already states in
+  the roles it sends. A provider can now carry an ordered list of
+  role-to-profile rows, so one provider provisions a `guest` login from the
+  `guest` profile and everybody else from the provider's own default. The
+  resolution order is one sentence and it is the order the rows are written in:
+  the first row whose roles the login holds wins, then the provider's own named
+  profile, then its inline template, then nothing. First-row-wins rather than
+  some combination of the matches, because two profiles are two permission sets
+  rather than two points on a scale - there is no "most restrictive" to pick -
+  so the administrator states the precedence by ordering the rows, and
+  re-ordering them is the whole of how it is changed. Nothing changes for a
+  provider that configures no rows, which is every provider configured before
+  this existed, and a stored configuration written without them provisions
+  exactly as it did. The roles are the ones the login already produced for role
+  mapping, so no new claim or attribute is read. Two states are refused on save
+  rather than persisted: a row naming a profile the configuration does not
+  define, and a row that names no profile or lists no roles - each would sit in
+  the list looking like a rule while selecting nothing. If a row's profile stops
+  resolving anyway - a configuration file edited around the save path - the
+  account is created with no policy written at all, and in particular it does
+  NOT fall back to the provider's default. That matters more here than one level
+  up: a row exists to send one group somewhere narrower, so falling back would
+  hand precisely those accounts the wider policy they were moved off, silently,
+  at the moment they are created. As with profiles themselves, the settings page
+  does not yet offer an editor for the rows: they are configured through the
+  admin API, a configuration file, or an import, and a dashboard save leaves
+  them untouched.
 
 - **Counters for the sign-in path, on a metrics endpoint an operator can scrape
   (#1139).** Until now the only signal about logins was the log, and a log line

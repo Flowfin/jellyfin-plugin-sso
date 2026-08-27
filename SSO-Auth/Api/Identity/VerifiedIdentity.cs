@@ -57,7 +57,8 @@ internal sealed record VerifiedIdentity
         IReadOnlyList<PermissionGrant> permissionGrants,
         int? maxParentalRatingScore,
         DateTime? expiresAtUtc,
-        TimeSpan? guestAccessDuration)
+        TimeSpan? guestAccessDuration,
+        string? provisioningProfile)
     {
         LinkMode = linkMode;
         AuditProtocol = auditProtocol;
@@ -75,6 +76,7 @@ internal sealed record VerifiedIdentity
         MaxParentalRatingScore = maxParentalRatingScore;
         ExpiresAtUtc = expiresAtUtc;
         GuestAccessDuration = guestAccessDuration;
+        ProvisioningProfile = provisioningProfile;
     }
 
     /// <summary>Gets the protocol the canonical-link store keys this identity under (#369).</summary>
@@ -150,6 +152,20 @@ internal sealed record VerifiedIdentity
     internal TimeSpan? GuestAccessDuration { get; }
 
     /// <summary>
+    /// Gets the provisioning-profile name the login's roles selected (#1106), or null when the provider
+    /// configures no role rows or the login held none of them - in which case the provider's own default
+    /// resolution (#1105) decides and the account is provisioned exactly as it was before this existed.
+    /// <para>
+    /// It is a NAME rather than a resolved template for the same reason
+    /// <see cref="GuestAccessDuration"/> is a duration rather than an instant: the value has to be turned
+    /// into a policy inside the locked configuration read on the arm that actually creates the account, so
+    /// the profile set and the name pointing into it are read together and a concurrent save cannot be seen
+    /// half-applied. A login resolving an EXISTING account never reads it.
+    /// </para>
+    /// </summary>
+    internal string? ProvisioningProfile { get; }
+
+    /// <summary>
     /// Mints the verified identity of an OpenID login. Called only from the OpenID redeem path
     /// (<c>AuthorizeSession.Ready</c>), which the store hands out only through its one-time atomic redeem of a
     /// promoted (role-gate-passed) state - so a raw or unvalidated login can never reach it.
@@ -188,5 +204,6 @@ internal sealed record VerifiedIdentity
             login.PermissionGrants,
             login.MaxParentalRatingScore,
             login.ExpiresAtUtc,
-            login.GuestAccessDuration);
+            login.GuestAccessDuration,
+            login.ProvisioningProfile);
 }

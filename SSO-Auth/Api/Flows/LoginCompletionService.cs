@@ -110,7 +110,12 @@ internal sealed class LoginCompletionService
                 // Follow the identity provider's username on an already-linked account (#1138). Read off the
                 // provider configuration rather than off the identity, because it is the administrator's
                 // policy and not something the login gets to assert.
-                config.SyncUsernameFromProvider).ConfigureAwait(false);
+                config.SyncUsernameFromProvider,
+                // The role-selected provisioning profile (#1106), handed down as a NAME so the create arm
+                // resolves it against the profile set inside its own locked configuration read. Null when the
+                // provider configures no role rows or this login matched none, and the create arm then falls
+                // to the provider's own default resolution (#1105) - which is every login before this existed.
+                identity.ProvisioningProfile).ConfigureAwait(false);
         }
         catch (AccountLinkForbiddenException)
         {

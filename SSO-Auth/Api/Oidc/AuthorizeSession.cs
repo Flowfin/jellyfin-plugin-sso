@@ -156,6 +156,7 @@ internal abstract class AuthorizeSession
                 MaxParentalRatingScore = derived.MaxParentalRatingScore,
                 ExpiresAtUtc = derived.ExpiresAtUtc,
                 GuestAccessDuration = derived.GuestAccessDuration,
+                ProvisioningProfile = derived.ProvisioningProfile,
             });
 
             // Carry the OpenID logout material (#727, SLO-1b) alongside the keystone rather than inside it:

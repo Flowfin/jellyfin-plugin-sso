@@ -38,22 +38,30 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 internal static class ProvisioningPolicy
 {
     /// <summary>
-    /// Resolves which template a provider's brand-new accounts get (#1105): the named
-    /// <see cref="PluginConfiguration.ProvisioningProfiles"/> entry when the provider names one, and
-    /// otherwise the provider's own inline <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>.
+    /// Resolves which template a provider's brand-new accounts get, in one documented order (#1105, #1106):
+    /// the profile the login's roles selected, else the named
+    /// <see cref="PluginConfiguration.ProvisioningProfiles"/> entry the provider points at, else the
+    /// provider's own inline <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>.
     /// </summary>
     /// <remarks>
-    /// A name that resolves to nothing writes NO policy, and deliberately does not fall back to the inline
-    /// template. The save path refuses both a dangling name and a provider carrying a name AND an inline
+    /// A name that resolves to nothing writes NO policy, and deliberately does not fall back - not to the
+    /// inline template, and not to the provider default when the name came from a role row. The save path
+    /// refuses a dangling name on both surfaces, and refuses a provider carrying a name AND an inline
     /// template (<see cref="ProviderConfigValidator.ValidateProvisioningProfiles"/>), so neither state
     /// arrives through a validated write; what is left is a configuration file edited by hand around the
     /// validator, and there the fail-closed answer is to write nothing. Falling back would hand the new
-    /// account the very permission set the administrator replaced when they pointed the provider elsewhere.
+    /// account the very permission set the administrator replaced when they pointed the provider elsewhere -
+    /// and on a role row it would do it to precisely the group that was singled out for a narrower one.
     /// </remarks>
     /// <param name="configuration">The live plugin configuration, read for its profile set.</param>
     /// <param name="provider">The provider the account is being created for; <see langword="null"/> resolves to no template.</param>
+    /// <param name="selectedProfile">
+    /// The profile name the login's roles selected (#1106), or <see langword="null"/>/blank when the login
+    /// matched no row. A selected name is authoritative: it never falls back to the provider's own default,
+    /// for the reason in the remarks.
+    /// </param>
     /// <returns>The template to apply, or <see langword="null"/> when the provider configures none.</returns>
-    internal static ProvisioningPolicyTemplate? TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider)
+    internal static ProvisioningPolicyTemplate? TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider, string? selectedProfile = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
@@ -62,7 +70,10 @@ internal static class ProvisioningPolicy
             return null;
         }
 
-        var profile = provider.ProvisioningProfile;
+        // The role-selected profile (#1106) wins over the provider's own default, because that is the whole
+        // point of the row: it names where THIS login goes instead of where the provider sends everyone else.
+        // An unmatched login arrives here with null and the resolution below is byte-identical to #1105's.
+        var profile = string.IsNullOrWhiteSpace(selectedProfile) ? provider.ProvisioningProfile : selectedProfile;
         if (string.IsNullOrWhiteSpace(profile))
         {
             return provider.ProvisioningPolicyTemplate;

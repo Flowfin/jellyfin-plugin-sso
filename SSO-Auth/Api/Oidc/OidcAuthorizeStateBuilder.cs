@@ -107,6 +107,12 @@ internal static class OidcAuthorizeStateBuilder
         // resolved here, beside the other role reductions, so no second role read is added to the callback.
         var guestAccessDuration = GuestAccessDurationPolicy.Resolve(roles, config);
 
+        // Reduce the SAME role set to a provisioning-profile NAME (#1106): null when the provider configures
+        // no role rows or this login held none of them, in which case the provider's own default resolution
+        // (#1105) decides and a brand-new account is provisioned exactly as it was before. Resolved here,
+        // beside the other role reductions, so no second role read is added to the callback.
+        var provisioningProfile = ProvisioningProfilePolicy.Resolve(roles, config);
+
         // If nothing has validated the login yet, fall back to the stable "sub" as the username. The
         // subject was already resolved above (last "sub" wins), so this reuses it instead of scanning
         // the claims a second time. Faithful to the original: unlike the preferred-username branch, this
@@ -127,7 +133,7 @@ internal static class OidcAuthorizeStateBuilder
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
 
-        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration);
+        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration, provisioningProfile);
     }
 
     // The last "sub" claim value, or null when none is present. Kept separate from the username
@@ -421,6 +427,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
     /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
+    /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
     internal readonly record struct OidcAuthorizeState(
         string? Username,
         string? Subject,
@@ -435,7 +442,8 @@ internal static class OidcAuthorizeStateBuilder
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
         int? MaxParentalRatingScore = null,
         DateTime? ExpiresAtUtc = null,
-        TimeSpan? GuestAccessDuration = null)
+        TimeSpan? GuestAccessDuration = null,
+        string? ProvisioningProfile = null)
     {
         /// <summary>
         /// Gets the raw OpenID <c>id_token</c>, captured at the callback for a later RP-initiated logout

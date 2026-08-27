@@ -45,7 +45,13 @@ internal static class SamlAuthorizeStateBuilder
         // here, beside the other role reductions, so no second attribute read is added to the callback.
         var guestAccessDuration = GuestAccessDurationPolicy.Resolve(roles, config);
 
-        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration);
+        // Reduce the SAME role set to a provisioning-profile NAME (#1106): null when the provider configures
+        // no role rows or this login held none of them, in which case the provider's own default resolution
+        // (#1105) decides and a brand-new account is provisioned exactly as it was before. Resolved here,
+        // beside the other role reductions, so no second attribute read is added to the callback.
+        var provisioningProfile = ProvisioningProfilePolicy.Resolve(roles, config);
+
+        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration, provisioningProfile);
     }
 
     /// <summary>
@@ -58,6 +64,7 @@ internal static class SamlAuthorizeStateBuilder
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
+    /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
     internal readonly record struct SamlAuthorizeState(
         bool Admin,
         bool EnableLiveTv,
@@ -65,5 +72,6 @@ internal static class SamlAuthorizeStateBuilder
         List<string> Folders,
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
         int? MaxParentalRatingScore = null,
-        TimeSpan? GuestAccessDuration = null);
+        TimeSpan? GuestAccessDuration = null,
+        string? ProvisioningProfile = null);
 }

@@ -36,6 +36,7 @@ internal static class TestIdentities
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
             ExpiresAtUtc = derived.ExpiresAtUtc,
             GuestAccessDuration = derived.GuestAccessDuration,
+            ProvisioningProfile = derived.ProvisioningProfile,
         });
 
     internal static VerifiedIdentity Saml(string provider, string nameId, SamlAuthorizeStateBuilder.SamlAuthorizeState privileges, DateTime? expiresAtUtc = null) =>
@@ -55,5 +56,6 @@ internal static class TestIdentities
             MaxParentalRatingScore = privileges.MaxParentalRatingScore,
             ExpiresAtUtc = expiresAtUtc,
             GuestAccessDuration = privileges.GuestAccessDuration,
+            ProvisioningProfile = privileges.ProvisioningProfile,
         });
 }
