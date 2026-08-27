@@ -26,6 +26,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -51,6 +52,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// refuses a dangling row, and
 /// <see cref="ARowNamingAMissingProfile_WritesNoPolicy_AndNeverFallsBackToTheProviderDefault"/> covers the
 /// configuration file edited by hand around it.
+/// </para>
+/// <para>
+/// Writing no policy and writing no policy VISIBLY are different outcomes, and only the second one is
+/// recoverable. An account created from a dangling row carries Jellyfin's bare new-user defaults, which is
+/// byte-identical to one created by a provider that configured nothing, so
+/// <see cref="ARowNamingAMissingProfile_SaysSoInTheLog"/> pins the one line that separates the two - and
+/// <see cref="AProfileThatResolves_ProvisionsWithNoWarningAtAll"/> is what would go red if that line started
+/// firing on every provisioning, which is how a real warning gets trained out of an operator.
 /// </para>
 /// <para>
 /// The compatibility half is <see cref="AProviderWithNoRows_ProvisionsExactlyAsItDidBefore"/> and
@@ -228,6 +237,81 @@ public class ProvisioningProfileRoleSelectionTests
 
         Assert.Equal(before, created.MaxActiveSessions);
         Assert.NotEqual(9, created.MaxActiveSessions);
+    }
+
+    [Fact]
+    public async Task ARowNamingAMissingProfile_SaysSoInTheLog()
+    {
+        // The other half of the clause above, and the reason it is a separate test: writing no policy and
+        // writing no policy VISIBLY are the same account. An account created from a dangling row is
+        // byte-identical to one created by a provider that configured nothing at all, so the log line is the
+        // only thing that separates "the administrator wanted nothing" from "the administrator's profile was
+        // renamed and every new guest since has been created with the server's bare defaults".
+        var configuration = new PluginConfiguration();
+        configuration.ProvisioningProfiles["default"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 9 };
+        configuration.OidConfigs["kc"] = new OidConfig { Enabled = true, ProvisioningProfile = "default" };
+        var (service, users, logger) = BuildWithLogger(configuration);
+        Provisionable(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisioningProfile: "deleted-profile");
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("provisioning profile", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("deleted-profile", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("kc", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("role mapping", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AProviderDefaultNamingAMissingProfile_SaysSoInTheLog_AndNamesTheOtherSource()
+    {
+        // The same silence reached through #1105's door rather than #1106's. One line covers both, so the
+        // source has to be IN the line: an administrator repairing this edits a role row in one case and the
+        // provider's own profile field in the other, and a message that named neither would send them to
+        // the wrong form.
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["kc"] = new OidConfig { Enabled = true, ProvisioningProfile = "renamed-profile" };
+        var (service, users, logger) = BuildWithLogger(configuration);
+        Provisionable(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisioningProfile: null);
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("provisioning profile", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("renamed-profile", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("provider default", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("role mapping", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AProfileThatResolves_ProvisionsWithNoWarningAtAll()
+    {
+        // The near-miss that costs the most if it is wrong. A condition inverted by one character turns this
+        // line into one every SSO account creation emits, on every server, saying a profile is undefined
+        // while it is being applied - which trains an operator to ignore exactly the warning this adds.
+        var configuration = new PluginConfiguration();
+        configuration.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        configuration.OidConfigs["kc"] = new OidConfig { Enabled = true };
+        var (service, users, logger) = BuildWithLogger(configuration);
+        var created = Provisionable(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisioningProfile: "guest");
+
+        Assert.Equal(1, created.MaxActiveSessions);
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task AProviderNamingNoProfileAtAll_ProvisionsWithNoWarningAtAll()
+    {
+        // Every installation that never configured a profile, which is the majority. Nothing was named, so
+        // nothing failed to resolve, and the log has to stay exactly as quiet as it was before this existed.
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["kc"] = new OidConfig { Enabled = true };
+        var (service, users, logger) = BuildWithLogger(configuration);
+        Provisionable(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false, provisioningProfile: null);
+
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -556,9 +640,19 @@ public class ProvisioningProfileRoleSelectionTests
 
     private static (CanonicalLinkService Service, IUserManager Users) BuildFor(PluginConfiguration configuration)
     {
+        var (service, users, _) = BuildWithLogger(configuration);
+        return (service, users);
+    }
+
+    // The same wiring with the service's own logger handed back, rather than a second builder: a test that
+    // reads the log and a test that reads the account then look at one object graph, so a line asserted here
+    // is a line the account beside it actually produced.
+    private static (CanonicalLinkService Service, IUserManager Users, CapturingLogger Logger) BuildWithLogger(PluginConfiguration configuration)
+    {
         var users = Substitute.For<IUserManager>();
         var store = new ProviderConfigStore(() => configuration, _ => { }, new CapturingLogger());
-        return (new CanonicalLinkService(users, new FakeCryptoProvider(), store, new CapturingLogger()), users);
+        var logger = new CapturingLogger();
+        return (new CanonicalLinkService(users, new FakeCryptoProvider(), store, logger), users, logger);
     }
 
     // The full completion path, wired exactly as LoginCompletionServiceTests wires it. A real AvatarService
