@@ -167,6 +167,22 @@ internal sealed class DeclarativeManagedProviders
             return;
         }
 
+        // A posted collection that is NULL rather than empty is the same admin intent as one that dropped
+        // every provider, and the freeze has to reach it. Without this the per-protocol loop below returns
+        // at its own null check before re-adding anything, so a save shaped this way deletes every managed
+        // provider AND reports no ignored write - the one combination this freeze exists to make impossible.
+        // Materialized only where a source actually named a provider of that protocol, so an installation
+        // managing nothing keeps a null collection exactly as it arrived.
+        if (_oid.Count > 0 && incoming.OidConfigs is null)
+        {
+            incoming.OidConfigs = new SerializableDictionary<string, OidConfig>();
+        }
+
+        if (_saml.Count > 0 && incoming.SamlConfigs is null)
+        {
+            incoming.SamlConfigs = new SerializableDictionary<string, SamlConfig>();
+        }
+
         Reinject(_oid, OpenIdProtocol, incoming.OidConfigs, live.OidConfigs, ignored, (holder, name, provider) => holder.OidConfigs[name] = provider);
         Reinject(_saml, SamlProtocol, incoming.SamlConfigs, live.SamlConfigs, ignored, (holder, name, provider) => holder.SamlConfigs[name] = provider);
     }
