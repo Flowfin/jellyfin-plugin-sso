@@ -171,6 +171,69 @@ public class DeclarativeManagedProvidersTests
     }
 
     [Fact]
+    public void ASaveWhoseWholeCollectionIsNull_PutsEveryManagedProviderBack()
+    {
+        // The same intent as the drop above, arriving in a shape nobody posted here before: a save whose
+        // whole provider collection is null rather than empty. It reached the freeze's own null check and
+        // returned before re-adding anything, so every managed provider was deleted and NO ignored write
+        // was audited - a page that wins against the file and leaves no trace, which is the exact pair this
+        // freeze exists to make impossible. A null collection is what a body carrying an explicit
+        // "OidConfigs": null deserializes to; an omitted key keeps the constructor's empty dictionary.
+        var (store, live, persisted, log) = CreateStore();
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+        document.SamlConfigs["adfs"] = new SamlConfig { SamlEndpoint = "https://adfs.example.invalid/sso" };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        store.Save(new PluginConfiguration { OidConfigs = null!, SamlConfigs = null! });
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal("from-the-file", saved.OidConfigs["keycloak"].OidClientId);
+        Assert.True(saved.SamlConfigs.ContainsKey("adfs"));
+        Assert.Equal(2, IgnoredWrites(log).Count);
+    }
+
+    [Fact]
+    public void ASaveWhoseWholeCollectionIsNull_OnAnInstallationManagingNothing_LeavesItNull()
+    {
+        // The other direction, and the one that costs more if it is wrong. The repair above materializes a
+        // collection, and doing that where no source named a provider would hand every deployment a shape
+        // the save path did not previously produce. ServerManagedFields already pins that a null map is left
+        // exactly as it arrived; this pins that the freeze does not undo that pin.
+        var (store, _, persisted, log) = CreateStore();
+
+        store.Save(new PluginConfiguration { OidConfigs = null!, SamlConfigs = null! });
+
+        var saved = (PluginConfiguration)persisted.Single();
+        Assert.True(store.ManagedProviders.IsEmpty);
+        Assert.Null(saved.OidConfigs);
+        Assert.Null(saved.SamlConfigs);
+        Assert.Empty(IgnoredWrites(log));
+    }
+
+    [Fact]
+    public void ASaveWhoseWholeCollectionIsNull_MaterializesOnlyTheProtocolASourceNamed()
+    {
+        // The half of the repair the two tests above cannot reach, because an installation managing nothing
+        // returns at the IsEmpty check before any of it runs. Here a source names an OpenID provider and no
+        // SAML one, so the OpenID collection has to be materialized to put the provider back and the SAML
+        // one has to be left exactly as it arrived. Without the per-protocol condition the SAML half is
+        // materialized too, which changes the persisted shape of a deployment on behalf of a protocol no
+        // source ever named.
+        var (store, _, persisted, log) = CreateStore();
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+        Assert.Equal(DeclarativeLoadOutcome.Applied, Load(store, document));
+
+        store.Save(new PluginConfiguration { OidConfigs = null!, SamlConfigs = null! });
+
+        var saved = (PluginConfiguration)persisted.Last();
+        Assert.Equal("from-the-file", saved.OidConfigs["keycloak"].OidClientId);
+        Assert.Null(saved.SamlConfigs);
+        Assert.Single(IgnoredWrites(log));
+    }
+
+    [Fact]
     public void ASaveThatChangesNothingOnAManagedProvider_AuditsNothing()
     {
         // The noise guard, and the reason the freeze runs AFTER ServerManagedFields.Preserve. A page save
