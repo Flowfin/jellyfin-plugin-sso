@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
@@ -645,8 +644,10 @@ internal sealed class CanonicalLinkService
         // an account created inert already carries its policy when an administrator comes to enable it,
         // rather than getting it on a first login that may never happen.
         ProvisioningPolicy.ApplyAtProvisioning(user, ProvisioningTemplateFor(mode, provider, provisioningProfile));
-        // https://jonathancrozier.com/blog/how-to-generate-a-cryptographically-secure-random-string-in-dot-net-with-c-sharp
-        user.Password = _cryptoProvider.CreatePasswordHash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))).ToString();
+        // The manual-login door (#1440), shut as the account comes into existence: a Jellyfin user created
+        // with no password accepts the EMPTY one on the ordinary login form. Minted through the one shared
+        // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
+        user.Password = ProvisionedPassword.Mint(_cryptoProvider);
 
         if (provisionDisabled)
         {
@@ -1063,6 +1064,45 @@ internal sealed class CanonicalLinkService
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Every distinct Jellyfin account any SAML or OpenID provider still holds a canonical link to, as a
+    /// detached snapshot read once under the config lock (#1440).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The link is what says an account belongs to this plugin. <c>AuthenticationProviderId</c> does not:
+    /// the session mint overwrites it with a provider's <c>DefaultProvider</c> on every login, which is
+    /// exactly the configuration that turns a password-less provisioned account into one the ordinary login
+    /// form will accept the empty password for.
+    /// </para>
+    /// <para>
+    /// A provider an administrator has DISABLED is walked too, unlike the expiry sweep's <c>requireEnabled</c>
+    /// resolve. The two act in opposite directions: that one ends access and must not do so unattended for a
+    /// provider switched off, while this one only ever removes an empty-password door. Skipping a disabled
+    /// provider would leave the accounts nobody is logging in through as the reachable ones, which is the
+    /// wrong way round.
+    /// </para>
+    /// </remarks>
+    /// <returns>The linked account ids, without duplicates.</returns>
+    internal IReadOnlyCollection<Guid> LinkedUserIds()
+    {
+        return _configStore.Read(configuration =>
+        {
+            var linked = new HashSet<Guid>();
+            foreach (var config in configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values))
+            {
+                // A provider stored with a null config object (reachable via the null-body add, #350) holds
+                // no links and is skipped rather than dereferenced, as everywhere else in this file.
+                if (config?.CanonicalLinks is { } links)
+                {
+                    linked.UnionWith(links.Values);
+                }
+            }
+
+            return (IReadOnlyCollection<Guid>)linked;
+        });
     }
 
     // The shared body of every disable-a-linked-account path above. Kept private and unnamed for any caller

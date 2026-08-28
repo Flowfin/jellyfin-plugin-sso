@@ -434,6 +434,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **Accounts an old plugin version created without a password no longer accept
+  the empty one on the ordinary login form (#1440).** A Jellyfin account created
+  with no password accepts the empty password, and every release up to and
+  including v3.4.0.2 provisioned SSO accounts that way - the account was stamped
+  onto a provider id that accepts nothing, which shut the door until a provider's
+  default-provider setting repointed the account at a real password provider and
+  left the empty password behind it. Those accounts are still on servers that
+  have since upgraded, and the fix at the point of creation, which has minted a
+  random password since v3.5.0.0, never reaches an account that already exists.
+  The plugin now gives every SSO-linked account with no stored password an
+  unguessable one, once at server start. It changes nothing else: an account that
+  already carries a password keeps exactly the one it has, no account's login
+  provider routing is touched, and an account no provider links to is left alone
+  because it is not this plugin's to change. A single line in the log says how
+  many accounts were sealed and nothing that identifies them; a server with none
+  to seal - every server provisioned since v3.5.0.0 - says nothing at all.
+
 - **A provider a mounted file or the environment declared can no longer be
   altered or deleted through the plugin's other administrator endpoints
   (#1415).** The settings page already kept the declared value and discarded
