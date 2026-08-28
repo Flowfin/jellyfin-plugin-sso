@@ -181,8 +181,11 @@ internal static class SsoAudit
     /// <summary>
     /// Records the boot-time sweep sealing SSO-linked accounts that carried no stored password (#1440).
     /// A Jellyfin account created without one accepts the EMPTY password on the ordinary login form, so
-    /// every account a plugin version up to and including v3.4.0.2 provisioned was reachable without the
-    /// identity provider. Fired once per boot and only when the sweep actually sealed something, so a
+    /// an account this plugin provisioned was reachable without it on every build before the create arm's
+    /// password write was made durable. THE LINE NAMES NO VERSION RANGE, and #1454 is why: that write
+    /// existed for years and reached no database, so the population is a STATE - a linked account holding
+    /// no password - rather than a span of releases, and a message naming one told an operator with newer
+    /// accounts to stop looking. Fired once per boot and only when the sweep actually sealed something, so a
     /// server that has none stays silent. Carries a COUNT and nothing else - no username, no account id and
     /// no provider (T-I1): an account already reachable by anybody is the last thing to name in a log an
     /// operator may paste into a bug report.
@@ -197,7 +200,7 @@ internal static class SsoAudit
         }
 
         logger.LogWarning(
-            "[SSO Audit] Sealed {Count} SSO-linked account(s) that had no stored password: an account with none accepts the empty password on the ordinary login form, so these were reachable without the identity provider. Each was given an unguessable password that nothing knows and nothing can recover; their login provider routing was left exactly as it was. Accounts provisioned by plugin versions up to v3.4.0.2 are the expected population.",
+            "[SSO Audit] Sealed {Count} SSO-linked account(s) that had no stored password: an account with none accepts the empty password on the ordinary login form, so these were reachable without the identity provider. Each was given an unguessable password that nothing knows and nothing can recover; their login provider routing was left exactly as it was. Any SSO-linked account that held no stored password is in this set, whatever plugin version created it.",
             sealedAccounts);
     }
 

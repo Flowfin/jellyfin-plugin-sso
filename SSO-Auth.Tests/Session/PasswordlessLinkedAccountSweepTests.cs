@@ -62,6 +62,29 @@ public class PasswordlessLinkedAccountSweepTests
     }
 
     [Fact]
+    public async Task TheAuditLineStatesThePopulationAsAState_AndNamesNoVersionRange()
+    {
+        // #1454. The line used to end "Accounts provisioned by plugin versions up to v3.4.0.2 are the
+        // expected population", and that was wrong in the direction a security line must not be wrong in.
+        // The create arm generated a password years before that version and wrote it to an object nobody
+        // saved, so every account made before the write became durable is in the population - and an
+        // operator reading a version range concluded their newer accounts were unaffected and stopped
+        // looking. The population is a STATE, which is also the only thing the sweep actually tests.
+        //
+        // Asserted on the emitted message rather than on the source, so a version range reintroduced in
+        // either the format string or a future rewording of it fails here.
+        var (sweep, config, users, crypto, audit) = Build();
+        LinkedUser(users, config, password: null);
+
+        await sweep.SweepAsync();
+
+        var line = Assert.Single(audit.Entries, e => e.Message.Contains(SealAuditMarker, StringComparison.Ordinal)).Message;
+        Assert.Contains("whatever plugin version created it", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("v3.", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("versions up to", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ASealedAccountsPasswordCarriesRealEntropy_AndTwoOfThemDiffer()
     {
         // A sweep that sealed every account with one constant would read as sealed and be one guess from
