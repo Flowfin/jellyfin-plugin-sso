@@ -174,6 +174,17 @@ failing on a tree with no modifications at all, and a real formatting defect in
 your change is indistinguishable from the noise. On Linux the flag changes
 nothing.
 
+**Keep the whole output of a full test run.** Filtering the run down to the
+summary line is what cost issue #1444 its evidence: one `net10.0` run of the
+suite reported five failures in `SSOControllerAuthorizationTests`, the assertion
+text was filtered away as it was produced, and the run has not recurred, so the
+only thing left about it is the count. Redirect the run to a file, or pipe it
+through `tee`, and keep the file until the run is green:
+
+```sh
+./SSO-Auth.Tests/bin/Debug/net10.0/SSO-Auth.Tests.exe 2>&1 | tee run-net10.log
+```
+
 `dotnet test` requires the **.NET 10 SDK**: the repo's `global.json` selects the
 SDK's Microsoft.Testing.Platform mode of `dotnet test` (#718), which older SDKs
 do not support (the build itself multi-targets net9.0 + net10.0 either way, so

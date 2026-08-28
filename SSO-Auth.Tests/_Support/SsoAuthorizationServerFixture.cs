@@ -124,7 +124,13 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
         var address = _app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!.Addresses.GetEnumerator();
         address.MoveNext();
-        Client = new HttpClient { BaseAddress = new Uri(address.Current) };
+        // The timeout is explicit rather than inherited (#1444). HttpClient defaults to 100 seconds, measured
+        // on this type rather than read from documentation, and every request here is a loopback call to a
+        // server in this same process that answers in milliseconds. A stall therefore holds the suite for a
+        // minute and a half per request with nothing said about it. A red run of these tests once took four
+        // times as long as a green one and left no usable evidence; whether a stall produced that is not
+        // established, and bounding the wait is what would let the next occurrence say so itself.
+        Client = new HttpClient { BaseAddress = new Uri(address.Current), Timeout = TimeSpan.FromSeconds(30) };
 
         Endpoints = new EndpointCatalog(_app.Services);
     }
