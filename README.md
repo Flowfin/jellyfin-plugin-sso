@@ -83,7 +83,7 @@ This project publishes only to the **beta channel** for now - a stable channel o
 
 ## Configuration
 
-Configure your providers on the plugin's settings page (**Dashboard → Plugins → SSO-Auth**) and via the admin API. The [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) walkthrough and the [Hardening & Options Reference](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference) cover every option, the provider-name rules, and the admin-API details.
+Configure your providers on the plugin's settings page (**Dashboard → Plugins → SSO-Auth**) and via the admin API. The [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) walkthrough and the [Hardening & Options Reference](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference) cover every option, the provider-name rules, and the admin-API details. Deployments that keep their configuration in version control can declare providers in a mounted file or in environment variables instead: [Config as code](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code) covers the document, the variable naming scheme, what wins between the sources, and how a secret is referenced rather than written into the file.
 
 ## Documentation
 
