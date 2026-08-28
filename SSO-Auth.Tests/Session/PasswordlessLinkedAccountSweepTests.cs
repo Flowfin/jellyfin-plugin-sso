@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Library;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -248,6 +251,57 @@ public class PasswordlessLinkedAccountSweepTests
         Assert.Empty(audit.Entries);
     }
 
+    [Fact]
+    public async Task AProviderStoredWithNoConfigObject_IsSkippedRatherThanDereferenced()
+    {
+        // A provider can be stored with a null config object through the null-body add (#350). The walk
+        // must read that as a provider holding no links, the way every other walk in the link store does -
+        // a start-up repair that throws on one malformed entry never reaches the accounts after it.
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["broken"] = null!;
+        var good = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = good;
+        var (sweep, users, crypto, _) = BuildFor(configuration);
+        var user = TestUsers.Named("alice", Linked);
+        users.GetUserById(Linked).Returns(user);
+        good.CanonicalLinks["sub-1"] = Linked;
+
+        Assert.Equal(1, await sweep.SweepAsync());
+
+        Assert.Single(crypto.Hashed);
+    }
+
+    [Fact]
+    public void TheAuditLine_EmitsNothingWhereWarningsAreOff()
+    {
+        // The IsEnabled guard is what keeps the message from being built where the sink has already
+        // filtered this level away (CA1873). A disabled level must emit NOTHING rather than an
+        // unformatted fallback.
+        var off = new LevelFilteredLogger(LogLevel.Error);
+
+        SsoAudit.PasswordlessAccountsSealed(off, 3);
+
+        Assert.Empty(off.Entries);
+    }
+
+    [Fact]
+    public void EveryDependencyIsRequiredAtConstruction()
+    {
+        // A null here would surface as a NullReferenceException inside a start-up repair, where the stack
+        // says nothing about which dependency the composition root failed to supply.
+        var configuration = new PluginConfiguration();
+        var users = Substitute.For<IUserManager>();
+        var crypto = new RecordingCryptoProvider();
+        var logger = new CapturingLogger();
+        var links = new CanonicalLinkService(users, crypto, new ProviderConfigStore(() => configuration, _ => { }, new CapturingLogger()), new CapturingLogger());
+
+        Assert.Throws<ArgumentNullException>(() => new PasswordlessLinkedAccountSweep(null!, users, crypto, logger));
+        Assert.Throws<ArgumentNullException>(() => new PasswordlessLinkedAccountSweep(links, null!, crypto, logger));
+        Assert.Throws<ArgumentNullException>(() => new PasswordlessLinkedAccountSweep(links, users, null!, logger));
+        Assert.Throws<ArgumentNullException>(() => new PasswordlessLinkedAccountSweep(links, users, crypto, null!));
+        Assert.Throws<ArgumentNullException>(() => ProvisionedPassword.Mint(null!));
+    }
+
     // --- helpers ---
 
     private static (PasswordlessLinkedAccountSweep Sweep, OidConfig Config, IUserManager Users, RecordingCryptoProvider Crypto, CapturingLogger Audit) Build()
@@ -279,5 +333,30 @@ public class PasswordlessLinkedAccountSweepTests
         users.GetUserById(userId).Returns(user);
         config.CanonicalLinks[key] = userId;
         return user;
+    }
+
+    // A sink that has filtered this level away, so the IsEnabled guard on the audit line has a state to be
+    // observed in. Local to this file rather than shared: the one in the audit suite is private to it, and
+    // reaching across for four lines would couple two suites for nothing.
+    private sealed class LevelFilteredLogger : ILogger
+    {
+        private readonly LogLevel _minimum;
+
+        internal LevelFilteredLogger(LogLevel minimum) => _minimum = minimum;
+
+        internal List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable BeginScope<TState>(TState state)
+            where TState : notnull => null!;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= _minimum;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel))
+            {
+                Entries.Add((logLevel, formatter(state, exception)));
+            }
+        }
     }
 }
