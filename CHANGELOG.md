@@ -434,6 +434,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An account the plugin creates is now stored with the password and the login
+  routing it is given (#1440).** Both were written onto the account object the
+  server handed back at creation and neither reached the database: the session
+  that follows a login re-reads the account by id and saves that copy, so the
+  account was persisted routed at Jellyfin's own password provider with no
+  password stored - which is an account that accepts the EMPTY password on the
+  ordinary login form, reachable by anybody who can reach the server and without
+  ever touching the identity provider. Found by driving a real login against a
+  real server and reading the account back, not by any test in the suite: every
+  one of those asserted on the copy in memory, where both values were always
+  present. One save now carries the routing, the password and - where a provider
+  holds new accounts for approval - the disabled flag, and a save that fails
+  deletes the half-made account instead of leaving it behind enabled and
+  reachable.
+
 - **Accounts an old plugin version created without a password no longer accept
   the empty one on the ordinary login form (#1440).** A Jellyfin account created
   with no password accepts the empty password, and every release up to and

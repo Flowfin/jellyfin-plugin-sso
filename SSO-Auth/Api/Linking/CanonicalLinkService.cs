@@ -649,35 +649,47 @@ internal sealed class CanonicalLinkService
         // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
         user.Password = ProvisionedPassword.Mint(_cryptoProvider);
 
+        // PERSISTED HERE, once, and this write is the door rather than the two assignments above it (#1440).
+        // The session mint re-resolves the account by id and writes THAT object, so everything set on the
+        // instance CreateUserAsync returned reached no database: the account was persisted routed at
+        // Jellyfin's own password provider with no password stored, which is a Jellyfin account that accepts
+        // the EMPTY password on the ordinary login form. Found by the end-to-end harness reading the account
+        // back after a real login, never by a unit test - every one of them asserts on the in-memory object,
+        // where both writes were always present.
+        //
+        // The pending-approval hold (#737) is applied BEFORE this write rather than after it, so one write
+        // carries the routing, the password and the disabled flag. IsDisabled is otherwise never written by
+        // this plugin and is barred from SSO role mapping (PermissionRolePolicy) precisely so no login can
+        // disable an EXISTING account; this is the one sanctioned write, and it targets ONLY a brand-new
+        // account on this create arm - never an existing or adopted one. No permissions are applied - the
+        // account carries Jellyfin's default new-user policy until an administrator enables it, and the
+        // caller reads the disabled state and refuses the login.
         if (provisionDisabled)
         {
-            // Pending-approval provisioning (#737): create the account inert. IsDisabled is otherwise never
-            // written by this plugin and is barred from SSO role mapping (PermissionRolePolicy) precisely so
-            // no login can disable an EXISTING account; this is the one sanctioned write, and it targets ONLY
-            // a brand-new account on this create arm - never an existing or adopted one. The normal path lets
-            // the session minter persist the account; this deferred path short-circuits before the mint, so it
-            // must persist the disabled flag (and this account's SSO provider id / password) itself. No
-            // permissions are applied - the account carries Jellyfin's default new-user policy until an
-            // administrator enables it. The caller reads the disabled state and refuses the login.
             user.SetPermission(PermissionKind.IsDisabled, true);
-            var persisted = false;
-            try
-            {
-                await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-                persisted = true;
-            }
-            finally
-            {
-                if (!persisted)
-                {
-                    // If persisting the disabled flag failed, the just-created account would otherwise survive
-                    // ENABLED and link-less, and a later login could adopt it (with AllowExistingAccountLink on)
-                    // and mint a session - defeating the hold. Roll it back so the login fails closed with no
-                    // orphan. The original failure still propagates out of this finally.
-                    await _userManager.DeleteUserAsync(user.Id).ConfigureAwait(false);
-                }
-            }
+        }
 
+        var persisted = false;
+        try
+        {
+            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+            persisted = true;
+        }
+        finally
+        {
+            if (!persisted)
+            {
+                // A create whose persist failed leaves an account that exists, is ENABLED, carries neither
+                // the SSO routing nor a password, and has no link - the exact shape this arm exists to
+                // prevent, reachable from the ordinary login form and adoptable by a later login (with
+                // AllowExistingAccountLink on). Roll it back so the login fails closed with no orphan. The
+                // original failure still propagates out of this finally.
+                await _userManager.DeleteUserAsync(user.Id).ConfigureAwait(false);
+            }
+        }
+
+        if (provisionDisabled)
+        {
             // Audited here, at the actual provisioning event, so the line fires exactly once (not on every
             // later refused login of the now-pending account) and is always accurate - the completion-path
             // gate that refuses the login covers any disabled account, including one an admin disabled, so
