@@ -130,6 +130,27 @@ public class CanonicalLinkServiceTests
     }
 
     [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_PolicyOff_PersistFails_RollsBackTheAccountAndFailsClosed()
+    {
+        // The same fail-closed rollback on the ORDINARY arm, which had no persist to fail before #1440. An
+        // account whose persist throws exists, is enabled, carries neither the SSO routing nor a password,
+        // and has no link - reachable from the ordinary login form with the empty password and adoptable by
+        // a later login. Deleting it is the only outcome that leaves nothing behind.
+        var (service, cfg, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+        users.When(u => u.UpdateUserAsync(created)).Do(_ => throw new InvalidOperationException("db down"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false));
+
+        await users.Received(1).DeleteUserAsync(Other);
+        Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
     public async Task ResolveOrCreateAsync_LiveLinkToDisabledAccount_ResolvesWithoutReAuditingProvisioning()
     {
         // The provisioning audit fires only at the create event, never on a later login of the now-pending
@@ -152,10 +173,18 @@ public class CanonicalLinkServiceTests
     }
 
     [Fact]
-    public async Task ResolveOrCreateAsync_NewAccount_PolicyOff_IsCreatedEnabledAndNotPersistedHere()
+    public async Task ResolveOrCreateAsync_NewAccount_PolicyOff_IsCreatedEnabledAndPersistedHere()
     {
-        // Default (policy off): the new account is NOT disabled and is NOT persisted by the linking layer -
-        // the session minter persists it, exactly as before #737. No behavior change for existing deployments.
+        // THIS ROW ASSERTED THE OPPOSITE UNTIL #1440, AND THE OLD ASSERTION IS THE DEFECT RATHER THAN A
+        // STYLE CHOICE. It required that the create arm persist nothing, on the reasoning that the session
+        // minter would. The minter re-resolves the account by id and writes THAT object, so the provider
+        // stamp and the password set on the instance CreateUserAsync returned reached no database - the
+        // account was persisted routed at Jellyfin's own password provider with no password stored, which
+        // accepts the EMPTY password on the ordinary login form. Every unit test asserted on the in-memory
+        // object, where both writes were always present; the end-to-end harness read the account back after
+        // a real login and found neither.
+        //
+        // Default (policy off): the new account is NOT disabled, and it IS persisted here.
         var (service, _, users, _) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
         var created = TestUsers.Named("alice", Other);
         users.GetUserByName("alice").Returns((User?)null);
@@ -166,7 +195,7 @@ public class CanonicalLinkServiceTests
 
         Assert.Equal(Other, resolved);
         Assert.False(created.HasPermission(PermissionKind.IsDisabled));
-        await users.DidNotReceive().UpdateUserAsync(Arg.Any<User>());
+        await users.Received(1).UpdateUserAsync(created);
         Assert.False(service.IsAccountAwaitingApproval(Other));
     }
 

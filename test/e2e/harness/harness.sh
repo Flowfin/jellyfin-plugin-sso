@@ -1392,6 +1392,45 @@ if [ "$EXTENDED_PHASES" = "true" ]; then
     fail "SSO-only: the password user stayed locked out after disable - restoration failed"
   fi
 
+  # ------------------------------------------------------------------------------------------------
+  # Phase 6e - the manual login form is shut on an account the plugin provisioned (#1440). A Jellyfin
+  # user created with no password accepts the EMPTY password on that form, so an SSO account that got
+  # one would be reachable by anybody on the network without ever touching the identity provider.
+  #
+  # PLACED HERE ON PURPOSE, and the placement is the whole of what makes the assertion mean anything.
+  # It runs AFTER SSO-only was enabled and disabled again, at the one moment the phase above has just
+  # PROVEN that native password login works on this server: pwuser answered 200 one line up. Run
+  # while SSO-only was on, the same three refusals would be produced by the mode rather than by
+  # anything this issue is about, and the phase would pass on a build with the door wide open.
+  # ------------------------------------------------------------------------------------------------
+  log "== Extended: the manual login form is refused for the SSO-provisioned account =="
+
+  # Read the account's own record first, so a failure below names the STATE that produced it rather
+  # than leaving the next reader to guess between "no password stored" and "routed at a provider that
+  # accepts one". Both are visible here and they fail for different reasons.
+  ALICE_REC="$(curl -fsS "$JELLYFIN/Users/$ALICE_ID" -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"")" || ALICE_REC=""
+  # jq -r, with no // fallback on purpose: `// "?"` takes its alternative for FALSE as well as for absent,
+  # so a stored password of false and a field that is not there would print the same character. That cost a
+  # wrong reading of this very line once; an absent field prints null and a false one prints false.
+  log "alice: HasPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasPassword') HasConfiguredPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasConfiguredPassword') AuthenticationProviderId=$(printf '%s' "$ALICE_REC" | jq -r '.Policy.AuthenticationProviderId')"
+
+  EMPTY_PW_STATUS="$(jf_auth_status "alice" "")"
+  if [ "$EMPTY_PW_STATUS" != "200" ]; then
+    pass "provisioned account: the EMPTY password is refused on /Users/AuthenticateByName (HTTP $EMPTY_PW_STATUS)"
+  else
+    fail "provisioned account: the empty password MINTED A SESSION for alice - the account is reachable without the IdP"
+  fi
+
+  # The identity provider's own password is not the Jellyfin account's password either. Without this
+  # the phase would still pass on a build that copied the IdP credential onto the account, which is a
+  # different way of leaving a guessable door on it.
+  IDP_PW_STATUS="$(jf_auth_status "alice" "$PASSWORD_ALICE")"
+  if [ "$IDP_PW_STATUS" != "200" ]; then
+    pass "provisioned account: the IdP password is refused on /Users/AuthenticateByName (HTTP $IDP_PW_STATUS)"
+  else
+    fail "provisioned account: alice's IdP password MINTED A JELLYFIN SESSION through the manual form"
+  fi
+
 fi
 
 # --------------------------------------------------------------------------------------------------
