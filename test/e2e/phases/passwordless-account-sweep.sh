@@ -22,13 +22,17 @@
 #
 # The shape:
 #
-#   arrange   alice is repointed at the built-in password provider and her password is reset away.
+#   arrange   alice is repointed at the built-in password provider, dropped from administrator, and
+#             her password is reset away. The admin flag has to go: Jellyfin refuses to empty an
+#             administrator's password, and the first run of this phase died at exactly that, on a
+#             400 from the reset, because the role this stack maps makes her one.
 #   control   the empty password mints a session on her, so the door is demonstrably open.
 #   restart   Jellyfin comes back and the plugin's hosted start-up service runs the pass.
 #   assert    she holds a password again, the empty one is refused, her ROUTING is untouched, and the
 #             audit line names one sealed account.
-#   restore   the routing goes back where the canonical pass left it, and a RELOGIN_ONLY pass proves
-#             the stack was left working rather than merely left.
+#   restore   the routing and the admin flag go back to what the probe read before it changed
+#             anything, and a RELOGIN_ONLY pass proves the stack was left working rather than merely
+#             left.
 #
 # Never `docker compose down` here: that removes Keycloak, the realm is re-imported into a fresh
 # instance with a NEW SAML signing certificate, and the certificate the canonical pass wrote into the
@@ -79,10 +83,16 @@ ALICE_ID="$(field "$SEED_OUT" PROBE-ALICE-ID)"
 [ -n "$ALICE_ID" ] || die "the probe found no account named alice - its own output is above"
 # Read from the probe's FIRST reading, before it changed anything, so the restore at the end puts back
 # what the canonical pass left rather than what this phase happens to expect.
-PROVIDER_BEFORE="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-BEFORE-SEED$/,/^PROBE-POLICY-STATUS/p' | sed -n 's/^PROBE-PROVIDER //p' | head -1)"
+BEFORE_BLOCK="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-BEFORE-SEED$/,/^PROBE-POLICY-STATUS/p')"
+PROVIDER_BEFORE="$(printf '%s' "$BEFORE_BLOCK" | sed -n 's/^PROBE-PROVIDER //p' | head -1)"
+ADMIN_BEFORE="$(printf '%s' "$BEFORE_BLOCK" | sed -n 's/^PROBE-ADMIN //p' | head -1)"
 [ -n "$PROVIDER_BEFORE" ] && [ "$PROVIDER_BEFORE" != "null" ] \
     || die "could not read the provider id alice carried before this phase touched her, so the restore would be a guess"
-pass "alice is $ALICE_ID, routed at $PROVIDER_BEFORE before this phase"
+case "$ADMIN_BEFORE" in
+    true|false) : ;;
+    *) die "could not read whether alice was an administrator before this phase touched her (got '$ADMIN_BEFORE'), so the restore would be a guess" ;;
+esac
+pass "alice is $ALICE_ID, routed at $PROVIDER_BEFORE with IsAdministrator=$ADMIN_BEFORE before this phase"
 
 SEEDED_HASPASSWORD="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-AFTER-SEED$/,$p' | sed -n 's/^PROBE-HASPASSWORD //p' | head -1)"
 SEEDED_PROVIDER="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-AFTER-SEED$/,$p' | sed -n 's/^PROBE-PROVIDER //p' | head -1)"
@@ -91,7 +101,7 @@ SEEDED_EMPTY="$(field "$SEED_OUT" PROBE-EMPTY-PASSWORD)"
 [ "$SEEDED_PROVIDER" = "$BUILTIN_PROVIDER" ] \
     || die "alice is routed at '$SEEDED_PROVIDER' rather than the built-in password provider, so the seed did not produce the shape this phase is about"
 [ "$SEEDED_HASPASSWORD" = "false" ] \
-    || die "alice still holds a password after the reset (HasPassword=$SEEDED_HASPASSWORD), so there is nothing for the start-up pass to seal and a green result below would mean nothing"
+    || die "alice still holds a password after the reset (HasPassword=$SEEDED_HASPASSWORD), so there is nothing for the start-up pass to seal and a green result below would mean nothing. Jellyfin refuses to empty an ADMINISTRATOR's password, which is what the first run of this phase hit: the seed drops that flag and the restore puts it back"
 pass "alice is seeded: routed at the built-in password provider, holding no password"
 
 log "The control: the door is open before the restart"
@@ -137,13 +147,15 @@ printf '%s\n' "$AUDIT" | grep -qE 'Sealed 1 SSO-linked account' \
     || die "the audit line does not name ONE sealed account. Exactly one was seeded, so a different count means the pass reached accounts this phase did not put in front of it"
 pass "the pass audited exactly one sealed account"
 
-log "Putting alice's routing back"
-RESTORE_OUT="$(probe restore -e "RESTORE_PROVIDER=$PROVIDER_BEFORE")" || die "the restore probe container could not be started"
+log "Putting alice's routing and admin flag back"
+RESTORE_OUT="$(probe restore -e "RESTORE_PROVIDER=$PROVIDER_BEFORE" -e "RESTORE_ADMIN=$ADMIN_BEFORE")" || die "the restore probe container could not be started"
 printf '%s\n' "$RESTORE_OUT" | sed 's/^/  probe| /'
 [ "$(field "$RESTORE_OUT" PROBE-PROVIDER)" = "$PROVIDER_BEFORE" ] \
     || die "alice's routing is not back at $PROVIDER_BEFORE, so this phase left the stack in a state the canonical pass did not create"
+[ "$(field "$RESTORE_OUT" PROBE-ADMIN)" = "$ADMIN_BEFORE" ] \
+    || die "alice's IsAdministrator is not back at $ADMIN_BEFORE, so this phase left the stack in a state the canonical pass did not create"
 docker compose -f "$COMPOSE" stop >/dev/null
-pass "alice is routed as the canonical pass left her"
+pass "alice is routed and privileged as the canonical pass left her"
 
 log "A login after the restore"
 # STOPPED above and brought up by this `up` rather than started separately, for the reason the phase

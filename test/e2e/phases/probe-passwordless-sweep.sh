@@ -70,6 +70,7 @@ report_state() {
   say "PROBE-HASPASSWORD $(printf '%s' "$rec" | jq -r '.HasPassword')"
   say "PROBE-CONFIGURED $(printf '%s' "$rec" | jq -r '.HasConfiguredPassword')"
   say "PROBE-PROVIDER $(printf '%s' "$rec" | jq -r '.Policy.AuthenticationProviderId')"
+  say "PROBE-ADMIN $(printf '%s' "$rec" | jq -r '.Policy.IsAdministrator')"
 }
 
 # The empty password against the ordinary login form. This is the whole subject: an account with no
@@ -92,9 +93,15 @@ case "$STAGE" in
     # nothing to reset. Repointing it at Jellyfin's built-in provider first is also exactly how the
     # historical population came about: a provider's DefaultProvider setting moved SSO accounts onto
     # a real password provider, and the account had no password to meet it with.
+    #
+    # THE ADMIN FLAG COMES OFF IN THE SAME WRITE, and it is not tidiness. Jellyfin refuses to empty an
+    # administrator's password - UserManager.ChangePassword throws for an empty one on an account
+    # holding IsAdministrator - and the reset answered 400 for exactly that reason on the first run of
+    # this phase. alice carries the realm role this stack maps to Jellyfin admin, so she is one. It is
+    # put back at the restore stage from the value read here, not from a constant.
     POLICY="$(curl -fsS "$JELLYFIN_URL/Users/$ALICE_ID" -H "$AUTHZ" 2>/dev/null | jq -c '.Policy')"
     [ -n "$POLICY" ] || { say "PROBE-ERROR could not read alice's policy"; exit 0; }
-    NEW_POLICY="$(printf '%s' "$POLICY" | jq -c '.AuthenticationProviderId = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider"')"
+    NEW_POLICY="$(printf '%s' "$POLICY" | jq -c '.AuthenticationProviderId = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider" | .IsAdministrator = false')"
     POLICY_STATUS="$(curl -sS -o /tmp/policy.out -w '%{http_code}' -X POST "$JELLYFIN_URL/Users/$ALICE_ID/Policy" \
       -H "Content-Type: application/json" -H "$AUTHZ" -d "$NEW_POLICY" 2>/dev/null)"
     say "PROBE-POLICY-STATUS $POLICY_STATUS"
@@ -109,18 +116,32 @@ case "$STAGE" in
     say "PROBE-EMPTY-PASSWORD $(empty_password_status)"
     ;;
   verify)
+    # BOUNDED WAIT, AND THE BOUND IS REPORTED. The pass runs in an IHostedService.StartAsync, and
+    # whether that completes before the server answers a request depends on the order the host starts
+    # its services in - which is not this phase's to assert. Reading once and finding no password
+    # would be indistinguishable from a pass that does nothing, so the reading is repeated for a
+    # stated interval and the log carries how long it took. A pass that never runs still fails: the
+    # loop ends and the state below is the unsealed one.
+    j=0
+    while [ "$j" -lt 30 ]; do
+      sealed="$(curl -fsS "$JELLYFIN_URL/Users/$ALICE_ID" -H "$AUTHZ" 2>/dev/null | jq -r '.HasPassword')"
+      [ "$sealed" = "true" ] && break
+      j=$((j + 1))
+      sleep 2
+    done
+    say "PROBE-SEALED-AFTER $((j * 2))s of at most 60s"
     say "PROBE-AFTER-RESTART"
     report_state
     say "PROBE-EMPTY-PASSWORD $(empty_password_status)"
     ;;
   restore)
-    # Put the routing back where the canonical pass left it, so the phase after this one meets the
-    # stack it expects. The password cannot be put back and is not meant to be: what is on the
-    # account now is the unguessable one the sweep minted, which is the state every sealed account is
-    # left in on a real server.
+    # Put the routing and the admin flag back where the canonical pass left them, so the phase after
+    # this one meets the stack it expects. The password cannot be put back and is not meant to be:
+    # what is on the account now is the unguessable one the pass minted, which is the state every
+    # sealed account is left in on a real server.
     POLICY="$(curl -fsS "$JELLYFIN_URL/Users/$ALICE_ID" -H "$AUTHZ" 2>/dev/null | jq -c '.Policy')"
     [ -n "$POLICY" ] || { say "PROBE-ERROR could not read alice's policy"; exit 0; }
-    NEW_POLICY="$(printf '%s' "$POLICY" | jq -c --arg p "$RESTORE_PROVIDER" '.AuthenticationProviderId = $p')"
+    NEW_POLICY="$(printf '%s' "$POLICY" | jq -c --arg p "$RESTORE_PROVIDER" --argjson a "$RESTORE_ADMIN" '.AuthenticationProviderId = $p | .IsAdministrator = $a')"
     RESTORE_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$JELLYFIN_URL/Users/$ALICE_ID/Policy" \
       -H "Content-Type: application/json" -H "$AUTHZ" -d "$NEW_POLICY" 2>/dev/null)"
     say "PROBE-RESTORE-STATUS $RESTORE_STATUS"
