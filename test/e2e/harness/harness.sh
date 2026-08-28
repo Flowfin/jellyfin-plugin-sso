@@ -1405,6 +1405,12 @@ if [ "$EXTENDED_PHASES" = "true" ]; then
   # ------------------------------------------------------------------------------------------------
   log "== Extended: the manual login form is refused for the SSO-provisioned account =="
 
+  # Read the account's own record first, so a failure below names the STATE that produced it rather
+  # than leaving the next reader to guess between "no password stored" and "routed at a provider that
+  # accepts one". Both are visible here and they fail for different reasons.
+  ALICE_REC="$(curl -fsS "$JELLYFIN/Users/$ALICE_ID" -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"")" || ALICE_REC=""
+  log "alice: HasPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasPassword // "?"') HasConfiguredPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasConfiguredPassword // "?"') AuthenticationProviderId=$(printf '%s' "$ALICE_REC" | jq -r '.Policy.AuthenticationProviderId // "?"')"
+
   EMPTY_PW_STATUS="$(jf_auth_status "alice" "")"
   if [ "$EMPTY_PW_STATUS" != "200" ]; then
     pass "provisioned account: the EMPTY password is refused on /Users/AuthenticateByName (HTTP $EMPTY_PW_STATUS)"
