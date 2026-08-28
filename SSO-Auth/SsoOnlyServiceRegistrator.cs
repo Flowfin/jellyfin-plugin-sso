@@ -30,6 +30,11 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddHostedService<SsoOnlyReconciliationService>();
 
+        // Shuts the ordinary login form's empty-password door on accounts a plugin version up to and
+        // including v3.4.0.2 provisioned without one (#1440). The create arm has minted a password since
+        // v3.5.0.0, so this reaches the accounts that arm never will - the ones that already exist.
+        serviceCollection.AddHostedService<PasswordlessLinkedAccountSweepService>();
+
         // Ends access ON an account-expiry deadline rather than at the expired user's next login attempt
         // (#1145). Login-time enforcement (#1144) never fires for a guest who simply stops coming back, so
         // without a timer the deadline binds only those who return.

@@ -178,6 +178,29 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty));
     }
 
+    /// <summary>
+    /// Records the boot-time sweep sealing SSO-linked accounts that carried no stored password (#1440).
+    /// A Jellyfin account created without one accepts the EMPTY password on the ordinary login form, so
+    /// every account a plugin version up to and including v3.4.0.2 provisioned was reachable without the
+    /// identity provider. Fired once per boot and only when the sweep actually sealed something, so a
+    /// server that has none stays silent. Carries a COUNT and nothing else - no username, no account id and
+    /// no provider (T-I1): an account already reachable by anybody is the last thing to name in a log an
+    /// operator may paste into a bug report.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="sealedAccounts">How many accounts the sweep gave a password to.</param>
+    internal static void PasswordlessAccountsSealed(ILogger logger, int sealedAccounts)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Sealed {Count} SSO-linked account(s) that had no stored password: an account with none accepts the empty password on the ordinary login form, so these were reachable without the identity provider. Each was given an unguessable password that nothing knows and nothing can recover; their login provider routing was left exactly as it was. Accounts provisioned by plugin versions up to v3.4.0.2 are the expected population.",
+            sealedAccounts);
+    }
+
     /// <summary>Records a provider being added or updated.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
