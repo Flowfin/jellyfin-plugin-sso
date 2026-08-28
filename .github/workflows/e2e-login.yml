@@ -265,6 +265,27 @@ jobs:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/proxy-client-attribution.sh
 
+      - name: The start-up pass seals a password-less SSO account (#1440)
+        # The second half of the #1440 remediation, which nothing outside a unit test had ever run.
+        # The canonical harness proves the create arm; reaching the start-up pass needs a server that
+        # already holds a password-less linked account, and a current build makes none - so this phase
+        # makes one, through the server's own admin API, in the exact shape a build up to v3.4.0.2
+        # stored it in, and asserts the empty password mints a session on it BEFORE the restart. That
+        # control is what makes the refusal afterwards attributable to the pass rather than to the
+        # account's routing, which refuses the same login for a different reason the whole time.
+        #
+        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # reasons as the phases above: it costs an extra login pass, and it is the one stack that can
+        # be re-run in place. Runs on a green harness only, so a real login failure surfaces as the
+        # harness failure.
+        #
+        # AHEAD of the rollover phase below, which mutates the identity provider. This one only
+        # changes account state in Jellyfin and puts the routing back.
+        if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
+        env:
+          COMPOSE: ${{ matrix.compose }}
+        run: bash test/e2e/phases/passwordless-account-sweep.sh
+
       - name: SAML signing-cert rollover, the new cert validates and the old one is refused (#1128)
         # Rotates the realm's SAML signing key mid-run, imports the new certificate into the plugin,
         # and requires all three of the issue's clauses in ONE run: an assertion signed by the
