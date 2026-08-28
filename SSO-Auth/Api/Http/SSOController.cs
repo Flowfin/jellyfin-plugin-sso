@@ -683,6 +683,11 @@ public class SSOController : ControllerBase
             CultureInfo.InvariantCulture,
             $"The {protocol} provider '{provider}' is managed by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
 
+    private static string ManagedProfileRefusal(string profile, string source) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"The provisioning profile '{profile}' is defined by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
+
     /// <summary>
     /// Refuses an elevated single-provider write against a provider a declarative source decided (#1415), and
     /// audits the refusal so an operator reading the log sees why nothing changed.
@@ -1607,6 +1612,25 @@ public class SSOController : ControllerBase
             return BadRequest(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
+        }
+
+        // #1102: the same refusal for a profile the document REDEFINES. A managed provider is what an
+        // administrator sees frozen, but the profile it points at is what that provider actually writes onto
+        // a brand-new account, so a document carrying no provider at all can still change what every managed
+        // provider grants. The whole document again, for the reason above: a partial import that reported
+        // success is the worse failure.
+        var managedProfiles = SSOPlugin.Instance.ConfigStore.ManagedProviders.ProfilesNamedIn(document.Configuration);
+        if (managedProfiles.Count > 0)
+        {
+            foreach (var (profile, profileSource) in managedProfiles)
+            {
+                SsoAudit.DeclarativeProfileWriteRefused(_logger, "Config/Import", profile, profileSource);
+            }
+
+            var (firstProfile, firstProfileSource) = managedProfiles[0];
+            return BadRequest(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{ManagedProfileRefusal(firstProfile, firstProfileSource)} The import redefines {managedProfiles.Count} declaratively defined provisioning profile(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
         }
 
         try

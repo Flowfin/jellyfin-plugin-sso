@@ -143,6 +143,7 @@ internal sealed class ProviderConfigStore
         ArgumentNullException.ThrowIfNull(configuration);
         List<(string Protocol, string Provider, IReadOnlyList<string> Options)>? insecureToAudit = null;
         var declarativeWritesIgnored = new List<(string Protocol, string Provider)>();
+        var declarativeProfileWritesIgnored = new List<string>();
         lock (Sync)
         {
             if (configuration is PluginConfiguration incoming && !ReferenceEquals(incoming, _live()))
@@ -166,7 +167,7 @@ internal sealed class ProviderConfigStore
                 // the stored one, so the audit below reports a save that actually tried to change a managed
                 // provider instead of firing on every unrelated settings change. Nothing happens here on an
                 // installation that configures no declarative source.
-                ManagedProviders.Reinject(incoming, _live(), declarativeWritesIgnored);
+                ManagedProviders.Reinject(incoming, _live(), declarativeWritesIgnored, declarativeProfileWritesIgnored);
 
                 // Snapshot which providers were saved with an insecure option (#140) while under the
                 // lock, but emit the warnings AFTER releasing it (below) - logging must not run inside
@@ -192,6 +193,11 @@ internal sealed class ProviderConfigStore
             foreach (var (protocol, provider) in declarativeWritesIgnored)
             {
                 SsoAudit.DeclarativeWriteIgnored(_logger, protocol, provider);
+            }
+
+            foreach (var profile in declarativeProfileWritesIgnored)
+            {
+                SsoAudit.DeclarativeProfileWriteIgnored(_logger, profile);
             }
         }
     }

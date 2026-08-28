@@ -235,6 +235,26 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records a configuration save whose write to a declaratively defined provisioning profile was ignored
+    /// (#1102). The profile is what a managed provider provisions a new account THROUGH, so a save that
+    /// redefines one changes what that provider grants without naming it - which is why this line exists
+    /// separately from <see cref="DeclarativeWriteIgnored"/> rather than borrowing its wording.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="profile">The profile name. No field value is recorded - the point is which profile, not what was posted.</param>
+    internal static void DeclarativeProfileWriteIgnored(ILogger logger, string profile)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Configuration save ignored for provisioning profile '{Profile}': it is defined by a declarative source, so the stored value was kept. Edit the source and restart the server to change it.",
+            profile?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
     /// Records an elevated write door refusing to alter or delete a declaratively managed provider (#1415).
     /// The config-page save IGNORES such a write and keeps the stored value (see
     /// <see cref="DeclarativeWriteIgnored"/>); these doors carry a single-provider intent that cannot be
@@ -258,6 +278,30 @@ internal static class SsoAudit
             door?.ReplaceLineEndings(string.Empty),
             protocol,
             provider?.ReplaceLineEndings(string.Empty),
+            source?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records a whole-document write door refusing because the document redefines a declaratively defined
+    /// provisioning profile (#1102). Refuse rather than ignore, for the reason
+    /// <see cref="DeclarativeWriteRefused"/> gives: an import is all-or-nothing on every other rejection,
+    /// and dropping part of a document silently is the worse failure.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="door">The route that was refused, e.g. <c>Config/Import</c>.</param>
+    /// <param name="profile">The profile name. No field value is recorded.</param>
+    /// <param name="source">What names the source that defined the profile, so the line says where the change belongs.</param>
+    internal static void DeclarativeProfileWriteRefused(ILogger logger, string door, string profile, string source)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] {Door} refused for provisioning profile '{Profile}': it is defined by the declarative source {Source}, so nothing was written. Edit that source and restart the server to change it.",
+            door?.ReplaceLineEndings(string.Empty),
+            profile?.ReplaceLineEndings(string.Empty),
             source?.ReplaceLineEndings(string.Empty));
     }
 

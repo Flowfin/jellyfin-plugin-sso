@@ -63,6 +63,9 @@ public partial class ArchitectureConformanceTests
         //   ONE shape this rule has to keep out: a per-login event log would need a cap and a sweep, and the
         //   reason this needs neither is the bound, so the exemption is granted to the bounded design and not
         //   to the subject matter.
+        // - DeclarativeManagedProviders._profiles: the provisioning-profile-name-to-source map (#1102), the
+        //   same immutable shape as the two below and exempt for the same reason, on the object a managed
+        //   provider provisions THROUGH rather than on the provider.
         // - DeclarativeManagedProviders._oid / ._saml: the provider-name-to-source map (#1415). Exempt for a
         //   different reason from the four above, and it is the reason rather than the subject that is
         //   exempted. The type is IMMUTABLE - both fields are assigned once in a private constructor and
@@ -73,7 +76,7 @@ public partial class ArchitectureConformanceTests
         //   fields were HashSets until a refusal had to say WHICH source owns a provider, so what changed is
         //   the value beside each name, not where the state lives or how long it lives.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
-        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml" };
+        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
 
         var offenders = PluginClasses
             .Where(t => !storeLike.Any(s => SimpleName(t).EndsWith(s, StringComparison.Ordinal)))
