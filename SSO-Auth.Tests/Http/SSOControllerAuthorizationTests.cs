@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -192,6 +193,23 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
             request.Content = new StringContent("null", Encoding.UTF8, "application/json");
         }
 
-        return await _fixture.Client.SendAsync(request).ConfigureAwait(false);
+        var caller = role ?? "an unauthenticated caller";
+        var elapsed = Stopwatch.StartNew();
+        try
+        {
+            return await _fixture.Client.SendAsync(request).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // A request that never produced a status carries none of that in its own text: the transport
+            // exception names an address and, on a non-English host, says so in that host's language. The five
+            // tests above each drive ~25 endpoints in a loop, so without this the reader of a red run cannot
+            // tell WHICH endpoint stalled, as which caller, or after how long - which is the evidence #1444
+            // lost the one time this went red. Diagnostics, not a guard: nothing here can fail a green run.
+            throw new InvalidOperationException(
+                FormattableString.Invariant(
+                    $"the request produced no status: {endpoint} as {caller} after {elapsed.ElapsedMilliseconds} ms, client timeout {_fixture.Client.Timeout}, {ex.GetType().Name}"),
+                ex);
+        }
     }
 }
