@@ -47,18 +47,42 @@ public class BrowserErrorPageTests
     }
 
     [Fact]
-    public void Wrap_ResolvesLangFromAcceptLanguage_FallsToEnglishWhileEnglishIsTheOnlyCatalog()
+    public void Wrap_ResolvesLangAndTextFromAcceptLanguage_ForACommittedCatalog()
     {
-        // The lang attribute is driven by the request's Accept-Language (#913). With only the English
-        // catalog loaded, a German preference resolves to English - the wiring must not throw on a real
-        // header, and the page must stay a valid, English-tagged document.
+        // The lang attribute and both catalog reads are driven by the request's Accept-Language (#913).
+        // This test asserted English against a German header while English was the only committed catalog;
+        // it now asserts what the page actually does once a second one ships (#1154), which is the whole
+        // point of committing one. Umlauts are absent from the asserted substrings because the page
+        // HTML-encodes non-ASCII into numeric entities - the assertions pin the words, not the encoder.
         var ctx = Context("text/html");
         ctx.Request.Headers.AcceptLanguage = "de-DE,de;q=0.9,en;q=0.5";
 
         var result = Assert.IsType<ContentResult>(
             BrowserErrorPage.Wrap(PlainError(400, "Invalid or expired state"), ctx.Request, ctx.Response));
 
+        Assert.Contains("<html lang='de'>", result.Content);
+        // The reverse lookup found the English message in the catalog and re-emitted it in German ...
+        Assert.Contains("oder abgelaufener Anmeldestatus", result.Content);
+        Assert.DoesNotContain("Invalid or expired state", result.Content);
+        // ... and the return link's own key resolved in the same culture.
+        Assert.Contains("ck zur Anmeldung", result.Content);
+        Assert.DoesNotContain("Return to login", result.Content);
+    }
+
+    [Fact]
+    public void Wrap_FallsBackToEnglish_ForALanguageNoCommittedCatalogCovers()
+    {
+        // The negative half of the test above, and the half that keeps the fallback chain honest: a
+        // preference no committed catalog answers must still produce a valid, English-tagged document
+        // rather than an empty one or a throw.
+        var ctx = Context("text/html");
+        ctx.Request.Headers.AcceptLanguage = "fr-FR,fr;q=0.9";
+
+        var result = Assert.IsType<ContentResult>(
+            BrowserErrorPage.Wrap(PlainError(400, "Invalid or expired state"), ctx.Request, ctx.Response));
+
         Assert.Contains("<html lang='en'>", result.Content);
+        Assert.Contains("Invalid or expired state", result.Content);
         Assert.Contains("Return to login", result.Content);
     }
 

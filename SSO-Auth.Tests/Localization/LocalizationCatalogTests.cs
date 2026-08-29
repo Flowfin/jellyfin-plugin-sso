@@ -31,7 +31,7 @@ public class LocalizationCatalogTests
     // it was meant to protect, and the suite would stay green through the loss. A culture belongs on this
     // list once a person has read its catalog (#1154), so the list grows by a change that adds a name here
     // beside the file, never by a file arriving on its own.
-    private static readonly string[] CommittedCultures = ["en"];
+    private static readonly string[] CommittedCultures = ["de", "en"];
 
     // Any type in the plugin assembly anchors GetManifestResourceStream to the resource-bearing assembly.
     private static readonly Assembly PluginAssembly = typeof(SsoLocalizer).Assembly;
