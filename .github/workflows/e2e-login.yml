@@ -188,11 +188,19 @@ jobs:
           fi
 
           echo "===== audit trail ====="
-          logs="$(docker compose -f "$COMPOSE" logs jellyfin --no-color 2>/dev/null || true)"
+          # The log is written to a file and grep reads that file, deliberately: the earlier form was
+          # `printf '%s' "$logs" | grep -qF`, and under `set -o pipefail` a `grep -q` that matches early
+          # can close the pipe while printf is still writing, so printf fails its write and the pipeline
+          # takes printf's status even though grep succeeded. That reported a present audit line as
+          # missing on run 33194788849 (#1453). Nothing here may make the presence of a line depend on
+          # how long the producer of the text lives.
+          logfile="${RUNNER_TEMP:-/tmp}/jellyfin-audit.log"
+          docker compose -f "$COMPOSE" logs jellyfin --no-color >"$logfile" 2>/dev/null || true
+          echo "read $(wc -c <"$logfile") bytes of Jellyfin log from the $COMPOSE stack"
           for expected in \
             "[SSO Audit] Provider configured:" \
             "[SSO Audit] Login succeeded:"; do
-            if printf '%s' "$logs" | grep -qF "$expected"; then
+            if grep -qF "$expected" "$logfile"; then
               echo "OK: audit line present -> $expected"
             else
               echo "::error::expected audit line missing from the Jellyfin log: $expected"; exit 1
