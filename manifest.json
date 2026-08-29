@@ -6,8 +6,16 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "Flowfin",
+    "owner": "iderex",
     "versions": [
+      {
+        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.66).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Read the audit-trail log from a file rather than through a pipe [#1453] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1457\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.51...5.0.0-JF12-beta.66",
+        "checksum": "4cdccfb6b438328c79406365bd322a48",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.66/community-sso-for-jellyfin_5.0.0.66.zip",
+        "targetAbi": "12.0.0.0",
+        "timestamp": "2026-08-29T11:04:19Z",
+        "version": "5.0.0.66"
+      },
       {
         "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.65).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Prove the login-door writes are saved where they are written by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1451\n* Exercise the start-up pass that seals password-less SSO accounts by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1452\n* Point the README and the config page at the config-as-code reference by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1455\n* Say what the sealing pass's population is instead of naming a version range by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1456\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.50...5.0.0-JF12-beta.65",
         "checksum": "ac30ea335c385ddd4bd6965ae43250ca",
@@ -119,14 +127,6 @@
         "targetAbi": "12.0.0.0",
         "timestamp": "2026-08-13T05:49:59Z",
         "version": "5.0.0.47"
-      },
-      {
-        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.46).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Add a relogin-only harness pass that reuses an initialised Jellyfin by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1326\n* Refuse a JWT that declares itself a token for the other endpoint by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1327\n* Unpack the archive the documented local build actually writes by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1331\n* Screen the role claim in the scopes its reader enters by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1332\n* Gate the legacy plaintext secret migration with a scripted phase by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1333\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.31...5.0.0-JF12-beta.46",
-        "checksum": "c91cc8f238bb0e614368c2fd61a659e6",
-        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.46/community-sso-for-jellyfin_5.0.0.46.zip",
-        "targetAbi": "12.0.0.0",
-        "timestamp": "2026-08-12T05:47:37Z",
-        "version": "5.0.0.46"
       },
       {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.52).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Read the audit-trail log from a file rather than through a pipe [#1453] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1457\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.51...4.3.0-beta.52",
