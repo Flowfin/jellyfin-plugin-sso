@@ -6,8 +6,16 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "Flowfin",
+    "owner": "iderex",
     "versions": [
+      {
+        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.65).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Prove the login-door writes are saved where they are written by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1451\n* Exercise the start-up pass that seals password-less SSO accounts by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1452\n* Point the README and the config page at the config-as-code reference by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1455\n* Say what the sealing pass's population is instead of naming a version range by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1456\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.50...5.0.0-JF12-beta.65",
+        "checksum": "ac30ea335c385ddd4bd6965ae43250ca",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.65/community-sso-for-jellyfin_5.0.0.65.zip",
+        "targetAbi": "12.0.0.0",
+        "timestamp": "2026-08-29T04:55:20Z",
+        "version": "5.0.0.65"
+      },
       {
         "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.64).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Prove the manual-login door is shut on a provisioned account [#1440] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1446\n* Seal SSO-linked accounts an old version left without a password [#1440] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1447\n* Reproduce and shut the manual-login door on a provisioned account [#1440] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1449\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.49...5.0.0-JF12-beta.64",
         "checksum": "3d0ebb96799e45824ae82ef8f26e7749",
@@ -119,14 +127,6 @@
         "targetAbi": "12.0.0.0",
         "timestamp": "2026-08-12T05:47:37Z",
         "version": "5.0.0.46"
-      },
-      {
-        "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.45).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743): the JF12/5.0 line is **not validated against a live Jellyfin 12.0 server yet** - no 12.0 GA server exists to run the E2E checklist against. It is CI-built and unit/conformance-tested only, and it is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate; the 5.0 line clears its own live-validation gate when a Jellyfin 12.0 RC/GA build is available. Use these betas for testing, not production.\n\n\n## What's Changed\n* Pin the request body to one reader, and refuse a second [#1033] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1322\n* Measure what refusing an unreadable role claim would cost [#1053] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1323\n* Measure and gate branch coverage on the security surface by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1325\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.30...5.0.0-JF12-beta.45",
-        "checksum": "5e339a1d158dccc11f5d5b539cc985f4",
-        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-beta.45/community-sso-for-jellyfin_5.0.0.45.zip",
-        "targetAbi": "12.0.0.0",
-        "timestamp": "2026-08-11T05:20:23Z",
-        "version": "5.0.0.45"
       },
       {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.51).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Prove the login-door writes are saved where they are written by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1451\n* Exercise the start-up pass that seals password-less SSO accounts by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1452\n* Point the README and the config page at the config-as-code reference by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1455\n* Say what the sealing pass's population is instead of naming a version range by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1456\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.50...4.3.0-beta.51",
