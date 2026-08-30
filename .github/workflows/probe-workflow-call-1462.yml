@@ -2,9 +2,11 @@
 # local run can reach: whether `uses: ./.github/workflows/e2e-login.yml` with a `providers` input resolves
 # at all, and whether the harness runs under the permissions a calling job grants it. publish-beta.yml is
 # the real caller and cannot be exercised without publishing a release, so this stands in for it on the
-# pull-request route. It calls with `providers: canonical`, so the probe costs one harness run rather than
-# seven - the seven-entry arm of the selector is proven separately, by running the `select` step's script
-# over each of its inputs.
+# pull-request route, with the same input the publish will pass. `providers: canonical` was tried first
+# and proved the route resolves, but it selects the same one stack a missing input would, so it could not
+# tell the input apart from the default. `providers: all` can: seven jobs mean the value crossed the call
+# boundary, and it is the first time this repository has run the cross-provider pass through the route a
+# publish will take.
 #
 # Landing the call route unexercised would repeat the defect #1462 is about: a gate nothing has ever run.
 name: Probe - the harness is reachable by workflow_call (#1462)
@@ -27,4 +29,4 @@ jobs:
       contents: read
     uses: ./.github/workflows/e2e-login.yml
     with:
-      providers: canonical
+      providers: all
