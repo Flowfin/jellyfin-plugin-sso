@@ -12,6 +12,14 @@ name: Publish Release
 # `-stable` tags, never the beta prereleases (`X.Y.Z-beta.*`). The upload job CREATES
 # and publishes the release from the tag in CI - never minted out of band, because a
 # deleted immutable release permanently burns its tag.
+#
+# NO PROVIDER MATRIX HERE, DELIBERATELY, AND IT IS A PROMISE RATHER THAN A GATE (#1464). #1462 wired the
+# seven-stack harness into publish-beta.yml and #1464 into publish-jf12-beta.yml, both of which publish
+# daily. This leg has published nothing since #954 retired the stable channel - `manifest-release` is
+# empty and the first `-stable` tag re-opens it - so wiring a gate in now would add a job no run has
+# ever started, which is the defect #1462 was about rather than a fix for it. It is wired when the
+# stable channel re-opens, in the same change that cuts the first stable tag, and this sentence is the
+# whole of the coverage this leg has until then.
 on:
   push:
     tags:

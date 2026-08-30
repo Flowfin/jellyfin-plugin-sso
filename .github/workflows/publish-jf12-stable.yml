@@ -17,6 +17,11 @@ name: Publish JF12 Stable
 # (ignorePrereleases: true) - the same stable pages branch publish.yml writes. Each release ships its own
 # build.yaml, so Jellyfin filters client-side by targetAbi: a 12.0 server installs the 5.0 build, a 10.11
 # server the 4.x build, from one stable manifest - no separate JF12 stable manifest is needed.
+#
+# NO PROVIDER MATRIX HERE, DELIBERATELY, FOR THE SAME REASON AS publish.yml (#1464). The two beta legs
+# are gated on the seven-stack harness because they publish daily; both stable legs write the empty
+# `manifest-release` branch and have published nothing since #954, so a gate added here would be one no
+# run has ever started. It is wired in the change that cuts the first stable tag of this line.
 on:
   push:
     tags:
