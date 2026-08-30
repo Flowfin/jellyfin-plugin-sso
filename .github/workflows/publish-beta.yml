@@ -75,9 +75,34 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
         fi
 
+  # The full seven-stack provider matrix, on the exact commit this beta ships (#1462). e2e-login.yml
+  # declared a `release:` trigger and its header called the cross-provider pass release-gate evidence;
+  # that trigger had never once started a run, because the release below is published with this run's
+  # own automation credential and an event raised with that credential starts no further workflow run.
+  # So five of the seven stacks were exercised only when somebody remembered to dispatch them by hand.
+  # Calling the harness as a job runs it INSIDE this run - no credential to create - and it builds the
+  # plugin from this same commit, so the pass is bound to the code being published rather than to
+  # whatever main held when a cron last fired.
+  #
+  # AHEAD of the build job, so a red stack stops the publish rather than documenting it afterwards. It
+  # is gated on the same output as the build, so an unchanged main still costs nothing. The price is a
+  # slower beta publish; that is what "verified on this build" costs, and it is the trade the issue took.
+  provider-matrix:
+    name: Provider matrix
+    needs: gate
+    if: needs.gate.outputs.changed == 'true'
+    # A called workflow can hold no more than the calling job grants it. e2e-login.yml denies everything
+    # at its top level and its harness job asks for `contents: read` to check out and build the plugin,
+    # so that is granted here and nothing else is - this job publishes nothing.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-login.yml
+    with:
+      providers: all
+
   build:
     name: Build & publish beta
-    needs: gate
+    needs: [gate, provider-matrix]
     if: needs.gate.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -229,8 +254,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish the draft release as the repo's Latest release
       # Seal the draft - assets already attached - into an immutable published release
-      # (fires release.published) AND mark it the repo's Latest release: the newest JF11
-      # (10.11) beta is always the headline build. A draft has no git tag yet, so it is
+      # (which raises release.published, an EVENT that starts no workflow run, because this
+      # step authenticates as the repository's own automation - #1462, which is why the
+      # provider matrix is called as a job above rather than hung off that event) AND mark
+      # it the repo's Latest release: the newest JF11 (10.11) beta is always the headline
+      # build. A draft has no git tag yet, so it is
       # published by its release id from the step above, not by tag name. The JF12 leg
       # publishes as a prerelease with no make_latest, so it never competes for Latest.
       # draft is a boolean (-F, typed); make_latest is a string enum "true"|"false"|"legacy"

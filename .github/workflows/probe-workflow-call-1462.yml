@@ -1,0 +1,30 @@
+# TEMPORARY, and removed before this branch merges. It executes the one thing #1462's change adds that no
+# local run can reach: whether `uses: ./.github/workflows/e2e-login.yml` with a `providers` input resolves
+# at all, and whether the harness runs under the permissions a calling job grants it. publish-beta.yml is
+# the real caller and cannot be exercised without publishing a release, so this stands in for it on the
+# pull-request route. It calls with `providers: canonical`, so the probe costs one harness run rather than
+# seven - the seven-entry arm of the selector is proven separately, by running the `select` step's script
+# over each of its inputs.
+#
+# Landing the call route unexercised would repeat the defect #1462 is about: a gate nothing has ever run.
+name: Probe - the harness is reachable by workflow_call (#1462)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/e2e-login.yml"
+      - ".github/workflows/publish-beta.yml"
+      - ".github/workflows/probe-workflow-call-1462.yml"
+
+# Deny-all at the workflow level; the calling job grants the called workflow exactly what publish-beta.yml
+# grants it and nothing else.
+permissions: {}
+
+jobs:
+  call:
+    name: Call the harness the way publish-beta.yml does
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-login.yml
+    with:
+      providers: canonical

@@ -3,13 +3,15 @@
 # session token is minted and usable, that the role gate refuses a role-less user, and that a replayed
 # one-time state/token is refused. It supplements - never replaces - the manual Release-QA checklist.
 #
-# Provider-matrix policy (#919): a PR touching the harness, the nightly run, and a DEFAULT manual dispatch
-# exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger - the PR run already
-# validated it, and paying the ~10-min Docker run again on the merge commit is wasteful). The FULL provider
-# matrix (one entry per shipped test/e2e/<provider>/ harness) runs at a release and a beta-release - so the
-# cross-provider pass is release-gate evidence, not a per-commit cost - and on a manual dispatch with
-# `providers: all`, which is how a newly added harness is proven green BEFORE a release. This runs on
-# the GitHub runners' working Docker; it also runs locally once Docker is restored (see test/e2e/README.md).
+# Provider-matrix policy (#919/#1462): a PR touching the harness, the nightly run, and a DEFAULT manual
+# dispatch exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger - the PR
+# run already validated it, and paying the ~10-min Docker run again on the merge commit is wasteful). The
+# FULL provider matrix (one entry per shipped test/e2e/<provider>/ harness) is release-gate evidence rather
+# than a per-commit cost, and it is reached through `workflow_call`: publish-beta.yml calls this workflow as
+# a job at the commit it is about to ship, so a beta is published only behind a green seven-stack pass. A
+# manual dispatch with `providers: all` is the other way in, and is how a newly added harness is proven
+# green before a publish. This runs on the GitHub runners' working Docker; it also runs locally once Docker
+# is restored (see test/e2e/README.md).
 name: E2E Login Harness
 
 on:
@@ -23,12 +25,20 @@ on:
     paths:
       - "test/e2e/**"
       - ".github/workflows/e2e-login.yml"
-  # The FULL provider matrix runs on a release AND a beta-release (a prerelease), never on a routine push.
-  release:
-    types: [published, prereleased]
+  # Called as a job by publish-beta.yml, at the commit it is about to publish (#1462). This is the only
+  # route that ties a full-matrix pass to a shipped artifact, and it replaces a `release:` trigger that
+  # stood here until 2026-08-30 and had never once started a run: the publish authenticates as the
+  # repository's own automation, and an event raised with that credential starts no further workflow run.
+  # It was removed rather than left promising a gate it could not fire.
+  workflow_call:
+    inputs:
+      providers:
+        description: "Which provider harnesses to run"
+        type: string
+        default: canonical
   # On-demand from any branch. `providers: all` runs the FULL matrix, which is the only way to exercise a
-  # newly-added provider harness before a release actually happens - without it a new entry's first-ever run
-  # would be on release day.
+  # newly-added provider harness before a publish actually happens - without it a new entry's first-ever
+  # run would be on publish day.
   workflow_dispatch:
     inputs:
       providers:
@@ -42,17 +52,23 @@ on:
 # Deny-all at the workflow level; the e2e job reads the repo to build the plugin and needs nothing else.
 permissions: {}
 
-# Cancel a superseded run on the same ref - this is a test harness, not a publish, so cancelling an
-# obsolete run is safe.
+# Cancel a superseded run on the same ref, but ONLY on the pull-request route, where a later push really
+# does supersede the run before it. Every other route produces a result something is waiting on: the
+# nightly, a manual dispatch, and - since #1462 - the seven-stack pass a beta publish is now gated on.
+# Whether a CALLED workflow's `github.workflow` resolves to this file's name or to the caller's decides
+# whether the publish's matrix shares this group with the 03:17 nightly, and those windows can meet
+# (nightly-betas.yml dispatches the publish at 04:00 and this job's timeout is 30 minutes). Nothing here
+# depends on that resolution: outside a pull request nothing cancels anything, so the worst case is a
+# queued run rather than a killed publish gate.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Choose which providers to run: the FULL matrix on a release/beta-release OR a manual dispatch with
-  # `providers: all`; every other trigger (a PR touching the harness, the nightly schedule, a default
-  # dispatch) runs just the one canonical Keycloak harness. A provider joins that matrix by adding one
-  # { name, compose } object below, at its
+  # Choose which providers to run: the FULL matrix whenever the caller asked for `providers: all` - the
+  # publish-beta job that calls this workflow, or a manual dispatch; every other trigger (a PR touching
+  # the harness, the nightly schedule, a default dispatch) runs just the one canonical Keycloak harness.
+  # A provider joins that matrix by adding one { name, compose } object below, at its
   # test/e2e/<provider>/ compose file - the matrix grows one line per issue (#919).
   select:
     runs-on: ubuntu-latest
@@ -60,15 +76,18 @@ jobs:
       matrix: ${{ steps.pick.outputs.matrix }}
       # Whether this is a full-matrix run. Published separately from the matrix itself because a step
       # can be gated on the TRIGGER without being gated on which provider it is looking at, and the
-      # release-only phases below need exactly that (#1140).
+      # full-matrix-only phases below need exactly that (#1140).
       full: ${{ steps.pick.outputs.full }}
     steps:
       - id: pick
         env:
-          IS_RELEASE: ${{ github.event_name == 'release' }}
-          # A manual dispatch may opt into the full matrix; the input is a constrained choice, and both values
-          # reach the shell only through env (never interpolated into the script body).
-          DISPATCH_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.providers == 'all' }}
+          # A manual dispatch or a reusable-workflow call may opt into the full matrix. The input is a
+          # constrained choice on the dispatch side, and its value reaches the shell only through env
+          # (never interpolated into the script body). `github.event_name` cannot stand in for it: inside
+          # a called workflow that context reports the CALLER's event, so it is never `workflow_call`, and
+          # on the publish route it is whatever started publish-beta.yml. The input is the only signal, and
+          # it is empty on the schedule and pull-request routes, which is the canonical-only default.
+          INPUT_ALL: ${{ inputs.providers == 'all' }}
         run: |
           set -euo pipefail
           keycloak='{"name":"Keycloak (OIDC + SAML)","compose":"test/e2e/docker-compose.yml"}'
@@ -78,9 +97,10 @@ jobs:
           zitadel='{"name":"Zitadel (OIDC)","compose":"test/e2e/zitadel/docker-compose.yml"}'
           pocketid='{"name":"Pocket ID (OIDC)","compose":"test/e2e/pocket-id/docker-compose.yml"}'
           kanidm='{"name":"Kanidm (OIDC)","compose":"test/e2e/kanidm/docker-compose.yml"}'
-          # The full provider matrix (release/beta only). Every self-hostable provider in the README table
-          # now has a harness here; adding one is a further object plus its test/e2e/<provider>/ directory.
-          if [ "$IS_RELEASE" = "true" ] || [ "$DISPATCH_ALL" = "true" ]; then
+          # The full provider matrix (the publish call and `providers: all` only). Every self-hostable
+          # provider in the README table now has a harness here; adding one is a further object plus its
+          # test/e2e/<provider>/ directory.
+          if [ "$INPUT_ALL" = "true" ]; then
             include="[$keycloak,$authelia,$authentik,$dex,$zitadel,$pocketid,$kanidm]"
             full=true
           else
@@ -218,7 +238,7 @@ jobs:
         # away, because the harness exits non-zero on any failed login and its exit code alone cannot
         # tell a fail-closed refusal from a stack that broke for an unrelated reason.
         #
-        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
         # reasons as the phase below: it costs extra login passes, and it is the one stack that can be
         # re-run in place (the seeds behind Zitadel, Pocket ID and Kanidm are not idempotent). Runs on
         # a green harness only, so a real login failure surfaces as the harness failure.
@@ -240,7 +260,7 @@ jobs:
         # pass and nothing re-checked it since, so a migration regression would only have surfaced on a
         # real upgrade.
         #
-        # Release and `providers: all` only, and only on the canonical Keycloak stack: it costs two extra
+        # Full-matrix runs only, and only on the canonical Keycloak stack: it costs two extra
         # login passes, and it is the one stack that can be re-run in place (the seeds behind Zitadel,
         # Pocket ID and Kanidm are not idempotent) and whose expected client secret the compose file
         # states. Runs on a green harness only, so a real login failure surfaces as the harness failure.
@@ -261,7 +281,7 @@ jobs:
         # and is not going to start, so there is nothing there to assert against.
         #
         # The proxy sits behind a compose profile and this step is the only thing that starts it, so
-        # the per-PR harness run is unchanged. Release and `providers: all` only, and only on the
+        # the per-PR harness run is unchanged. Full-matrix runs only, and only on the
         # canonical Keycloak stack, for the same reasons as the phases above: it costs extra login
         # passes, and it is the one stack that can be re-run in place. Runs on a green harness only,
         # so a real login failure surfaces as the harness failure.
@@ -282,7 +302,7 @@ jobs:
         # control is what makes the refusal afterwards attributable to the pass rather than to the
         # account's routing, which refuses the same login for a different reason the whole time.
         #
-        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
         # reasons as the phases above: it costs an extra login pass, and it is the one stack that can
         # be re-run in place. Runs on a green harness only, so a real login failure surfaces as the
         # harness failure.
@@ -307,7 +327,7 @@ jobs:
         # would be reading a realm this one has written to. Nothing here depends on the two phases
         # above: the order is about what this one leaves behind, not about what it needs.
         #
-        # Release and `providers: all` only, and only on the canonical Keycloak stack, for the same
+        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
         # reasons as the two phases above, plus one of its own: it is the only entry in the matrix
         # whose identity provider exposes an admin API this phase can rotate a signing key through.
         # Runs on a green harness only, so a real login failure surfaces as the harness failure.
