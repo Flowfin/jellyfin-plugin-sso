@@ -8,7 +8,7 @@ the manual `Release-QA-Checklist`.
 It runs in CI via [`.github/workflows/e2e-login.yml`](../../.github/workflows/e2e-login.yml) and can
 be run locally with one command once you have built the plugin.
 
-## Provider matrix (release/beta, or an explicit dispatch)
+## Provider matrix (the beta publish, or an explicit dispatch)
 
 Keycloak is the **canonical** harness and the only one that runs on a pull request touching the harness,
 on the nightly schedule, and on a **default** manual dispatch (there is deliberately no `push` trigger -
@@ -18,12 +18,21 @@ the PR run already validated it). Additional self-hostable identity providers ge
 (`test/e2e/zitadel/`, OIDC), **Pocket ID** (`test/e2e/pocket-id/`, OIDC) and **Kanidm**
 (`test/e2e/kanidm/`, OIDC) are all implemented - every self-hostable provider in the README table now has
 one. The programme is tracked in
-[#919](https://github.com/Flowfin/jellyfin-plugin-sso/issues/919). The **full provider matrix runs at a
-release and a beta-release** - never on a routine merge, so the cross-provider pass is release-gate
-evidence, not a per-commit cost - **and on a manual dispatch with `providers: all`**, which is how a newly
-added harness is proven green before a release rather than on release day. A provider joins that matrix by
-adding one `{ name, compose }` object to the list in the workflow's `select` job, pointing at its
+[#919](https://github.com/Flowfin/jellyfin-plugin-sso/issues/919). The **full provider matrix runs on the
+beta publish** - never on a routine merge, so the cross-provider pass is release-gate evidence, not a
+per-commit cost - **and on a manual dispatch with `providers: all`**, which is how a newly added harness is
+proven green before a publish rather than on publish day. A provider joins that matrix by adding one
+`{ name, compose }` object to the list in the workflow's `select` job, pointing at its
 `test/e2e/<provider>/docker-compose.yml`.
+
+The workflow reaches the beta publish through `workflow_call`:
+[`publish-beta.yml`](../../.github/workflows/publish-beta.yml) calls it as a job at the commit it is about
+to ship, with `providers: all`, and publishes only if that pass is green
+([#1462](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1462)). It used to hang off a `release:`
+trigger, which never once started a run: the release is published with the workflow run's own automation
+credential, and an event raised with that credential starts no further workflow run. That trigger has been
+removed rather than left promising a gate it could not fire.
+
 Cloud providers (Google, Entra ID) cannot run in ephemeral CI, so they are verified manually and marked as
 such in the README provider table.
 
@@ -218,8 +227,8 @@ docker compose -f test/e2e/docker-compose.yml up \
 test/e2e/phases/legacy-secret-migration.sh
 ```
 
-A green run prints `LEGACY SECRET MIGRATION PHASE PASSED`. In CI it runs on a release, a beta
-release, or a `providers: all` dispatch, on the Keycloak entry only.
+A green run prints `LEGACY SECRET MIGRATION PHASE PASSED`. In CI it runs on the beta publish or a
+`providers: all` dispatch, on the Keycloak entry only.
 
 ### Losing the at-rest key fails closed
 
