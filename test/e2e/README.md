@@ -179,6 +179,44 @@ docker compose -f test/e2e/docker-compose.yml down -v
 A green run prints `ALL E2E CHECKS PASSED`. In CI, container logs are dumped automatically on
 failure.
 
+### Running the JF12 generation instead (`JELLYFIN_IMAGE_TAG`)
+
+The steps above build the **net9.0** package and boot a Jellyfin **10.11** server, which is the
+artifact `publish-beta.yml` ships. The other beta line ships the **net10.0** package at
+`targetAbi 12.0.0.0`, and that one will not load into a 10.11 server at all. To exercise it, three
+things change together - the target framework, the build metadata, and the server image:
+
+```sh
+# 1. Package the net10 build from the JF12 metadata. jprm reads build.yaml, so swap it first
+#    (restore it afterwards - the committed build.yaml is the JF10.11 metadata).
+cp build.yaml build.yaml.bak && cp build-jf12.yaml build.yaml
+plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net10.0)
+mv build.yaml.bak build.yaml
+
+# 2. Unpack as in step 2 above, into a WIPED plugins directory - a 10.11 drop left behind is a
+#    second copy of the same plugin GUID and the server picks one of them.
+rm -rf test/e2e/jellyfin/config/plugins/SSO-Auth
+mkdir -p test/e2e/jellyfin/config/plugins/SSO-Auth
+unzip -o "$plugin_zip" -d test/e2e/jellyfin/config/plugins/SSO-Auth
+chmod -R 0777 test/e2e/jellyfin
+
+# 3. Boot the same stack against a 12.0 server. Every compose file in this directory takes the tag
+#    from this variable and defaults to the 10.11 server when it is unset, so nothing above changes.
+JELLYFIN_IMAGE_TAG=12.0-rc2 docker compose -f test/e2e/docker-compose.yml up \
+  --abort-on-container-exit --exit-code-from harness
+```
+
+The tag is **12.0-rc2 rather than the newest 12.0 image**, because it has to match the Jellyfin
+version the plugin compiles against - .NET will not bind an assembly reference down, so a server
+older than the referenced assemblies refuses to load the plugin. The pin lives in one place:
+
+```sh
+git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
+```
+
+In CI this is the `generation` input on the `E2E Login Harness` workflow (`jf10.11` or `jf12`),
+which derives all three values together rather than leaving them to be set consistently by hand.
+
 ### A second pass over the same server (`RELOGIN_ONLY`)
 
 Step 3 configures everything it then asserts, which overwrites exactly the state a mutation test
