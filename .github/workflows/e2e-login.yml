@@ -7,11 +7,22 @@
 # dispatch exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger - the PR
 # run already validated it, and paying the ~10-min Docker run again on the merge commit is wasteful). The
 # FULL provider matrix (one entry per shipped test/e2e/<provider>/ harness) is release-gate evidence rather
-# than a per-commit cost, and it is reached through `workflow_call`: publish-beta.yml calls this workflow as
-# a job at the commit it is about to ship, so a beta is published only behind a green seven-stack pass. A
+# than a per-commit cost, and it is reached through `workflow_call`: publish-beta.yml (JF10.11, #1462) and
+# publish-jf12-beta.yml (JF12, #1464) each call this workflow as a job at the commit they are about to
+# ship, so neither beta is published except behind a green seven-stack pass. A
 # manual dispatch with `providers: all` is the other way in, and is how a newly added harness is proven
 # green before a publish. This runs on the GitHub runners' working Docker; it also runs locally once Docker
 # is restored (see test/e2e/README.md).
+#
+# WHAT A PASS HERE IS ABOUT, and it is one target framework rather than both (#1464). The build step
+# below packages `dotnet-target: net9.0` and every test/e2e/*/docker-compose.yml boots
+# `jellyfin/jellyfin:10.11.11`, so the artifact this harness installs is the JF10.11 one. For the
+# JF10.11 caller that is the shipped artifact exactly; for the JF12 caller it is not - that release
+# carries the net10.0 build at targetAbi 12.0.0.0, which will not load into a 10.11 server at all, and
+# what its pass covers is the provider-facing source of the one multi-target tree rather than its
+# bytes. The caller carries that disclosure at the job it gates; this note is the same bound stated
+# where the two pins live, so a later change to either does not have to be traced back from there.
+# Running the matrix against a JF12 server is #1466.
 name: E2E Login Harness
 
 on:

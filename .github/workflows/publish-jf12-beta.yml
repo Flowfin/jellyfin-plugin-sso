@@ -78,9 +78,60 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
         fi
 
+  # The full seven-stack provider matrix, on the exact commit this beta ships (#1464). Until this job
+  # existed the JF12 line published daily behind no cross-provider evidence at all: #1462 wired the
+  # matrix into the JF10.11 leg and left this one covered only by the `release:` trigger it removed,
+  # which had never once started a run. Calling the harness as a job runs it INSIDE this run, so the
+  # pass belongs to the commit being published rather than to whatever main held when a cron last fired.
+  #
+  # WHAT THIS PASS IS NOT EVIDENCE ABOUT, stated here because the job name cannot carry it. The harness
+  # builds and installs a net9.0 package into a Jellyfin 10.11.11 server:
+  #
+  #     git grep -c 'dotnet-target: "net9[.]0"' -- .github/workflows/e2e-login.yml
+  #     .github/workflows/e2e-login.yml:1
+  #     git grep -c 'dotnet-target: "net10[.]0"' -- .github/workflows/publish-jf12-beta.yml
+  #     .github/workflows/publish-jf12-beta.yml:1
+  #     grep -rln 'image: jellyfin/jellyfin:10.11.11' test/e2e/ | wc -l
+  #     7
+  #
+  # while the release this job goes on to publish is the net10.0 build at targetAbi 12.0.0.0 that
+  # build-jf12.yaml declares. So the seven stacks exercise the provider-facing SOURCE at this commit -
+  # one multi-target tree since #954 - and not the bytes in the artifact. What the split can break on
+  # its own is outside the pass: the two build metadata files ship different closures, and a packaged
+  # load failure of the #181/#590 class is precisely what a pass on the other target framework cannot
+  # see.
+  #
+  # WHY THAT IS ACCEPTED HERE rather than parameterising the harness. A net10.0 package at ABI 12.0
+  # will not load into the 10.11.11 server every compose file pins, so pointing the harness at the JF12
+  # target means standing up a JF12 server too. One exists to try, read 2026-08-30:
+  #
+  #     curl -sS 'https://hub.docker.com/v2/repositories/jellyfin/jellyfin/tags?page_size=100&ordering=last_updated' \
+  #       | grep -o '12[.]0-rc6' | head -1
+  #     12.0-rc6
+  #
+  # That is a harness of its own - seven compose files, a second build-metadata swap, and a driver
+  # nobody has yet watched pass against a 12.0 server - and gating the daily JF12 publish on it while
+  # it is unproven would stop this line rather than gate it. #1466 carries that work. Until it lands
+  # the choice is between this pass, disclosed, and no cross-provider pass at all.
+  #
+  # AHEAD of the build job, so a red stack stops the publish instead of documenting it afterwards, and
+  # gated on the same output as the build, so an unchanged main still costs nothing.
+  provider-matrix:
+    name: Provider matrix (net9.0 build - see the note above)
+    needs: gate
+    if: needs.gate.outputs.changed == 'true'
+    # A called workflow can hold no more than the calling job grants it. e2e-login.yml denies everything
+    # at its top level and its harness job asks for `contents: read` to check out and build the plugin,
+    # so that is granted here and nothing else is - this job publishes nothing.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-login.yml
+    with:
+      providers: all
+
   build:
     name: Build & publish JF12 beta
-    needs: gate
+    needs: [gate, provider-matrix]
     if: needs.gate.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
