@@ -1259,20 +1259,19 @@ post_saml_response() {
   fi
 }
 
+# jf_auth_status USERNAME PASSWORD -> the HTTP status of a password login attempt. Uses the same
+# X-Emby-Authorization idiom as the admin authenticate in phase 1; -o keeps the body out of the way.
+jf_auth_status() {
+  curl -sS -o /tmp/authbyname.out -w '%{http_code}' -X POST "$JELLYFIN/Users/AuthenticateByName" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: $EMBY_AUTH" \
+    -d "{\"Username\":\"$1\",\"Pw\":\"$2\"}"
+}
+
 # --------------------------------------------------------------------------------------------------
 # Extended phases (#928 U5) - gated by EXTENDED_PHASES (the canonical Keycloak stack turns them on).
 # --------------------------------------------------------------------------------------------------
 if [ "$EXTENDED_PHASES" = "true" ]; then
-
-  # jf_auth_status USERNAME PASSWORD -> the HTTP status of a password login attempt. Uses the same
-  # X-Emby-Authorization idiom as the admin authenticate in phase 1; -o keeps the body out of the way.
-  jf_auth_status() {
-    curl -sS -o /tmp/authbyname.out -w '%{http_code}' -X POST "$JELLYFIN/Users/AuthenticateByName" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: $EMBY_AUTH" \
-      -d "{\"Username\":\"$1\",\"Pw\":\"$2\"}"
-  }
-
   # oidc_relogin_me VARPREFIX - drives a full second OIDC login for alice and echoes /Users/Me JSON.
   oidc_relogin_me() {
     r_jar="$(mktemp)"; r_hdr="$(mktemp)"
@@ -1391,46 +1390,73 @@ if [ "$EXTENDED_PHASES" = "true" ]; then
   else
     fail "SSO-only: the password user stayed locked out after disable - restoration failed"
   fi
+fi
 
-  # ------------------------------------------------------------------------------------------------
-  # Phase 6e - the manual login form is shut on an account the plugin provisioned (#1440). A Jellyfin
-  # user created with no password accepts the EMPTY password on that form, so an SSO account that got
-  # one would be reachable by anybody on the network without ever touching the identity provider.
-  #
-  # PLACED HERE ON PURPOSE, and the placement is the whole of what makes the assertion mean anything.
-  # It runs AFTER SSO-only was enabled and disabled again, at the one moment the phase above has just
-  # PROVEN that native password login works on this server: pwuser answered 200 one line up. Run
-  # while SSO-only was on, the same three refusals would be produced by the mode rather than by
-  # anything this issue is about, and the phase would pass on a build with the door wide open.
-  # ------------------------------------------------------------------------------------------------
-  log "== Extended: the manual login form is refused for the SSO-provisioned account =="
+# --------------------------------------------------------------------------------------------------
+# The manual login form is shut on the account the plugin provisioned (#1440), on EVERY provider stack
+# rather than on the canonical one alone. This assertion lived inside the EXTENDED_PHASES gate, and
+# `EXTENDED_PHASES: "true"` is set in test/e2e/docker-compose.yml and nowhere else, so the six other
+# harnesses booted a Jellyfin and never asked the question. The report that opened #1440 was made
+# against Pocket ID, which is one of the six.
+#
+# THE CONTROL IS PART OF THE PHASE, and it is what makes the two refusals below mean anything. On a
+# server where no password login works at all, alice is refused for a reason that has nothing to do
+# with this issue, and the phase would then pass on a build with the door wide open. So an account
+# with a known password is proven to log in FIRST, in the same run, immediately above the assertion.
+# Inside the extended block that control was phase 6d's pwuser, proven one line up by the restoration
+# assert; carrying an explicit control here is what keeps the meaning on the six stacks that never
+# run 6d, and it stops the assertion depending on the placement of a phase beside it.
+# --------------------------------------------------------------------------------------------------
+log "== The manual login form is refused for the SSO-provisioned account =="
+[ -n "${ALICE_ID:-}" ] || die "provisioned account: the OIDC round-trip captured no alice account id"
 
-  # Read the account's own record first, so a failure below names the STATE that produced it rather
-  # than leaving the next reader to guess between "no password stored" and "routed at a provider that
-  # accepts one". Both are visible here and they fail for different reasons.
-  ALICE_REC="$(curl -fsS "$JELLYFIN/Users/$ALICE_ID" -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"")" || ALICE_REC=""
-  # jq -r, with no // fallback on purpose: `// "?"` takes its alternative for FALSE as well as for absent,
-  # so a stored password of false and a field that is not there would print the same character. That cost a
-  # wrong reading of this very line once; an absent field prints null and a false one prints false.
-  log "alice: HasPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasPassword') HasConfiguredPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasConfiguredPassword') AuthenticationProviderId=$(printf '%s' "$ALICE_REC" | jq -r '.Policy.AuthenticationProviderId')"
+# Look first, create only when absent: /Users/New refuses a duplicate name, and a second pass over the
+# same server already holds this account. Creating it is setup rather than the thing under test.
+CTL_USER="pwcontrol"; CTL_PASS="Ctl-e2e-1!"
+CTL_ID="$(curl -fsS "$JELLYFIN/Users" \
+  -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+  | jq -r --arg n "$CTL_USER" '[.[] | select(.Name == $n) | .Id][0] // empty')" || die "provisioned account: could not list users"
+if [ -n "$CTL_ID" ]; then
+  log "Reusing the existing control user '$CTL_USER' ($CTL_ID)"
+else
+  CTL_NEW="$(curl -fsS -X POST "$JELLYFIN/Users/New" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+    -d "{\"Name\":\"$CTL_USER\",\"Password\":\"$CTL_PASS\"}")" || die "provisioned account: creating the control user failed"
+  CTL_ID="$(printf '%s' "$CTL_NEW" | jq -r '.Id // empty')"
+  [ -n "$CTL_ID" ] || die "provisioned account: /Users/New returned no user id"
+fi
 
-  EMPTY_PW_STATUS="$(jf_auth_status "alice" "")"
-  if [ "$EMPTY_PW_STATUS" != "200" ]; then
-    pass "provisioned account: the EMPTY password is refused on /Users/AuthenticateByName (HTTP $EMPTY_PW_STATUS)"
-  else
-    fail "provisioned account: the empty password MINTED A SESSION for alice - the account is reachable without the IdP"
-  fi
+# die rather than fail: a dead control leaves the assertions below unreadable rather than failed, and a
+# phase that cannot mean anything must stop instead of reporting a verdict it has not earned.
+CTL_STATUS="$(jf_auth_status "$CTL_USER" "$CTL_PASS")"
+[ "$CTL_STATUS" = "200" ] || die "provisioned account: the control account cannot log in with its own password (HTTP $CTL_STATUS) - native password login is not working on this server, so the refusals below would prove nothing"
+pass "control: a password account CAN log in on this server (HTTP 200) - the refusals below are about alice"
 
-  # The identity provider's own password is not the Jellyfin account's password either. Without this
-  # the phase would still pass on a build that copied the IdP credential onto the account, which is a
-  # different way of leaving a guessable door on it.
-  IDP_PW_STATUS="$(jf_auth_status "alice" "$PASSWORD_ALICE")"
-  if [ "$IDP_PW_STATUS" != "200" ]; then
-    pass "provisioned account: the IdP password is refused on /Users/AuthenticateByName (HTTP $IDP_PW_STATUS)"
-  else
-    fail "provisioned account: alice's IdP password MINTED A JELLYFIN SESSION through the manual form"
-  fi
+# Read the account's own record first, so a failure below names the STATE that produced it rather
+# than leaving the next reader to guess between "no password stored" and "routed at a provider that
+# accepts one". Both are visible here and they fail for different reasons.
+ALICE_REC="$(curl -fsS "$JELLYFIN/Users/$ALICE_ID" -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"")" || ALICE_REC=""
+# jq -r, with no // fallback on purpose: `// "?"` takes its alternative for FALSE as well as for absent,
+# so a stored password of false and a field that is not there would print the same character. That cost a
+# wrong reading of this very line once; an absent field prints null and a false one prints false.
+log "alice: HasPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasPassword') HasConfiguredPassword=$(printf '%s' "$ALICE_REC" | jq -r '.HasConfiguredPassword') AuthenticationProviderId=$(printf '%s' "$ALICE_REC" | jq -r '.Policy.AuthenticationProviderId')"
 
+EMPTY_PW_STATUS="$(jf_auth_status "alice" "")"
+if [ "$EMPTY_PW_STATUS" != "200" ]; then
+  pass "provisioned account: the EMPTY password is refused on /Users/AuthenticateByName (HTTP $EMPTY_PW_STATUS)"
+else
+  fail "provisioned account: the empty password MINTED A SESSION for alice - the account is reachable without the IdP"
+fi
+
+# The identity provider's own password is not the Jellyfin account's password either. Without this
+# the phase would still pass on a build that copied the IdP credential onto the account, which is a
+# different way of leaving a guessable door on it.
+IDP_PW_STATUS="$(jf_auth_status "alice" "$PASSWORD_ALICE")"
+if [ "$IDP_PW_STATUS" != "200" ]; then
+  pass "provisioned account: the IdP password is refused on /Users/AuthenticateByName (HTTP $IDP_PW_STATUS)"
+else
+  fail "provisioned account: alice's IdP password MINTED A JELLYFIN SESSION through the manual form"
 fi
 
 # --------------------------------------------------------------------------------------------------
