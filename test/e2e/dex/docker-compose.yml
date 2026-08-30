@@ -26,7 +26,10 @@ services:
 
   jellyfin:
     # Same server the Keycloak harness pins (see ../docker-compose.yml for the version-bind rationale).
-    image: jellyfin/jellyfin:10.11.11
+    # The tag is the JF10.11 server by default and is overridden to a 12.0 server when the harness
+    # runs the JF12 generation (#1466). The default keeps a bare `docker compose up` on this file
+    # exactly as it was, so a local run needs no new variable.
+    image: jellyfin/jellyfin:${JELLYFIN_IMAGE_TAG:-10.11.11}
     environment:
       JELLYFIN_CACHE_DIR: /cache
     volumes:

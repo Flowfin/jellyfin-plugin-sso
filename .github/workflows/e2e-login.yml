@@ -47,6 +47,15 @@ on:
         description: "Which provider harnesses to run"
         type: string
         default: canonical
+      generation:
+        # Which Jellyfin generation the harness builds and boots (#1466). `jf10.11` packages the
+        # net9.0 build and boots a 10.11 server - the artifact publish-beta.yml ships. `jf12`
+        # packages the net10.0 build from build-jf12.yaml and boots a 12.0 server - the artifact
+        # publish-jf12-beta.yml ships. The default is jf10.11, so every existing caller and every
+        # other trigger keeps exactly the stack it had.
+        description: "Which Jellyfin generation to build and boot: jf10.11 or jf12"
+        type: string
+        default: jf10.11
   # On-demand from any branch. `providers: all` runs the FULL matrix, which is the only way to exercise a
   # newly-added provider harness before a publish actually happens - without it a new entry's first-ever
   # run would be on publish day.
@@ -59,6 +68,13 @@ on:
           - canonical
           - all
         default: canonical
+      generation:
+        description: "Which Jellyfin generation to build and boot"
+        type: choice
+        options:
+          - jf10.11
+          - jf12
+        default: jf10.11
 
 # Deny-all at the workflow level; the e2e job reads the repo to build the plugin and needs nothing else.
 permissions: {}
@@ -89,7 +105,53 @@ jobs:
       # can be gated on the TRIGGER without being gated on which provider it is looking at, and the
       # full-matrix-only phases below need exactly that (#1140).
       full: ${{ steps.pick.outputs.full }}
+      # The four facts the generation decides (#1466), derived once here rather than re-branched at
+      # every step that needs one.
+      dotnet_target: ${{ steps.gen.outputs.dotnet_target }}
+      build_metadata: ${{ steps.gen.outputs.build_metadata }}
+      jellyfin_image_tag: ${{ steps.gen.outputs.jellyfin_image_tag }}
+      dotnet_sdks: ${{ steps.gen.outputs.dotnet_sdks }}
     steps:
+      - id: gen
+        env:
+          # Handled exactly like INPUT_ALL below: the value reaches the shell only through env, never
+          # interpolated into the script body, and it is empty on the schedule and pull-request
+          # routes - which is the jf10.11 default rather than a missing answer.
+          INPUT_GENERATION: ${{ inputs.generation }}
+        run: |
+          set -euo pipefail
+          # THE SERVER TAG IS PINNED TO THE VERSION THE PLUGIN COMPILES AGAINST, for the reason the
+          # canonical compose file gives at its own image line: .NET will not bind an assembly
+          # reference DOWN, so a server older than the referenced Jellyfin assemblies refuses to load
+          # the plugin. SSO-Auth.csproj pins 12.0.0-rc2 for net10.0, so the tag here is 12.0-rc2 and
+          # deliberately not the newest 12.0 image; moving one without the other reintroduces exactly
+          # the mismatch that pin exists to prevent.
+          #
+          #     git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
+          #
+          # Anything other than the literal jf12 - including the empty value the schedule and
+          # pull-request routes carry - is jf10.11. An unrecognised value is the DEFAULT stack rather
+          # than a failure, because the alternative is a typo in a caller silently publishing behind a
+          # matrix that never ran.
+          if [ "${INPUT_GENERATION:-}" = "jf12" ]; then
+            target=net10.0; metadata=build-jf12.yaml; image=12.0-rc2; needs_net10=yes
+          else
+            target=net9.0; metadata=build.yaml; image=10.11.11; needs_net10=no
+          fi
+          echo "generation ${INPUT_GENERATION:-(unset)} resolves to: $target, $metadata, jellyfin:$image"
+          echo "dotnet_target=$target" >> "$GITHUB_OUTPUT"
+          echo "build_metadata=$metadata" >> "$GITHUB_OUTPUT"
+          echo "jellyfin_image_tag=$image" >> "$GITHUB_OUTPUT"
+          # setup-dotnet takes one version per line, so this output is multi-line and needs the
+          # delimiter form. net9.0 is installed for BOTH generations: the multi-target restore needs
+          # it even when the package being built is the net10.0 one.
+          {
+            echo "dotnet_sdks<<SDKS_EOF"
+            echo "9.0.x"
+            if [ "$needs_net10" = "yes" ]; then echo "10.0.x"; fi
+            echo "SDKS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - id: pick
         env:
           # A manual dispatch or a reusable-workflow call may opt into the full matrix. The input is a
@@ -128,6 +190,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    # Job-level, so every `docker compose` invocation in this job names the same stack. Set on only
+    # some of them, the run would bring one server up and the log read and the teardown would address
+    # another. Each compose file defaults the tag when the variable is unset, so a local
+    # `docker compose up` on any of them is unchanged (#1466).
+    env:
+      JELLYFIN_IMAGE_TAG: ${{ needs.select.outputs.jellyfin_image_tag }}
     strategy:
       # One provider's failure must not cancel the others in the release matrix.
       fail-fast: false
@@ -141,13 +209,31 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: "9.0.x"
+          # One SDK for jf10.11, both for jf12 - see the note where this output is derived.
+          dotnet-version: ${{ needs.select.outputs.dotnet_sdks }}
+
+      - name: Use the JF12 build metadata
+        # JPRM reads build.yaml, and for the jf12 generation the shipped metadata is build-jf12.yaml:
+        # version 5.0, targetAbi 12.0.0.0, framework net10.0, and a shipping closure that differs from
+        # the net9 one - on .NET 10 the SAML crypto assemblies are framework-provided and must NOT be
+        # in the zip. So the harness makes the same swap publish-jf12-beta.yml makes before its own
+        # JPRM step. Without it the harness would package net10.0 binaries under the net9 artifact
+        # list and install a zip no release ships, which is the one thing this generation exists to
+        # stop. Rewrites the runner checkout only; the committed build.yaml is untouched.
+        if: needs.select.outputs.build_metadata != 'build.yaml'
+        env:
+          METADATA: ${{ needs.select.outputs.build_metadata }}
+        run: |
+          set -euo pipefail
+          cp "$METADATA" build.yaml
+          echo "build.yaml now carries $METADATA:"
+          grep -E '^(version|targetAbi|framework):' build.yaml
 
       - name: Build packaged plugin (JPRM)
         uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
         id: jprm
         with:
-          dotnet-target: "net9.0"
+          dotnet-target: ${{ needs.select.outputs.dotnet_target }}
 
       - name: Install the packaged plugin into the Jellyfin config
         # Unpack the exact packaged zip the release ships (meta.json + the plugin and its
