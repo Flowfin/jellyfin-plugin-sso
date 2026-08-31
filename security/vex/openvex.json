@@ -2,7 +2,7 @@
   "@context": "https://openvex.dev/ns/v0.2.0",
   "@id": "https://github.com/Flowfin/jellyfin-plugin-sso/security/vex/openvex.json",
   "author": "iderex",
-  "role": "Maintainer",
+  "role": "Document Creator",
   "timestamp": "2026-08-26T00:00:00Z",
   "version": 2,
   "statements": []

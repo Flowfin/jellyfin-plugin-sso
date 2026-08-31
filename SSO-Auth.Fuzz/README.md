@@ -70,11 +70,11 @@ value is the fuzzing itself, which the scheduled job delivers regardless of whet
 
 ## Feasibility: local Windows vs CI Linux (honest)
 
-- The **managed harness compiles cross-platform** - it builds cleanly on the maintainer's Windows box
+- The **managed harness compiles cross-platform** - it builds cleanly on my Windows box
   (validated in Debug and Release under `--warnaserror`), so it cannot silently bitrot when touched.
 - **Actual fuzzing is Linux-only.** The `sharpfuzz` instrumentation CLI and the libFuzzer runtime are
-  Linux-oriented; a coverage-guided run on Windows is impractical. So the _run_ lives in CI, never on the
-  maintainer's machine. This is expected and is why #174 is a scheduled Linux job.
+  Linux-oriented; a coverage-guided run on Windows is impractical. So the _run_ lives in CI, never on my
+  machine. This is expected and is why #174 is a scheduled Linux job.
 - The project is not in the solution, so nothing that works from the solution builds it. Since #1132 the
   gating `build` job compiles it by path on every PR, which is what keeps it from bitrotting; the weekly
   job is what keeps it _running_.

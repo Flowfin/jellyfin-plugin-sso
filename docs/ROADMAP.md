@@ -140,8 +140,8 @@ recording them.
 
 | Surface                             | Decision                                                                                               | Status                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `awesome-jellyfin` list ([#1086])   | Repoint the existing entry rather than add a second one beside it, as a pull request against that list | drafted, awaiting maintainer                                                                                        |
-| Upstream Jellyfin threads ([#1087]) | One factual note that a maintained continuation exists, and not on the open native-OIDC pull request   | drafted, awaiting maintainer                                                                                        |
+| `awesome-jellyfin` list ([#1086])   | Repoint the existing entry rather than add a second one beside it, as a pull request against that list | drafted, awaiting me                                                                                                |
+| Upstream Jellyfin threads ([#1087]) | One factual note that a maintained continuation exists, and not on the open native-OIDC pull request   | drafted, awaiting me                                                                                                |
 | Archived `9p4` repository ([#1088]) | Nothing is lodged there                                                                                | not actionable - the repository is archived, so it is read-only for issues, pull requests, comments and discussions |
 
 Nothing in the table has been posted. How this plugin sits beside Jellyfin's

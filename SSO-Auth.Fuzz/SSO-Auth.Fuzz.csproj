@@ -29,7 +29,7 @@
 
   <ItemGroup>
     <!-- SharpFuzz instruments the target IL and drives it under libFuzzer. The managed package
-         compiles cross-platform (so this project builds on the maintainer's Windows box); the
+         compiles cross-platform (so this project builds on my Windows box); the
          `sharpfuzz` instrumentation CLI and libFuzzer runtime are Linux-only, so the actual fuzzing
          runs in CI. -->
     <PackageReference Include="SharpFuzz" Version="2.3.0" />
