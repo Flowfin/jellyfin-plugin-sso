@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
@@ -73,6 +74,13 @@ internal sealed class SessionParameters
     /// other role-derived grants. Optional (defaults null) so an unconfigured provider changes nothing.
     /// </summary>
     public int? MaxParentalRatingScore { get; init; }
+
+    /// <summary>
+    /// Gets the SyncPlay access level to apply at the mint (#827), or null to leave the account's existing
+    /// level untouched. Applied only when <see cref="EnableAuthorization"/> is on, exactly like the other
+    /// role-derived grants. Optional (defaults null) so an unconfigured provider changes nothing.
+    /// </summary>
+    public SyncPlayUserAccessType? SyncPlayAccess { get; init; }
 
     /// <summary>
     /// Gets the client identity (app, version, device) the session is bound to.

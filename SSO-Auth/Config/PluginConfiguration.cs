@@ -544,6 +544,33 @@ public abstract class ProviderConfigBase
     public List<ParentalRatingRoleMap>? ParentalRatingRoleMappings { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the role-to-SyncPlay-access mapping
+    /// (<see cref="SyncPlayAccessRoleMappings"/>) is applied at login (#827). Off by default (fail closed):
+    /// a deployment that does not set it sees no change on upgrade. Gated additionally by
+    /// <see cref="EnableAuthorization"/> at the mint, exactly like the other role-derived grants, so turning
+    /// RBAC off leaves the level untouched.
+    /// </summary>
+    public bool EnableSyncPlayAccessRoles { get; set; }
+
+    /// <summary>
+    /// Gets or sets the role-to-SyncPlay-access mappings applied at login when
+    /// <see cref="EnableSyncPlayAccessRoles"/> is on (#827): each entry names a SyncPlay access level and the
+    /// roles it applies to (e.g. a <c>hosts</c> group → <c>CreateAndJoinGroups</c>). SyncPlay is not a
+    /// Jellyfin permission but a three-valued level on the account, so it is not expressible through
+    /// <see cref="PermissionRoleMappings"/> however it is spelled. When a login matches several entries the
+    /// MOST RESTRICTIVE level wins, never the loosest - and "most restrictive" is declared by the resolver
+    /// rather than taken from the enum's numeric order, which runs the other way. A login that matches no
+    /// entry leaves the account's existing level untouched. A login that DOES match is authoritative,
+    /// exactly like the admin/folder/Live TV grants: the matched level is written even if it is wider than a
+    /// value an administrator set by hand, so keep the mappings in sync with the intended policy. Validated
+    /// fail-closed on save (an entry with no roles, or a level that is not a declared member of Jellyfin's
+    /// SyncPlay access enum, is rejected before it is persisted).
+    /// </summary>
+    [XmlArray("SyncPlayAccessRoleMappings")]
+    [XmlArrayItem(typeof(SyncPlayAccessRoleMap), ElementName = "SyncPlayAccessRoleMappings")]
+    public List<SyncPlayAccessRoleMap>? SyncPlayAccessRoleMappings { get; set; }
+
+    /// <summary>
     /// Gets or sets the authentication provider id written to the user's Jellyfin account
     /// (<c>User.AuthenticationProviderId</c>) after a successful SSO login. This is a Jellyfin-native
     /// user attribute; SSO logins themselves always resolve through the per-provider canonical-link maps,
@@ -1147,6 +1174,30 @@ public class ParentalRatingRoleMap
     /// <summary>
     /// Gets or sets the roles the ceiling applies to. A login holding any of these roles is capped at
     /// <see cref="Score"/>; a login holding none is left untouched.
+    /// </summary>
+    public string[]? Roles { get; set; }
+}
+
+/// <summary>
+/// Maps a set of provider roles to a SyncPlay access level (#827): a login holding any of the listed roles
+/// has its Jellyfin <c>SyncPlayAccess</c> set to <see cref="Access"/>. When a login matches several entries
+/// the MOST RESTRICTIVE level wins - which is NOT the smallest value, because Jellyfin's enum numbers the
+/// loosest level zero. The level is validated fail-closed on save (it must be a declared member of the
+/// SyncPlay access enum, spelled exactly; the role list must be non-empty).
+/// </summary>
+public class SyncPlayAccessRoleMap
+{
+    /// <summary>
+    /// Gets or sets the SyncPlay access level granted to the listed roles, as the exact name of a Jellyfin
+    /// <c>SyncPlayUserAccessType</c> member - <c>CreateAndJoinGroups</c>, <c>JoinGroups</c> or <c>None</c>.
+    /// Held as a string rather than as the enum itself so a mis-set value is reported by save-time
+    /// validation instead of failing the whole configuration document at deserialization.
+    /// </summary>
+    public string? Access { get; set; }
+
+    /// <summary>
+    /// Gets or sets the roles the level applies to. A login holding any of these roles is set to
+    /// <see cref="Access"/>; a login holding none is left untouched.
     /// </summary>
     public string[]? Roles { get; set; }
 }

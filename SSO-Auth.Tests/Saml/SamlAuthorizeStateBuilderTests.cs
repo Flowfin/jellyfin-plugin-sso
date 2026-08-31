@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -129,6 +130,43 @@ public class SamlAuthorizeStateBuilderTests
         var result = SamlAuthorizeStateBuilder.Build(new List<string> { "kids" }, config);
 
         Assert.Null(result.MaxParentalRatingScore);
+    }
+
+    [Fact]
+    public void SyncPlayAccess_MatchedRole_CarriesTheMostRestrictiveLevelOnTheState()
+    {
+        // #827 wiring on the SAML side: the role→SyncPlay level is carried on the derived state, and the
+        // most restrictive matched level wins - which is the LARGER enum value, not the smaller one.
+        var config = Config(c =>
+        {
+            c.EnableSyncPlayAccessRoles = true;
+            c.SyncPlayAccessRoleMappings = new List<SyncPlayAccessRoleMap>
+            {
+                new SyncPlayAccessRoleMap { Access = "CreateAndJoinGroups", Roles = new[] { "hosts" } },
+                new SyncPlayAccessRoleMap { Access = "JoinGroups", Roles = new[] { "guests" } },
+            };
+        });
+
+        var result = SamlAuthorizeStateBuilder.Build(new List<string> { "hosts", "guests" }, config);
+
+        Assert.Equal(SyncPlayUserAccessType.JoinGroups, result.SyncPlayAccess);
+    }
+
+    [Fact]
+    public void SyncPlayAccess_FeatureOff_LeavesTheLevelNull()
+    {
+        var config = Config(c =>
+        {
+            c.EnableSyncPlayAccessRoles = false;
+            c.SyncPlayAccessRoleMappings = new List<SyncPlayAccessRoleMap>
+            {
+                new SyncPlayAccessRoleMap { Access = "None", Roles = new[] { "guests" } },
+            };
+        });
+
+        var result = SamlAuthorizeStateBuilder.Build(new List<string> { "guests" }, config);
+
+        Assert.Null(result.SyncPlayAccess);
     }
 
     [Fact]

@@ -119,6 +119,15 @@ internal sealed class SessionMinter
             {
                 user.MaxParentalRatingScore = parameters.MaxParentalRatingScore;
             }
+
+            // SyncPlay access level (#827): applied only when the login resolved one (a role matched a
+            // configured mapping); a null leaves the account's existing SyncPlayAccess untouched, so an
+            // unmapped or malformed claim never widens it. Under the same EnableAuthorization master switch
+            // as the grants above. Not a PermissionKind, so it cannot ride the grant loop.
+            if (parameters.SyncPlayAccess.HasValue)
+            {
+                user.SyncPlayAccess = parameters.SyncPlayAccess.Value;
+            }
         }
 
         await _avatarService.TrySetAsync(user, parameters.AvatarUrl).ConfigureAwait(false);

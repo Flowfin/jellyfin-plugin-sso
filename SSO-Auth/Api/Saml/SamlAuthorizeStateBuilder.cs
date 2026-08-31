@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Config;
 
@@ -40,6 +41,11 @@ internal static class SamlAuthorizeStateBuilder
         // mapping matched, so the mint leaves the account's existing ceiling untouched.
         var maxParentalRatingScore = ParentalRatingPolicy.Resolve(roles, config);
 
+        // Reduce the SAME role set to a SyncPlay access level (#827): null when the feature is off or no
+        // mapping matched, so the mint leaves the account's existing level untouched. Enumerated rather than
+        // boolean, so it cannot ride the PermissionKind grants above.
+        var syncPlayAccess = SyncPlayAccessPolicy.Resolve(roles, config);
+
         // Reduce the SAME role set to a fixed access duration (#1146): null when the provider maps no role to
         // a duration or this login held none, in which case a provisioned account gets no deadline. Resolved
         // here, beside the other role reductions, so no second attribute read is added to the callback.
@@ -51,7 +57,7 @@ internal static class SamlAuthorizeStateBuilder
         // beside the other role reductions, so no second attribute read is added to the callback.
         var provisioningProfile = ProvisioningProfilePolicy.Resolve(roles, config);
 
-        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration, provisioningProfile);
+        return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration, provisioningProfile, syncPlayAccess);
     }
 
     /// <summary>
@@ -65,6 +71,7 @@ internal static class SamlAuthorizeStateBuilder
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
     /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
+    /// <param name="SyncPlayAccess">The SyncPlay access level the login's roles resolved (#827); null when the feature is off or no mapping matched (leave the existing level untouched).</param>
     internal readonly record struct SamlAuthorizeState(
         bool Admin,
         bool EnableLiveTv,
@@ -73,5 +80,6 @@ internal static class SamlAuthorizeStateBuilder
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
         int? MaxParentalRatingScore = null,
         TimeSpan? GuestAccessDuration = null,
-        string? ProvisioningProfile = null);
+        string? ProvisioningProfile = null,
+        SyncPlayUserAccessType? SyncPlayAccess = null);
 }

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
@@ -102,6 +103,11 @@ internal static class OidcAuthorizeStateBuilder
         // mapping matched, so the mint leaves the account's existing ceiling untouched.
         var maxParentalRatingScore = ParentalRatingPolicy.Resolve(roles, config);
 
+        // Reduce the SAME role set to a SyncPlay access level (#827): null when the feature is off or no
+        // mapping matched, so the mint leaves the account's existing level untouched. Enumerated rather than
+        // boolean, so it cannot ride the PermissionKind grants above.
+        var syncPlayAccess = SyncPlayAccessPolicy.Resolve(roles, config);
+
         // Reduce the SAME role set to a fixed access duration (#1146): null when the provider maps no role
         // to a duration or this login held none, in which case a provisioned account gets no deadline. It is
         // resolved here, beside the other role reductions, so no second role read is added to the callback.
@@ -133,7 +139,7 @@ internal static class OidcAuthorizeStateBuilder
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
 
-        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration, provisioningProfile);
+        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration, provisioningProfile, syncPlayAccess);
     }
 
     // The last "sub" claim value, or null when none is present. Kept separate from the username
@@ -428,6 +434,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
     /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
     /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
+    /// <param name="SyncPlayAccess">The SyncPlay access level the login's roles resolved (#827); null when the feature is off or no mapping matched (leave the existing level untouched).</param>
     internal readonly record struct OidcAuthorizeState(
         string? Username,
         string? Subject,
@@ -443,7 +450,8 @@ internal static class OidcAuthorizeStateBuilder
         int? MaxParentalRatingScore = null,
         DateTime? ExpiresAtUtc = null,
         TimeSpan? GuestAccessDuration = null,
-        string? ProvisioningProfile = null)
+        string? ProvisioningProfile = null,
+        SyncPlayUserAccessType? SyncPlayAccess = null)
     {
         /// <summary>
         /// Gets the raw OpenID <c>id_token</c>, captured at the callback for a later RP-initiated logout

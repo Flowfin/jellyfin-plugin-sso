@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Claims;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
@@ -277,6 +278,49 @@ public class OidcAuthorizeStateBuilderTests
             config);
 
         Assert.Null(result.MaxParentalRatingScore);
+    }
+
+    [Fact]
+    public void SyncPlayAccess_MatchedRole_CarriesTheMostRestrictiveLevelOnTheState()
+    {
+        // #827 wiring on the OpenID side: the SAME role list the other reductions read resolves the SyncPlay
+        // level, and the most restrictive matched level wins - the LARGER enum value, not the smaller one.
+        var config = Config(c =>
+        {
+            c.RoleClaim = "role";
+            c.EnableSyncPlayAccessRoles = true;
+            c.SyncPlayAccessRoleMappings = new System.Collections.Generic.List<SyncPlayAccessRoleMap>
+            {
+                new SyncPlayAccessRoleMap { Access = "CreateAndJoinGroups", Roles = new[] { "hosts" } },
+                new SyncPlayAccessRoleMap { Access = "JoinGroups", Roles = new[] { "guests" } },
+            };
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("role", "hosts"), ("role", "guests")),
+            config);
+
+        Assert.Equal(SyncPlayUserAccessType.JoinGroups, result.SyncPlayAccess);
+    }
+
+    [Fact]
+    public void SyncPlayAccess_FeatureOff_LeavesTheLevelNull()
+    {
+        var config = Config(c =>
+        {
+            c.RoleClaim = "role";
+            c.EnableSyncPlayAccessRoles = false;
+            c.SyncPlayAccessRoleMappings = new System.Collections.Generic.List<SyncPlayAccessRoleMap>
+            {
+                new SyncPlayAccessRoleMap { Access = "None", Roles = new[] { "guests" } },
+            };
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("role", "guests")),
+            config);
+
+        Assert.Null(result.SyncPlayAccess);
     }
 
     [Fact]

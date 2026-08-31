@@ -741,6 +741,9 @@ public class SSOController : ControllerBase
         // Reject an invalid parental-rating mapping (#736) at the door too (negative score / no roles), like
         // the permission-role guard above - the Add endpoints bypass the config-page save-time validation.
         ProviderConfigValidator.ValidateParentalRatingMappings(OpenIdProtocol, provider, config.ParentalRatingRoleMappings);
+        // And an invalid SyncPlay-access mapping (#827): a level the resolver cannot parse would map nothing
+        // at login, so it is refused at every write door rather than only at the config page.
+        ProviderConfigValidator.ValidateSyncPlayAccessMappings(OpenIdProtocol, provider, config.SyncPlayAccessRoleMappings);
         // And an invalid access-duration mapping (#1146), for the same reason: a non-positive or out-of-range
         // duration reaching the login path would silently stamp nothing, so it is refused at every write door
         // rather than only at the config page.
@@ -1262,6 +1265,7 @@ public class SSOController : ControllerBase
         ProviderConfigValidator.ValidatePermissionRoleMappings(SamlProtocol, provider, newConfig.PermissionRoleMappings);
         ProviderConfigValidator.ValidateParentalRatingMappings(SamlProtocol, provider, newConfig.ParentalRatingRoleMappings);
         ProviderConfigValidator.ValidateGuestAccessDurations(SamlProtocol, provider, newConfig.GuestAccessDurationRoleMappings);
+        ProviderConfigValidator.ValidateSyncPlayAccessMappings(SamlProtocol, provider, newConfig.SyncPlayAccessRoleMappings);
         SSOPlugin.Instance.MutateConfiguration(configuration =>
         {
             // The name guard needs the under-lock existence check (#336) and runs before any mutation,

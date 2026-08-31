@@ -173,6 +173,7 @@ internal sealed class LoginCompletionService
             EnableLiveTvManagement = identity.EnableLiveTvManagement,
             PermissionGrants = identity.PermissionGrants,
             MaxParentalRatingScore = identity.MaxParentalRatingScore,
+            SyncPlayAccess = identity.SyncPlayAccess,
             AuthResponse = response,
             DefaultProvider = enforcement.DefaultProvider,
             AvatarUrl = identity.AvatarUrl,
