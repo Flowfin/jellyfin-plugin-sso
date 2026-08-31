@@ -39,6 +39,37 @@ until curl -fsS -o /dev/null "$JELLYFIN_URL/sso/OID/GetNames" 2>/tmp/ready.err; 
 done
 say "PROBE-STAGE ready after $i retries ($((i * 2))s)"
 
+# AND THE IDENTITY PROVIDER, WHICH THE WAIT ABOVE DOES NOT IMPLY (#1475). The route just waited on
+# reads the provider names out of the plugin's configuration and reaches the identity provider for
+# nothing, so it answers exactly as readily while that server is still coming up. The challenge below
+# does reach it: the plugin reads the discovery document server-to-server to build the authorize URL,
+# and where it cannot it answers 400 "the authorization server's discovery document could not be read".
+#
+# BOTH USES OF THIS PROBE NEED IT, and the second is the one that misleads. The caller takes the first
+# answer as its CONTROL and requires a 3xx, so a race reds the phase saying the stack is unhealthy;
+# it takes the second as the fail-closed assertion and requires a 500 naming an undecryptable secret,
+# and a 400 from an identity provider that is not serving would send the next reader to the secret
+# store. Neither is what this phase is about.
+#
+# The caller starts the identity provider with `docker compose start`, which returns when the
+# container is RUNNING rather than when the server is listening. probe-saml-rollover.sh already
+# carries this same second wait on its own surface; this is that pattern, on the surface the OpenID
+# challenge reads. Reported as PROBE-ERROR rather than exiting non-zero, like every other answer here.
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}"
+REALM="${REALM:-e2e}"
+DISCOVERY_URL="${DISCOVERY_URL:-$KEYCLOAK_URL/realms/$REALM/.well-known/openid-configuration}"
+k=0
+until curl -fsS -o /dev/null "$DISCOVERY_URL" 2>/tmp/idp.err; do
+  k=$((k + 1))
+  if [ "$k" -ge 150 ]; then
+    say "PROBE-ERROR the identity provider did not serve $DISCOVERY_URL within 300s, so the challenge below could not have been built:"
+    sed 's/^/  /' /tmp/idp.err
+    exit 0
+  fi
+  sleep 2
+done
+say "PROBE-STAGE identity provider ready after $k retries ($((k * 2))s)"
+
 # No -L: the healthy answer is the redirect itself, and following it would report the identity
 # provider's status instead of the plugin's.
 code="$(curl -sS -o /tmp/probe.body -w '%{http_code}' "$JELLYFIN_URL/sso/OID/start/$PROVIDER" 2>/tmp/probe.err)" || {
