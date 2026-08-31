@@ -11,6 +11,26 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A group can decide who may start a SyncPlay session (#827).** Everything else
+  the identity provider decides about an account is re-read at every login -
+  administrator rights, folder access, Live TV, the permission surface, the
+  parental-rating ceiling - but SyncPlay was not among them, so a deployment that
+  expresses its access model in groups had one setting it could only manage by
+  hand, per account, forever. A provider can now map its roles onto the account's
+  SyncPlay access, and the mapping is re-asserted at every sign-in, so a group
+  withdrawn at the identity provider withdraws the access with it. It is off
+  until it is configured, and it is under the same authorization master switch as
+  every other role-derived grant: turning that off leaves SyncPlay exactly as it
+  was. A login that matches nothing changes nothing - an unmapped or misspelled
+  claim can never widen access, only leave it where it stood. Where a login
+  belongs to several mapped groups the STRICTEST of them wins, which is worth
+  saying out loud because Jellyfin numbers its SyncPlay levels the other way
+  round from its parental ratings: "least privilege" here is the highest value,
+  not the lowest, and the plugin states the ranking itself rather than inheriting
+  it from an order upstream is free to change. A level is written by name -
+  `CreateAndJoinGroups`, `JoinGroups` or `None`, spelled exactly - and any other
+  spelling, a number among them, is refused when the configuration is saved
+  rather than silently ignored at the next login.
 - **One action checks every configured provider at once (#1084).** The settings
   page could say whether the provider currently open in the editor looks
   complete, and nothing could say it about the others: an administrator with six

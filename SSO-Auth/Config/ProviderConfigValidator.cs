@@ -68,6 +68,7 @@ internal static class ProviderConfigValidator
                 ValidatePostLogoutRedirectUri("OpenID", kvp.Key, kvp.Value?.BaseUrlOverride, kvp.Value?.PostLogoutRedirectUri);
                 ValidatePermissionRoleMappings("OpenID", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("OpenID", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateSyncPlayAccessMappings("OpenID", kvp.Key, kvp.Value?.SyncPlayAccessRoleMappings);
                 ValidateGuestAccessDurations("OpenID", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("OpenID", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateProvisioningProfileReference("OpenID", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
@@ -92,6 +93,7 @@ internal static class ProviderConfigValidator
                 ValidateSamlSigningKey(kvp.Key, kvp.Value?.SamlRolloverSigningKeyPfx);
                 ValidatePermissionRoleMappings("SAML", kvp.Key, kvp.Value?.PermissionRoleMappings);
                 ValidateParentalRatingMappings("SAML", kvp.Key, kvp.Value?.ParentalRatingRoleMappings);
+                ValidateSyncPlayAccessMappings("SAML", kvp.Key, kvp.Value?.SyncPlayAccessRoleMappings);
                 ValidateGuestAccessDurations("SAML", kvp.Key, kvp.Value?.GuestAccessDurationRoleMappings);
                 ValidateProvisioningTemplate("SAML", kvp.Key, kvp.Value?.ProvisioningPolicyTemplate);
                 ValidateProvisioningProfileReference("SAML", kvp.Key, kvp.Value, incoming.ProvisioningProfiles);
@@ -629,6 +631,51 @@ internal static class ProviderConfigValidator
             {
                 throw new ArgumentException(
                     $"{protocol} provider '{echoName}' has a parental-rating mapping with no roles: each mapping must list at least one role the ceiling applies to.",
+                    nameof(mappings));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rejects a SyncPlay-access mapping (#827) whose level is not a declared member of Jellyfin's
+    /// <c>SyncPlayUserAccessType</c> (spelled exactly), or which lists no roles - the former would silently
+    /// map nothing at login, the latter would never apply. Both are caught at save so a mis-set is found
+    /// before it takes effect. A null mappings collection or a null entry maps nothing and is tolerated.
+    /// </summary>
+    /// <param name="protocol">The protocol label ("OpenID" or "SAML") echoed in the rejection message.</param>
+    /// <param name="provider">The provider name, echoed (line-ending-stripped) in the rejection message.</param>
+    /// <param name="mappings">The SyncPlay-access mappings to check.</param>
+    /// <exception cref="ArgumentException">An entry names an unknown level or lists no roles.</exception>
+    internal static void ValidateSyncPlayAccessMappings(string protocol, string provider, System.Collections.Generic.IEnumerable<SyncPlayAccessRoleMap>? mappings)
+    {
+        if (mappings == null)
+        {
+            return;
+        }
+
+        foreach (var mapping in mappings)
+        {
+            if (mapping == null)
+            {
+                continue;
+            }
+
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+
+            // One parse, shared with the login path: the validator refuses exactly what the resolver would
+            // skip, so a saved mapping is one the mint can act on rather than one it silently drops.
+            if (!SyncPlayAccessPolicy.TryParseAccess(mapping.Access, out _))
+            {
+                var echoAccess = string.Concat((mapping.Access ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has an invalid SyncPlay-access mapping: '{echoAccess}' is not a SyncPlay access level. Use the exact spelling CreateAndJoinGroups, JoinGroups or None.",
+                    nameof(mappings));
+            }
+
+            if (mapping.Roles == null || mapping.Roles.Length == 0)
+            {
+                throw new ArgumentException(
+                    $"{protocol} provider '{echoName}' has a SyncPlay-access mapping with no roles: each mapping must list at least one role the level applies to.",
                     nameof(mappings));
             }
         }

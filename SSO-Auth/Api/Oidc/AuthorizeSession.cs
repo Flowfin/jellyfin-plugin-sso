@@ -157,6 +157,7 @@ internal abstract class AuthorizeSession
                 ExpiresAtUtc = derived.ExpiresAtUtc,
                 GuestAccessDuration = derived.GuestAccessDuration,
                 ProvisioningProfile = derived.ProvisioningProfile,
+                SyncPlayAccess = derived.SyncPlayAccess,
             });
 
             // Carry the OpenID logout material (#727, SLO-1b) alongside the keystone rather than inside it:

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 
@@ -58,7 +59,8 @@ internal sealed record VerifiedIdentity
         int? maxParentalRatingScore,
         DateTime? expiresAtUtc,
         TimeSpan? guestAccessDuration,
-        string? provisioningProfile)
+        string? provisioningProfile,
+        SyncPlayUserAccessType? syncPlayAccess)
     {
         LinkMode = linkMode;
         AuditProtocol = auditProtocol;
@@ -77,6 +79,7 @@ internal sealed record VerifiedIdentity
         ExpiresAtUtc = expiresAtUtc;
         GuestAccessDuration = guestAccessDuration;
         ProvisioningProfile = provisioningProfile;
+        SyncPlayAccess = syncPlayAccess;
     }
 
     /// <summary>Gets the protocol the canonical-link store keys this identity under (#369).</summary>
@@ -166,6 +169,13 @@ internal sealed record VerifiedIdentity
     internal string? ProvisioningProfile { get; }
 
     /// <summary>
+    /// Gets the SyncPlay access level the login resolves (#827): the MOST RESTRICTIVE of the matched
+    /// role→level mappings, applied at the mint under EnableAuthorization. Null when the feature is off or
+    /// no mapping matched, so the account's existing level is left untouched.
+    /// </summary>
+    internal SyncPlayUserAccessType? SyncPlayAccess { get; }
+
+    /// <summary>
     /// Mints the verified identity of an OpenID login. Called only from the OpenID redeem path
     /// (<c>AuthorizeSession.Ready</c>), which the store hands out only through its one-time atomic redeem of a
     /// promoted (role-gate-passed) state - so a raw or unvalidated login can never reach it.
@@ -205,5 +215,6 @@ internal sealed record VerifiedIdentity
             login.MaxParentalRatingScore,
             login.ExpiresAtUtc,
             login.GuestAccessDuration,
-            login.ProvisioningProfile);
+            login.ProvisioningProfile,
+            login.SyncPlayAccess);
 }

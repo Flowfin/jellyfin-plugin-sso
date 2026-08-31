@@ -53,7 +53,8 @@ public class SessionMinterTests
         string? avatarUrl = null,
         string? defaultProvider = null,
         IReadOnlyList<PermissionGrant>? permissionGrants = null,
-        int? maxParentalRatingScore = null) => new SessionParameters
+        int? maxParentalRatingScore = null,
+        SyncPlayUserAccessType? syncPlayAccess = null) => new SessionParameters
         {
             UserId = UserId,
             IsAdmin = isAdmin,
@@ -65,6 +66,7 @@ public class SessionMinterTests
             EnableLiveTvManagement = enableLiveTvManagement,
             PermissionGrants = permissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = maxParentalRatingScore,
+            SyncPlayAccess = syncPlayAccess,
             AvatarUrl = avatarUrl,
             DefaultProvider = defaultProvider,
             AuthResponse = new AuthResponse { AppName = "app", AppVersion = "1", DeviceID = "d", DeviceName = "dev" },
@@ -379,5 +381,49 @@ public class SessionMinterTests
         await minter.MintAsync(Params(enableAuthorization: true, maxParentalRatingScore: null), () => "203.0.113.7", () => true);
 
         Assert.Equal(3, user.MaxParentalRatingScore); // existing ceiling untouched
+    }
+
+    [Fact]
+    public async Task MintAsync_EnableAuthorization_AppliesTheSyncPlayLevel()
+    {
+        // #827: with the master switch on, the resolved SyncPlay level is written to the user.
+        var (minter, users, sessions) = Build();
+        var user = new User("alice", "SSO-Auth", "Default") { Id = UserId, SyncPlayAccess = SyncPlayUserAccessType.CreateAndJoinGroups };
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(Params(enableAuthorization: true, syncPlayAccess: SyncPlayUserAccessType.None), () => "203.0.113.7", () => true);
+
+        Assert.Equal(SyncPlayUserAccessType.None, user.SyncPlayAccess);
+    }
+
+    [Fact]
+    public async Task MintAsync_NoAuthorization_LeavesTheSyncPlayLevelUntouched()
+    {
+        // The level respects the same EnableAuthorization master switch (#215/#827): with it off, a resolved
+        // level is NOT applied - the account's existing value survives.
+        var (minter, users, sessions) = Build();
+        var user = new User("alice", "SSO-Auth", "Default") { Id = UserId, SyncPlayAccess = SyncPlayUserAccessType.JoinGroups };
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(Params(enableAuthorization: false, syncPlayAccess: SyncPlayUserAccessType.None), () => "203.0.113.7", () => true);
+
+        Assert.Equal(SyncPlayUserAccessType.JoinGroups, user.SyncPlayAccess); // seed left untouched
+    }
+
+    [Fact]
+    public async Task MintAsync_NullSyncPlayLevel_LeavesTheExistingValueUntouched()
+    {
+        // #827 fail-safe: a null level (no mapping matched) never widens or clears the existing value - an
+        // unmapped or malformed claim leaves SyncPlayAccess exactly as it was, even with RBAC on.
+        var (minter, users, sessions) = Build();
+        var user = new User("alice", "SSO-Auth", "Default") { Id = UserId, SyncPlayAccess = SyncPlayUserAccessType.None };
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(Params(enableAuthorization: true, syncPlayAccess: null), () => "203.0.113.7", () => true);
+
+        Assert.Equal(SyncPlayUserAccessType.None, user.SyncPlayAccess); // existing level untouched
     }
 }

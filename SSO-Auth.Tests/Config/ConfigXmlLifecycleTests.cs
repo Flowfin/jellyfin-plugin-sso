@@ -323,6 +323,40 @@ public class ConfigXmlLifecycleTests
         Assert.Contains("GuestAccessDurationRoleMappings", json, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SyncPlayAccessMappings_SurviveTheDiskCycle_AndStayVisibleToTheAdminSurface()
+    {
+        // The same two silent failures as the mapping above, for the #827 list: a populated list has to come
+        // back off disk nested inside its provider, and it has to stay in the JSON the admin page fetches -
+        // a [JsonIgnore] added here by analogy with the server-managed maps beside it would make the page
+        // post back a provider without the mappings and erase them on the next unrelated settings change.
+        var original = new PluginConfiguration();
+        original.OidConfigs["kc"] = new OidConfig
+        {
+            OidEndpoint = "https://idp/.well-known/openid-configuration",
+            EnableSyncPlayAccessRoles = true,
+            SyncPlayAccessRoleMappings = new System.Collections.Generic.List<SyncPlayAccessRoleMap>
+            {
+                new SyncPlayAccessRoleMap { Access = "CreateAndJoinGroups", Roles = new[] { "hosts" } },
+                new SyncPlayAccessRoleMap { Access = "None", Roles = new[] { "guests", "visitors" } },
+            },
+        };
+
+        var back = RoundTripXml(original);
+
+        Assert.True(back.OidConfigs["kc"].EnableSyncPlayAccessRoles);
+        var mappings = back.OidConfigs["kc"].SyncPlayAccessRoleMappings;
+        Assert.NotNull(mappings);
+        Assert.Equal(2, mappings!.Count);
+        Assert.Equal("CreateAndJoinGroups", mappings[0].Access);
+        Assert.Equal(new[] { "hosts" }, mappings[0].Roles);
+        Assert.Equal("None", mappings[1].Access);
+        Assert.Equal(new[] { "guests", "visitors" }, mappings[1].Roles);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(original.OidConfigs["kc"]);
+        Assert.Contains("SyncPlayAccessRoleMappings", json, StringComparison.Ordinal);
+    }
+
     private static string Serialize<T>(T value)
     {
         var serializer = new XmlSerializer(typeof(T));

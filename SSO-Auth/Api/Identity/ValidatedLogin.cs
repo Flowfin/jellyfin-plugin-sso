@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Identity;
@@ -65,4 +66,7 @@ internal sealed record ValidatedLogin
 
     /// <summary>Gets the provisioning-profile name the login's roles selected (#1106), or null when the provider configures no role rows or the login matched none (fall through to the provider's own default). A NAME, not a template: it is resolved against the profile set inside the create arm's own locked configuration read, and it is read on that arm only.</summary>
     internal string? ProvisioningProfile { get; init; }
+
+    /// <summary>Gets the SyncPlay access level the login resolves (#827), or null when the feature is off or no mapping matched (leave the existing level untouched).</summary>
+    internal SyncPlayUserAccessType? SyncPlayAccess { get; init; }
 }

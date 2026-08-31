@@ -81,6 +81,70 @@ public class ProviderConfigValidatorTests
         }));
     }
 
+
+    // --- ValidateSyncPlayAccessMappings (#827): reject an unknown level or an entry with no roles ---
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("joingroups")] // right member, wrong case: the level is spelled exactly
+    [InlineData("Everything")]
+    [InlineData("1")] // a numeral onto a DECLARED member: refused by the name round-trip
+    [InlineData("57")] // a numeral onto an undeclared one: refused by Enum.IsDefined
+    public void ValidateSyncPlayAccessMappings_UnknownLevel_Throws(string? access)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateSyncPlayAccessMappings(
+            "OpenID", "kc", new[] { new SyncPlayAccessRoleMap { Access = access, Roles = new[] { "hosts" } } }));
+
+        Assert.Equal("mappings", ex.ParamName);
+        Assert.Contains("kc", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SyncPlay access level", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateSyncPlayAccessMappings_ControlCharactersInTheLevel_AreNotEchoedIntoTheMessage()
+    {
+        // The rejected level is echoed back, and it is administrator-supplied text that reaches a log through
+        // the thrown exception - so it is stripped of control characters and line endings the way the
+        // provisioning-template guard strips SubtitleMode.
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateSyncPlayAccessMappings(
+            "OpenID", "kc", new[] { new SyncPlayAccessRoleMap { Access = "None\r\nADMIN LOGIN OK", Roles = new[] { "hosts" } } }));
+
+        Assert.DoesNotContain("\r", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateSyncPlayAccessMappings_NullRoles_Throws()
+        => AssertSyncPlayNoRolesRejected(null);
+
+    [Fact]
+    public void ValidateSyncPlayAccessMappings_EmptyRoles_Throws()
+        => AssertSyncPlayNoRolesRejected(Array.Empty<string>());
+
+    private static void AssertSyncPlayNoRolesRejected(string[]? roles)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateSyncPlayAccessMappings(
+            "SAML", "idp", new[] { new SyncPlayAccessRoleMap { Access = "None", Roles = roles! } }));
+
+        Assert.Equal("mappings", ex.ParamName);
+        Assert.Contains("no roles", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateSyncPlayAccessMappings_ValidOrNullOrEmpty_DoesNotThrow()
+    {
+        Assert.Null(Record.Exception(() =>
+        {
+            foreach (var level in new[] { "CreateAndJoinGroups", "JoinGroups", "None" })
+            {
+                ProviderConfigValidator.ValidateSyncPlayAccessMappings("OpenID", "kc", new[] { new SyncPlayAccessRoleMap { Access = level, Roles = new[] { "hosts" } } });
+            }
+
+            ProviderConfigValidator.ValidateSyncPlayAccessMappings("OpenID", "kc", new SyncPlayAccessRoleMap[] { null! }); // a null entry is tolerated
+            ProviderConfigValidator.ValidateSyncPlayAccessMappings("OpenID", "kc", null); // no mappings at all
+        }));
+    }
     // --- ValidateGuestAccessDurations (#1146): reject a non-positive or overflowing duration, or no roles ---
 
     [Theory]

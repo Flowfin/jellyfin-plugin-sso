@@ -259,6 +259,7 @@ internal sealed class SamlAssertionValidator
             ExpiresAtUtc = ReadExpiry(config, samlResponse),
             GuestAccessDuration = derived.GuestAccessDuration,
             ProvisioningProfile = derived.ProvisioningProfile,
+            SyncPlayAccess = derived.SyncPlayAccess,
         });
         return true;
     }
