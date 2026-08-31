@@ -25,7 +25,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Fuzz;
 /// one tokenizer agreeing with a list of expectations is evidence about the list.
 ///
 /// It is NOT coverage-guided and does not need libFuzzer, so it runs anywhere the harness builds - which is
-/// what makes it re-runnable on the maintainer's Windows box rather than only in the Linux weekly job.
+/// what makes it re-runnable on my Windows box rather than only in the Linux weekly job.
 ///
 /// Triage rule, inherited from the harness README and not softened here: a divergence is a FINDING. It is
 /// reported, with the document that produced it, and it is filed - never patched away inside this driver.

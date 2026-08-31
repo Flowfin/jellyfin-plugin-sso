@@ -5,7 +5,7 @@ name: Publish failure alert
 #  - the 2026-07-23 beta.12 incident, where the GitHub release was created but the manifest commit failed
 #    on a jq arg-length error and the build silently never reached Jellyfin until a user noticed;
 #  - `Wiki Lint` failing on `main` nine times in a row over fifteen hours (#1015), surfaced only because
-#    the maintainer happened to open the run log.
+#    I happened to open the run log.
 #
 # The first version of this file was event-driven and watched an ENUMERATED list of six workflow names,
 # which is why the second incident went unseen: `Wiki Lint` was not on the list, and neither was any other

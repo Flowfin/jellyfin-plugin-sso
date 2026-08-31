@@ -70,7 +70,7 @@ internal static class Program
 
         // Smoke mode replays the seed corpus through the selected target once and exits, WITHOUT libFuzzer.
         // It proves the dispatch + parse wiring runs and that every seed is handled fail-closed (no unmapped
-        // throw), so the harness can be validated on any platform - including the maintainer's Windows box,
+        // throw), so the harness can be validated on any platform - including my Windows box,
         // where the Linux-only libFuzzer runtime is unavailable - and as a cheap CI sanity check. The real
         // coverage-guided run is the default path below.
         if (Environment.GetEnvironmentVariable("SSO_FUZZ_SMOKE") == "1")

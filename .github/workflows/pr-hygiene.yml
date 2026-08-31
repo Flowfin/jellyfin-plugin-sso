@@ -147,7 +147,7 @@ jobs:
             }
 
             // --- Check 1b: every commit subject carries [#N] refs (#817) ---------
-            // Maintainer rule: traceability must survive down to the single commit -
+            // My rule: traceability must survive down to the single commit -
             // blame/bisect/log show a commit's SUBJECT line without its PR, so the
             // PR-body link (check 1) is not enough. The reference lives in the
             // subject, bracketed, one bracket per issue: `Fix the thing [#12][#34]`.

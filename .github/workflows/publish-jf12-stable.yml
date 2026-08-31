@@ -1,10 +1,10 @@
 name: Publish JF12 Stable
 
 # The Jellyfin 12.0 (.NET 10) STABLE channel - the 5.0 line's GA publish leg (#607). Counterpart to
-# publish.yml (JF10.11 stable, X.Y.Z-stable) and publish-jf12-beta.yml (JF12 beta). Triggered ONLY by a
-# maintainer pushing an X.Y.Z-JF12-stable tag (e.g. 5.0.0-JF12-stable): publish.yml's
+# publish.yml (JF10.11 stable, X.Y.Z-stable) and publish-jf12-beta.yml (JF12 beta). Triggered ONLY by me
+# pushing an X.Y.Z-JF12-stable tag (e.g. 5.0.0-JF12-stable): publish.yml's
 # [0-9]+.[0-9]+.[0-9]+-stable glob deliberately does NOT match -JF12-stable, so the two stable legs never
-# cross-fire. Like the JF11 stable tag, this tag is MAINTAINER-GATED (guard-git.ps1) and pushed by hand.
+# cross-fire. Like the JF11 stable tag, this tag is GATED ON MY EXPLICIT GO (guard-git.ps1) and pushed by hand.
 #
 # DORMANT until Jellyfin 12.0 reaches GA: no X.Y.Z-JF12-stable tag is pushed until a real 12.0 stable
 # server exists, so this workflow does not run before then - but the pipeline is ready so the 5.0 line can
