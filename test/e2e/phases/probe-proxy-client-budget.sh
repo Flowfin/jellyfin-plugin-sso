@@ -30,6 +30,13 @@ PROXY_URL="${PROXY_URL:-http://proxy}"
 CLIENT_A="${CLIENT_A:-11.0.9.11}"
 CLIENT_B="${CLIENT_B:-11.0.9.22}"
 MAX_TRIES="${MAX_TRIES:-8}"
+# The surface the plugin's challenge reads server-to-server, derived the way harness.sh derives it so
+# the two cannot disagree: the canonical stack sets no DISCOVERY_URL and takes this same default.
+# Reached DIRECTLY rather than through the proxy - the proxy sits in front of Jellyfin, and the read
+# being waited on is Jellyfin's own outbound one.
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080}"
+REALM="${REALM:-e2e}"
+DISCOVERY_URL="${DISCOVERY_URL:-$KEYCLOAK_URL/realms/$REALM/.well-known/openid-configuration}"
 
 if ! apk add --no-cache curl >/tmp/apk.out 2>&1; then
     say "PROBE-ERROR could not install curl:"
@@ -52,6 +59,32 @@ until curl -fsS -o /dev/null -H "X-Test-Client: $CLIENT_A" "$PROXY_URL/sso/OID/G
     sleep 2
 done
 say "PROBE-STAGE ready after $i retries ($((i * 2))s)"
+
+# AND THE IDENTITY PROVIDER, WHICH THE WAIT ABOVE DOES NOT IMPLY (#1473). /sso/OID/GetNames lists the
+# configured provider names out of the plugin's own configuration and reaches Keycloak for nothing, so
+# it answers exactly as readily while Keycloak is still coming up. The challenge below does reach it:
+# the plugin reads the discovery document server-to-server to build the authorize URL, and a Keycloak
+# that is not serving yet makes that challenge answer
+#
+#   400 Error preparing login: the authorization server's discovery document could not be read.
+#
+# which is the control, so the phase refuses the whole run for a race. Measured on run 33359465863,
+# where the plugin answered through the proxy after 6s and Keycloak was not serving yet.
+#
+# The phase starts Keycloak with `docker compose start`, and that returns when the container is
+# RUNNING rather than when the server is listening - which the phase already records at its own
+# `up` line for Jellyfin and did not apply to the identity provider.
+k=0
+until curl -fsS -o /dev/null "$DISCOVERY_URL" 2>/tmp/idp.err; do
+    k=$((k + 1))
+    if [ "$k" -ge 150 ]; then
+        say "PROBE-ERROR the identity provider did not serve $DISCOVERY_URL within 300s, so the challenge below could not have been built:"
+        sed 's/^/  /' /tmp/idp.err
+        exit 0
+    fi
+    sleep 2
+done
+say "PROBE-STAGE identity provider ready after $k retries ($((k * 2))s)"
 
 # No -L: the healthy answer is the redirect itself, and following it would report the identity
 # provider's status instead of the plugin's.
