@@ -366,11 +366,20 @@ idp_seed() {
   # died internally would be a lie here: `die` inside a `$(...)` only exits the SUBSHELL, so a failed
   # call whose output nobody read would carry on silently and be misattributed to the plugin later.
   zapi() {
+    # curl's EXIT CODE is kept beside the status, and it is not decoration. HTTP 000 means curl never read
+    # a status line, and only the exit code separates "never connected" (6 could not resolve, 7 could not
+    # connect) from "bytes were exchanged and then something failed". The wait below is allowed to re-send
+    # a NON-idempotent create, and that is sound for the first of those two and not for the second, so the
+    # distinction has to survive out of this helper. It also makes the 000 line say WHY, which the run
+    # that forced this could not: it printed `returned HTTP 000:` and an empty body (#1465).
+    # Truncate first: curl opens the output file only once it has a response to write, so on a failure to
+    # connect the body from the PREVIOUS call survives and the log line below attributes it to this one.
+    : > /tmp/z.out
     zout="$(curl -sS -o /tmp/z.out -w '%{http_code}' -X "$1" "$ZITADEL_URL$2" \
-      -H "Authorization: Bearer $zpat" -H "Content-Type: application/json" -d "$3" 2>/dev/null || true)"
+      -H "Authorization: Bearer $zpat" -H "Content-Type: application/json" -d "$3" 2>/dev/null)" && zrc=0 || zrc=$?
     case "$zout" in
       2*) return 0 ;;
-      *) log "zitadel: $1 $2 returned HTTP ${zout:-000}: $(head -c 300 /tmp/z.out 2>/dev/null)"; return 1 ;;
+      *) log "zitadel: $1 $2 returned HTTP ${zout:-000} (curl exit ${zrc:-0}): $(head -c 300 /tmp/z.out 2>/dev/null)"; return 1 ;;
     esac
   }
 
@@ -394,20 +403,36 @@ idp_seed() {
   # image, and this image ships no shell - the same fact that forces `user: "0:0"` there, recorded at
   # that line in test/e2e/zitadel/docker-compose.yml.
   #
-  # ONLY 503 is waited on, only on this one call. A 503 from the gateway is a request that never reached
-  # the backend, so this create provably did nothing and re-sending it cannot double-create - which is
-  # what makes retrying a NON-idempotent call sound here and nowhere else in this function. Every other
-  # status is the backend's real answer and stays fatal on the first one, so a genuine refusal is not
-  # slowed down and never masked.
+  # WHAT IS WAITED ON IS "THE REQUEST NEVER REACHED THE BACKEND", WHICH IS TWO ANSWERS AND NOT ONE. This
+  # waited on 503 alone until an arm that removed phase 0's discovery wait died at HTTP 000 instead - the
+  # HTTP listener itself was not up yet, so there was no gateway to answer 503. A wait that covers only
+  # the second half is still standing on phase 0 having proved the first, which is the coupling this
+  # whole change exists to remove.
+  #
+  # The two answers, and why re-sending a NON-idempotent create after either is sound:
+  #   503                - the gateway refused its own loopback dial. The request reached Zitadel's HTTP
+  #                        listener and no further, so nothing was created.
+  #   000 with curl 6/7  - curl could not resolve the host, or could not connect to it. No bytes left this
+  #                        container, so nothing was created.
+  # A 000 with ANY OTHER curl exit code means bytes were exchanged and then something failed, and there
+  # the create MAY have run - so it is fatal on the first answer, exactly like a real status. That is the
+  # line the exit code is carried out of `zapi` to draw.
+  #
+  # Every other status is the backend's own answer and stays fatal on the first one, so a Zitadel that is
+  # up and refusing is neither slowed down nor waited past. The wait is bounded and then dies.
   zwait=0
   while : ; do
     zapi POST /management/v1/projects '{"name":"jellyfin","projectRoleAssertion":true,"projectRoleCheck":false,"hasProjectCheck":false}' \
       && break
-    [ "${zout:-}" = "503" ] || die "zitadel: the project create failed"
+    case "${zout:-000}:${zrc:-0}" in
+      503:*)      zwhy="the gateway refused its own loopback dial" ;;
+      000:6|000:7) zwhy="nothing is listening on $ZITADEL_URL yet (curl exit ${zrc})" ;;
+      *)          die "zitadel: the project create failed" ;;
+    esac
     zwait=$((zwait + 1))
     [ "$zwait" -lt 24 ] \
-      || die "zitadel: the management API refused the project create for 2 minutes ($zwait attempts, HTTP 503 each) - its gRPC backend never started accepting"
-    log "zitadel: the management API is not accepting yet (attempt $zwait/24) - the gateway refused its own loopback dial; waiting"
+      || die "zitadel: the management API never accepted the project create in 2 minutes ($zwait attempts, last: $zwhy) - the instance never finished coming up"
+    log "zitadel: the management API is not accepting yet (attempt $zwait/24) - $zwhy; waiting"
     sleep 5
   done
   # Read the id from the CREATE response, never from a project search: Zitadel's own internal ZITADEL
