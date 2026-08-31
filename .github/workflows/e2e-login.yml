@@ -14,15 +14,18 @@
 # green before a publish. This runs on the GitHub runners' working Docker; it also runs locally once Docker
 # is restored (see test/e2e/README.md).
 #
-# WHAT A PASS HERE IS ABOUT, and it is one target framework rather than both (#1464). The build step
-# below packages `dotnet-target: net9.0` and every test/e2e/*/docker-compose.yml boots
-# `jellyfin/jellyfin:10.11.11`, so the artifact this harness installs is the JF10.11 one. For the
-# JF10.11 caller that is the shipped artifact exactly; for the JF12 caller it is not - that release
-# carries the net10.0 build at targetAbi 12.0.0.0, which will not load into a 10.11 server at all, and
-# what its pass covers is the provider-facing source of the one multi-target tree rather than its
-# bytes. The caller carries that disclosure at the job it gates; this note is the same bound stated
-# where the two pins live, so a later change to either does not have to be traced back from there.
-# Running the matrix against a JF12 server is #1466.
+# WHAT A PASS HERE IS ABOUT, and it is now one target framework PER CALLER rather than one for both
+# (#1464/#1466). This note said the build step packaged net9.0 and every test/e2e/*/docker-compose.yml
+# booted `jellyfin/jellyfin:10.11.11`, which made the JF12 caller's pass evidence about the shared
+# source of the one multi-target tree and not about the bytes it ships. The `generation` input decides
+# all three pins together instead - the target framework, the build metadata and the server image - so
+# each caller's pass is about its own artifact:
+#
+#     git grep -n 'target=net10[.]0;\|target=net9[.]0;' -- .github/workflows/e2e-login.yml
+#
+# The default is `jf10.11`, so the schedule, the pull-request trigger and a default dispatch keep
+# exactly the stack they had. What no generation covers is a 12.0 server later than the rc the
+# net10.0 build compiles against; the JF12 caller states that bound at the job it gates.
 name: E2E Login Harness
 
 on:
