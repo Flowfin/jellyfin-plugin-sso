@@ -122,12 +122,31 @@ public class SSOViewsControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var catalog = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(ok.Value);
-        // English is the only loaded catalog today, so every key resolves to its English value; the point
-        // is that the endpoint returns the concrete resolved strings a client applies, not keys.
-        Assert.Equal("Home", catalog["link.home"]);
-        Assert.Equal("Return to login", catalog["error.return_to_login"]);
+        // The endpoint returns the concrete resolved strings a client applies, not keys. This asserted the
+        // English values while English was the only committed catalog; a German header now resolves to the
+        // German one (#1154). Values are compared whole here - unlike the browser error page, this response
+        // is JSON and carries the characters unencoded.
+        Assert.Equal("Startseite", catalog["link.home"]);
+        Assert.Equal("Zurück zur Anmeldung", catalog["error.return_to_login"]);
         // Per-language response, so caches must key on the request language.
         Assert.Equal("Accept-Language", controller.Response.Headers.Vary.ToString());
+    }
+
+    [Fact]
+    public void GetLocalizationCatalog_FallsBackToEnglish_ForALanguageNoCommittedCatalogCovers()
+    {
+        // The negative half of the test above: an unanswerable preference must still serve a complete
+        // English catalog rather than an empty object, so a client never renders blanks (#1154).
+        var controller = CreateController();
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        controller.Request.Headers.AcceptLanguage = "fr-FR,fr;q=0.9";
+
+        var result = controller.GetLocalizationCatalog();
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var catalog = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(ok.Value);
+        Assert.Equal("Home", catalog["link.home"]);
+        Assert.Equal("Return to login", catalog["error.return_to_login"]);
     }
 
     [Fact]
