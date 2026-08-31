@@ -378,8 +378,38 @@ idp_seed() {
   # simply absent and every role-gated login is refused for the wrong reason. The project and org checks
   # stay OFF so bob can authenticate without a grant - the harness needs him to reach the PLUGIN's role
   # gate, not to be stopped at Zitadel's.
-  zapi POST /management/v1/projects '{"name":"jellyfin","projectRoleAssertion":true,"projectRoleCheck":false,"hasProjectCheck":false}' \
-    || die "zitadel: the project create failed"
+  #
+  # THIS CALL IS THE READINESS WAIT FOR THE MANAGEMENT API, and the wait is here rather than in phase 0
+  # because phase 0 probes a different surface (#1465). READINESS_URL falls back to the discovery
+  # document, which Zitadel's plain HTTP listener serves; /management/v1 is a gRPC-gateway route whose
+  # backend is a separate listener the gateway dials over loopback. The first answering does not imply
+  # the second, and the window between them is not theoretical - measured at 41ms, where the create
+  # answered HTTP 503 with the gateway's own dial refusal 41ms after the discovery document had answered:
+  #   {"code":14,"message":"connection error: desc = \"transport: Error while dialing:
+  #    dial tcp [::1]:8080: connect: connection refused\""}
+  #
+  # The other two ways to close it are shut by this stack rather than judged worse. READINESS_URL is a
+  # bare URL fetched with `curl -f` and carries no bearer token, so every /management/v1 route answers it
+  # 401 and the wait would never see a ready server. A compose healthcheck needs a binary inside the
+  # image, and this image ships no shell - the same fact that forces `user: "0:0"` there, recorded at
+  # that line in test/e2e/zitadel/docker-compose.yml.
+  #
+  # ONLY 503 is waited on, only on this one call. A 503 from the gateway is a request that never reached
+  # the backend, so this create provably did nothing and re-sending it cannot double-create - which is
+  # what makes retrying a NON-idempotent call sound here and nowhere else in this function. Every other
+  # status is the backend's real answer and stays fatal on the first one, so a genuine refusal is not
+  # slowed down and never masked.
+  zwait=0
+  while : ; do
+    zapi POST /management/v1/projects '{"name":"jellyfin","projectRoleAssertion":true,"projectRoleCheck":false,"hasProjectCheck":false}' \
+      && break
+    [ "${zout:-}" = "503" ] || die "zitadel: the project create failed"
+    zwait=$((zwait + 1))
+    [ "$zwait" -lt 24 ] \
+      || die "zitadel: the management API refused the project create for 2 minutes ($zwait attempts, HTTP 503 each) - its gRPC backend never started accepting"
+    log "zitadel: the management API is not accepting yet (attempt $zwait/24) - the gateway refused its own loopback dial; waiting"
+    sleep 5
+  done
   # Read the id from the CREATE response, never from a project search: Zitadel's own internal ZITADEL
   # project already exists and sorts first, so a search would silently seed the wrong project.
   zproject="$(jq -r '.id // empty' /tmp/z.out 2>/dev/null || true)"
