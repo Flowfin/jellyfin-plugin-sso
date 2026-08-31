@@ -97,12 +97,35 @@ pass "alice is $ALICE_ID, routed at $PROVIDER_BEFORE with IsAdministrator=$ADMIN
 SEEDED_HASPASSWORD="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-AFTER-SEED$/,$p' | sed -n 's/^PROBE-HASPASSWORD //p' | head -1)"
 SEEDED_PROVIDER="$(printf '%s' "$SEED_OUT" | sed -n '/^PROBE-AFTER-SEED$/,$p' | sed -n 's/^PROBE-PROVIDER //p' | head -1)"
 SEEDED_EMPTY="$(field "$SEED_OUT" PROBE-EMPTY-PASSWORD)"
+SEEDED_RESET="$(field "$SEED_OUT" PROBE-RESET-STATUS)"
 
 [ "$SEEDED_PROVIDER" = "$BUILTIN_PROVIDER" ] \
     || die "alice is routed at '$SEEDED_PROVIDER' rather than the built-in password provider, so the seed did not produce the shape this phase is about"
-[ "$SEEDED_HASPASSWORD" = "false" ] \
-    || die "alice still holds a password after the reset (HasPassword=$SEEDED_HASPASSWORD), so there is nothing for the start-up pass to seal and a green result below would mean nothing. Jellyfin refuses to empty an ADMINISTRATOR's password, which is what the first run of this phase hit: the seed drops that flag and the restore puts it back"
-pass "alice is seeded: routed at the built-in password provider, holding no password"
+# THE PRECONDITION IS THE RESET, NOT WHAT THE DTO SAYS ABOUT IT (#1469). This asserted
+# HasPassword=false, and that reading does not survive the server generation: on Jellyfin 12.0-rc2 an
+# account whose stored password has just been reset away still reports HasPassword and
+# HasConfiguredPassword TRUE, while the empty password mints a session for it. Measured on run
+# 33358957106, where the sweep then sealed exactly that account:
+#
+#   PROBE-1469-READINGS seeded_haspassword=true sealed_haspassword=true seeded_empty=200 sealed_empty=401
+#   [SSO Audit] Sealed 1 SSO-linked account(s) that had no stored password: ...
+#
+# The audit line is the plugin reporting on user.Password itself - the sweep emits it only where
+# string.IsNullOrEmpty(user.Password) was true - so the stored password IS empty on that generation and
+# the DTO derivation is what moved. The guard below therefore asserts the two things that hold on both:
+# that the reset SUCCEEDED, and (as the control, further down) that the empty password mints a session.
+#
+# 2xx rather than 204 exactly: the point is that the server accepted the reset. A 400 is the case the
+# old message named - Jellyfin refuses to empty an ADMINISTRATOR's password, which the first run of this
+# phase hit - and it is still caught here, one reading earlier than before.
+case "$SEEDED_RESET" in
+    2*) : ;;
+    *) die "the password reset on alice answered HTTP ${SEEDED_RESET:-<nothing>} rather than a 2xx, so she was never put into the shape this phase is about and a green result below would mean nothing. Jellyfin refuses to empty an ADMINISTRATOR's password, which is what the first run of this phase hit: the seed drops that flag and the restore puts it back" ;;
+esac
+# Reported, never asserted: on the JF12 line both of these read true for an account whose stored password
+# is empty, so a reader comparing two runs sees the divergence rather than meeting it as a red gate.
+printf '  dto| HasPassword=%s after the reset (not a precondition - see above)\n' "$SEEDED_HASPASSWORD"
+pass "alice is seeded: routed at the built-in password provider, and the reset was accepted (HTTP $SEEDED_RESET)"
 
 log "The control: the door is open before the restart"
 [ "$SEEDED_EMPTY" = "200" ] \
@@ -120,6 +143,11 @@ SEALED_PROVIDER="$(field "$VERIFY_OUT" PROBE-PROVIDER)"
 SEALED_EMPTY="$(field "$VERIFY_OUT" PROBE-EMPTY-PASSWORD)"
 
 log "Asserting"
+# VACUOUS ON THE JF12 LINE AND KEPT ANYWAY (#1469). On 10.11 this moves false -> true across the restart
+# and is the sealing. On 12.0 it reads true on both sides of it, so it asserts nothing there - the two
+# readings that do are the empty-password refusal and the audit line below, and both are generation-
+# independent. Kept because it still bites on the 10.11 line, which is the generation the shipped
+# artifact runs on.
 [ "$SEALED_HASPASSWORD" = "true" ] \
     || die "alice still holds no password after the restart (HasPassword=$SEALED_HASPASSWORD) - the start-up pass did not seal an account that was exactly its population"
 pass "alice holds a password again after the restart"
