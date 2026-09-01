@@ -1,0 +1,38 @@
+# Pairwise co-existence harness (#1247). Boots a real Jellyfin server with the PACKAGED plugin zip
+# installed alongside ONE sibling plugin's published release artefact, and asserts that the server comes
+# up clean, that both plugins load, that this plugin's routes still answer, and that the two claim no
+# scheduled-task name, plugin identity or configuration file in common.
+#
+# Deliberately NO identity provider and no login round-trip. What a pair can go wrong at is
+# co-existence - a duplicate route, a scheduled task both register under one name, a configuration file
+# two plugins write - and every one of those is visible on a server that has merely come up with both
+# installed. The login round-trip is what test/e2e/docker-compose.yml already proves, on a stack this
+# one deliberately does not duplicate.
+#
+# The server port is published to the LOOPBACK interface of whoever runs this, because the driver here
+# is an ordinary script on that machine rather than a container on a shared network
+# (test/e2e/pairwise/run-pairwise.sh). Binding to 127.0.0.1 rather than to every interface keeps the
+# test server off the LAN of a developer running this at home.
+#
+# Local run (from the repository root, with a packaged plugin zip to hand):
+#   PLUGIN_ARTIFACT=<path to the JPRM zip> test/e2e/pairwise/run-pairwise.sh
+name: sso-e2e-pairwise
+
+services:
+  jellyfin:
+    # The same pin, and for the same reason, as the canonical harness: .NET will not bind an assembly
+    # reference DOWN, so a server older than the Jellyfin assemblies the plugin references refuses to
+    # load it. The tag is the 10.11 server by default and is overridden to a 12.0 server when the
+    # pairwise phase runs the JF12 generation, exactly as the canonical compose file is.
+    image: jellyfin/jellyfin:${JELLYFIN_IMAGE_TAG:-10.11.11}
+    environment:
+      # A container-local cache/data root keeps the writable state off the bind-mounted /config, so only
+      # the two plugin drops and the plugins' own configuration live under ./config.
+      JELLYFIN_CACHE_DIR: /cache
+    ports:
+      - "127.0.0.1:8096:8096"
+    volumes:
+      # Both plugins are unpacked into ./config/plugins/<name>/ before the stack comes up, and each
+      # plugin persists its own configuration under ./config/plugins/configurations/ - which is what the
+      # configuration-file half of the collision scan reads afterwards.
+      - ./config:/config
