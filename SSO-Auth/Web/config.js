@@ -9,6 +9,15 @@ function tr(key, englishDefault, params) {
   return i18n ? i18n.t(key, params, englishDefault) : englishDefault;
 }
 
+// The Jellyfin account routing that a revoke restores (#1121). The Unregister endpoint PERSISTS
+// whatever the caller sends here onto the account, so a wrong string does not fail the request: it routes
+// that account to core's InvalidAuthenticationProvider, which refuses every password, and nothing on this
+// page would report it. The literal is pinned here and compared against
+// SsoAuthenticationProviders.DefaultPasswordProviderId by LinkedAccountsRevoke_PostsThePinnedPasswordProviderId,
+// so the page and the server cannot drift apart (#837 pinned the server side for the same reason).
+const DEFAULT_PASSWORD_PROVIDER_ID =
+  "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
+
 // Provider templates (#726): the single source of truth for the "Start from a template" pickers.
 // Applying a preset writes ONLY into existing marker-classed fields by their id (OpenID: the property
 // name; SAML: "saml-" + the property name) and pre-checks ONLY the compatibility toggles a given IdP
@@ -1969,6 +1978,224 @@ const ssoConfigurationPage = {
         );
       });
   },
+  // The admin linked-accounts panel (#1121). Read-only presentation over the elevation-gated aggregate
+  // roster (SSOController.LinkedAccountRoster, #1119), plus the per-account revoke, which reuses the
+  // EXISTING Unregister endpoint unchanged - same route, same rate-limit class, same audit line. It adds no
+  // server route.
+  //
+  // Every value on a row is attacker-influenced: a canonical name is whatever the identity provider put in
+  // its subject claim, and a provider name is admin-typed but travels through configuration import. So the
+  // whole panel renders through textContent and never innerHTML, the same line linking.js already holds for
+  // the self-service page - and this page is the higher-value target, because it is the one an
+  // administrator opens.
+  loadLinkedAccounts: (page) => {
+    const container = page.querySelector("#LinkedAccountsResult");
+    ssoConfigurationPage.renderTransferMessage(
+      container,
+      tr("config.linked_accounts_loading", "Loading the linked accounts…"),
+    );
+
+    return ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).then(
+      (roster) =>
+        ssoConfigurationPage.renderLinkedAccounts(page, container, roster),
+      // Generic and input-independent, like the neighbouring admin actions: it never reflects a server value.
+      () =>
+        ssoConfigurationPage.renderTransferMessage(
+          container,
+          tr(
+            "config.linked_accounts_failed",
+            "Could not load the linked accounts. Make sure you are signed in as an administrator, then try again.",
+          ),
+        ),
+    );
+  },
+  renderLinkedAccounts: (page, container, roster) => {
+    const accounts =
+      roster && Array.isArray(roster.Accounts) ? roster.Accounts : [];
+    container.replaceChildren();
+
+    // The empty state is a sentence rather than an empty table: a blank panel reads as a failed fetch, and
+    // the failure branch above renders into this same region.
+    if (accounts.length === 0) {
+      ssoConfigurationPage.renderTransferMessage(
+        container,
+        tr(
+          "config.linked_accounts_empty",
+          "No Jellyfin account holds an SSO link on this server.",
+        ),
+      );
+      return;
+    }
+
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const head_row = document.createElement("tr");
+    [
+      tr("config.linked_accounts_column_account", "Account"),
+      tr("config.linked_accounts_column_links", "SSO links"),
+      tr("config.linked_accounts_column_action", "Action"),
+    ].forEach((label) => {
+      const cell = document.createElement("th");
+      cell.textContent = label;
+      head_row.appendChild(cell);
+    });
+    head.appendChild(head_row);
+    table.appendChild(head);
+
+    const body = document.createElement("tbody");
+    accounts.forEach((account) => {
+      body.appendChild(
+        ssoConfigurationPage.renderLinkedAccountRow(page, account),
+      );
+    });
+    table.appendChild(body);
+    container.appendChild(table);
+  },
+  renderLinkedAccountRow: (page, account) => {
+    const row = document.createElement("tr");
+    const exists = account && account.AccountExists === true;
+    const username =
+      account && account.Username ? String(account.Username) : "";
+
+    const name_cell = document.createElement("td");
+    // An orphaned row is the thing this panel exists to surface, so it is named as one rather than shown as
+    // a nameless account: the roster reports it deliberately instead of dropping it, and the user id is the
+    // only identifier it has left.
+    name_cell.textContent = exists
+      ? username
+      : tr("config.linked_accounts_orphan_account", "Deleted account ({id})", {
+          id: String((account && account.UserId) || ""),
+        });
+    row.appendChild(name_cell);
+
+    const links_cell = document.createElement("td");
+    const list = document.createElement("ul");
+    const links = account && Array.isArray(account.Links) ? account.Links : [];
+    links.forEach((link) => {
+      const item = document.createElement("li");
+      item.textContent = tr(
+        "config.linked_accounts_link_line",
+        "{provider} ({protocol}) - {canonical} - last SSO login: {last}",
+        {
+          provider: String((link && link.Provider) || ""),
+          protocol: String((link && link.Protocol) || ""),
+          canonical: String((link && link.CanonicalName) || ""),
+          last: ssoConfigurationPage.formatLastSsoLogin(
+            link && link.LastSsoLoginUtc,
+          ),
+        },
+      );
+      list.appendChild(item);
+    });
+    links_cell.appendChild(list);
+    row.appendChild(links_cell);
+
+    const action_cell = document.createElement("td");
+    if (exists) {
+      const button = document.createElement("button");
+      button.setAttribute("is", "emby-button");
+      button.setAttribute("type", "button");
+      button.classList.add("raised", "button-alt", "emby-button");
+      button.textContent = tr("config.linked_accounts_revoke", "Revoke");
+      button.addEventListener("click", (e) => {
+        ssoConfigurationPage.revokeLinkedAccount(page, username);
+        e.preventDefault();
+        return false;
+      });
+      action_cell.appendChild(button);
+    } else {
+      // No button rather than a disabled one: Unregister resolves the account by username, so on exactly
+      // these rows it can only answer 404. A control that is present and always fails on the case the panel
+      // was opened for is worse than none, and the row says why instead of leaving it to be discovered.
+      const note = document.createElement("p");
+      note.classList.add("fieldDescription");
+      note.textContent = tr(
+        "config.linked_accounts_orphan_note",
+        "The Jellyfin account behind this link no longer exists, so it cannot be revoked from here: the revoke resolves the account by its username.",
+      );
+      action_cell.appendChild(note);
+    }
+    row.appendChild(action_cell);
+
+    return row;
+  },
+  // Null means exactly "no successful SSO login has been recorded through this link since the stamp
+  // existed" - never a login at an unknown time - so it renders as a word rather than as an epoch date.
+  // The stamp is coalesced rather than written on every login, so it reads as "not later than" and this
+  // panel does not present it as a session timeline.
+  formatLastSsoLogin: (value) => {
+    const never = tr("config.linked_accounts_never", "never");
+    if (!value) {
+      return never;
+    }
+
+    const when = new Date(value);
+    return Number.isNaN(when.getTime()) ? never : when.toLocaleString();
+  },
+  // The revoke (#1121). It reuses POST sso/Unregister/{username} exactly as it stands - the elevation
+  // policy, the "unregister" rate-limit class, RemoveUserEverywhere across both protocols and the token
+  // revoke are all the endpoint's, and none of them is re-implemented or bypassed here.
+  //
+  // The confirmation NAMES the consequence rather than asking a bare "are you sure": the revoke switches
+  // the account back to Jellyfin's built-in password provider, which re-opens native password login for
+  // that one account even on a server running SSO-only (#165). That was decided on #1121 - warn, name the
+  // consequence, proceed - because refusing the action on an SSO-only server would remove the control on
+  // exactly the servers where cutting one account off matters most. The server-wide setting is untouched,
+  // and the text says so, because an administrator reading "revoke" expects strictly less access.
+  revokeLinkedAccount: (page, username) => {
+    const result = page.querySelector("#LinkedAccountsRevokeResult");
+    if (
+      !window.confirm(
+        tr(
+          "config.linked_accounts_revoke_confirm",
+          "Revoke every SSO link of {user}? This removes the links from all providers and ends every session that account holds, on every device. It also switches the account back to the built-in Jellyfin password provider, so {user} can sign in with a password again even while this server is otherwise SSO-only. The server-wide SSO-only setting is not changed.",
+          { user: username },
+        ),
+      )
+    ) {
+      return Promise.resolve();
+    }
+
+    ssoConfigurationPage.renderTransferMessage(
+      result,
+      tr(
+        "config.linked_accounts_revoking",
+        "Revoking the SSO links of {user}…",
+        { user: username },
+      ),
+    );
+
+    return ApiClient.fetch({
+      type: "POST",
+      url: ApiClient.getUrl("sso/Unregister/" + encodeURIComponent(username)),
+      data: JSON.stringify(DEFAULT_PASSWORD_PROVIDER_ID),
+      contentType: "application/json",
+    }).then(
+      () =>
+        // Re-read rather than editing the rendered table: the roster is the server's answer, and a panel
+        // that edits its own copy would keep showing a row the revoke did not actually remove.
+        ssoConfigurationPage
+          .loadLinkedAccounts(page)
+          .then(() =>
+            ssoConfigurationPage.renderTransferMessage(
+              result,
+              tr(
+                "config.linked_accounts_revoked",
+                "Revoked. That account holds no SSO link any more, and every session it held has been ended.",
+              ),
+            ),
+          ),
+      // Generic and input-independent: it never reflects a server value.
+      () =>
+        ssoConfigurationPage.renderTransferMessage(
+          result,
+          tr(
+            "config.linked_accounts_revoke_failed",
+            "Could not revoke the SSO links. Make sure you are signed in as an administrator, then try again.",
+          ),
+        ),
+    );
+  },
   renderTransferMessage: (container, message) => {
     container.replaceChildren();
     const line = window.document.createElement("p");
@@ -3120,6 +3347,19 @@ export default function initSsoConfigurationPage(view) {
     e.target.value = "";
     ssoConfigurationPage.importLinks(view, file);
   });
+
+  // The linked-accounts panel (#1121). Read-only on arrival: the roster is fetched once when the page
+  // initialises, so an administrator sees who is linked without pressing anything, and the button re-reads
+  // it. The revoke is bound per row in renderLinkedAccountRow, because the row is what carries the username.
+  view
+    .querySelector("#RefreshLinkedAccounts")
+    .addEventListener("click", (e) => {
+      ssoConfigurationPage.loadLinkedAccounts(view);
+      e.preventDefault();
+      return false;
+    });
+
+  ssoConfigurationPage.loadLinkedAccounts(view);
 
   view.querySelector("#sso-self-service-link").href =
     ApiClient.getUrl("/SSOViews/linking");

@@ -11,6 +11,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **The dashboard shows who is linked, and can cut one account off (#1121).**
+  Finding out which Jellyfin accounts sign in through SSO meant asking the API,
+  and revoking one meant the same; neither was on the settings page. It now
+  carries a Linked Accounts panel: every account holding an SSO link, the
+  provider and the identity-provider subject behind each link, and when that link
+  was last used to sign in. Each row offers a revoke, which removes that
+  account's links from every provider and ends every session it holds, on every
+  device. It asks first, and the question names what the revoke does instead of
+  asking whether you are sure: the account is switched back to Jellyfin's
+  built-in password provider, so it can sign in with a password again even on a
+  server that is otherwise SSO-only, and the server-wide setting is left exactly
+  as it was. The panel is equally plain about what a revoke does not buy. Where a
+  provider is permitted to link existing accounts, the same name can be adopted
+  again at the next SSO login, so the local account has to be disabled or renamed
+  as well when the cut has to hold. A link left behind by a deleted account is
+  shown rather than hidden, because nothing else shows it, and it carries no
+  revoke button: the revoke resolves an account by its username, which such a row
+  no longer has, so a button there could only ever fail. Nothing new is exposed
+  on the server - the panel reads the existing administrator-only roster and
+  drives the existing administrator-only revoke, with its rate limit and its
+  audit line unchanged - and every value it paints is written as text, never as
+  markup, because a subject identifier is whatever the identity provider chose to
+  send.
 - **A group can decide who may start a SyncPlay session (#827).** Everything else
   the identity provider decides about an account is re-read at every login -
   administrator rights, folder access, Live TV, the permission surface, the
