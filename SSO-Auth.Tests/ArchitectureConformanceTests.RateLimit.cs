@@ -89,6 +89,13 @@ public partial class ArchitectureConformanceTests
         // provider Test routes - those are throttled, share one bucket, and a fan-out would empty it - so
         // throttling this one would guard a surface that spends nothing.
         "Config/Check",
+        // Elevated read-only permission vocabulary (#1484): Jellyfin's compiled PermissionKind names minus
+        // this plugin's compiled exclusion set. It reads no configuration, holds no lock, makes no outbound
+        // request, writes nothing and takes no caller-supplied id - the answer is identical on every
+        // installation and on every request, so there is no per-request cost and no server fact for a
+        // throttle to protect. Exempt for a STRONGER reason than the two neighbours above, which at least
+        // read this server's providers.
+        "Config/Permissions",
         // Elevated read-only counter exposition (#1139): in-memory tallies rendered to text, no outbound
         // fetch and no write. Exempt for a reason the neighbours above do not have - a scraper is SUPPOSED to
         // poll this route, every fifteen seconds forever, so a throttle here would break the one caller it

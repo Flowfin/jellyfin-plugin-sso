@@ -63,6 +63,10 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // The pre-provision link write (#1133): it grants an identity-provider subject the ability to sign
         // in as an account other than the caller's, with no identity-provider response behind it.
         "PreprovisionCanonicalLink",
+        // The mappable permission vocabulary (#1484): read-only and installation-independent, and
+        // elevation-gated because the config page is the only caller it exists for - an anonymous route
+        // would be a new unauthenticated surface bought for nothing.
+        "PermissionVocabulary",
         // The auth-path counter exposition (#1139): read-only, and elevation-gated because the counters name
         // which providers the server has and how often logins against them fail, which is reconnaissance for
         // an unauthenticated caller and would let one watch their own attempts land.

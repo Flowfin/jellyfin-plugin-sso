@@ -156,6 +156,25 @@ internal static class PermissionRolePolicy
     }
 
     /// <summary>
+    /// The permission names an administrator may put in a mapping or a provisioning template (#1484): every
+    /// declared <see cref="PermissionKind"/> that <see cref="Classify"/> answers
+    /// <see cref="PermissionNameStatus.Valid"/> for, in ordinal order.
+    /// </summary>
+    /// <remarks>
+    /// Derived through <see cref="Classify"/> rather than listed, and that is the whole point of it existing:
+    /// a consumer that kept its own copy would drift in three silent directions - a member upstream adds is
+    /// mappable here and invisible there, a member upstream removes stays offerable and is refused at save,
+    /// and a name added to the dedicated set keeps being offered. Going through the same classification the
+    /// save-time validator uses means the vocabulary cannot disagree with the refusal by construction.
+    /// </remarks>
+    /// <returns>The mappable permission names.</returns>
+    internal static IReadOnlyList<string> MappablePermissionNames() =>
+        Enum.GetNames<PermissionKind>()
+            .Where(name => Classify(name) == PermissionNameStatus.Valid)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
     /// Resolves a configured permission name to its <see cref="PermissionKind"/> when it is valid and
     /// mappable, failing closed (returns false, grants nothing) for a blank, unknown, or dedicated name.
     /// </summary>
