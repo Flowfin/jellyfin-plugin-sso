@@ -1433,6 +1433,27 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Publishes the permission names an administrator may map (#1484), so the config page can offer them
+    /// instead of letting one be typed and meet a save-time refusal. Requires administrator privileges, like
+    /// the other config endpoints. Read-only - it changes nothing, and it reads no configuration at all.
+    /// </summary>
+    /// <remarks>
+    /// The answer is derived by <see cref="MappablePermissions"/> from the same classification the save-time
+    /// validator refuses by, so the vocabulary and the refusal cannot disagree. The alternative - a list written into the page - drifts silently in three directions the
+    /// moment Jellyfin adds a permission, removes one, or this plugin excludes one more.
+    /// </remarks>
+    /// <returns>The mappable permission names.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpGet("Config/Permissions")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<MappablePermissionDocument> PermissionVocabulary()
+    {
+        // No config read and no lock: the set is Jellyfin's compiled enum minus this plugin's compiled
+        // exclusion set, so it is the same answer on every installation and on every request.
+        return Ok(MappablePermissions.Build());
+    }
+
+    /// <summary>
     /// Answers, for every configured OpenID and SAML provider at once, whether a login against it would get
     /// past the configuration and why not (#1084) - the aggregate "Configuration check" the redesigned
     /// settings page dropped. Requires administrator privileges, like the other config endpoints. Read-only:
