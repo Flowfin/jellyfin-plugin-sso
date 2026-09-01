@@ -3,11 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -167,53 +164,11 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     {
         Assert.NotEmpty(endpoints);
 
-        var failures = new List<string>();
-        foreach (var endpoint in endpoints)
-        {
-            var status = (int)(await SendAsync(endpoint, role).ConfigureAwait(false)).StatusCode;
-            if (!expected(status))
-            {
-                failures.Add($"{endpoint} -> {status}");
-            }
-        }
+        // The walk itself lives in AuthorizationProbe so a red run reports EVERY endpoint's outcome rather
+        // than stopping at the first request that produced no status (#1444). What the assertion needs from
+        // it is only the list.
+        var failures = await AuthorizationProbe.CollectFailuresAsync(_fixture.Client, endpoints, role, expected).ConfigureAwait(false);
 
         Assert.True(failures.Count == 0, $"{because}, but these did not: {string.Join("; ", failures)}");
-    }
-
-    private async Task<HttpResponseMessage> SendAsync(GatedEndpoint endpoint, string? role)
-    {
-        using var request = new HttpRequestMessage(new HttpMethod(endpoint.Method), endpoint.Url);
-        if (role is not null)
-        {
-            request.Headers.Add(TestRoles.Header, role);
-        }
-
-        // A minimal JSON body for methods that carry one, so a [FromBody] action does not 415 before running.
-        // Irrelevant to the assertions (they only care whether the guard produced a 401/403), but it keeps the
-        // authorized-path responses to genuine action outcomes.
-        if (HttpMethod.Post.Method.Equals(endpoint.Method, StringComparison.OrdinalIgnoreCase)
-            || HttpMethod.Put.Method.Equals(endpoint.Method, StringComparison.OrdinalIgnoreCase))
-        {
-            request.Content = new StringContent("null", Encoding.UTF8, "application/json");
-        }
-
-        var caller = role ?? "an unauthenticated caller";
-        var elapsed = Stopwatch.StartNew();
-        try
-        {
-            return await _fixture.Client.SendAsync(request).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            // A request that never produced a status carries none of that in its own text: the transport
-            // exception names an address and, on a non-English host, says so in that host's language. The five
-            // tests above each drive ~25 endpoints in a loop, so without this the reader of a red run cannot
-            // tell WHICH endpoint stalled, as which caller, or after how long - which is the evidence #1444
-            // lost the one time this went red. Diagnostics, not a guard: nothing here can fail a green run.
-            throw new InvalidOperationException(
-                FormattableString.Invariant(
-                    $"the request produced no status: {endpoint} as {caller} after {elapsed.ElapsedMilliseconds} ms, client timeout {_fixture.Client.Timeout}, {ex.GetType().Name}"),
-                ex);
-        }
     }
 }
