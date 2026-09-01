@@ -301,6 +301,63 @@
           </form>
 
           <!--
+            The linked-accounts panel (#1121). Presentation only: it reads the elevation-gated aggregate
+            roster (SSOController.LinkedAccountRoster, #1119) and drives the EXISTING elevation-gated,
+            rate-limited Unregister endpoint. It adds no server route, no second revoke path, and it does not
+            bypass the limiter. Every cell is written with textContent, never innerHTML (#221): a canonical
+            name is whatever the identity provider put in its subject claim and a username is
+            attacker-influenced, and this page is the higher-value target because an administrator opens it.
+            A row whose account no longer exists carries no Revoke button, because Unregister resolves the
+            account by username and can only answer 404 on exactly those rows; the row says so instead.
+            The revoke's confirmation names its consequence - the account is switched back to the built-in
+            password provider, so it can sign in with a password again even on an SSO-only server - which is
+            what #1121 decided, rather than refusing the action there and leaving those servers with no
+            in-dashboard route at all.
+          -->
+          <form id="sso-linked-accounts" class="esqConfigurationForm">
+            <div
+              class="verticalSection"
+              is="emby-collapse"
+              title="Linked Accounts"
+              data-i18n-title="config.linked_accounts_title"
+            >
+              <div class="collapseContent">
+                <div
+                  class="fieldDescription"
+                  data-i18n="config.linked_accounts_help"
+                >
+                  Every Jellyfin account that holds an SSO link, with the
+                  provider and the identity-provider subject behind each link.
+                  Revoking an account removes its links from every provider,
+                  ends every session it holds on every device, and switches it
+                  back to the built-in Jellyfin password provider - so that
+                  account can sign in with a password again even while this
+                  server is otherwise SSO-only, and the server-wide setting is
+                  not changed. A revoke is not durable where a provider has
+                  Allow Existing Account Link enabled: the same-named account
+                  can be re-adopted on its next SSO login, so disable or rename
+                  the local account as well when the cut has to hold. Requires
+                  administrator privileges.
+                </div>
+
+                <button
+                  id="RefreshLinkedAccounts"
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit block emby-button"
+                >
+                  <span data-i18n="config.linked_accounts_refresh"
+                    >Refresh Linked Accounts</span
+                  >
+                </button>
+
+                <div id="LinkedAccountsRevokeResult"></div>
+                <div id="LinkedAccountsResult"></div>
+              </div>
+            </div>
+          </form>
+
+          <!--
             Login-page buttons (#722): GLOBAL setting. ManageLoginPageButtons lives on the root
             PluginConfiguration, not on a provider, so it deliberately sits OUTSIDE both provider forms
             and carries NO sso-* marker class: it is saved by its own handler (config.js
