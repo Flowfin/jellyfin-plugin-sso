@@ -449,3 +449,82 @@ jobs:
         env:
           COMPOSE: ${{ matrix.compose }}
         run: docker compose -f "$COMPOSE" down -v || true
+
+  # Pairwise co-existence (#1247). This plugin claims it works alone AND that it works with every
+  # supported sibling installed at the same time. The first half is what the matrix above proves; this
+  # job proves the second half ONE PAIR AT A TIME - the packaged artefact installed beside each sibling
+  # that has published a release, on a server that boots with both.
+  #
+  # It lives in THIS workflow rather than in one of its own, and that is the whole of how the issue's
+  # release clause is met: publish-beta.yml and publish-jf12-beta.yml already call this workflow at the
+  # commit they are about to ship, and a calling job succeeds only when every job in the called workflow
+  # does. So a red pair blocks the beta publish with no edit to either publish workflow, the nightly
+  # cron gives it a per-day result, and the `generation` input runs it on both supported server lines.
+  #
+  # THE COUPLING THAT BUYS IS REAL AND IS NOT HIDDEN: this board's publish now depends on artefacts
+  # other boards publish. A sibling with no release, no plugin zip, or a release built for the other ABI
+  # line is SKIPPED and the skip is reported, so none of those can block anything. What does block is an
+  # artefact whose bytes do not match its own published sha256, and a pair that actually collides. The
+  # first is deliberate - a downloaded plugin package that fails its own integrity sidecar is either a
+  # corrupt download, which a re-run clears, or a tampered one, which must stop a release rather than be
+  # noted and passed.
+  #
+  # No identity provider and no login round-trip. What a pair goes wrong at is co-existence, and every
+  # form of that is visible on a server that has merely come up with both plugins installed.
+  pairwise:
+    needs: select
+    name: Pairwise co-existence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # To check this repository out and to build the packaged plugin. The sibling listing and the
+      # artefact downloads are public reads that need no more than this token already carries.
+      contents: read
+    env:
+      JELLYFIN_IMAGE_TAG: ${{ needs.select.outputs.jellyfin_image_tag }}
+      # Derived from the target framework the select job already resolved rather than from a second
+      # branch on the input, so the generation this job boots and the generation it packages cannot
+      # disagree.
+      SERVER_GENERATION: ${{ needs.select.outputs.dotnet_target == 'net10.0' && 'jf12' || 'jf10.11' }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ needs.select.outputs.dotnet_sdks }}
+
+      - name: Use the JF12 build metadata
+        # The same swap the login matrix makes, and for the same reason: the pair has to be the artefact
+        # the generation actually ships, or a green pair is about bytes nobody installs.
+        if: needs.select.outputs.build_metadata != 'build.yaml'
+        env:
+          METADATA: ${{ needs.select.outputs.build_metadata }}
+        run: |
+          set -euo pipefail
+          cp "$METADATA" build.yaml
+          echo "build.yaml now carries $METADATA:"
+          grep -E '^(version|targetAbi|framework):' build.yaml
+
+      - name: Build packaged plugin (JPRM)
+        uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
+        id: jprm
+        with:
+          dotnet-target: ${{ needs.select.outputs.dotnet_target }}
+
+      - name: Run the pairwise co-existence phase
+        env:
+          PLUGIN_ARTIFACT: ${{ steps.jprm.outputs.artifact }}
+          # The sibling set is derived from this account's plugin repositories at run time, so a board
+          # publishing its first release joins without an edit here.
+          PAIRWISE_OWNER: ${{ github.repository_owner }}
+          PAIRWISE_SELF: ${{ github.event.repository.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash test/e2e/pairwise/run-pairwise.sh
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f test/e2e/pairwise/docker-compose.yml down -v || true

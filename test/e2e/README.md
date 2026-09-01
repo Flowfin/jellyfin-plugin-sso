@@ -131,6 +131,59 @@ through the plugin's `RoleClaimIsObjectMap` option (#934).
   token, are both refused - and, like the role gate, with the redeem miss's **exact HTTP 400**, so a
   connection failure, a throttle or a 500 cannot masquerade as "one-time-use holds".
 
+## Pairwise co-existence (#1247)
+
+The plugin claims two things: that it works **alone**, and that it works with every supported sibling
+plugin installed **at the same time**. Everything above proves the first. `test/e2e/pairwise/` proves the
+second **one pair at a time** - the packaged artefact installed beside one sibling's published release, on
+a server that boots with both.
+
+It is a separate stack with **no identity provider and no login round-trip**, deliberately. What a pair
+goes wrong at is co-existence - a plugin that will not load beside another, a scheduled-task name two
+plugins register, a configuration file two plugins write - and every one of those is visible on a server
+that has merely come up with both installed. Driving a login there would re-run what the canonical stack
+already proves.
+
+**The set of pairs is derived at run time**, from this account's plugin repositories and their release
+listings, so a board publishing its first release joins the run without an edit here and no count in this
+repository can go stale. A sibling is **skipped, with the skip reported**, where it has no non-draft,
+non-prerelease release, where its release carries no plugin zip, or where that zip targets the other ABI
+line (a 10.11-ABI plugin does not load on a 12.0 server, which is a fact about the two release lines
+rather than a collision). A skip never passes silently.
+
+Per pair, it asserts and **names what it compared**:
+
+- the server comes up and answers `GET /System/Info/Public` with both plugins installed, and its log
+  reports no plugin failing to load;
+- both plugins appear in `GET /Plugins` with status `Active`;
+- no two loaded plugins share a plugin id or a display name;
+- no two entries in `GET /ScheduledTasks` share a key or a name;
+- this plugin's own administrator-only `GET /SSO/Config/Check` still answers 200;
+- no plugin configuration file resolves to an assembly **both** packages install. Jellyfin derives a
+  plugin's configuration file from the assembly it ships rather than from its display name - this
+  plugin is named "Community SSO for Jellyfin", ships `SSO-Auth.dll` and persists `SSO-Auth.xml` - so two
+  packages shipping one assembly file name write each other's configuration, which the display-name
+  check above cannot see.
+
+**A green set of pairs is not a green family.** Three plugins that each pair cleanly can still collide
+with all three installed, and nothing here would see it. That is [#1479](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1479),
+it is not checked on this board, and the run prints that bound on every pass rather than leaving a reader
+to remember it.
+
+The phase runs wherever this workflow runs: on the nightly schedule, on a pull request touching
+`test/e2e/**`, and - because `publish-beta.yml` and `publish-jf12-beta.yml` call this workflow at the
+commit they are about to ship - **before each beta publish, on both server lines**. A red pair therefore
+blocks the publish. The coupling that buys is real and is stated rather than hidden: this board's release
+depends on artefacts other boards publish. A sibling with nothing installable is skipped and blocks
+nothing; what blocks is an artefact whose bytes do not match its own published `sha256` sidecar, and a
+pair that actually collides.
+
+Locally, with Docker running and a packaged plugin zip to hand:
+
+```
+PLUGIN_ARTIFACT=<path to the JPRM zip> test/e2e/pairwise/run-pairwise.sh
+```
+
 ## Architecture (avoiding the issuer-hostname trap)
 
 Everything runs in one `docker compose` stack on a shared network, **including the harness**. Every

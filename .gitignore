@@ -474,3 +474,8 @@ docs/*
 !docs/THREAT-MODEL-TRUSTED-HEADER.md
 !docs/SERVER-MIGRATION.md
 StrykerOutput/
+
+# The e2e stacks unpack the plugin drops and let Jellyfin write its state under these
+# directories at run time. They are build output of a test run, never sources.
+test/e2e/jellyfin/
+test/e2e/pairwise/config/
