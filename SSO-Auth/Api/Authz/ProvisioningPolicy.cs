@@ -149,7 +149,7 @@ internal static class ProvisioningPolicy
         // an unknown name; this is the same second refusal the permission entries get above, for the same
         // reason - a config file edited by hand around the validator still reaches this writer. Falling back
         // to the enum's zero value would quietly set a mode nobody asked for.
-        if (Enum.TryParse<SubtitlePlaybackMode>(template.SubtitleMode, ignoreCase: false, out var subtitleMode))
+        if (TryParseSubtitleMode(template.SubtitleMode, out var subtitleMode))
         {
             user.SubtitleMode = subtitleMode;
             written++;
@@ -174,6 +174,28 @@ internal static class ProvisioningPolicy
         }
 
         return written;
+    }
+
+    /// <summary>
+    /// Parses a configured subtitle-mode name, refusing anything that is not a DECLARED member of
+    /// <see cref="SubtitlePlaybackMode"/> spelled exactly (#1482).
+    /// </summary>
+    /// <param name="mode">The configured mode name.</param>
+    /// <param name="parsed">The parsed mode when the name is a declared member.</param>
+    /// <returns>True when the name parsed to a declared member.</returns>
+    internal static bool TryParseSubtitleMode(string? mode, out SubtitlePlaybackMode parsed)
+    {
+        // ignoreCase: false so a mis-cased spelling is reported rather than guessed at. The two checks after
+        // it are what a MEASUREMENT added rather than reasoning, and they are the ones the permission
+        // entries and SyncPlayAccessPolicy.TryParseAccess already carry: Enum.TryParse also accepts a bare
+        // numeral, and the two arms fail differently. "57" parses to an undeclared (SubtitlePlaybackMode)57
+        // - IsDefined refuses it. "1" parses to a declared member and IsDefined waves it through, so the
+        // name round-trip is what refuses it: a numeral pins the stored preference to the ORDER upstream
+        // happens to declare the enum in, and a reorder there would silently change what an administrator
+        // configured. A mode is a NAME here, on both sites that read one.
+        return Enum.TryParse(mode, ignoreCase: false, out parsed)
+            && Enum.IsDefined(parsed)
+            && string.Equals(parsed.ToString(), mode, StringComparison.Ordinal);
     }
 
     /// <summary>
