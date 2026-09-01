@@ -24,7 +24,8 @@ each is written for somebody reading the source alongside it:
 - **[Threat model: the trusted-header path](THREAT-MODEL-TRUSTED-HEADER.md)** -
   a STRIDE pass over reverse-proxy forward-auth, and the deployment conditions
   the plugin cannot verify. Evaluation material, not a description of a shipped
-  feature.
+  feature: the evaluation it was written for ended in a DECLINE (#808), recorded
+  at the end of that document.
 
 The [README](../README.md) has the overview and quick start; the Wiki is the
 reference documentation. The contributor architecture reference lives in the

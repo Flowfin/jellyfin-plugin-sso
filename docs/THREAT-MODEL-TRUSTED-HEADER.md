@@ -11,6 +11,11 @@ and which of the remaining conditions belong to the deployment. Some of those
 conditions are ones no code in this repository can check, and saying so is a
 legitimate outcome of the pass rather than a gap in it.
 
+The pass itself is still not a decision, and nothing below its final section has
+been rewritten to read as one. The decision it was written for was taken on
+2026-08-31 and is recorded at the end, so that a reader of this tree finds the
+answer where the analysis is rather than only on the issue that asked for it.
+
 The subject is the hop between the proxy and the plugin, not the proxy's own
 configuration. How Authelia decides that a visitor is `alice` is Authelia's
 problem. What this document is about is everything that happens after it writes
@@ -335,3 +340,30 @@ above and a deployment contract stated in the documentation. What is not
 defensible is adopting it without the constraints, because the version of this
 pattern that reads a group list and honours an administrator flag turns one
 spoofable header into the whole server.
+
+## The decision this pass was written for
+
+**DECLINED on 2026-08-31**, on #808, which is where the reasoning was written and
+where the wording below is taken from rather than re-derived.
+
+The ground is the finding of the section above, not a preference: no code in this
+server process can observe any of the five conditions, and header trust fails
+open, so the failure mode is a valid session for an attacker rather than an error
+a log shows. A plugin that mints a session from a header it cannot prove came
+from the proxy is trusting a claim it has no instrument to check. Adopting with a
+deployment contract moves that risk into a document an operator is asked to
+honour, and a document does not narrow an allowlist. The one adoption shape most
+requesters actually want - reading the proxy-supplied group list and honouring an
+administrator flag - is the one this pass rules out outright.
+
+So the project will not ship an authentication path whose security precondition
+it cannot verify. This document stays in the tree as the evidence behind that,
+because a decline backed by a model is worth more to a future asker than a
+decline backed by a preference.
+
+What would change it is a mechanism by which the plugin can verify the peer it
+received the header from. That is a new issue citing #808, not a reopening of it.
+
+Nothing in this section widens what the pass established. The two readings it
+called defensible were both defensible on the evidence; one of them was taken,
+and the fact that the other remained available is not deleted by the taking.
