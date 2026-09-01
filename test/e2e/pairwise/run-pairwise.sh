@@ -143,7 +143,19 @@ run_pair() {
   log "===================================================================================="
 
   teardown
-  rm -rf "$CONFIG_DIR"
+  # The server writes its whole /config as ROOT, so directories it created are not removable by the
+  # unprivileged user running this script - an ordinary rm -rf leaves the previous pair's completed
+  # startup wizard in place, and every wizard call on the next pair is then answered 401 by a server
+  # that is already set up. Measured on run 33477577867 before this used a container to do the removal.
+  # The removal is therefore done AS root, from a throwaway container over the same bind mount, which
+  # needs no privilege on the host and raises no prompt. It is asserted afterwards rather than assumed:
+  # a reset that silently did nothing is the exact failure this replaces.
+  if [ -e "$CONFIG_DIR" ]; then
+    docker run --rm -v "$HERE:/w" alpine:3.20 rm -rf /w/config >/dev/null 2>&1 || true
+    rm -rf "$CONFIG_DIR" 2>/dev/null || true
+  fi
+  [ ! -e "$CONFIG_DIR" ] || die "$repo: the previous pair's server state could not be removed from $CONFIG_DIR - every assertion after this would be about the wrong server"
+
   mkdir -p "$CONFIG_DIR/plugins/SSO-Auth" "$CONFIG_DIR/plugins/$repo"
   unzip -o -q "$PLUGIN_ARTIFACT" -d "$CONFIG_DIR/plugins/SSO-Auth"
   unzip -o -q "$zip" -d "$CONFIG_DIR/plugins/$repo"
@@ -166,7 +178,15 @@ run_pair() {
   # and they are the two surfaces a collision is visible on.
   local w=0
   while [ "$w" -lt 30 ] && ! jf_get "/Startup/Configuration" >/dev/null 2>&1; do w=$((w + 1)); sleep 2; done
-  jf_get  "/Startup/Configuration" >/dev/null || { fail "$repo: the startup wizard never became ready"; teardown; return 1; }
+  local wizard_status
+  wizard_status="$(curl -sS -o /dev/null -w '%{http_code}' "$JELLYFIN/Startup/Configuration" -H "Authorization: $EMBY_AUTH")" || wizard_status="000"
+  if [ "$wizard_status" != "200" ]; then
+    # The status is named rather than swallowed: a 401 here means the server is ALREADY set up, which is
+    # a stale bind mount rather than a slow boot, and the two need opposite repairs.
+    fail "$repo: the startup wizard answered HTTP $wizard_status (401 means this server was already set up, so the state from an earlier pair survived)"
+    teardown
+    return 1
+  fi
   jf_post "/Startup/Configuration" '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}' >/dev/null || { fail "$repo: wizard configuration failed"; teardown; return 1; }
   jf_get  "/Startup/User" >/dev/null || true
   jf_post "/Startup/User" "{\"Name\":\"$ADMIN_USER\",\"Password\":\"$ADMIN_PASS\"}" >/dev/null || { fail "$repo: wizard admin creation failed"; teardown; return 1; }
@@ -192,9 +212,26 @@ run_pair() {
   log "--- plugins the server reports (compared: Id, Name, Status) ---"
   printf '%s' "$plugins" | jq -r '.[] | "  \(.Id)  \(.Name)  \(.Version)  \(.Status)"'
 
+  # The list must actually hold the two plugins before anything is compared across it. Every duplicate
+  # check below is an ABSENCE assertion, and an empty or one-entry list satisfies all of them while
+  # comparing nothing - which is how a run that loaded neither plugin reported no collisions.
+  local plugin_count
+  plugin_count="$(printf '%s' "$plugins" | jq -r 'length')"
+  if [ "${plugin_count:-0}" -lt 2 ]; then
+    fail "$repo: the server reports $plugin_count loaded plugin(s), so the comparisons below would have inspected nothing"
+    ok=0
+  fi
+
+  # Jellyfin serializes a Guid WITHOUT hyphens, while a plugin's meta.json declares it with them, so the
+  # two are compared on the hyphen-free form. Written as a plain comparison first, this reported both
+  # plugins as absent on a server whose own SSO route was answering 200 three lines later - the
+  # contradiction is what gave it away, on run 33477577867.
+  local self_key sibling_key
+  self_key="$(printf '%s' "$SELF_GUID" | tr -d '-' | tr 'A-Z' 'a-z')"
+  sibling_key="$(printf '%s' "$sibling_guid" | tr -d '-' | tr 'A-Z' 'a-z')"
   local self_row sibling_row
-  self_row="$(printf '%s' "$plugins" | jq -r --arg g "$SELF_GUID" '[.[] | select((.Id|ascii_downcase) == ($g|ascii_downcase))] | .[0] // empty')"
-  sibling_row="$(printf '%s' "$plugins" | jq -r --arg g "$sibling_guid" '[.[] | select((.Id|ascii_downcase) == ($g|ascii_downcase))] | .[0] // empty')"
+  self_row="$(printf '%s' "$plugins" | jq -r --arg g "$self_key" '[.[] | select((.Id | ascii_downcase | gsub("-";"")) == $g)] | .[0] // empty')"
+  sibling_row="$(printf '%s' "$plugins" | jq -r --arg g "$sibling_key" '[.[] | select((.Id | ascii_downcase | gsub("-";"")) == $g)] | .[0] // empty')"
 
   if [ -z "$self_row" ]; then
     fail "$repo: THIS plugin ($SELF_GUID) is not loaded with '$sibling_name' installed"
@@ -226,7 +263,7 @@ run_pair() {
 
   # ---- collision scan: plugin identity ----
   local dup_ids dup_names
-  dup_ids="$(printf '%s' "$plugins" | jq -r '[.[].Id | ascii_downcase] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
+  dup_ids="$(printf '%s' "$plugins" | jq -r '[.[].Id | ascii_downcase | gsub("-";"")] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
   dup_names="$(printf '%s' "$plugins" | jq -r '[.[].Name] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
   if [ -n "$dup_ids" ]; then fail "$repo: two loaded plugins share a plugin id: $dup_ids"; ok=0; else pass "$repo: no two loaded plugins share a plugin id"; fi
   if [ -n "$dup_names" ]; then fail "$repo: two loaded plugins share a display name: $dup_names"; ok=0; else pass "$repo: no two loaded plugins share a display name"; fi
@@ -239,6 +276,10 @@ run_pair() {
     ok=0
   else
     log "--- scheduled tasks the server reports (compared: Key, Name) ---"
+    if [ "$(printf '%s' "$tasks" | jq -r 'length')" -lt 2 ]; then
+      fail "$repo: the server reports fewer than two scheduled tasks, so the key and name comparisons inspected nothing"
+      ok=0
+    fi
     printf '%s' "$tasks" | jq -r '.[] | "  \(.Key)  \(.Name)"'
     local dup_keys dup_task_names
     dup_keys="$(printf '%s' "$tasks" | jq -r '[.[].Key] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
