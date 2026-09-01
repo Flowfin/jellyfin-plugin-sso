@@ -314,6 +314,24 @@ run_pair() {
   # actually installed, so a dependency both happen to ship cannot be mistaken for a collision: a shared
   # assembly name matters here exactly when a configuration file resolves to it from both sides, which
   # is the collision itself.
+  # Neither plugin writes its configuration file until something saves one, so on a bare boot the
+  # directory this scan reads is EMPTY and the scan compares nothing - the same vacuity the plugin and
+  # task comparisons were just given a floor against. So each plugin's own configuration is read and
+  # posted straight back, unchanged, which is what makes the server write the file. A plugin that
+  # refuses its own unmodified configuration is reported rather than ignored: that is a finding about
+  # the pair too.
+  local pid
+  for pid in "$(printf '%s' "$self_row" | jq -r '.Id' 2>/dev/null)" "$(printf '%s' "$sibling_row" | jq -r '.Id' 2>/dev/null)"; do
+    [ -n "$pid" ] && [ "$pid" != "null" ] || continue
+    local current
+    current="$(jf_get "/Plugins/$pid/Configuration" "$token")" || current=""
+    if [ -z "$current" ]; then
+      log "  (plugin $pid returned no configuration to write back)"
+      continue
+    fi
+    curl -fsS -X POST "$JELLYFIN/Plugins/$pid/Configuration"       -H "Content-Type: application/json"       -H "Authorization: MediaBrowser Token=\"$token\""       -d "$current" >/dev/null 2>&1       || log "  (plugin $pid refused its own unmodified configuration, so it wrote no file)"
+  done
+
   local conf_dir="$CONFIG_DIR/plugins/configurations"
   local self_dlls sibling_dlls conf_files claimed_twice=""
   self_dlls="$(cd "$CONFIG_DIR/plugins/SSO-Auth" && ls -1 ./*.dll 2>/dev/null | sed 's#^\./##; s#\.dll$##' | sort || true)"
@@ -337,17 +355,25 @@ run_pair() {
 $conf_files
 CONF
 
-  if [ -n "$claimed_twice" ]; then
+  if [ -z "$conf_files" ]; then
+    fail "$repo: no plugin configuration file was written, so this scan compared nothing"
+    ok=0
+  elif [ -n "$claimed_twice" ]; then
     fail "$repo: a plugin configuration file resolves to an assembly BOTH packages install:$claimed_twice"
     ok=0
   else
     pass "$repo: no configuration file resolves to an assembly both packages install"
   fi
 
-  # This plugin's own configuration must still be the file it has always been. A sibling that displaced
-  # it would leave the server loading this plugin against another plugin's settings.
-  if [ -n "$conf_files" ] && ! printf '%s\n' "$conf_files" | grep -qxF "SSO-Auth"; then
-    log "  (this plugin persisted no configuration on this run, which it only does once a provider is configured)"
+  # This plugin's own configuration must be the file it has always been. A sibling that displaced it
+  # would leave the server loading this plugin against another plugin's settings, and the resolve scan
+  # above cannot see that on its own: it asks whether a file is claimed twice, not whether OUR file is
+  # still there at all.
+  if grep -qxF "SSO-Auth" <<< "$conf_files"; then
+    pass "$repo: this plugin's configuration is still SSO-Auth.xml"
+  else
+    fail "$repo: this plugin wrote no SSO-Auth.xml with '$sibling_name' installed"
+    ok=0
   fi
 
   # ---- the server came up CLEAN, not merely up ----
