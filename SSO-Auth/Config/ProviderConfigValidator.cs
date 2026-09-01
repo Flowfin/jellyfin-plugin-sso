@@ -432,8 +432,11 @@ internal static class ProviderConfigValidator
         // administrator would get a setting they never chose and nothing would say so. The two language
         // fields are deliberately NOT checked against a list - Jellyfin stores what it is given, and a
         // plugin-side allow-list would drift against it and begin refusing codes Jellyfin accepts.
+        // One parse for both sites (#1482), so the validator refuses exactly what the writer would skip:
+        // a bare numeral walked through Enum.TryParse here and landed on the account as an undeclared
+        // (SubtitlePlaybackMode)57, from a save that reported success.
         if (template.SubtitleMode != null
-            && !Enum.TryParse<SubtitlePlaybackMode>(template.SubtitleMode, ignoreCase: false, out _))
+            && !ProvisioningPolicy.TryParseSubtitleMode(template.SubtitleMode, out _))
         {
             var echoMode = string.Concat(template.SubtitleMode.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
             throw new ArgumentException(

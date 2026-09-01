@@ -367,6 +367,35 @@ public class ProvisioningPolicyTemplateTests
         Assert.Equal(SubtitlePlaybackMode.Always, created.SubtitleMode);
     }
 
+    [Theory]
+    [InlineData("57")]
+    [InlineData("1")]
+    public async Task ANumericSubtitleMode_IsRefusedAtSaveAndWritesNothing(string mode)
+    {
+        // #1482: Enum.TryParse also accepts a bare NUMERAL, and the two rows fail differently. "57" parsed
+        // to an undeclared (SubtitlePlaybackMode)57 and landed on a brand-new account from a save that
+        // reported success. "1" parses to a DECLARED member, so IsDefined waves it through and only the name
+        // round-trip refuses it - a numeral pins the stored preference to the order upstream declares the
+        // enum in, and a reorder there would silently change what the administrator configured.
+        //
+        // The account is pre-set to OnlyForced, which is neither of the two values these rows would parse to,
+        // so the writer's skip is asserted on both rows rather than only on the undeclared one. Somebody
+        // reading Jellyfin's own API, where the mode is a number on the wire, is how a numeral gets typed in.
+        Assert.Throws<ArgumentException>(() => ProviderConfigValidator.ValidateProvisioningTemplate(
+            "OpenID",
+            "kc",
+            new ProvisioningPolicyTemplate { SubtitleMode = mode }));
+
+        var (service, config, users) = Build();
+        config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { SubtitleMode = mode };
+        var created = Provisionable(users, "alice");
+        created.SubtitleMode = SubtitlePlaybackMode.OnlyForced;
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal(SubtitlePlaybackMode.OnlyForced, created.SubtitleMode);
+    }
+
     [Fact]
     public void EverySubtitleModeJellyfinDefines_IsAccepted_AndTheRefusalNamesRealOnes()
     {
