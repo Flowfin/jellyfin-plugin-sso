@@ -11,6 +11,30 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **The starting policy is on the provider forms (#1367).** Everything a
+  provider writes onto a brand-new account - the permissions, the remote
+  bitrate ceiling, the session limit, the two language preferences, the
+  subtitle mode and the three playback switches - was configurable only by
+  editing the plugin configuration by hand. Both provider forms now carry it,
+  under **Starting policy for new accounts**. Every control has three states
+  rather than two, because every field of the template does: a control you
+  leave alone sends nothing at all and Jellyfin's own default governs, which
+  is why the three playback switches are lists reading Yes, No or leave
+  Jellyfin's own default and not checkboxes - a checkbox would post a
+  deliberate No for a field you never touched, onto every account the provider
+  creates. A form on which you set nothing sends no template rather than an
+  empty one, so a provider that takes its policy from a named provisioning
+  profile stays saveable from the dashboard; on such a provider the section
+  says where the policy comes from and leaves its own fields alone. The
+  subtitle mode is a list of exactly the mode names Jellyfin declares, so the
+  spelling a save accepts is the only one you can pick. The permission rows
+  offer the names the server publishes rather than a list kept on the page,
+  which is why administrator, all-folders and Live TV access are absent - each
+  keeps its own setting above - and why no account can be created disabled
+  from here. A configuration written by hand is not rewritten by opening or
+  saving a provider. Every label and help line is in the English and German
+  catalogues.
+
 - **The dashboard shows who is linked, and can cut one account off (#1121).**
   Finding out which Jellyfin accounts sign in through SSO meant asking the API,
   and revoking one meant the same; neither was on the settings page. It now
@@ -231,8 +255,9 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   template is written, so a configuration file edited by hand cannot use one
   either. A negative bitrate or session count is refused at save rather than
   quietly changed. Zero means no limit and unlimited, as it does elsewhere in
-  Jellyfin. The template is set in the plugin configuration; the provider forms
-  in the dashboard do not carry it yet.
+  Jellyfin. The template is set on each provider's form in the
+  dashboard, under Starting policy for new accounts, and in the plugin
+  configuration.
 - **The starting policy can also seed playback preferences (#1100).** The same
   per-provider template now carries the language and playback block: preferred
   audio language, preferred subtitle language, subtitle mode, whether the
@@ -248,8 +273,8 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   configuration file edited by hand cannot slip one through and leave an account
   on a mode nobody chose. The two language fields are passed to Jellyfin as given
   rather than checked against a list, so any code Jellyfin accepts works. As with
-  the rest of the template, these are set in the plugin configuration and the
-  provider forms in the dashboard do not carry them yet.
+  the rest of the template, these are on the provider forms in the dashboard as
+  well as in the plugin configuration.
 - **A guest or trial group can carry a fixed access duration (#1146).** A
   provider can map identity-provider roles to a length of access in hours, and
   an account created by a login holding one of those roles is given a deadline
