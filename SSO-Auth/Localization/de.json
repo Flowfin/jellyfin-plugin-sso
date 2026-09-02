@@ -144,7 +144,7 @@
   "config.linked_accounts_revoke_failed": "Die SSO-Verknüpfungen konnten nicht widerrufen werden. Stellen Sie sicher, dass Sie als Administrator angemeldet sind, und versuchen Sie es erneut.",
   "config.template_title": "Startrichtlinie für neue Konten",
   "config.template_help": "Womit ein brandneues Konto beginnt, das dieser Anbieter anlegt. Jedes Feld ist optional: Was Sie unberührt lassen, behält die Voreinstellung von Jellyfin, und diese Werte werden einmalig beim Anlegen des Kontos geschrieben, sodass eine spätere Änderung jede folgende Anmeldung überdauert.",
-  "config.template_profile_note": "Dieser Anbieter bezieht seine Startrichtlinie aus einem benannten Bereitstellungsprofil. Die Felder unten sind daher nicht seine Richtlinie und bleiben beim Speichern unberührt. Löschen Sie den Profilnamen in der Plugin-Konfiguration, um wieder eine eingebettete Vorlage zu verwenden.",
+  "config.template_profile_note": "Dieser Anbieter bezieht seine Startrichtlinie aus dem oben genannten Bereitstellungsprofil. Die Felder unten sind daher nicht seine Richtlinie: Sie sind deaktiviert, und beim Speichern wird eine eingebettete Richtlinie gelöscht, die dieser Anbieter gespeichert hatte. Setzen Sie das Profil auf (keines) zurück, um diese Felder wieder zu verwenden.",
   "config.template_unset": "Voreinstellung von Jellyfin behalten",
   "config.template_yes": "Ja",
   "config.template_no": "Nein",

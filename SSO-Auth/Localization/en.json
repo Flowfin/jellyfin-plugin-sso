@@ -144,7 +144,7 @@
   "config.linked_accounts_revoke_failed": "Could not revoke the SSO links. Make sure you are signed in as an administrator, then try again.",
   "config.template_title": "Starting policy for new accounts",
   "config.template_help": "What a brand-new account created by this provider starts with. Every field is opt-in: anything you leave alone keeps Jellyfin's own default, and these values are written once, when the account is created, so a change made later survives every following login.",
-  "config.template_profile_note": "This provider takes its starting policy from a named provisioning profile, so the fields below are not its policy and are left untouched when you save. Clear the profile name in the plugin configuration to use an inline template again.",
+  "config.template_profile_note": "This provider takes its starting policy from the named provisioning profile above, so the fields below are not its policy: they are disabled, and saving clears any inline policy this provider had stored. Set the profile back to (none) to use these fields again.",
   "config.template_unset": "Leave Jellyfin's own default",
   "config.template_yes": "Yes",
   "config.template_no": "No",

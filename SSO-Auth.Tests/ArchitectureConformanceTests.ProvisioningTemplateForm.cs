@@ -262,22 +262,35 @@ public partial class ArchitectureConformanceTests
     }
 
     [Theory]
-    [InlineData("saveProvider: (page, provider_name) => {")]
-    [InlineData("saveSamlProvider: (page, provider_name) => {")]
-    public void ProvisioningTemplateSave_LeavesAProfileUsingProviderAlone(string opener)
+    [InlineData("saveProvider: (page, provider_name) => {", "\"\"")]
+    [InlineData("saveSamlProvider: (page, provider_name) => {", "\"saml-\"")]
+    public void ProvisioningTemplateSave_NeverSendsATemplateBesideANamedProfile(string opener, string prefix)
     {
-        // The other half of the same refusal, one level up. A provider that names a provisioning profile
-        // may carry no inline template at all, so the save must write NOTHING here rather than write null:
-        // the member is left exactly as stored, and a provider whose policy comes from a profile stays
-        // saveable from this page - client id, secret, redirect path and all - over a section the
-        // administrator never opened.
+        // The other half of the same refusal, one level up. ProviderConfigValidator refuses a provider that
+        // names a profile AND carries an inline template, on the object being PRESENT, so this save must
+        // never post both - otherwise a profile-using provider is unsaveable from this page, client id and
+        // secret included, over a section the administrator never opened.
+        //
+        // WHAT THIS RULE PINNED UNTIL #1105 WAS THE SPELLING, AND THE SPELLING HAD TO CHANGE. It required
+        // the write to sit inside `if (!current_config.ProvisioningProfile)`, so that a named profile left
+        // the stored member exactly as it was. That was correct while the page could not SET the name: a
+        // provider already naming a profile stored no template, so leaving it alone and writing null were
+        // the same act. #1105 put the name on the form, so a provider carrying an inline template can now
+        // acquire one, and "leave it alone" then posts both members and is refused by the server on every
+        // save, with no way back from this page. The property the rule is actually about is unchanged and
+        // is what is checked now: an assembled template reaches the configuration ONLY where no profile is
+        // named, and the other branch sends null.
         var save = ProvisioningTemplateFunctionBody(ProvisioningTemplateScript(), opener);
 
-        var guard = save.IndexOf("if (!current_config.ProvisioningProfile) {", StringComparison.Ordinal);
-        Assert.True(guard >= 0, $"{opener} must guard the template write on the provider not naming a profile");
+        var guard = save.IndexOf("current_config.ProvisioningProfile === null", StringComparison.Ordinal);
+        Assert.True(guard >= 0, $"{opener} must decide the inline template on whether the provider names a profile");
 
-        var write = save.IndexOf("current_config.ProvisioningPolicyTemplate", StringComparison.Ordinal);
-        Assert.True(write > guard, $"{opener} writes the template outside the profile guard");
+        var assembled = save.IndexOf($"readProvisioningTemplate(page, {prefix})", StringComparison.Ordinal);
+        Assert.True(assembled > guard, $"{opener} assembles the inline template outside the profile decision");
+
+        // The named-profile branch, immediately after the assembled one: null, not the object.
+        var tail = save[assembled..];
+        Assert.Contains(": null;", tail, StringComparison.Ordinal);
     }
 
     // The text of one property on the ssoConfigurationPage object literal, by the same rule the
