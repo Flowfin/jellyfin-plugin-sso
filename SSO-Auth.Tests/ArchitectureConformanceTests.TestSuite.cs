@@ -52,6 +52,23 @@ public partial class ArchitectureConformanceTests
     // here, and the entry is spelled exactly as a call site spells it.
     private const string ScaffoldDoor = "OidcRoundTrip.BuildHarness";
 
+    // The third support type that swaps SSOPlugin.Instance, and the one this rule was blind to. The
+    // authorization fixture assigns the process-wide singleton in its constructor - `_ = new SSOPlugin(...)`
+    // in SsoAuthorizationServerFixture, which its own comment names as process-wide - without going through
+    // the harness, so neither seed above covers it and no `ForTests(` declaration in the production tree
+    // could ever produce it.
+    //
+    // What made it invisible is that a class picks the fixture up as a TYPE ARGUMENT rather than by calling
+    // anything: `IClassFixture<SsoAuthorizationServerFixture>` opens the door for that class, and the string
+    // it spells is the bare type name. So the entry is the type name, which is exactly how a call site
+    // spells this door, and it is why the ScaffoldDoor comment's reasoning applies here one step further out
+    // - the construction is not merely behind a support method, it is behind xUnit's own activation.
+    //
+    // Found while auditing the third cause #1444's Done-when names, state shared with another test. The
+    // suite is clean today: the fixture has exactly one user and that user is serialized. This entry is what
+    // keeps a second user from arriving unserialized without anything refusing it.
+    private const string FixtureDoor = "SsoAuthorizationServerFixture";
+
     // A door no test names because it sits behind another one: a production reset hook opens it, so every
     // test opening THAT door opens this one too. Keyed door -> the door that opens it. The rule proves both
     // halves rather than trusting the table, so an entry whose indirection is removed fails as loudly as a
@@ -206,6 +223,41 @@ public partial class ArchitectureConformanceTests
         Assert.Empty(DoorsOpenedUnserialized(Fixture(string.Empty, call), doors));
     }
 
+    /// <summary>
+    /// The fixture door, proven on the shape it is actually opened in. The pair above drives the decision
+    /// through a door spelled as a CALL; this one is spelled as a TYPE ARGUMENT on a class declaration, and
+    /// the difference is the whole reason the seed was missing - a reader looking for the door hunts for a
+    /// statement inside a method and finds none.
+    /// <para>
+    /// The must-catch here is the change that was possible until this seed landed: a second class picking up
+    /// <see cref="SsoAuthorizationServerFixture"/> and forgetting the collection attribute, which puts two
+    /// classes in parallel over one <c>SSOPlugin.Instance</c> with nothing refusing it. Its twin is the same
+    /// class with the attribute, so what the assertion pair isolates is the serialization and not the naming.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void NonParallelRule_ReportsAClassTakingTheAuthorizationFixtureWithoutTheCollection()
+    {
+        var doors = ProcessWideDoors();
+
+        // Sentinel, for the reason the pair above carries one: both assertions below go quiet together if
+        // the seed is gone, and quiet is what a rule that has stopped looking also produces.
+        Assert.Contains(FixtureDoor, doors, StringComparer.Ordinal);
+
+        static string Fixture(string attributes) => string.Join(
+            "\n",
+            attributes,
+            "public sealed class SecondUser : IClassFixture<" + FixtureDoor + ">",
+            "{",
+            "    public SecondUser(" + FixtureDoor + " fixture)",
+            "    {",
+            "    }",
+            "}");
+
+        Assert.Equal(new[] { FixtureDoor }, DoorsOpenedUnserialized(Fixture("[Fact]"), doors));
+        Assert.Empty(DoorsOpenedUnserialized(Fixture("[Collection(\"SSOController\")]\n[Fact]"), doors));
+    }
+
     // Every derived door a source names in CODE, or nothing at all when the source declares no test. A
     // support type is never scheduled by the runner, so it cannot race anything; the harness itself opens
     // six doors and would otherwise be a permanent offender.
@@ -222,14 +274,15 @@ public partial class ArchitectureConformanceTests
             : DoorsNamedByTestBearingSource(source, doors);
 
     // Every process-wide door a test can reach: the test-only hooks the production tree declares, keyed
-    // Type.Method exactly as a call site spells them, plus the harness construction and the support method
-    // that performs it for a caller. The hooks are derived rather than listed, so a new hook cannot create a
-    // door the rule above is blind to; the two seeds are what no reading of the production tree could find.
+    // Type.Method exactly as a call site spells them, plus the harness construction, the support method that
+    // performs it for a caller, and the fixture a class opens by naming it as a type argument. The hooks are
+    // derived rather than listed, so a new hook cannot create a door the rule above is blind to; the three
+    // seeds are what no reading of the production tree could find.
     private static IReadOnlyList<string> ProcessWideDoors()
     {
         var declaration = new Regex(@"\b(?:class|record|struct)\s+(?<type>[A-Za-z0-9_]+)");
         var hook = new Regex(@"\binternal\s+static\s+[^;=]*?\b(?<hook>[A-Za-z0-9_]+ForTests)\s*\(");
-        var doors = new List<string> { HarnessDoor, ScaffoldDoor };
+        var doors = new List<string> { HarnessDoor, ScaffoldDoor, FixtureDoor };
 
         foreach (var src in Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories))
         {
