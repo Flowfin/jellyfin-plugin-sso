@@ -28,11 +28,15 @@
 #         character set - printable ASCII plus a short table of code points
 #         derived from the messages already on main (#1006).
 #       * a build.yaml version bump also touches CHANGELOG.md.
+#       * a pull request putting a non-English localization catalogue on the
+#         board carries a vouch line naming the reader and the language (#1494).
 #     The whole FAIL tier is skipped for bots and for authors from outside this
 #     repository; the two skips have different reasons and both are written at
-#     the check, not only here (#1207). The character check takes that skip too,
-#     but drops to the WARN tier rather than going silent, so a skipped run is
-#     never mistaken for a clean one.
+#     the check, not only here (#1207). The character check and the catalogue
+#     vouch take that skip too, but drop to the WARN tier rather than going
+#     silent, so a skipped run is never mistaken for a clean one. The vouch
+#     check's own self-test is outside the narrowing entirely: it judges the
+#     gate rather than the author.
 #   - WARN  (soft convention, annotation only - never fails):
 #       * the diff is large (>=400 changed lines) - advisory; a feature, doc
 #         migration, or bulk rename legitimately exceeds any cap, so size never reds.
@@ -356,6 +360,212 @@ jobs:
                 "SSO-Auth/*.cs changed but no SSO-Auth.Tests/* change is in this PR. " +
                   "Confirm the change is genuinely untestable (docs/refactor) or add a test.",
               );
+            }
+
+            // --- Check 5: a non-English catalogue needs a named vouch (#1494) ---
+            // #1154 decided that a catalogue ships when a person who reads that
+            // language has read it. The tree half of that is built and bites:
+            // `CommittedCultures` in
+            // SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs refuses a
+            // catalogue whose culture is not declared. But what that guard asks is
+            // whether a culture is DECLARED, and adding the name to the list is
+            // exactly as cheap as adding the file beside it - so nothing anywhere
+            // asked whether the reading the declaration stands for happened.
+            //
+            // It has already gone wrong once. `de.json` is on the mainline and
+            // nobody has read it: its pull request was a draft on purpose and the
+            // draft state WAS the vouch, which is one click from not-a-draft with
+            // the click leaving no trace anybody reads. This is that vouch moved
+            // into a sentence a machine reads, which cannot be clicked past.
+            //
+            // WHAT THIS CANNOT DO, and the disclosure stays negative: it reads a
+            // sentence. It proves that somebody put a name to a reading. It never
+            // proves the reading happened, no reader's command of the language is
+            // checked, and it reads a pull request rather than the tree - so a
+            // catalogue already on main is outside it entirely, `de.json`
+            // included.
+            const VOUCH_FORM = "Catalogue-Vouch: <culture> read by <name>";
+            const VOUCH_LINE =
+              /^[ \t]*Catalogue-Vouch:[ \t]*([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)[ \t]+read by[ \t]+(\S.*)$/gim;
+            const CATALOGUE_PREFIX = "SSO-Auth/Localization/";
+            const DECLARATION_FILE =
+              "SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs";
+            const DECLARATION_TOKEN = "CommittedCultures =";
+
+            const cultureOfCatalogue = (filename) =>
+              filename.startsWith(CATALOGUE_PREFIX) && filename.endsWith(".json")
+                ? filename.slice(filename.lastIndexOf("/") + 1, -".json".length)
+                : null;
+
+            const declaredOn = (patch, sign) =>
+              (patch || "")
+                .split("\n")
+                .filter(
+                  (line) =>
+                    line.startsWith(sign) && line.includes(DECLARATION_TOKEN),
+                )
+                .flatMap((line) =>
+                  [...line.matchAll(/"([^"]*)"/g)].map((m) => m[1].toLowerCase()),
+                );
+
+            // Two independent readings of the same pull request, because the two
+            // orders of the same mistake look different. The catalogue file is the
+            // load-bearing one: a culture cannot reach a user without one, since
+            // EveryCommittedCulture_HasACatalog reddens the suite for a declared
+            // culture with no file. Reading the declaration patch catches the
+            // reverse order, and its bound is that it matches the declaration on a
+            // single patch line - a declaration rewritten across several lines is
+            // invisible to it, which is why it is the second reading and not the
+            // check.
+            const culturesNeedingAVouch = (prFiles) => {
+              const needed = new Set();
+              for (const file of prFiles) {
+                if (file.status === "removed") continue;
+                const culture = cultureOfCatalogue(file.filename);
+                if (culture) needed.add(culture.toLowerCase());
+                if (file.filename === DECLARATION_FILE) {
+                  const before = new Set(declaredOn(file.patch, "-"));
+                  for (const added of declaredOn(file.patch, "+")) {
+                    if (!before.has(added)) needed.add(added);
+                  }
+                }
+              }
+              // English is the baseline rather than a translation - it is the
+              // invariant fallback every other catalogue is compared against - so a
+              // change to it is not a reading anybody can vouch for. Subtracted once,
+              // at the end, because both readings above can produce it and a second
+              // exemption at the catalogue reading was dead: it survived being
+              // inverted with the whole self-test still green.
+              needed.delete("en");
+              return [...needed].sort();
+            };
+
+            const missingVouches = (prFiles, prBody) => {
+              const vouched = new Set(
+                [...(prBody || "").matchAll(VOUCH_LINE)].map((m) =>
+                  m[1].toLowerCase(),
+                ),
+              );
+              return culturesNeedingAVouch(prFiles).filter((c) => !vouched.has(c));
+            };
+
+            // The near-misses this guard owes, executed on every pull request rather
+            // than pasted once into a body nobody re-reads. A workflow is the class
+            // of change CI cannot otherwise exercise at all, and the whole table
+            // costs milliseconds, no checkout and no new apparatus. The first two
+            // rows are the two the issue names: a change to the English baseline
+            // alone, and a change touching neither path.
+            //
+            // A disagreement here fails the job OUTSIDE the audience narrowing
+            // below. That narrowing is about whose obligation a convention is; a
+            // self-test that disagrees means this gate no longer decides what it
+            // says it decides, and nothing should merge past a broken gate whoever
+            // opened the pull request.
+            const DECLARATION_WAS =
+              '-    private static readonly string[] CommittedCultures = ["de", "en"];';
+            const catalogue = (name, status) => [
+              { filename: CATALOGUE_PREFIX + name, status },
+            ];
+            const declaration = (patch) => [
+              { filename: DECLARATION_FILE, status: "modified", patch },
+            ];
+            const SELF_TEST = [
+              [
+                "the English baseline alone",
+                catalogue("en.json", "modified"),
+                "",
+                [],
+              ],
+              [
+                "a change touching neither path",
+                [
+                  {
+                    filename: "SSO-Auth/Api/Http/SSOController.cs",
+                    status: "modified",
+                  },
+                ],
+                "",
+                [],
+              ],
+              [
+                "a new catalogue, unvouched",
+                catalogue("fr.json", "added"),
+                "",
+                ["fr"],
+              ],
+              [
+                "a new catalogue, vouched",
+                catalogue("fr.json", "added"),
+                "Closes #1\n\nCatalogue-Vouch: fr read by A. Reader\n",
+                [],
+              ],
+              [
+                "a new catalogue, a different language vouched",
+                catalogue("fr.json", "added"),
+                "Catalogue-Vouch: de read by A. Reader",
+                ["fr"],
+              ],
+              [
+                "an existing catalogue edited, unvouched",
+                catalogue("pt-BR.json", "modified"),
+                "",
+                ["pt-br"],
+              ],
+              ["a catalogue deleted", catalogue("fr.json", "removed"), "", []],
+              [
+                "the declaration gains a culture",
+                declaration(
+                  DECLARATION_WAS +
+                    '\n+    private static readonly string[] CommittedCultures = ["de", "en", "fr"];',
+                ),
+                "",
+                ["fr"],
+              ],
+              [
+                "the declaration loses a culture",
+                declaration(
+                  DECLARATION_WAS +
+                    '\n+    private static readonly string[] CommittedCultures = ["en"];',
+                ),
+                "",
+                [],
+              ],
+            ];
+            for (const [name, prFiles, prBody, expected] of SELF_TEST) {
+              const got = missingVouches(prFiles, prBody);
+              if (got.join(",") !== expected.join(",")) {
+                failures.push(
+                  `Check 5 self-test "${name}" disagreed: expected ` +
+                    `[${expected.join(", ")}], got [${got.join(", ")}]. The ` +
+                    "catalogue-vouch gate at check 5 in " +
+                    ".github/workflows/pr-hygiene.yml no longer decides what it says " +
+                    "it decides; repair it before merging anything.",
+                );
+              }
+            }
+
+            // The FAIL tier's audience narrowing (#1207) is taken here deliberately
+            // rather than inherited without a thought, and for this check the reason
+            // is its own. An outside contributor offering a catalogue in their own
+            // language is the growth path #1154 named, and they cannot discharge
+            // this anyway: the vouch names a READER, so a contributor writing their
+            // own name against their own translation is not a second pair of eyes.
+            // The person who can supply one is whoever merges the contribution, and
+            // the annotation below is what that person meets on the pull request.
+            // Reported rather than silent, like check 1c, so a skipped run is never
+            // read as a clean one.
+            const unvouched = missingVouches(files, body);
+            if (unvouched.length > 0) {
+              const report =
+                `Catalogue(s) for ${unvouched.join(", ")} change in this pull request ` +
+                "with no vouch in its body. A catalogue ships when a person who reads " +
+                "that language has read it (#1154). Add one line per language, at the " +
+                "start of its own line:\n" +
+                `  ${VOUCH_FORM}\n` +
+                "This check reads a sentence: it proves somebody put a name to a " +
+                "reading, never that the reading happened, and it reads the pull " +
+                "request rather than the tree.";
+              (failTierApplies ? failures : warnings).push(report);
             }
 
             // --- Report --------------------------------------------------------
