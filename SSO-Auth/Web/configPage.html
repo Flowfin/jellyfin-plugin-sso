@@ -751,7 +751,7 @@
                 <button
                   id="SaveProvisioningProfile"
                   is="emby-button"
-                  type="submit"
+                  type="button"
                   class="raised button-submit block emby-button"
                 >
                   <span>Save profile</span>
@@ -1789,10 +1789,11 @@
                     hidden
                     data-i18n="config.template_profile_note"
                   >
-                    This provider takes its starting policy from a named
-                    provisioning profile, so the fields below are not its policy
-                    and are left untouched when you save. Clear the profile name
-                    in the plugin configuration to use an inline template again.
+                    This provider takes its starting policy from the named
+                    provisioning profile above, so the fields below are not its
+                    policy: they are disabled, and saving clears any inline
+                    policy this provider had stored. Set the profile back to
+                    (none) to use these fields again.
                   </div>
                   <!--
                     The named provisioning profile this provider's new accounts get (#1105). It is a real
@@ -3774,10 +3775,11 @@
                     hidden
                     data-i18n="config.template_profile_note"
                   >
-                    This provider takes its starting policy from a named
-                    provisioning profile, so the fields below are not its policy
-                    and are left untouched when you save. Clear the profile name
-                    in the plugin configuration to use an inline template again.
+                    This provider takes its starting policy from the named
+                    provisioning profile above, so the fields below are not its
+                    policy: they are disabled, and saving clears any inline
+                    policy this provider had stored. Set the profile back to
+                    (none) to use these fields again.
                   </div>
                   <!--
                     The named provisioning profile this provider's new accounts get (#1105). It is a real

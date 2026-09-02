@@ -1046,11 +1046,19 @@ const ssoConfigurationPage = {
     // "no profile" and being saved that way.
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
     if (selector) {
-      ssoConfigurationPage.populateProvisioningProfileOptions(
-        selector,
-        profiles || [],
-        profile || "",
-      );
+      // A caller that supplies no name list is clearing the form rather than describing the configuration -
+      // resetEditor and resetSamlEditor do exactly that - so the OPTIONS are kept and only the value is
+      // cleared. Rebuilding them from an empty list instead emptied the selector on every new provider, and
+      // a new provider could then not be pointed at a profile at all until it was saved and reopened.
+      if (profiles) {
+        ssoConfigurationPage.populateProvisioningProfileOptions(
+          selector,
+          profiles,
+          profile || "",
+        );
+      } else {
+        selector.value = profile || "";
+      }
     }
 
     ssoConfigurationPage.syncProvisioningProfileState(page, prefix);
@@ -1067,10 +1075,14 @@ const ssoConfigurationPage = {
   // in, so choosing a profile updates the page immediately instead of only after the next load; the
   // profile editor's own prefix has neither a selector nor a note, so it reads as "no profile named" and
   // leaves its controls enabled, which is what a profile is.
-  syncProvisioningProfileState: (page, prefix) => {
+  syncProvisioningProfileState: (page, prefix, managed) => {
     const controls = ssoConfigurationPage.templateControls(page, prefix);
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
-    const named = Boolean(selector && selector.value);
+    // Disabled where a profile supersedes the fields OR where the whole form is frozen by a declarative
+    // source (#1104). The second half is not optional: this call runs AFTER applyManagedState, so a plain
+    // `= named` re-enables exactly these nine controls on a managed provider and tells the administrator
+    // the opposite of what a save does - the inverse of the invariant applyManagedState exists for.
+    const named = Boolean(selector && selector.value) || Boolean(managed);
 
     const note = page.querySelector("#" + prefix + "Tmpl-profile-note");
     if (note) {
@@ -1126,6 +1138,12 @@ const ssoConfigurationPage = {
   // ---------------------------------------------------------------------------------------------------
   provisioningProfileNames: (config) =>
     Object.keys(config.ProvisioningProfiles || {}).sort(),
+  // The name the act that is running wants selected once the reload has rebuilt the list. It cannot be
+  // written onto the select before then: assigning a value no option carries leaves the element on
+  // selectedIndex -1 with an empty value, so the rebuild read "" and fell back to the FIRST profile - the
+  // editor then showed one profile while the administrator believed it showed the one just added or
+  // renamed, and the next Save wrote there. Consumed once, so a later ordinary reload does not re-apply it.
+  provisioningProfileWanted: null,
   // A name an ordinary assignment does not turn into an own property is not usable as a profile name, and
   // "__proto__" is the one that reaches this page: profiles["__proto__"] = template sets the prototype and
   // creates nothing, so an Add would report success over an empty set and a rename would DELETE the source
@@ -1141,25 +1159,34 @@ const ssoConfigurationPage = {
       page.querySelector("#ProvisioningProfileResult"),
       message,
     ),
-  // Every provider and every role rule that names a profile, as readable subjects. Used to refuse a delete
-  // and to report what a rename moved; the walk is one function so the two acts cannot disagree about what
-  // counts as a reference.
+  // Every provider and every role rule that names a profile, as readable subjects, each carrying whether
+  // the provider holding it is decided by a declarative source. Used to refuse a delete, to refuse a rename
+  // it cannot carry out, and to report what a rename moved; the walk is one function so the three cannot
+  // disagree about what counts as a reference.
   provisioningProfileReferences: (config, name) => {
     const found = [];
     [
-      ["OpenID", config.OidConfigs],
-      ["SAML", config.SamlConfigs],
-    ].forEach(([protocol, providers]) => {
+      ["oid", "OpenID", config.OidConfigs],
+      ["saml", "SAML", config.SamlConfigs],
+    ].forEach(([key, protocol, providers]) => {
       Object.keys(providers || {}).forEach((provider) => {
         const provider_config = providers[provider] || {};
+        const managed = ssoConfigurationPage.isManagedProvider(key, provider);
         if (provider_config.ProvisioningProfile === name) {
-          found.push(`${protocol} provider "${provider}"`);
+          found.push({ label: `${protocol} provider "${provider}"`, managed });
         }
 
+        // Trimmed, because the server resolves a ROLE ROW's name trimmed - a row reading " Staff " is a
+        // live reference to Staff for ProviderConfigValidator and would be invisible to an exact
+        // comparison. Such a row can only arrive from a configuration file or an import; this page has no
+        // editor for them, which is why it must not assume the shape it would have written.
         (provider_config.ProvisioningProfileRoleMappings || []).forEach(
           (row) => {
-            if (row && row.Profile === name) {
-              found.push(`${protocol} provider "${provider}" (a role rule)`);
+            if (row && (row.Profile || "").trim() === name) {
+              found.push({
+                label: `${protocol} provider "${provider}" (a role rule)`,
+                managed,
+              });
             }
           },
         );
@@ -1176,9 +1203,11 @@ const ssoConfigurationPage = {
           provider_config.ProvisioningProfile = to;
         }
 
+        // Trimmed on the same reading as the reference walk, so a rename repoints every row the server
+        // would have resolved rather than posting a document the validator then refuses.
         (provider_config.ProvisioningProfileRoleMappings || []).forEach(
           (row) => {
-            if (row && row.Profile === from) {
+            if (row && (row.Profile || "").trim() === from) {
               row.Profile = to;
             }
           },
@@ -1232,7 +1261,14 @@ const ssoConfigurationPage = {
   populateProvisioningProfiles: (page, config) => {
     const names = ssoConfigurationPage.provisioningProfileNames(config);
     const select = page.querySelector("#selectProvisioningProfile");
-    const chosen = names.includes(select.value) ? select.value : names[0] || "";
+    const wanted = ssoConfigurationPage.provisioningProfileWanted;
+    ssoConfigurationPage.provisioningProfileWanted = null;
+    const chosen =
+      wanted && names.includes(wanted)
+        ? wanted
+        : names.includes(select.value)
+          ? select.value
+          : names[0] || "";
     ssoConfigurationPage.populateProvisioningProfileOptions(
       select,
       names,
@@ -1266,28 +1302,55 @@ const ssoConfigurationPage = {
       source_select.appendChild(option);
     });
 
-    return ssoConfigurationPage.showSelectedProvisioningProfile(page, config);
+    ssoConfigurationPage.provisioningProfileFill = ssoConfigurationPage
+      .showSelectedProvisioningProfile(page, config)
+      .then(() => true);
+
+    return ssoConfigurationPage.provisioningProfileFill;
   },
-  // The fill in flight, so a Save cannot read the editor before it has been filled. The permission rows are
-  // cleared synchronously and re-rendered only after sso/Config/Permissions answers, so a Save pressed
-  // inside that window would serialize an empty row set and drop every grant and deny the profile carries -
-  // with a success message. Held as one promise rather than a flag because the acts are already promise
-  // chains and a flag would need clearing on both arms.
+  // Whether the editor currently shows the profile the selector names, as a promise resolving true or
+  // false. A Save must wait on it for two reasons, and only the whole chain covers both: the permission
+  // rows are cleared synchronously and re-rendered only once sso/Config/Permissions answers, so a Save in
+  // that window serializes no rows and drops every grant and deny the profile carries; and the fill itself
+  // begins with a configuration fetch, so between choosing a profile and that fetch answering the selector
+  // names one profile while the fields still hold another. Assigned SYNCHRONOUSLY by the change handler,
+  // covering its own fetch - a promise assigned after the fetch resolved would be the PREVIOUS profile's,
+  // already settled, and the Save would sail straight through it and write the previous policy under the
+  // new name.
   provisioningProfileFill: null,
+  selectProvisioningProfile: (page) => {
+    const pending = ApiClient.getPluginConfiguration(
+      ssoConfigurationPage.pluginUniqueId,
+    ).then(
+      (config) =>
+        ssoConfigurationPage
+          .showSelectedProvisioningProfile(page, config)
+          .then(() => true),
+      // Resolves FALSE rather than rejecting: a rejection nobody is waiting for is an unhandled one, and
+      // what the Save needs to know is not the error but that the fields no longer describe the selection.
+      () => {
+        ssoConfigurationPage.provisioningProfileStatus(
+          page,
+          "Could not load the profile you chose. The fields below still show the previous one, so nothing will be saved until the page is reloaded.",
+        );
+        return false;
+      },
+    );
+
+    ssoConfigurationPage.provisioningProfileFill = pending;
+    return pending;
+  },
   showSelectedProvisioningProfile: (page, config) => {
     const name = page.querySelector("#selectProvisioningProfile").value;
     page.querySelector("#ProvisioningProfileName").value = name;
 
-    ssoConfigurationPage.provisioningProfileFill =
-      ssoConfigurationPage.fillProvisioningTemplate(
-        page,
-        "profile-",
-        (config.ProvisioningProfiles || {})[name] || null,
-        null,
-        [],
-      );
-
-    return ssoConfigurationPage.provisioningProfileFill;
+    return ssoConfigurationPage.fillProvisioningTemplate(
+      page,
+      "profile-",
+      (config.ProvisioningProfiles || {})[name] || null,
+      null,
+      [],
+    );
   },
   // The one write path of the four acts: re-post the whole configuration, then reload the page's view of it.
   // A rejected PUT is reported in this section's own status region rather than swallowed - the server can
@@ -1354,7 +1417,7 @@ const ssoConfigurationPage = {
 
         profiles[name] = template || {};
         config.ProvisioningProfiles = profiles;
-        page.querySelector("#selectProvisioningProfile").value = name;
+        ssoConfigurationPage.provisioningProfileWanted = name;
 
         ssoConfigurationPage.putProvisioningProfiles(
           page,
@@ -1416,20 +1479,35 @@ const ssoConfigurationPage = {
           config,
           from,
         );
+        // A provider a declarative source decided is restored WHOLE after this configuration is validated
+        // (DeclarativeManagedProviders.Reinject), so a repoint of one does not survive the save: the
+        // profile ends up renamed and that provider keeps naming the old name. That state is refused by
+        // ProviderConfigValidator on every LATER save, so the whole plugin configuration becomes
+        // unsaveable from this page - over a rename that reported success. Refused here instead, with the
+        // repair named, because nothing downstream can undo it.
+        const frozen = references.filter((reference) => reference.managed);
+        if (frozen.length > 0) {
+          ssoConfigurationPage.provisioningProfileStatus(
+            page,
+            `"${from}" cannot be renamed: it is named by ${frozen.map((reference) => reference.label).join("; ")}, which a configuration file or environment variables decide. That name would be restored after the save and would then point at a profile this configuration no longer defines, which makes every later save fail. Rename it at that source, or leave this profile's name as it is.`,
+          );
+          return;
+        }
+
         profiles[to] = profiles[from];
         delete profiles[from];
         config.ProvisioningProfiles = profiles;
         // In the SAME document, so the configuration is never posted with a provider pointing at a name
         // that no longer exists - the state ProviderConfigValidator refuses.
         ssoConfigurationPage.repointProvisioningProfile(config, from, to);
-        page.querySelector("#selectProvisioningProfile").value = to;
+        ssoConfigurationPage.provisioningProfileWanted = to;
 
         ssoConfigurationPage.putProvisioningProfiles(
           page,
           config,
           references.length === 0
             ? `Renamed "${from}" to "${to}". Nothing pointed at it.`
-            : `Renamed "${from}" to "${to}" and repointed ${references.length} reference(s): ${references.join("; ")}.`,
+            : `Renamed "${from}" to "${to}" and repointed ${references.length} reference(s): ${references.map((reference) => reference.label).join("; ")}.`,
         );
       },
     );
@@ -1456,7 +1534,7 @@ const ssoConfigurationPage = {
           // at all - which is a change to what new accounts get, made from a delete button.
           ssoConfigurationPage.provisioningProfileStatus(
             page,
-            `"${name}" is still in use, so it was not deleted: ${references.join("; ")}. Point each of them at another profile first, or clear the name to go back to that provider's own inline policy.`,
+            `"${name}" is still in use, so it was not deleted: ${references.map((reference) => reference.label).join("; ")}. Point each of them at another profile first, or clear the name to go back to that provider's own inline policy.`,
           );
           return;
         }
@@ -1472,7 +1550,6 @@ const ssoConfigurationPage = {
         const profiles = config.ProvisioningProfiles || {};
         delete profiles[name];
         config.ProvisioningProfiles = profiles;
-        page.querySelector("#selectProvisioningProfile").value = "";
 
         ssoConfigurationPage.putProvisioningProfiles(
           page,
@@ -1493,33 +1570,45 @@ const ssoConfigurationPage = {
     }
 
     // Waits for the fill above, so what is serialized is the profile as it was loaded plus the
-    // administrator's edits - never a permission list that has not been rendered yet.
-    Promise.resolve(ssoConfigurationPage.provisioningProfileFill).then(() =>
-      ApiClient.getPluginConfiguration(
-        ssoConfigurationPage.pluginUniqueId,
-      ).then((config) => {
-        const profiles = config.ProvisioningProfiles || {};
-        if (!Object.prototype.hasOwnProperty.call(profiles, name)) {
+    // administrator's edits - never a permission list that has not been rendered yet, and never a previous
+    // profile's policy under this name.
+    Promise.resolve(ssoConfigurationPage.provisioningProfileFill).then(
+      (filled) => {
+        if (filled === false) {
           ssoConfigurationPage.provisioningProfileStatus(
             page,
-            `The profile "${name}" is no longer in the saved configuration. Reload the page.`,
+            "The fields below do not show the profile you chose, because loading it failed, so nothing was saved. Reload the page and try again.",
           );
-          return;
+          return undefined;
         }
 
-        // An all-declined profile is an EMPTY OBJECT here, never null. The provider arm sends no object at
-        // all for that state, because an object present beside a named profile is refused; a profile IS the
-        // object, so removing it would delete the profile and break every provider pointing at it.
-        profiles[name] =
-          ssoConfigurationPage.readProvisioningTemplate(page, "profile-") || {};
-        config.ProvisioningProfiles = profiles;
+        return ApiClient.getPluginConfiguration(
+          ssoConfigurationPage.pluginUniqueId,
+        ).then((config) => {
+          const profiles = config.ProvisioningProfiles || {};
+          if (!Object.prototype.hasOwnProperty.call(profiles, name)) {
+            ssoConfigurationPage.provisioningProfileStatus(
+              page,
+              `The profile "${name}" is no longer in the saved configuration. Reload the page.`,
+            );
+            return;
+          }
 
-        ssoConfigurationPage.putProvisioningProfiles(
-          page,
-          config,
-          `Saved the profile "${name}".`,
-        );
-      }),
+          // An all-declined profile is an EMPTY OBJECT here, never null. The provider arm sends no object at
+          // all for that state, because an object present beside a named profile is refused; a profile IS the
+          // object, so removing it would delete the profile and break every provider pointing at it.
+          profiles[name] =
+            ssoConfigurationPage.readProvisioningTemplate(page, "profile-") ||
+            {};
+          config.ProvisioningProfiles = profiles;
+
+          ssoConfigurationPage.putProvisioningProfiles(
+            page,
+            config,
+            `Saved the profile "${name}".`,
+          );
+        });
+      },
     );
   },
   // Choosing a profile on a PROVIDER form is the only act here that discards something: the provider's own
@@ -1825,7 +1914,11 @@ const ssoConfigurationPage = {
         ssoConfigurationPage
           .applyManagedState(page, "oid", provider_name)
           .then(() =>
-            ssoConfigurationPage.syncProvisioningProfileState(page, ""),
+            ssoConfigurationPage.syncProvisioningProfileState(
+              page,
+              "",
+              ssoConfigurationPage.isManagedProvider("oid", provider_name),
+            ),
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "oid");
@@ -3475,7 +3568,11 @@ const ssoConfigurationPage = {
         ssoConfigurationPage
           .applyManagedState(page, "saml", provider_name)
           .then(() =>
-            ssoConfigurationPage.syncProvisioningProfileState(page, "saml-"),
+            ssoConfigurationPage.syncProvisioningProfileState(
+              page,
+              "saml-",
+              ssoConfigurationPage.isManagedProvider("saml", provider_name),
+            ),
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "saml");
@@ -4037,10 +4134,18 @@ export default function initSsoConfigurationPage(view) {
     ssoConfigurationPage.populateRoleMappings(current_mappings, container);
   });
 
-  view.querySelector("#Tmpl-Permissions-add").addEventListener("click", (e) => {
-    ssoConfigurationPage.addTemplatePermissionRow(view, "");
-    e.preventDefault();
-    return false;
+  // One registration per template-control prefix, derived from the prefix->form map rather than written
+  // out per form. Two of the three were listed by hand and the third - the profile editor's - was missed,
+  // which left the button rendered, styled and disabled-managed while doing nothing, so a named profile
+  // could never be given a permission from the page at all.
+  Object.keys(ssoConfigurationPage.templateFormSelectors).forEach((prefix) => {
+    view
+      .querySelector("#" + prefix + "Tmpl-Permissions-add")
+      .addEventListener("click", (e) => {
+        ssoConfigurationPage.addTemplatePermissionRow(view, prefix);
+        e.preventDefault();
+        return false;
+      });
   });
 
   // The insecure-options expander keeps the dangerous toggles in the DOM (hidden), never detached, so they
@@ -4274,14 +4379,6 @@ export default function initSsoConfigurationPage(view) {
   });
 
   view
-    .querySelector("#saml-Tmpl-Permissions-add")
-    .addEventListener("click", (e) => {
-      ssoConfigurationPage.addTemplatePermissionRow(view, "saml-");
-      e.preventDefault();
-      return false;
-    });
-
-  view
     .querySelector("#saml-ShowInsecureOptions")
     .addEventListener("click", (e) => {
       const collapsed = view.querySelector("#saml-insecure-options").hidden;
@@ -4404,8 +4501,10 @@ export default function initSsoConfigurationPage(view) {
 
   // ---- Provisioning profiles (#1105) ----
   // The editor is filled by loadConfiguration, so nothing is populated here; these are the four acts and
-  // the selection. Each is its own handler against the live configuration, and none of them is a submit:
-  // the section sits in its own form so the browser's default submit would reload the dashboard.
+  // the selection. Each is its own handler against the live configuration, and every one of the four
+  // buttons is type="button" in the markup: the section sits in its own form, so a submit that reached the
+  // browser would reload the dashboard, and preventDefault runs only AFTER the act - a synchronous throw
+  // inside one would let the navigation happen.
   [
     ["#AddProvisioningProfile", "addProvisioningProfile"],
     ["#RenameProvisioningProfile", "renameProvisioningProfile"],
@@ -4421,13 +4520,9 @@ export default function initSsoConfigurationPage(view) {
 
   view
     .querySelector("#selectProvisioningProfile")
-    .addEventListener("change", () => {
-      ApiClient.getPluginConfiguration(
-        ssoConfigurationPage.pluginUniqueId,
-      ).then((config) =>
-        ssoConfigurationPage.showSelectedProvisioningProfile(view, config),
-      );
-    });
+    .addEventListener("change", () =>
+      ssoConfigurationPage.selectProvisioningProfile(view),
+    );
 
   // The per-provider selectors, on both forms. The handler asks before the inline policy is discarded and
   // then syncs the note and the disabled state, so the page reflects the choice immediately rather than

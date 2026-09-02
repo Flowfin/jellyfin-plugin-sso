@@ -229,6 +229,14 @@ public partial class ArchitectureConformanceTests
         Assert.True(walk >= 0, "deleteProvisioningProfile no longer consults provisioningProfileReferences.");
         Assert.True(put > walk, "deleteProvisioningProfile posts the configuration before checking what still names the profile.");
         Assert.Contains("references.length > 0", body, StringComparison.Ordinal);
+
+        // And the walk it consults must see BOTH shapes a reference takes. Pinning only the call site let
+        // the role-rule arm be deleted with every assertion still green, while a profile named only by a
+        // role rule was deleted unrefused - which is the reference shape #1106 added and the one a reader
+        // of this section is least likely to remember.
+        var referenceWalk = ProvisioningTemplateFunctionBody(js, "provisioningProfileReferences: (config, name) => {");
+        Assert.Contains("provider_config.ProvisioningProfile === name", referenceWalk, StringComparison.Ordinal);
+        Assert.Contains("ProvisioningProfileRoleMappings", referenceWalk, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -338,13 +346,146 @@ public partial class ArchitectureConformanceTests
         // message, because nothing failed. The save therefore waits on the fill it is about to read.
         var js = ProvisioningTemplateScript();
 
-        var show = ProvisioningTemplateFunctionBody(js, "showSelectedProvisioningProfile: (page, config) => {");
-        Assert.Contains("ssoConfigurationPage.provisioningProfileFill =", show, StringComparison.Ordinal);
+        // WHAT THE FILL HAS TO COVER IS ITS OWN FETCH, and pinning only "the save waits on something" let
+        // the property fail while the rule stayed green. Filling begins with a configuration fetch, so a
+        // promise assigned after that fetch resolved is the PREVIOUS profile's, already settled: the save
+        // sailed through it and wrote the previous policy under the newly chosen name, with a success
+        // message. The assignment is therefore of the whole chain, taken synchronously in the change
+        // handler, with the fetch inside it.
+        var choose = ProvisioningTemplateFunctionBody(js, "selectProvisioningProfile: (page) => {");
+        var fetch = choose.IndexOf("const pending = ApiClient.getPluginConfiguration(", StringComparison.Ordinal);
+        var assign = choose.IndexOf("ssoConfigurationPage.provisioningProfileFill = pending;", StringComparison.Ordinal);
+        Assert.True(fetch >= 0, "selectProvisioningProfile no longer opens the fill with the configuration fetch.");
+        Assert.True(assign > fetch, "selectProvisioningProfile no longer assigns the whole fill chain, so a save would wait on the previous profile's settled promise.");
 
+        // And the save must act on the answer rather than merely await it: a fill that failed leaves the
+        // fields describing another profile, which is the one state where saving them is wrong.
         var save = ProvisioningTemplateFunctionBody(js, "saveProvisioningProfile: (page) => {");
         var wait = save.IndexOf("ssoConfigurationPage.provisioningProfileFill", StringComparison.Ordinal);
+        var refuse = save.IndexOf("filled === false", StringComparison.Ordinal);
         var read = save.IndexOf("readProvisioningTemplate(page, \"profile-\")", StringComparison.Ordinal);
         Assert.True(wait >= 0, "saveProvisioningProfile no longer waits for the fill in flight.");
-        Assert.True(read > wait, "saveProvisioningProfile reads the editor before the fill it is serializing has settled.");
+        Assert.True(refuse > wait, "saveProvisioningProfile no longer refuses when the fill it waited on failed.");
+        Assert.True(read > refuse, "saveProvisioningProfile reads the editor before the fill it is serializing has settled.");
+    }
+
+    [Fact]
+    public void TemplatePermissionAddButtons_AreWiredForEveryPrefix()
+    {
+        // Three renderings of the control set, and the wiring was written out per form: two prefixes were
+        // listed by hand and the third was missed, leaving a button that renders, is styled and has its
+        // disabled state managed while doing nothing at all - so a named profile could never be given a
+        // permission from the page. Derived from the prefix map instead, and pinned as derived: a list
+        // would go one short again the next time a form is added.
+        var js = ProvisioningTemplateScript();
+        Assert.Contains(
+            "Object.keys(ssoConfigurationPage.templateFormSelectors).forEach((prefix) => {",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains("addTemplatePermissionRow(view, prefix)", js, StringComparison.Ordinal);
+
+        // Exactly one registration, so a hand-written one beside the derived loop cannot re-introduce the
+        // asymmetry from the other side.
+        Assert.Single(Regex.Matches(js, "addTemplatePermissionRow\\(view,"));
+
+        // And every prefix the map declares has the button that loop will look for.
+        var html = ProvisioningTemplateMarkup();
+        var prefixes = Regex.Matches(
+                ProvisioningTemplateFunctionBody(js, "templateFormSelectors: {"),
+                "\"(?<prefix>[^\"]*)\":\\s*\"#")
+            .Select(m => m.Groups["prefix"].Value)
+            .ToList();
+        Assert.Equal(3, prefixes.Count);
+        var missing = prefixes
+            .Where(prefix => !html.Contains($"id=\"{prefix}Tmpl-Permissions-add\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(
+            missing.Count == 0,
+            "These template prefixes have no permission-add button in configPage.html, so the wiring loop would query null: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void ProfileActs_CarryTheirSelectionAcrossTheReloadRatherThanAssigningIt()
+    {
+        // An act finishes by re-posting the configuration and reloading the page's view of it, and the list
+        // of profiles is rebuilt during that reload. Writing the new name onto the select BEFORE the option
+        // exists leaves the element on selectedIndex -1 with an empty value, so the rebuild read "" and fell
+        // back to the first profile: after adding or renaming, the editor showed one profile while the
+        // administrator believed it showed the other, and the next Save wrote there. The intent is carried
+        // in a field the rebuild consumes instead, so no act assigns the select directly.
+        var js = ProvisioningTemplateScript();
+
+        foreach (var act in new[] { "addProvisioningProfile", "renameProvisioningProfile" })
+        {
+            var body = ProvisioningTemplateFunctionBody(js, act + ": (page) => {");
+            Assert.Contains("ssoConfigurationPage.provisioningProfileWanted =", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("querySelector(\"#selectProvisioningProfile\").value =", body, StringComparison.Ordinal);
+        }
+
+        var rebuild = ProvisioningTemplateFunctionBody(js, "populateProvisioningProfiles: (page, config) => {");
+        Assert.Contains("const wanted = ssoConfigurationPage.provisioningProfileWanted;", rebuild, StringComparison.Ordinal);
+        // Consumed, so an ordinary later reload does not re-apply a choice somebody made minutes ago.
+        Assert.Contains("ssoConfigurationPage.provisioningProfileWanted = null;", rebuild, StringComparison.Ordinal);
+        Assert.Contains("names.includes(wanted)", rebuild, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProfileStateSync_KeepsAManagedFormFrozen()
+    {
+        // This runs AFTER applyManagedState, which disables or ENABLES every control in a provider form
+        // from the declarative-managed report. Setting the disabled state from the profile alone therefore
+        // re-enabled exactly the nine starting-policy controls on a provider frozen by a configuration
+        // file - a form greyed out everywhere except the section deciding what its new accounts get, which
+        // is the inverse of what applyManagedState exists to say.
+        var js = ProvisioningTemplateScript();
+        var body = ProvisioningTemplateFunctionBody(js, "syncProvisioningProfileState: (page, prefix, managed) => {");
+        Assert.Contains("|| Boolean(managed)", body, StringComparison.Ordinal);
+
+        foreach (var loader in new[] { "loadProvider: (page, provider_name) => {", "loadSamlProvider: (page, provider_name) => {" })
+        {
+            var load = ProvisioningTemplateFunctionBody(js, loader);
+            var managed = load.IndexOf("applyManagedState(page,", StringComparison.Ordinal);
+            var sync = load.IndexOf("syncProvisioningProfileState(", StringComparison.Ordinal);
+            Assert.True(managed >= 0 && sync > managed, $"{loader} must re-apply the profile state after applyManagedState, which would otherwise leave it undone.");
+            Assert.Contains("isManagedProvider(", load, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ProfileSourceOptions_AreRenderedAsTextNeverAsMarkup()
+    {
+        // The second option builder this section adds, and the one a rule scoped to the first misses: the
+        // Add source list renders PROVIDER names, which are configuration a careless or hostile value
+        // reaches exactly as a profile name does. Same rule, same reason (#221).
+        var js = ProvisioningTemplateScript();
+        var body = ProvisioningTemplateFunctionBody(js, "populateProvisioningProfiles: (page, config) => {");
+
+        Assert.Contains("option.textContent = source.label;", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("innerHTML", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Option(", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProfileRename_IsRefusedWhereItCannotMoveTheReference()
+    {
+        // A repoint that the save then undoes is worse than no repoint. ProviderConfigStore.Save validates
+        // FIRST and applies the declarative freeze AFTER, and DeclarativeManagedProviders.Reinject restores
+        // a managed provider WHOLE - its ProvisioningProfile included. So renaming a profile that a managed
+        // provider names passes validation, is persisted with the provider still naming the old name, and
+        // that state is then refused by ValidateProvisioningProfileReference on EVERY later save: the whole
+        // plugin configuration becomes unsaveable from this page, over a rename that reported success.
+        // Nothing downstream can undo it, so it is refused here, and the walk carries the fact the refusal
+        // needs rather than the rename asking a second question of its own.
+        var js = ProvisioningTemplateScript();
+
+        var walk = ProvisioningTemplateFunctionBody(js, "provisioningProfileReferences: (config, name) => {");
+        Assert.Contains("ssoConfigurationPage.isManagedProvider(key, provider)", walk, StringComparison.Ordinal);
+
+        var body = ProvisioningTemplateFunctionBody(js, "renameProvisioningProfile: (page) => {");
+        var refuse = body.IndexOf("references.filter((reference) => reference.managed)", StringComparison.Ordinal);
+        var move = body.IndexOf("delete profiles[from];", StringComparison.Ordinal);
+        Assert.True(refuse >= 0, "renameProvisioningProfile no longer asks whether a reference is on a provider a declarative source decided.");
+        Assert.True(move > refuse, "renameProvisioningProfile moves the profile before checking that every reference can follow it.");
+        Assert.Contains("frozen.length > 0", body, StringComparison.Ordinal);
     }
 }
