@@ -504,6 +504,8 @@ const ssoConfigurationPage = {
       );
     });
 
+    ssoConfigurationPage.fillProvisioningTemplate(page, "", null, null);
+
     // Clean slate for progressive disclosure and collapse state, so a previous provider's expanded danger
     // zone / accordion state cannot bleed into the next provider. Collapse the "Insecure options" list,
     // return every editor accordion to its authored default (data-expanded), then re-sync the
@@ -930,6 +932,283 @@ const ssoConfigurationPage = {
     const targeted_mapping = evt.target.closest(".sso-role-mapping-container");
     targeted_mapping.remove();
   },
+  // ---------------------------------------------------------------------------------------------------
+  // The provisioning-template save contract (#1367).
+  //
+  // ProvisioningPolicyTemplate is a NESTED member of the provider config, so its controls cannot ride the
+  // flat contract listArgumentsByType feeds (current_config[element.id] = value, one top-level member per
+  // control). They carry their own marker classes instead - sso-tmpl-number, sso-tmpl-text, sso-tmpl-bool
+  // and sso-tmpl-perms - and an id of "<prefix>Tmpl-" + the exact ProvisioningPolicyTemplate property they
+  // write. readProvisioningTemplate below is the second serializer that assembles them into one object.
+  //
+  // Two failures this shape exists to prevent, both of which turn a DECLINED field into a set one:
+  //  - a control the administrator never touched must contribute NO member, because null is what leaves
+  //    Jellyfin's own default alone. That is why the three nullable bools are three-option lists and not
+  //    checkboxes: a checkbox has two states where the model has three.
+  //  - an all-unset form must send NO OBJECT rather than an object of nulls. ProviderConfigValidator
+  //    refuses an inline template on a provider that names a provisioning profile, and the refusal is on
+  //    the object being PRESENT rather than on it carrying values - so an always-assembled object would
+  //    make every profile-using provider permanently unsaveable from this page, client id and secret
+  //    included, over a section nobody touched.
+  // ---------------------------------------------------------------------------------------------------
+  templateFieldName: (prefix, element) =>
+    element.id.slice((prefix + "Tmpl-").length),
+  templateControls: (page, prefix) => {
+    const form = page.querySelector(
+      prefix ? "#sso-new-saml-provider" : "#sso-new-oidc-provider",
+    );
+
+    return {
+      numbers: [...form.querySelectorAll(".sso-tmpl-number")],
+      texts: [...form.querySelectorAll(".sso-tmpl-text")],
+      bools: [...form.querySelectorAll(".sso-tmpl-bool")],
+      permissions: form.querySelector(".sso-tmpl-perms"),
+    };
+  },
+  readProvisioningTemplate: (page, prefix) => {
+    const controls = ssoConfigurationPage.templateControls(page, prefix);
+    const template = {};
+    const name = (element) =>
+      ssoConfigurationPage.templateFieldName(prefix, element);
+
+    controls.texts.forEach((element) => {
+      if (element.value !== "") {
+        template[name(element)] = element.value;
+      }
+    });
+
+    controls.numbers.forEach((element) => {
+      const raw = element.value.trim();
+      if (raw === "") {
+        return;
+      }
+
+      // A value that is not a whole number is sent ON as typed rather than dropped or coerced. The server
+      // refuses it and the save reports a failure, which is visible; Number("12e9") or a silent skip would
+      // turn something the administrator DID set into an unset field, which is the failure this whole
+      // contract is about.
+      const parsed = Number(raw);
+      template[name(element)] = Number.isInteger(parsed) ? parsed : raw;
+    });
+
+    // Only these two spellings are a value. Anything else - the empty option, or a value no option carries
+    // - leaves the member out, so the field stays declined.
+    controls.bools.forEach((element) => {
+      if (element.value === "true") {
+        template[name(element)] = true;
+      } else if (element.value === "false") {
+        template[name(element)] = false;
+      }
+    });
+
+    const permissions = ssoConfigurationPage.serializeTemplatePermissions(
+      controls.permissions,
+    );
+    if (permissions.length > 0) {
+      template.Permissions = permissions;
+    }
+
+    return Object.keys(template).length === 0 ? null : template;
+  },
+  fillProvisioningTemplate: (page, prefix, template, profile) => {
+    const controls = ssoConfigurationPage.templateControls(page, prefix);
+    const values = template || {};
+
+    [...controls.numbers, ...controls.texts, ...controls.bools].forEach(
+      (element) => {
+        const value =
+          values[ssoConfigurationPage.templateFieldName(prefix, element)];
+        element.value =
+          value === null || value === undefined ? "" : String(value);
+      },
+    );
+
+    ssoConfigurationPage.populateTemplatePermissions(
+      page,
+      prefix,
+      values.Permissions || [],
+    );
+
+    // Where the provider names a provisioning profile the inline template is not this provider's policy.
+    // The controls are disabled and the reason is put on the page, rather than leaving the administrator
+    // to infer it from a save that changes nothing here.
+    const named = Boolean(profile);
+    const note = page.querySelector("#" + prefix + "Tmpl-profile-note");
+    if (note) {
+      note.hidden = !named;
+    }
+
+    [
+      ...controls.numbers,
+      ...controls.texts,
+      ...controls.bools,
+      ...page.querySelectorAll("#" + prefix + "Tmpl-Permissions-add"),
+    ].forEach((element) => {
+      element.disabled = named;
+    });
+  },
+  // The mappable permission vocabulary, fetched once per page load from the one route that publishes it
+  // (#1484). It is deliberately NOT a list kept in this file: a copy here drifts in three silent
+  // directions - a name Jellyfin adds stays invisible, a name it removes stays offerable and is refused at
+  // save, and a name added to the server's exclusion set keeps being offered.
+  templatePermissionNames: null,
+  loadTemplatePermissionNames: () => {
+    if (ssoConfigurationPage.templatePermissionNames) {
+      return ssoConfigurationPage.templatePermissionNames;
+    }
+
+    ssoConfigurationPage.templatePermissionNames = ApiClient.getJSON(
+      ApiClient.getUrl("sso/Config/Permissions"),
+    ).then(
+      (doc) => (doc && doc.Permissions ? doc.Permissions : []),
+      // A failed fetch resolves to no vocabulary rather than rejecting: a row still renders, carrying its
+      // own stored name, so an unreachable route cannot silently drop a permission an administrator has
+      // already configured on the next save.
+      () => null,
+    );
+
+    return ssoConfigurationPage.templatePermissionNames;
+  },
+  populateTemplatePermissions: (page, prefix, entries) => {
+    const container = ssoConfigurationPage.templateControls(
+      page,
+      prefix,
+    ).permissions;
+    const status = page.querySelector("#" + prefix + "Tmpl-Permissions-status");
+    container.replaceChildren();
+    if (status) {
+      status.replaceChildren();
+    }
+
+    return ssoConfigurationPage.loadTemplatePermissionNames().then((names) => {
+      if (names === null && status) {
+        ssoConfigurationPage.renderTransferMessage(
+          status,
+          tr(
+            "config.template_permissions_failed",
+            "Could not load the list of permissions from the server. Rows already configured are shown as they are; make sure you are signed in as an administrator, then reload the page.",
+          ),
+        );
+      }
+
+      entries.forEach((entry) =>
+        ssoConfigurationPage.renderTemplatePermissionRow(
+          container,
+          entry,
+          names || [],
+        ),
+      );
+    });
+  },
+  // Built with createElement/textContent, never innerHTML: a permission name is server data today, and the
+  // same row renders whatever a stored configuration carries, which an administrator may have hand-edited
+  // (#221).
+  renderTemplatePermissionRow: (container, entry, names) => {
+    const row = document.createElement("div");
+    row.classList.add("sso-tmpl-permission-row", "listItem");
+
+    const permission = document.createElement("select");
+    permission.setAttribute("is", "emby-select");
+    permission.classList.add(
+      "sso-tmpl-permission-name",
+      "emby-select-withcolor",
+      "emby-select",
+    );
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = tr(
+      "config.template_permission_choose",
+      "Choose a permission",
+    );
+    permission.appendChild(placeholder);
+
+    // The stored name is offered even when the vocabulary does not carry it - the fetch may have failed,
+    // or the server may have stopped accepting the name. Dropping the option would silently rewrite the
+    // row to "unset" on the next save; keeping it lets the administrator see it and lets the server refuse
+    // it by name.
+    const offered = names.includes(entry.Permission)
+      ? names
+      : [...names, entry.Permission].filter(Boolean);
+
+    offered.forEach((option_name) => {
+      const option = document.createElement("option");
+      option.value = option_name;
+      option.textContent = option_name;
+      permission.appendChild(option);
+    });
+    permission.value = entry.Permission || "";
+
+    const value = document.createElement("select");
+    value.setAttribute("is", "emby-select");
+    value.classList.add(
+      "sso-tmpl-permission-value",
+      "emby-select-withcolor",
+      "emby-select",
+    );
+    [
+      ["true", tr("config.template_permission_grant", "Grant")],
+      ["false", tr("config.template_permission_deny", "Deny")],
+    ].forEach(([option_value, label]) => {
+      const option = document.createElement("option");
+      option.value = option_value;
+      option.textContent = label;
+      value.appendChild(option);
+    });
+    value.value = entry.Granted === false ? "false" : "true";
+
+    const remove = document.createElement("button");
+    remove.setAttribute("is", "paper-icon-button-light");
+    remove.type = "button";
+    remove.classList.add("listItemButton", "sso-tmpl-permission-remove");
+    remove.setAttribute(
+      "aria-label",
+      tr("config.template_permissions_remove", "Remove this permission"),
+    );
+    const icon = document.createElement("span");
+    icon.classList.add("material-icons", "remove_circle");
+    icon.setAttribute("aria-hidden", "true");
+    remove.appendChild(icon);
+    remove.addEventListener("click", (e) => {
+      e.preventDefault();
+      row.remove();
+    });
+
+    row.append(permission, value, remove);
+    container.appendChild(row);
+  },
+  serializeTemplatePermissions: (container) => {
+    const out = [];
+    [...container.querySelectorAll(".sso-tmpl-permission-row")].forEach(
+      (row) => {
+        const permission = row.querySelector(".sso-tmpl-permission-name").value;
+        if (permission === "") {
+          return;
+        }
+
+        out.push({
+          Permission: permission,
+          Granted:
+            row.querySelector(".sso-tmpl-permission-value").value === "true",
+        });
+      },
+    );
+
+    return out;
+  },
+  addTemplatePermissionRow: (page, prefix) => {
+    const controls = ssoConfigurationPage.templateControls(page, prefix);
+    const current = ssoConfigurationPage.serializeTemplatePermissions(
+      controls.permissions,
+    );
+    current.push({ Permission: "", Granted: true });
+
+    return ssoConfigurationPage.populateTemplatePermissions(
+      page,
+      prefix,
+      current,
+    );
+  },
   // The provider form's save contract, made explicit (#365): every input in #sso-new-oidc-provider
   // that should persist carries an sso-* class AND an id spelled EXACTLY like the OidConfig property it
   // writes to (saveProvider does current_config[element.id] = value). A field with the wrong id, a
@@ -1027,6 +1306,13 @@ const ssoConfigurationPage = {
           if (provider[id])
             ssoConfigurationPage.populateRoleMappings(provider[id], elem);
         });
+
+        ssoConfigurationPage.fillProvisioningTemplate(
+          page,
+          "",
+          provider.ProvisioningPolicyTemplate,
+          provider.ProvisioningProfile,
+        );
 
         // Reflect the loaded toggles in the reveal-on-toggle groups (hide-not-remove) and surface any
         // active insecure option. Runs after the check_fields above are set from the loaded provider, so a
@@ -1293,6 +1579,14 @@ const ssoConfigurationPage = {
           const elem = page.querySelector(`#${id}`);
           current_config[id] = ssoConfigurationPage.serializeRoleMappings(elem);
         });
+
+        // Untouched where the provider names a provisioning profile: the two are mutually exclusive by a
+        // refusal on the OBJECT being present, so writing one here would make that provider unsaveable
+        // from this page entirely - over a section the administrator never opened.
+        if (!current_config.ProvisioningProfile) {
+          current_config.ProvisioningPolicyTemplate =
+            ssoConfigurationPage.readProvisioningTemplate(page, "");
+        }
 
         config.OidConfigs[provider_name] = current_config;
 
@@ -2491,6 +2785,8 @@ const ssoConfigurationPage = {
       );
     });
 
+    ssoConfigurationPage.fillProvisioningTemplate(page, "saml-", null, null);
+
     ssoConfigurationPage.setSamlInsecureOptionsExpanded(page, false);
     ssoConfigurationPage.resetSamlEditorSections(page);
     ssoConfigurationPage.syncSamlDependentFields(page);
@@ -2652,6 +2948,13 @@ const ssoConfigurationPage = {
             ssoConfigurationPage.populateRoleMappings(provider[prop], elem);
           }
         });
+
+        ssoConfigurationPage.fillProvisioningTemplate(
+          page,
+          "saml-",
+          provider.ProvisioningPolicyTemplate,
+          provider.ProvisioningProfile,
+        );
 
         ssoConfigurationPage.syncSamlDependentFields(page);
         ssoConfigurationPage.updateSamlUrls(page);
@@ -3062,6 +3365,12 @@ const ssoConfigurationPage = {
             ssoConfigurationPage.serializeRoleMappings(elem);
         });
 
+        // Same rule as the OpenID arm above.
+        if (!current_config.ProvisioningProfile) {
+          current_config.ProvisioningPolicyTemplate =
+            ssoConfigurationPage.readProvisioningTemplate(page, "saml-");
+        }
+
         config.SamlConfigs[provider_name] = current_config;
 
         ApiClient.updatePluginConfiguration(
@@ -3207,6 +3516,12 @@ export default function initSsoConfigurationPage(view) {
       ssoConfigurationPage.serializeRoleMappings(container);
     current_mappings.push({ Role: "", Folders: [] });
     ssoConfigurationPage.populateRoleMappings(current_mappings, container);
+  });
+
+  view.querySelector("#Tmpl-Permissions-add").addEventListener("click", (e) => {
+    ssoConfigurationPage.addTemplatePermissionRow(view, "");
+    e.preventDefault();
+    return false;
   });
 
   // The insecure-options expander keeps the dangerous toggles in the DOM (hidden), never detached, so they
@@ -3438,6 +3753,14 @@ export default function initSsoConfigurationPage(view) {
     e.preventDefault();
     return false;
   });
+
+  view
+    .querySelector("#saml-Tmpl-Permissions-add")
+    .addEventListener("click", (e) => {
+      ssoConfigurationPage.addTemplatePermissionRow(view, "saml-");
+      e.preventDefault();
+      return false;
+    });
 
   view
     .querySelector("#saml-ShowInsecureOptions")

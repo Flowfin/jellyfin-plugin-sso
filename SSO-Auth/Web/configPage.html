@@ -1349,6 +1349,321 @@
                 </div>
               </div>
 
+              <!-- Section 2b: Starting policy for new accounts -->
+              <!--
+                The starting policy this provider writes onto a brand-new account (#1367). Every control
+                here is THREE-STATE - set, deliberately off, or declined - because every member of
+                ProvisioningPolicyTemplate is nullable and null means "leave Jellyfin's own default
+                alone". That is why none of them is a checkbox: a checkbox has two states and would post
+                a deliberate false for a field the administrator never touched. These ids are NOT the
+                flat current_config[element.id] contract the rest of the form uses - they carry their own
+                sso-tmpl-* marker classes and are assembled into one nested object by
+                readProvisioningTemplate in config.js, because the template is a nested member rather
+                than a property of OidConfig.
+              -->
+              <div
+                is="emby-collapse"
+                data-expanded="false"
+                title="Starting policy for new accounts"
+                data-i18n-title="config.template_title"
+                class="verticalSection verticalSection-extrabottompadding"
+              >
+                <div class="collapseContent">
+                  <div
+                    class="fieldDescription"
+                    data-i18n="config.template_help"
+                  >
+                    What a brand-new account created by this provider starts
+                    with. Every field is opt-in: anything you leave alone keeps
+                    Jellyfin's own default, and these values are written once,
+                    when the account is created, so a change made later survives
+                    every following login.
+                  </div>
+                  <div
+                    id="Tmpl-profile-note"
+                    class="fieldDescription sso-tmpl-profile-note"
+                    role="status"
+                    hidden
+                    data-i18n="config.template_profile_note"
+                  >
+                    This provider takes its starting policy from a named
+                    provisioning profile, so the fields below are not its policy
+                    and are left untouched when you save. Clear the profile name
+                    in the plugin configuration to use an inline template again.
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-RemoteClientBitrateLimit"
+                      data-i18n="config.template_bitrate_label"
+                      >Remote client bitrate limit:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="Tmpl-RemoteClientBitrateLimit"
+                      name="Tmpl-RemoteClientBitrateLimit"
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="sso-tmpl-number emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_bitrate_help"
+                    >
+                      The remote streaming ceiling in bits per second. Zero
+                      means no limit, which is a real setting rather than an
+                      empty one. Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-MaxActiveSessions"
+                      data-i18n="config.template_sessions_label"
+                      >Maximum active sessions:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="Tmpl-MaxActiveSessions"
+                      name="Tmpl-MaxActiveSessions"
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="sso-tmpl-number emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_sessions_help"
+                    >
+                      How many sessions the account may hold at once. Zero means
+                      unlimited, which is a real setting rather than an empty
+                      one. Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-AudioLanguagePreference"
+                      data-i18n="config.template_audio_language_label"
+                      >Preferred audio language:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="Tmpl-AudioLanguagePreference"
+                      name="Tmpl-AudioLanguagePreference"
+                      type="text"
+                      class="sso-tmpl-text emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_audio_language_help"
+                    >
+                      The language code Jellyfin itself stores, for example eng.
+                      It is passed on as given rather than checked against a
+                      list, so any code Jellyfin accepts works. Leave blank to
+                      keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-SubtitleLanguagePreference"
+                      data-i18n="config.template_subtitle_language_label"
+                      >Preferred subtitle language:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="Tmpl-SubtitleLanguagePreference"
+                      name="Tmpl-SubtitleLanguagePreference"
+                      type="text"
+                      class="sso-tmpl-text emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_subtitle_language_help"
+                    >
+                      The language code Jellyfin itself stores, for example eng.
+                      Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-SubtitleMode"
+                      data-i18n="config.template_subtitle_mode_label"
+                      >Subtitle mode:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="Tmpl-SubtitleMode"
+                      name="Tmpl-SubtitleMode"
+                      class="sso-tmpl-text emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="Default">Default</option>
+                      <option value="Always">Always</option>
+                      <option value="OnlyForced">OnlyForced</option>
+                      <option value="None">None</option>
+                      <option value="Smart">Smart</option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_subtitle_mode_help"
+                    >
+                      Which subtitles play by default. The options are the exact
+                      mode names Jellyfin declares, which is the spelling a save
+                      accepts; leaving it unset keeps Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-PlayDefaultAudioTrack"
+                      data-i18n="config.template_play_default_audio_label"
+                      >Play the default audio track:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="Tmpl-PlayDefaultAudioTrack"
+                      name="Tmpl-PlayDefaultAudioTrack"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_play_default_audio_help"
+                    >
+                      Leaving this unset keeps Jellyfin's own default. No is a
+                      deliberate setting rather than an absent one, which is why
+                      this is a list and not a checkbox.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-RememberAudioSelections"
+                      data-i18n="config.template_remember_audio_label"
+                      >Remember audio selections:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="Tmpl-RememberAudioSelections"
+                      name="Tmpl-RememberAudioSelections"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_remember_audio_help"
+                    >
+                      Whether an audio track chosen during playback is
+                      remembered for next time. Leaving this unset keeps
+                      Jellyfin's own default; No is a deliberate setting rather
+                      than an absent one.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-RememberSubtitleSelections"
+                      data-i18n="config.template_remember_subtitle_label"
+                      >Remember subtitle selections:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="Tmpl-RememberSubtitleSelections"
+                      name="Tmpl-RememberSubtitleSelections"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_remember_subtitle_help"
+                    >
+                      Whether a subtitle chosen during playback is remembered
+                      for next time. Leaving this unset keeps Jellyfin's own
+                      default; No is a deliberate setting rather than an absent
+                      one.
+                    </div>
+                  </div>
+                  <div class="sso-subgroup">
+                    <p
+                      class="sso-subgroup-title"
+                      data-i18n="config.template_permissions_label"
+                    >
+                      Permissions written onto a new account
+                    </p>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_permissions_help"
+                    >
+                      Each row names one Jellyfin permission and the value a new
+                      account starts with. A permission that is not listed is
+                      never touched. The names come from the server rather than
+                      from a list kept on this page, so they cannot drift from
+                      what a save accepts; administrator, all-folders and Live
+                      TV access are not offered here because each keeps its own
+                      setting above, and no account can be created disabled from
+                      here.
+                    </div>
+                    <div
+                      id="Tmpl-Permissions"
+                      class="sso-tmpl-perms checkboxList paperList"
+                    ></div>
+                    <div
+                      id="Tmpl-Permissions-status"
+                      class="fieldDescription"
+                      role="status"
+                      aria-live="polite"
+                    ></div>
+                    <button
+                      id="Tmpl-Permissions-add"
+                      is="emby-button"
+                      type="button"
+                      class="raised sso-tmpl-perms-add emby-button"
+                    >
+                      <span
+                        class="material-icons add"
+                        aria-hidden="true"
+                      ></span>
+                      <span data-i18n="config.template_permissions_add"
+                        >Add permission</span
+                      >
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <!-- Section 3: Roles & access -->
               <div
                 is="emby-collapse"
@@ -2983,6 +3298,321 @@
                       already holds the name, and a rename that fails never
                       fails the login. Each rename is audited.
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SAML Section 2b: Starting policy for new accounts -->
+              <!--
+                The starting policy this provider writes onto a brand-new account (#1367). Every control
+                here is THREE-STATE - set, deliberately off, or declined - because every member of
+                ProvisioningPolicyTemplate is nullable and null means "leave Jellyfin's own default
+                alone". That is why none of them is a checkbox: a checkbox has two states and would post
+                a deliberate false for a field the administrator never touched. These ids are NOT the
+                flat current_config[element.id] contract the rest of the form uses - they carry their own
+                sso-tmpl-* marker classes and are assembled into one nested object by
+                readProvisioningTemplate in config.js, because the template is a nested member rather
+                than a property of SamlConfig.
+              -->
+              <div
+                is="emby-collapse"
+                data-expanded="false"
+                title="Starting policy for new accounts"
+                data-i18n-title="config.template_title"
+                class="verticalSection verticalSection-extrabottompadding"
+              >
+                <div class="collapseContent">
+                  <div
+                    class="fieldDescription"
+                    data-i18n="config.template_help"
+                  >
+                    What a brand-new account created by this provider starts
+                    with. Every field is opt-in: anything you leave alone keeps
+                    Jellyfin's own default, and these values are written once,
+                    when the account is created, so a change made later survives
+                    every following login.
+                  </div>
+                  <div
+                    id="saml-Tmpl-profile-note"
+                    class="fieldDescription sso-tmpl-profile-note"
+                    role="status"
+                    hidden
+                    data-i18n="config.template_profile_note"
+                  >
+                    This provider takes its starting policy from a named
+                    provisioning profile, so the fields below are not its policy
+                    and are left untouched when you save. Clear the profile name
+                    in the plugin configuration to use an inline template again.
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-RemoteClientBitrateLimit"
+                      data-i18n="config.template_bitrate_label"
+                      >Remote client bitrate limit:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="saml-Tmpl-RemoteClientBitrateLimit"
+                      name="saml-Tmpl-RemoteClientBitrateLimit"
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="sso-tmpl-number emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_bitrate_help"
+                    >
+                      The remote streaming ceiling in bits per second. Zero
+                      means no limit, which is a real setting rather than an
+                      empty one. Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-MaxActiveSessions"
+                      data-i18n="config.template_sessions_label"
+                      >Maximum active sessions:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="saml-Tmpl-MaxActiveSessions"
+                      name="saml-Tmpl-MaxActiveSessions"
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="sso-tmpl-number emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_sessions_help"
+                    >
+                      How many sessions the account may hold at once. Zero means
+                      unlimited, which is a real setting rather than an empty
+                      one. Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-AudioLanguagePreference"
+                      data-i18n="config.template_audio_language_label"
+                      >Preferred audio language:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="saml-Tmpl-AudioLanguagePreference"
+                      name="saml-Tmpl-AudioLanguagePreference"
+                      type="text"
+                      class="sso-tmpl-text emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_audio_language_help"
+                    >
+                      The language code Jellyfin itself stores, for example eng.
+                      It is passed on as given rather than checked against a
+                      list, so any code Jellyfin accepts works. Leave blank to
+                      keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-SubtitleLanguagePreference"
+                      data-i18n="config.template_subtitle_language_label"
+                      >Preferred subtitle language:</label
+                    >
+                    <input
+                      is="emby-input"
+                      id="saml-Tmpl-SubtitleLanguagePreference"
+                      name="saml-Tmpl-SubtitleLanguagePreference"
+                      type="text"
+                      class="sso-tmpl-text emby-input"
+                    />
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_subtitle_language_help"
+                    >
+                      The language code Jellyfin itself stores, for example eng.
+                      Leave blank to keep Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-SubtitleMode"
+                      data-i18n="config.template_subtitle_mode_label"
+                      >Subtitle mode:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="saml-Tmpl-SubtitleMode"
+                      name="saml-Tmpl-SubtitleMode"
+                      class="sso-tmpl-text emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="Default">Default</option>
+                      <option value="Always">Always</option>
+                      <option value="OnlyForced">OnlyForced</option>
+                      <option value="None">None</option>
+                      <option value="Smart">Smart</option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_subtitle_mode_help"
+                    >
+                      Which subtitles play by default. The options are the exact
+                      mode names Jellyfin declares, which is the spelling a save
+                      accepts; leaving it unset keeps Jellyfin's own default.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-PlayDefaultAudioTrack"
+                      data-i18n="config.template_play_default_audio_label"
+                      >Play the default audio track:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="saml-Tmpl-PlayDefaultAudioTrack"
+                      name="saml-Tmpl-PlayDefaultAudioTrack"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_play_default_audio_help"
+                    >
+                      Leaving this unset keeps Jellyfin's own default. No is a
+                      deliberate setting rather than an absent one, which is why
+                      this is a list and not a checkbox.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-RememberAudioSelections"
+                      data-i18n="config.template_remember_audio_label"
+                      >Remember audio selections:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="saml-Tmpl-RememberAudioSelections"
+                      name="saml-Tmpl-RememberAudioSelections"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_remember_audio_help"
+                    >
+                      Whether an audio track chosen during playback is
+                      remembered for next time. Leaving this unset keeps
+                      Jellyfin's own default; No is a deliberate setting rather
+                      than an absent one.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-RememberSubtitleSelections"
+                      data-i18n="config.template_remember_subtitle_label"
+                      >Remember subtitle selections:</label
+                    >
+                    <select
+                      is="emby-select"
+                      id="saml-Tmpl-RememberSubtitleSelections"
+                      name="saml-Tmpl-RememberSubtitleSelections"
+                      class="sso-tmpl-bool emby-select-withcolor emby-select"
+                    >
+                      <option value="" data-i18n="config.template_unset">
+                        Leave Jellyfin's own default
+                      </option>
+                      <option value="true" data-i18n="config.template_yes">
+                        Yes
+                      </option>
+                      <option value="false" data-i18n="config.template_no">
+                        No
+                      </option>
+                    </select>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_remember_subtitle_help"
+                    >
+                      Whether a subtitle chosen during playback is remembered
+                      for next time. Leaving this unset keeps Jellyfin's own
+                      default; No is a deliberate setting rather than an absent
+                      one.
+                    </div>
+                  </div>
+                  <div class="sso-subgroup">
+                    <p
+                      class="sso-subgroup-title"
+                      data-i18n="config.template_permissions_label"
+                    >
+                      Permissions written onto a new account
+                    </p>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_permissions_help"
+                    >
+                      Each row names one Jellyfin permission and the value a new
+                      account starts with. A permission that is not listed is
+                      never touched. The names come from the server rather than
+                      from a list kept on this page, so they cannot drift from
+                      what a save accepts; administrator, all-folders and Live
+                      TV access are not offered here because each keeps its own
+                      setting above, and no account can be created disabled from
+                      here.
+                    </div>
+                    <div
+                      id="saml-Tmpl-Permissions"
+                      class="sso-tmpl-perms checkboxList paperList"
+                    ></div>
+                    <div
+                      id="saml-Tmpl-Permissions-status"
+                      class="fieldDescription"
+                      role="status"
+                      aria-live="polite"
+                    ></div>
+                    <button
+                      id="saml-Tmpl-Permissions-add"
+                      is="emby-button"
+                      type="button"
+                      class="raised sso-tmpl-perms-add emby-button"
+                    >
+                      <span
+                        class="material-icons add"
+                        aria-hidden="true"
+                      ></span>
+                      <span data-i18n="config.template_permissions_add"
+                        >Add permission</span
+                      >
+                    </button>
                   </div>
                 </div>
               </div>
