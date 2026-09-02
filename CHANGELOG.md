@@ -11,6 +11,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **Named provisioning profiles are editable from the dashboard (#1105).** A
+  profile is a starting policy under a name that any number of providers can
+  share - the `guest` profile beside the default one - and until now the only
+  way to define one was to edit the plugin configuration by hand. The
+  configuration page carries a **Provisioning Profiles** section: list, add,
+  rename, delete, and the same nine controls the provider forms carry, with the
+  same rules - a field you leave alone keeps Jellyfin's own default, and zero is
+  a real value for the bitrate ceiling and the session limit. Each provider form
+  gains the selector that points at one. Add copies the starting policy of a
+  provider you choose, under the name you type, so a new profile begins as what
+  that provider does today rather than as a blank form that silently writes
+  nothing; adding one changes no account until you point a provider at it.
+  Deleting a profile some provider or role rule still names is refused and the
+  references are named, because clearing them would switch those providers to a
+  different starting policy from a delete button. Renaming one repoints every
+  reference in the same save, so nothing is ever left pointing at a name the
+  configuration no longer defines. Pointing a provider at a profile clears that
+  provider's own inline fields when you save, since new accounts get exactly one
+  policy from one source; you are asked before that happens, and adding a
+  profile from the provider's own policy first is the way to keep it. Existing
+  configurations are untouched: a provider that names no profile keeps its
+  inline policy exactly as it is.
+
 - **The starting policy is on the provider forms (#1367).** Everything a
   provider writes onto a brand-new account - the permissions, the remote
   bitrate ceiling, the session limit, the two language preferences, the
