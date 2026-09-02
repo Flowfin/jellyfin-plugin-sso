@@ -231,9 +231,17 @@ We are always open to better docs! The main place documentation could be improve
 
 The plugin serves two pages of its own, the interstitial login page and the browser error page, and their text comes from per-language JSON catalogs rather than from the C# source. Translating one needs no build and no C# at all.
 
-Supported languages today are English alone, shipped as `SSO-Auth/Localization/en.json`. English is also the invariant fallback: every key exists there, and a lookup walks the requested culture, then its base language, then English, then the key itself, so a string that is missing from a catalog falls back rather than rendering blank.
+Which catalogs ship is declared rather than listed here, so print the set instead of trusting a sentence that drifts: `git ls-tree --name-only origin/main SSO-Auth/Localization/`. English is also the invariant fallback: every key exists there, and a lookup walks the requested culture, then its base language, then English, then the key itself, so a string that is missing from a catalog falls back rather than rendering blank.
 
 **To add a language**, copy `en.json` to `SSO-Auth/Localization/<bcp47>.json` (`de.json`, `pt-BR.json`), translate the values, and keep the key set exactly as English has it. Nothing else needs editing: the project file globs `Localization\*.json` into the assembly as embedded resources.
+
+**A catalog ships when a person who reads that language has read it.** So a pull request that adds or edits a non-English catalog carries one line per language in its **body**, at the start of its own line:
+
+```
+Catalogue-Vouch: fr read by Marie Dupont
+```
+
+The PR-hygiene gate reads that line and fails without it. Be clear about how little it proves: it reads a sentence, so it shows that somebody put a name to a reading, never that the reading happened, and it reads the pull request rather than the tree - a catalog already on `main` is outside it. If you are contributing a translation from outside this repository, the gate does not ask this of you (you cannot vouch for your own work anyway); the vouch is supplied by whoever merges it.
 
 **To fix a translation**, change the value and never the key. Keys are internal identifiers that the served pages reference by name, and no user-supplied or provider-supplied value is ever used as one.
 
