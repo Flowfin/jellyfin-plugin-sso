@@ -164,6 +164,8 @@
   "config.template_remember_audio_help": "Whether an audio track chosen during playback is remembered for next time. Leaving this unset keeps Jellyfin's own default; No is a deliberate setting rather than an absent one.",
   "config.template_remember_subtitle_label": "Remember subtitle selections:",
   "config.template_remember_subtitle_help": "Whether a subtitle chosen during playback is remembered for next time. Leaving this unset keeps Jellyfin's own default; No is a deliberate setting rather than an absent one.",
+  "config.template_home_sections_label": "Home screen sections:",
+  "config.template_home_sections_help": "The sections of the web client's home screen, one per line, top slot first: None, SmallLibraryTiles, LibraryButtons, ActiveRecordings, Resume, ResumeAudio, LatestMedia, NextUp, LiveTv or ResumeBook, spelled exactly like that. Up to ten lines; the slots you do not fill show nothing, as they would after saving the client's own home-screen settings. Leave the box empty to keep Jellyfin's own layout.",
   "config.template_permissions_label": "Permissions written onto a new account",
   "config.template_permissions_help": "Each row names one Jellyfin permission and the value a new account starts with. A permission that is not listed is never touched. The names come from the server rather than from a list kept on this page, so they cannot drift from what a save accepts; administrator, all-folders and Live TV access are not offered here because each keeps its own setting above, and no account can be created disabled from here.",
   "config.template_permissions_add": "Add permission",

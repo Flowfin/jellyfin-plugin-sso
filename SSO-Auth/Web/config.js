@@ -942,9 +942,10 @@ const ssoConfigurationPage = {
   //
   // ProvisioningPolicyTemplate is a NESTED member of the provider config, so its controls cannot ride the
   // flat contract listArgumentsByType feeds (current_config[element.id] = value, one top-level member per
-  // control). They carry their own marker classes instead - sso-tmpl-number, sso-tmpl-text, sso-tmpl-bool
-  // and sso-tmpl-perms - and an id of "<prefix>Tmpl-" + the exact ProvisioningPolicyTemplate property they
-  // write. readProvisioningTemplate below is the second serializer that assembles them into one object.
+  // control). They carry their own marker classes instead - sso-tmpl-number, sso-tmpl-text, sso-tmpl-bool,
+  // sso-tmpl-list and sso-tmpl-perms - and an id of "<prefix>Tmpl-" + the exact ProvisioningPolicyTemplate
+  // property they write. readProvisioningTemplate below is the second serializer that assembles them into
+  // one object.
   //
   // Two failures this shape exists to prevent, both of which turn a DECLINED field into a set one:
   //  - a control the administrator never touched must contribute NO member, because null is what leaves
@@ -959,7 +960,7 @@ const ssoConfigurationPage = {
   templateFieldName: (prefix, element) =>
     element.id.slice((prefix + "Tmpl-").length),
   // The form each template-control prefix lives in. The global profile editor (#1105) renders the same
-  // nine controls a THIRD time, outside both provider forms, so the two-way ternary this replaced could
+  // ten controls a THIRD time, outside both provider forms, so the two-way ternary this replaced could
   // not name it: "is it the SAML prefix" is a different question from "which form is this prefix in", and
   // the first one silently answers the OpenID form for every prefix that is not "saml-".
   templateFormSelectors: {
@@ -976,6 +977,7 @@ const ssoConfigurationPage = {
       numbers: [...form.querySelectorAll(".sso-tmpl-number")],
       texts: [...form.querySelectorAll(".sso-tmpl-text")],
       bools: [...form.querySelectorAll(".sso-tmpl-bool")],
+      lists: [...form.querySelectorAll(".sso-tmpl-list")],
       permissions: form.querySelector(".sso-tmpl-perms"),
     };
   },
@@ -988,6 +990,19 @@ const ssoConfigurationPage = {
     controls.texts.forEach((element) => {
       if (element.value !== "") {
         template[name(element)] = element.value;
+      }
+    });
+
+    // A list control (#1101) is one entry per line, in order. Blank lines are not entries, and a box with
+    // no entry contributes no member - the same declined state as an empty text control - so the server
+    // never sees an empty list where "keep Jellyfin's own layout" was meant.
+    controls.lists.forEach((element) => {
+      const lines = element.value
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+      if (lines.length > 0) {
+        template[name(element)] = lines;
       }
     });
 
@@ -1037,6 +1052,12 @@ const ssoConfigurationPage = {
       },
     );
 
+    controls.lists.forEach((element) => {
+      const value =
+        values[ssoConfigurationPage.templateFieldName(prefix, element)];
+      element.value = Array.isArray(value) ? value.join("\n") : "";
+    });
+
     // The named-profile selector is filled here rather than by the flat load path (#1105). That path sets
     // a text field ONLY when the loaded provider carries a value, so a provider naming no profile would
     // keep the previously loaded provider's name selected and a later save would write it onto the second
@@ -1080,7 +1101,7 @@ const ssoConfigurationPage = {
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
     // Disabled where a profile supersedes the fields OR where the whole form is frozen by a declarative
     // source (#1104). The second half is not optional: this call runs AFTER applyManagedState, so a plain
-    // `= named` re-enables exactly these nine controls on a managed provider and tells the administrator
+    // `= named` re-enables exactly these ten controls on a managed provider and tells the administrator
     // the opposite of what a save does - the inverse of the invariant applyManagedState exists for.
     const named = Boolean(selector && selector.value) || Boolean(managed);
 
@@ -1093,6 +1114,7 @@ const ssoConfigurationPage = {
       ...controls.numbers,
       ...controls.texts,
       ...controls.bools,
+      ...controls.lists,
       ...page.querySelectorAll("#" + prefix + "Tmpl-Permissions-add"),
     ].forEach((element) => {
       element.disabled = named;

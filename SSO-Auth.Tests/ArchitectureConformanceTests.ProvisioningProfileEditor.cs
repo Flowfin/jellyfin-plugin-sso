@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </content>
 public partial class ArchitectureConformanceTests
 {
-    // The editor renders the same nine controls a third time, outside both provider forms, under this id
+    // The editor renders the same ten controls a third time, outside both provider forms, under this id
     // prefix. It is deliberately not "saml-" and not empty: templateControls in config.js resolves a prefix
     // to a form, and two prefixes resolving to one form would make each one's serializer read the other's
     // fields.
@@ -97,6 +97,29 @@ public partial class ArchitectureConformanceTests
             var end = form.IndexOf("</select>", start, StringComparison.Ordinal);
             Assert.True(end > start, $"{id} has no closing select tag");
             Assert.Contains("value=\"\"", form[start..end], StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ProvisioningProfileEditorLists_RenderAsOneEntryPerLineTextareas()
+    {
+        // The editor's twin of ProvisioningTemplateLists_RenderAsOneEntryPerLineTextareas (#1101), for the
+        // same reason the boolean rule has one: a profile IS a template, rendered a third time.
+        var lists = typeof(ProvisioningPolicyTemplate)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.PropertyType == typeof(List<string>))
+            .Select(p => p.Name)
+            .ToList();
+        Assert.Equal(new[] { nameof(ProvisioningPolicyTemplate.HomeSections) }, lists);
+
+        var form = ProfileEditorMarkup(ProvisioningTemplateMarkup());
+        foreach (var name in lists)
+        {
+            var id = ProfileEditorPrefix + "Tmpl-" + name;
+            var control = TemplateControls(form).SingleOrDefault(c => c.Id == id);
+            Assert.True(control.Tag != null, $"{id} is not a marked template control in the profile editor");
+            Assert.StartsWith("<textarea", control.Tag, StringComparison.Ordinal);
+            Assert.Contains("sso-tmpl-list", control.Classes, StringComparison.Ordinal);
         }
     }
 
@@ -434,7 +457,7 @@ public partial class ArchitectureConformanceTests
     {
         // This runs AFTER applyManagedState, which disables or ENABLES every control in a provider form
         // from the declarative-managed report. Setting the disabled state from the profile alone therefore
-        // re-enabled exactly the nine starting-policy controls on a provider frozen by a configuration
+        // re-enabled exactly the ten starting-policy controls on a provider frozen by a configuration
         // file - a form greyed out everywhere except the section deciding what its new accounts get, which
         // is the inverse of what applyManagedState exists to say.
         var js = ProvisioningTemplateScript();

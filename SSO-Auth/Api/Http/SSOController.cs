@@ -28,6 +28,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
@@ -116,6 +117,7 @@ public class SSOController : ControllerBase
     /// <param name="providerManager">Instance of the <see cref="IProviderManager"/> interface.</param>
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface, the store a templated home-screen layout is seeded into (#1101).</param>
     public SSOController(
         ILogger<SSOController> logger,
         ILoggerFactory loggerFactory,
@@ -125,7 +127,8 @@ public class SSOController : ControllerBase
         ICryptoProvider cryptoProvider,
         IProviderManager providerManager,
         IHttpClientFactory httpClientFactory,
-        IServerConfigurationManager serverConfigurationManager)
+        IServerConfigurationManager serverConfigurationManager,
+        IDisplayPreferencesManager displayPreferencesManager)
     {
         _userManager = userManager;
         _authContext = authContext;
@@ -133,7 +136,7 @@ public class SSOController : ControllerBase
         _logger = logger;
         _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
-        _canonicalLinks = new CanonicalLinkService(userManager, cryptoProvider, SSOPlugin.Instance.ConfigStore, logger);
+        _canonicalLinks = new CanonicalLinkService(userManager, cryptoProvider, SSOPlugin.Instance.ConfigStore, logger, displayPreferences: displayPreferencesManager);
         _ssoOnly = new SsoOnlyLoginService(userManager, SSOPlugin.Instance.ConfigStore, logger);
         var avatarService = new AvatarService(userManager, providerManager, serverConfigurationManager, logger, SsoHttp.UserAgent);
         var sessionMinter = new SessionMinter(userManager, avatarService, sessionManager, logger);

@@ -443,6 +443,21 @@ internal static class ProviderConfigValidator
                 $"{subject} has an invalid provisioning template: it names subtitle mode '{echoMode}', which is not a known Jellyfin SubtitlePlaybackMode. Use the exact enum name (for example Default, Always, OnlyForced, or Smart), or leave it unset to keep Jellyfin's default.",
                 nameof(template));
         }
+
+        // The home-screen layout (#1101) has a closed vocabulary too, and one more way to be wrong: a list
+        // longer than the web client renders would be persisted in full and shown in part, with nothing
+        // saying where the cut fell. Same parse as the writer (HomeScreenPolicy), so the save refuses
+        // exactly the list the create arm would otherwise skip.
+        if (template.HomeSections != null
+            && !HomeScreenPolicy.TryParseHomeSections(template.HomeSections, out _, out var refusedSection))
+        {
+            var reason = refusedSection is null
+                ? $"lists {template.HomeSections.Count} home-screen sections, more than the {HomeScreenPolicy.SlotCount} slots the web client renders"
+                : $"names home-screen section '{string.Concat(refusedSection.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty)}', which is not a known Jellyfin HomeSectionType";
+            throw new ArgumentException(
+                $"{subject} has an invalid provisioning template: it {reason}. Use the exact enum names (for example SmallLibraryTiles, Resume, NextUp, LatestMedia, or None), one per slot from the top and at most {HomeScreenPolicy.SlotCount}, or leave the list empty to keep Jellyfin's own layout.",
+                nameof(template));
+        }
     }
 
     /// <summary>

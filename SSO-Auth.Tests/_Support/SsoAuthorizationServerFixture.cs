@@ -16,6 +16,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Http;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
@@ -93,7 +94,7 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
-        // The nine constructor collaborators of SSOController, resolved from DI when the framework activates
+        // The ten constructor collaborators of SSOController, resolved from DI when the framework activates
         // the controller. They are substitutes: this fixture proves the AUTHORIZATION gate, not the action
         // bodies (those are covered by the in-process SsoControllerHarness tests).
         builder.Services.AddSingleton(Substitute.For<ISessionManager>());
@@ -102,6 +103,7 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
         builder.Services.AddSingleton<ICryptoProvider>(new FakeCryptoProvider());
         builder.Services.AddSingleton(Substitute.For<IProviderManager>());
         builder.Services.AddSingleton(Substitute.For<IServerConfigurationManager>());
+        builder.Services.AddSingleton<IDisplayPreferencesManager>(new FakeDisplayPreferencesManager());
         builder.Services.AddHttpClient();
 
         builder.Services.AddAuthentication(TestAuthHandler.SchemeName)

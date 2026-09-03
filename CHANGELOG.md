@@ -11,6 +11,25 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A starting policy can seed the home screen (#1101).** The provisioning
+  template gains a **Home screen sections** list: the sections of the web
+  client's home screen, one per line, top slot first, in the exact names
+  Jellyfin declares. It is written once, when the account is created, into the
+  same document the web client reads its layout from, and it is written whole -
+  the sections you list and nothing in the remaining slots - so a new account
+  opens on exactly that layout rather than on your sections followed by the
+  client's own defaults. An empty list writes nothing and the account keeps
+  Jellyfin's own layout; an unknown name, or more entries than the ten slots
+  the client renders, is refused at save. The layout is a second write beside
+  the account itself and never fails a login: if the display-preferences store
+  cannot be written, the account is created without it and the log says so. It
+  seeds the web client only, because the section vocabulary and the ten-slot
+  layout are the web client's. Two things this was first asked for are not
+  here, for reasons read out of the client rather than decided: the app theme
+  never reaches the server, because the web client keeps it in the browser,
+  and a landing screen is set per library under keys that need a library id
+  nobody has when an account is created.
+
 - **Named provisioning profiles are editable from the dashboard (#1105).** A
   profile is a starting policy under a name that any number of providers can
   share - the `guest` profile beside the default one - and until now the only

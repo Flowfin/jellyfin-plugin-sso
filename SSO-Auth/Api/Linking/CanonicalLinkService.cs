@@ -17,6 +17,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Cryptography;
 using Microsoft.Extensions.Logging;
@@ -137,6 +138,7 @@ internal sealed class CanonicalLinkService
     private readonly ILogger _logger;
     private readonly IntervalGate _legacyLinkWarnGate;
     private readonly Func<DateTime> _clock;
+    private readonly IDisplayPreferencesManager? _displayPreferences;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CanonicalLinkService"/> class. The optional gate and
@@ -149,18 +151,26 @@ internal sealed class CanonicalLinkService
     /// <param name="logger">The logger.</param>
     /// <param name="legacyLinkWarnGate">The pending-legacy-link warning throttle; null takes the shared process-wide gate.</param>
     /// <param name="clock">The clock driving the warning throttle; null uses the wall clock.</param>
+    /// <param name="displayPreferences">
+    /// The host's display-preferences store the create arm seeds a templated home-screen layout into
+    /// (#1101). Null means this instance holds no store: the login path supplies one, and the between-logins
+    /// sweeps, which never reach the create arm, leave it out rather than carry a dependency they cannot
+    /// use. A template naming a layout with no store to write it into is logged, never thrown.
+    /// </param>
     internal CanonicalLinkService(
         IUserManager userManager,
         ICryptoProvider cryptoProvider,
         ProviderConfigStore configStore,
         ILogger logger,
         IntervalGate? legacyLinkWarnGate = null,
-        Func<DateTime>? clock = null)
+        Func<DateTime>? clock = null,
+        IDisplayPreferencesManager? displayPreferences = null)
     {
         _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _cryptoProvider = cryptoProvider ?? throw new ArgumentNullException(nameof(cryptoProvider));
         _configStore = configStore ?? throw new ArgumentNullException(nameof(configStore));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _displayPreferences = displayPreferences;
 
         // Production leaves both null and gets the process-wide gate + wall clock; tests pass a fresh gate
         // and a fake clock so the throttle stays deterministic and isolated per case.
@@ -643,7 +653,8 @@ internal sealed class CanonicalLinkService
         // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
         // an account created inert already carries its policy when an administrator comes to enable it,
         // rather than getting it on a first login that may never happen.
-        ProvisioningPolicy.ApplyAtProvisioning(user, ProvisioningTemplateFor(mode, provider, provisioningProfile));
+        var template = ProvisioningTemplateFor(mode, provider, provisioningProfile);
+        ProvisioningPolicy.ApplyAtProvisioning(user, template);
         // The manual-login door (#1440), shut as the account comes into existence: a Jellyfin user created
         // with no password accepts the EMPTY one on the ordinary login form. Minted through the one shared
         // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
@@ -688,6 +699,12 @@ internal sealed class CanonicalLinkService
             }
         }
 
+        // The home-screen layout (#1101) is a second persistence surface with its own store, written only
+        // once the account row above is persisted: an account that exists is complete without it, and
+        // nothing about a layout may fail a login or roll an account back. Sequenced after the persist for
+        // that reason, and isolated inside.
+        SeedHomeScreen(user.Id, provisionedName, template);
+
         if (provisionDisabled)
         {
             // Audited here, at the actual provisioning event, so the line fires exactly once (not on every
@@ -707,6 +724,42 @@ internal sealed class CanonicalLinkService
         // can only ever come into existence beside a live link, which is what bounds the map.
         var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration);
         return effectiveUserId;
+    }
+
+    // Writes the template's home-screen layout (#1101) for a freshly persisted account, and never lets the
+    // outcome reach the login. Warning rather than error on both arms, on the same reasoning as the
+    // unresolved-profile line below: the login succeeded and the account exists; what is asked for is a look
+    // at the display-preferences store, or at the wiring of a caller that provisions without one.
+    private void SeedHomeScreen(Guid userId, string provisionedName, ProvisioningPolicyTemplate? template)
+    {
+        if (!HomeScreenPolicy.NamesLayout(template))
+        {
+            return;
+        }
+
+        if (_displayPreferences is null)
+        {
+            _logger.LogWarning(
+                "SSO user {Name}: the provisioning template names a home-screen layout, but this path holds no display-preferences store, so none was written.",
+                provisionedName.ReplaceLineEndings(string.Empty));
+            return;
+        }
+
+        try
+        {
+            HomeScreenPolicy.ApplyAtProvisioning(_displayPreferences, userId, template);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately broad. The store is the host's database and this plugin compiles against an
+            // interface that promises nothing about what it throws; letting any of it escape would turn a
+            // cosmetic layout into a failed login for an account that already exists, which is the one
+            // outcome this feature must never cause.
+            _logger.LogWarning(
+                ex,
+                "SSO user {Name}: the provisioning template's home-screen layout could not be written; the account was created without it.",
+                provisionedName.ReplaceLineEndings(string.Empty));
+        }
     }
 
     // The provider's provisioning template (#1099), read under the config lock in its own short transaction

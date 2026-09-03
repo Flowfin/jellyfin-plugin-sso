@@ -117,7 +117,8 @@ internal sealed class SsoControllerHarness
             new FakeCryptoProvider(),
             Substitute.For<IProviderManager>(),
             httpClientFactory,
-            Substitute.For<IServerConfigurationManager>())
+            Substitute.For<IServerConfigurationManager>(),
+            new FakeDisplayPreferencesManager())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
