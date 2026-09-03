@@ -41,4 +41,12 @@ public class ManagedProviderSetDocument
     /// <see cref="PluginConfiguration.SamlConfigs"/>.
     /// </summary>
     public IReadOnlyList<string> SamlConfigs { get; init; } = new List<string>();
+
+    /// <summary>
+    /// Gets the provisioning profiles a declarative source defined (#1498), keyed as they are in
+    /// <see cref="PluginConfiguration.ProvisioningProfiles"/>. A managed profile is frozen the way a managed
+    /// provider is - the save keeps the stored value and records the ignored write - so the profile editor
+    /// has to be told, or an administrator edits a policy the server will not take.
+    /// </summary>
+    public IReadOnlyList<string> ProvisioningProfiles { get; init; } = new List<string>();
 }

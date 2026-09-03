@@ -214,7 +214,11 @@ const ssoConfigurationPage = {
   // page ever learned the provider was managed. So a report that does not arrive leaves the page exactly as
   // it behaved before this existed, which costs a confusing edit; treating an unreachable report as "assume
   // everything is managed" would instead lock an administrator out of forms the server would have accepted.
-  managedProviders: { OidConfigs: [], SamlConfigs: [] },
+  managedProviders: {
+    OidConfigs: [],
+    SamlConfigs: [],
+    ProvisioningProfiles: [],
+  },
   managedProvidersLoaded: null,
   loadManagedProviders: () => {
     ssoConfigurationPage.managedProvidersLoaded = ApiClient.getJSON(
@@ -228,12 +232,18 @@ const ssoConfigurationPage = {
           SamlConfigs: Array.isArray(report && report.SamlConfigs)
             ? report.SamlConfigs
             : [],
+          ProvisioningProfiles: Array.isArray(
+            report && report.ProvisioningProfiles,
+          )
+            ? report.ProvisioningProfiles
+            : [],
         };
       },
       () => {
         ssoConfigurationPage.managedProviders = {
           OidConfigs: [],
           SamlConfigs: [],
+          ProvisioningProfiles: [],
         };
       },
     );
@@ -252,6 +262,64 @@ const ssoConfigurationPage = {
         ? ssoConfigurationPage.managedProviders.SamlConfigs
         : ssoConfigurationPage.managedProviders.OidConfigs;
     return Array.isArray(names) && names.indexOf(provider_name) !== -1;
+  },
+  // A profile a declarative source defined (#1498). The freeze is the one a managed provider gets - the save
+  // keeps the stored value and records the ignored write - and until the report named profiles this editor
+  // printed "Saved" over a value the server had already put back.
+  isManagedProfile: (name) => {
+    const names = ssoConfigurationPage.managedProviders.ProvisioningProfiles;
+    return Boolean(name) && Array.isArray(names) && names.indexOf(name) !== -1;
+  },
+  // The three acts a managed profile freezes beside its policy fields. Add stays usable, because a new profile
+  // under another name is not a write to this one, and so does the selector, so the frozen policy can be read.
+  managedProfileActs: [
+    "RenameProvisioningProfile",
+    "DeleteProvisioningProfile",
+    "SaveProvisioningProfile",
+  ],
+  // Render the profile editor as managed or as ordinary, AFTER the fill: the permission rows are created by
+  // the fill, so a pass made before it would leave every one of them editable. Always applied on both arms,
+  // so choosing an ordinary profile after a managed one restores the editor rather than leaving it frozen.
+  applyManagedProfileState: (page, name) => {
+    const pending =
+      ssoConfigurationPage.managedProvidersLoaded || Promise.resolve();
+    return pending.then(() => {
+      // The editor may have moved on while the report was in flight; the selector is what a save reads.
+      const selector = page.querySelector("#selectProvisioningProfile");
+      if (selector && selector.value !== name) {
+        return;
+      }
+
+      const managed = ssoConfigurationPage.isManagedProfile(name);
+      const controls = ssoConfigurationPage.templateControls(page, "profile-");
+      [
+        ...controls.numbers,
+        ...controls.texts,
+        ...controls.bools,
+        ...controls.lists,
+        ...controls.permissions.querySelectorAll("input, select, button"),
+        ...page.querySelectorAll("#profile-Tmpl-Permissions-add"),
+        ...ssoConfigurationPage.managedProfileActs.map((id) =>
+          page.querySelector("#" + id),
+        ),
+      ].forEach((element) => {
+        if (element) {
+          element.disabled = managed;
+        }
+      });
+
+      const note = page.querySelector("#profile-managed-note");
+      if (note) {
+        // Set as text only (#221). The text is fixed and carries no profile value.
+        note.textContent = managed
+          ? tr(
+              "config.managed_profile_note",
+              "This profile is defined by a configuration file or by environment variables, so it cannot be edited, renamed or deleted here. Change it at that source and restart Jellyfin. A save made here would keep the stored value and leave a record in the log.",
+            )
+          : "";
+        note.hidden = !managed;
+      }
+    });
   },
   // The controls that stay usable on a managed provider: they read, they never write a provider field, and
   // they are the ones an administrator most needs while diagnosing a provider they cannot edit here.
@@ -1366,13 +1434,15 @@ const ssoConfigurationPage = {
     const name = page.querySelector("#selectProvisioningProfile").value;
     page.querySelector("#ProvisioningProfileName").value = name;
 
-    return ssoConfigurationPage.fillProvisioningTemplate(
-      page,
-      "profile-",
-      (config.ProvisioningProfiles || {})[name] || null,
-      null,
-      [],
-    );
+    return ssoConfigurationPage
+      .fillProvisioningTemplate(
+        page,
+        "profile-",
+        (config.ProvisioningProfiles || {})[name] || null,
+        null,
+        [],
+      )
+      .then(() => ssoConfigurationPage.applyManagedProfileState(page, name));
   },
   // The one write path of the four acts: re-post the whole configuration, then reload the page's view of it.
   // A rejected PUT is reported in this section's own status region rather than swallowed - the server can
@@ -1462,6 +1532,16 @@ const ssoConfigurationPage = {
       return;
     }
 
+    // A managed profile is restored under its old name after the save (DeclarativeManagedProviders.Reinject),
+    // so a rename would leave a copy under the new name that the source no longer decides (#1498).
+    if (ssoConfigurationPage.isManagedProfile(from)) {
+      ssoConfigurationPage.provisioningProfileStatus(
+        page,
+        `"${from}" cannot be renamed here: it is defined by a configuration file or by environment variables, and the server would restore it under this name after the save, leaving an unmanaged copy under the new one. Rename it at that source and restart Jellyfin.`,
+      );
+      return;
+    }
+
     if (to === "" || to === from) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
@@ -1544,6 +1624,14 @@ const ssoConfigurationPage = {
       return;
     }
 
+    if (ssoConfigurationPage.isManagedProfile(name)) {
+      ssoConfigurationPage.provisioningProfileStatus(
+        page,
+        `"${name}" cannot be deleted here: it is defined by a configuration file or by environment variables, and the server would put it back after the save. Remove it at that source and restart Jellyfin.`,
+      );
+      return;
+    }
+
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
         const references = ssoConfigurationPage.provisioningProfileReferences(
@@ -1587,6 +1675,14 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
         "Choose a profile above, or add one, before saving. This section edits a named profile; it is not a provider's own starting policy.",
+      );
+      return;
+    }
+
+    if (ssoConfigurationPage.isManagedProfile(name)) {
+      ssoConfigurationPage.provisioningProfileStatus(
+        page,
+        `"${name}" cannot be saved here: it is defined by a configuration file or by environment variables, and the server would keep the stored value and record the ignored write. Change it at that source and restart Jellyfin.`,
       );
       return;
     }
