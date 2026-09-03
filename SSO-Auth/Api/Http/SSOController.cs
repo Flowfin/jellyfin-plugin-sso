@@ -678,6 +678,33 @@ public class SSOController : ControllerBase
         }
     }
 
+    // Rejects a provisioning policy the configuration save would refuse (#1502) at the OID/SAML Add doors,
+    // which persist through MutateConfiguration and so bypass the save-time Validate. Without this, a
+    // template naming a permission that is not a PermissionKind, a subtitle mode that is not a
+    // SubtitlePlaybackMode, a negative ceiling, or a home-screen section that is not a HomeSectionType was
+    // stored as posted with a 200; every writer then skipped it fail-closed at provisioning, so the
+    // template widened nothing and did nothing, with the reason visible only at the first login that
+    // created an account. The three checks are the save's own, so both admin write paths refuse the same
+    // policy with the same message. Runs under the config lock, because the profile checks resolve the
+    // posted name against the LIVE profile set; it runs before any mutation, so a throw persists nothing.
+
+    /// <summary>
+    /// Rejects a provisioning template, profile reference, or role-to-profile row the configuration save
+    /// would refuse (#1502), at the Add doors that bypass that save. Called inside the configuration
+    /// mutation, before it changes anything, because the profile checks read the live profile set.
+    /// </summary>
+    /// <param name="protocol">The protocol label (<c>OpenID</c> or <c>SAML</c>) echoed in the rejection message.</param>
+    /// <param name="provider">The provider name posted to the Add endpoint.</param>
+    /// <param name="config">The provider body posted to the Add endpoint.</param>
+    /// <param name="live">The live configuration, whose profile set a posted profile name must resolve in.</param>
+    /// <exception cref="ArgumentException">The template, the profile reference, or a role-to-profile row is invalid.</exception>
+    private static void RejectInvalidProvisioningPolicy(string protocol, string provider, ProviderConfigBase config, PluginConfiguration live)
+    {
+        ProviderConfigValidator.ValidateProvisioningTemplate(protocol, provider, config.ProvisioningPolicyTemplate);
+        ProviderConfigValidator.ValidateProvisioningProfileReference(protocol, provider, config, live.ProvisioningProfiles);
+        ProviderConfigValidator.ValidateProvisioningProfileRoleMappings(protocol, provider, config, live.ProvisioningProfiles);
+    }
+
     // The refusal every elevated write door gives for a declaratively managed provider (#1415), defined once
     // so five doors and their tests cannot drift into five wordings. It names the source, because a refusal
     // that does not say where the change belongs leaves an administrator with nowhere to make it.
@@ -762,6 +789,7 @@ public class SSOController : ControllerBase
             // so a throw leaves the live configuration untouched and nothing is persisted.
             var providerExists = configuration.OidConfigs.TryGetValue(provider, out var existing);
             RejectInvalidNewProviderName(provider, providerExists);
+            RejectInvalidProvisioningPolicy(OpenIdProtocol, provider, config, configuration);
 
             // Re-inject the server-managed fields this API cannot carry - CanonicalLinks ([JsonIgnore],
             // #157) and the write-only secret's blank-means-keep rule (#189) - through the one shared
@@ -1275,6 +1303,7 @@ public class SSOController : ControllerBase
             // so a throw leaves the live configuration untouched and nothing is persisted.
             var providerExists = configuration.SamlConfigs.TryGetValue(provider, out var existing);
             RejectInvalidNewProviderName(provider, providerExists);
+            RejectInvalidProvisioningPolicy(SamlProtocol, provider, newConfig, configuration);
 
             // Preserve the server-managed canonical links (#157), as OidAdd does, through the shared
             // ServerManagedFields.Preserve: the posted config never carries them ([JsonIgnore]), so

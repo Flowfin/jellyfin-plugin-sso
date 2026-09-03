@@ -277,4 +277,144 @@ public class SSOControllerAddTests
         Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"].Enabled));
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
     }
+
+    [Theory]
+    [InlineData(true, "permission")]
+    [InlineData(true, "subtitle mode")]
+    [InlineData(true, "sessions")]
+    [InlineData(true, "home section")]
+    [InlineData(false, "permission")]
+    [InlineData(false, "subtitle mode")]
+    [InlineData(false, "sessions")]
+    [InlineData(false, "home section")]
+    public void Add_TemplateTheSaveRefuses_Throws_NamingTheField_AndDoesNotPersist(bool openId, string field)
+    {
+        // #1502: the Add doors persist through MutateConfiguration and so bypass the config-page save-time
+        // Validate. Before the door guard, a template the save refuses was stored as posted with a 200, and
+        // every writer's fail-closed skip then made it do nothing - the reason surfaced only at the first
+        // login that provisioned an account. The refusal must name the field, because the caller has to fix
+        // it; the message is the save's own, so the two admin write paths cannot drift apart.
+        var harness = new SsoControllerHarness();
+        var (template, names) = TemplateTheSaveRefuses(field);
+        var body = Body(openId);
+        body.ProvisioningPolicyTemplate = template;
+
+        var ex = Assert.Throws<ArgumentException>(() => Add(harness, openId, body));
+
+        Assert.Contains(names, ex.Message, StringComparison.Ordinal);
+        Assert.Null(Stored(openId));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Add_UndefinedProfile_Throws_NamingTheProfile_AndDoesNotPersist(bool openId)
+    {
+        // The profile-reference half of #1502: a provider pointing at a profile the configuration does not
+        // define provisions nothing rather than falling back, so the door refuses it the way the save does.
+        var harness = new SsoControllerHarness();
+        var body = Body(openId);
+        body.ProvisioningProfile = "guest";
+
+        var ex = Assert.Throws<ArgumentException>(() => Add(harness, openId, body));
+
+        Assert.Contains("'guest', which this configuration does not define", ex.Message, StringComparison.Ordinal);
+        Assert.Null(Stored(openId));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Add_ProfileTheConfigurationDefines_Persists(bool openId)
+    {
+        // The positive control for the reference check: it resolves against the LIVE profile set under the
+        // lock, so a defined profile is accepted - a check resolving against the posted body alone would
+        // refuse every profile, since the Add body never carries the profile set.
+        var harness = new SsoControllerHarness(c => c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate());
+        var body = Body(openId);
+        body.ProvisioningProfile = "guest";
+
+        Add(harness, openId, body);
+
+        Assert.Equal("guest", Stored(openId)?.ProvisioningProfile);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Add_TemplateTheSaveAccepts_Persists(bool openId)
+    {
+        // Zero is a real value on both ceilings (no limit / unlimited), so the guard must let it through:
+        // a door refusing what the save accepts would be the same drift in the other direction.
+        var harness = new SsoControllerHarness();
+        var body = Body(openId);
+        body.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { RemoteClientBitrateLimit = 0, MaxActiveSessions = 0 };
+
+        Add(harness, openId, body);
+
+        Assert.Equal(0, Stored(openId)?.ProvisioningPolicyTemplate?.MaxActiveSessions);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Add_RoleRowNamingAnUndefinedProfile_Throws_AndDoesNotPersist(bool openId)
+    {
+        // The third check the guard runs. A row pointing at a missing profile provisions nothing for the
+        // logins it matches rather than falling back, so the door refuses it the way the save does.
+        var harness = new SsoControllerHarness();
+        var body = Body(openId);
+        body.ProvisioningProfileRoleMappings = new List<ProvisioningProfileRoleMap> { new() { Profile = "staff", Roles = new[] { "admins" } } };
+
+        var ex = Assert.Throws<ArgumentException>(() => Add(harness, openId, body));
+
+        Assert.Contains("row naming 'staff', which this configuration does not define", ex.Message, StringComparison.Ordinal);
+        Assert.Null(Stored(openId));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Add_ProfileBesideAnInlineTemplate_Throws_AndDoesNotPersist(bool openId)
+    {
+        // A provider's new accounts get exactly one policy; the save refuses a body carrying both sources,
+        // and a door that let both through would persist a provider whose policy the page cannot show.
+        var harness = new SsoControllerHarness(c => c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate());
+        var body = Body(openId);
+        body.ProvisioningProfile = "guest";
+        body.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { MaxActiveSessions = 0 };
+
+        var ex = Assert.Throws<ArgumentException>(() => Add(harness, openId, body));
+
+        Assert.Contains("also carries its own inline provisioning template", ex.Message, StringComparison.Ordinal);
+        Assert.Null(Stored(openId));
+    }
+
+    // One template per field the save refuses, with the fragment of the save's message that names it.
+    private static (ProvisioningPolicyTemplate Template, string Names) TemplateTheSaveRefuses(string field) => field switch
+    {
+        "permission" => (new ProvisioningPolicyTemplate { Permissions = new List<ProvisionedPermissionEntry> { new() { Permission = "EnableTimeTravel", Granted = true } } }, "'EnableTimeTravel', which is not a known Jellyfin permission"),
+        "subtitle mode" => (new ProvisioningPolicyTemplate { SubtitleMode = "smart" }, "subtitle mode 'smart'"),
+        "sessions" => (new ProvisioningPolicyTemplate { MaxActiveSessions = -1 }, "maximum active sessions"),
+        "home section" => (new ProvisioningPolicyTemplate { HomeSections = new List<string> { "Nope" } }, "home-screen section 'Nope'"),
+        _ => throw new ArgumentOutOfRangeException(nameof(field)),
+    };
+
+    private static ProviderConfigBase Body(bool openId) => openId ? new OidConfig() : new SamlConfig();
+
+    private static void Add(SsoControllerHarness harness, bool openId, ProviderConfigBase body)
+    {
+        if (openId)
+        {
+            harness.Controller.OidAdd("keycloak", (OidConfig)body);
+        }
+        else
+        {
+            harness.Controller.SamlAdd("adfs", (SamlConfig)body);
+        }
+    }
+
+    private static ProviderConfigBase? Stored(bool openId) => SSOPlugin.Instance.ReadConfiguration(c => openId
+        ? c.OidConfigs.TryGetValue("keycloak", out var oid) ? oid : null
+        : c.SamlConfigs.TryGetValue("adfs", out var saml) ? (ProviderConfigBase?)saml : null);
 }
