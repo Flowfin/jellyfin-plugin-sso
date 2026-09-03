@@ -33,6 +33,7 @@ public class SSOControllerManagedProvidersTests
 
         Assert.Empty(reported.OidConfigs);
         Assert.Empty(reported.SamlConfigs);
+        Assert.Empty(reported.ProvisioningProfiles);
     }
 
     [Fact]
@@ -80,5 +81,26 @@ public class SSOControllerManagedProvidersTests
         Assert.DoesNotContain("ssoenc:", json, StringComparison.Ordinal);
         Assert.DoesNotContain("client-1", json, StringComparison.Ordinal);
         Assert.DoesNotContain("idp.example.invalid", json, StringComparison.Ordinal);
+    }
+    [Fact]
+    public void DeclaredProfiles_AreReported_BesideTheProviders()
+    {
+        // #1498: a profile a declarative source defined is frozen by the save exactly as a provider is, and
+        // until the report named it the profile editor had no way to know - it printed "Saved" while the
+        // server kept the stored value. Names only, in the same document, so the page reads one report.
+        var harness = new SsoControllerHarness(c =>
+        {
+            c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+            c.ProvisioningProfiles["hand-made"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 2 };
+        });
+
+        var declared = new PluginConfiguration();
+        declared.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 1 };
+        SSOPlugin.Instance.ConfigStore.RecordDeclarativelyManaged(declared, "/config/sso.json");
+
+        var reported = Reported(harness);
+
+        Assert.Equal(new[] { "guest" }, reported.ProvisioningProfiles);
+        Assert.Empty(reported.OidConfigs);
     }
 }

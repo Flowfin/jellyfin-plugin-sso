@@ -1447,8 +1447,9 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
-    /// Reports which providers a declarative source decided on this boot (#1102), so the config page can
-    /// render them as managed instead of letting an admin edit a form the next start wins back (#1104).
+    /// Reports which providers, and which provisioning profiles (#1498), a declarative source decided on this
+    /// boot, so the config page can render them as managed instead of letting an admin edit a form the next
+    /// start wins back (#1104).
     /// Requires administrator privileges, like the other config endpoints. Read-only - it changes nothing,
     /// and it carries provider NAMES only: no field value, no secret and no reference, so nothing here is
     /// sensitive even where the whole set is.
@@ -1465,6 +1466,7 @@ public class SSOController : ControllerBase
         {
             OidConfigs = managed.OidConfigs,
             SamlConfigs = managed.SamlConfigs,
+            ProvisioningProfiles = managed.Profiles,
         });
     }
 

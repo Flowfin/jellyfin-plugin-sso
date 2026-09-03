@@ -410,6 +410,18 @@
                     it into the fields below; Save profile writes it back.
                   </div>
                 </div>
+                <!--
+                  A profile a configuration file or the environment defined is frozen server-side (#1498): the
+                  save keeps the stored value and records the ignored write. This is where the page says so,
+                  painted by applyManagedProfileState from the managed-set report, beside the selector that
+                  chose the profile. textContent only, and hidden until a managed profile is selected.
+                -->
+                <p
+                  class="fieldDescription sso-managed-note"
+                  id="profile-managed-note"
+                  role="status"
+                  hidden
+                ></p>
                 <div class="inputContainer">
                   <label
                     class="inputLabel inputLabelUnfocused"

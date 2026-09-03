@@ -59,7 +59,7 @@ public partial class ArchitectureConformanceTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(new[] { "OidConfigs", "SamlConfigs" }, declared);
+        Assert.Equal(new[] { "OidConfigs", "ProvisioningProfiles", "SamlConfigs" }, declared);
 
         var js = ConfigJs();
         foreach (var member in declared)
@@ -120,14 +120,77 @@ public partial class ArchitectureConformanceTests
         // runtime with a built-in English default, so a key absent from the catalog is invisible: the page
         // renders the English and no localized installation ever shows a translated sentence.
         var js = ConfigJs();
-        Assert.Contains("\"config.managed_by_file_note\"", js, StringComparison.Ordinal);
-
         using var catalog = JsonDocument.Parse(
             File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Localization", "en.json")));
 
-        Assert.True(
-            catalog.RootElement.TryGetProperty("config.managed_by_file_note", out var value),
-            "SSO-Auth/Localization/en.json carries no config.managed_by_file_note entry.");
-        Assert.False(string.IsNullOrWhiteSpace(value.GetString()));
+        // The profile note (#1498) is the same rule one object over: a second key, looked up the same way.
+        foreach (var key in new[] { "config.managed_by_file_note", "config.managed_profile_note" })
+        {
+            Assert.Contains("\"" + key + "\"", js, StringComparison.Ordinal);
+            Assert.True(
+                catalog.RootElement.TryGetProperty(key, out var value),
+                "SSO-Auth/Localization/en.json carries no " + key + " entry.");
+            Assert.False(string.IsNullOrWhiteSpace(value.GetString()));
+        }
+    }
+    [Fact]
+    public void ProfileEditor_FreezesAManagedProfile_AndSaysWhyAtTheControl()
+    {
+        // #1498: a profile a declarative source defined is frozen by the save exactly as a provider is, and
+        // the editor is the first interactive surface on this write path. Three things have to agree for the
+        // freeze to be visible: the fill hands the chosen name to the managed pass AFTER the rows exist, the
+        // pass reads the report's profile list and paints a note into an element the markup carries, and the
+        // acts it disables are real buttons. Each is a string on one side and nothing compiles the pair.
+        var js = ConfigJs();
+        var html = ConfigPageHtml();
+
+        var show = ProvisioningTemplateFunctionBody(js, "showSelectedProvisioningProfile: (page, config) => {");
+        Assert.Contains(".then(() => ssoConfigurationPage.applyManagedProfileState(page, name))", show, StringComparison.Ordinal);
+
+        var apply = ProvisioningTemplateFunctionBody(js, "applyManagedProfileState: (page, name) => {");
+        Assert.Contains("ssoConfigurationPage.isManagedProfile(name)", apply, StringComparison.Ordinal);
+        Assert.Contains("templateControls(page, \"profile-\")", apply, StringComparison.Ordinal);
+        Assert.Contains("\"#profile-managed-note\"", apply, StringComparison.Ordinal);
+        Assert.Contains("\"config.managed_profile_note\"", apply, StringComparison.Ordinal);
+        Assert.DoesNotContain("innerHTML", apply, StringComparison.Ordinal);
+        Assert.Contains("id=\"profile-managed-note\"", html, StringComparison.Ordinal);
+
+        var report = ProvisioningTemplateFunctionBody(js, "isManagedProfile: (name) => {");
+        Assert.Contains("managedProviders.ProvisioningProfiles", report, StringComparison.Ordinal);
+
+        var start = js.IndexOf("managedProfileActs: [", StringComparison.Ordinal);
+        Assert.True(start >= 0, "config.js no longer declares managedProfileActs.");
+        var ids = js.Substring(start, js.IndexOf("],", start, StringComparison.Ordinal) - start)
+            .Split('"')
+            .Where((_, index) => index % 2 == 1)
+            .ToList();
+        Assert.Equal(new[] { "RenameProvisioningProfile", "DeleteProvisioningProfile", "SaveProvisioningProfile" }, ids);
+        foreach (var id in ids)
+        {
+            Assert.Contains("id=\"" + id + "\"", html, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ProfileActs_RefuseAManagedProfileBeforeAnythingMoves()
+    {
+        // Disabling the buttons is a courtesy the keyboard and a stale page can walk past; the acts themselves
+        // refuse (#1498). Renaming a managed profile would leave an unmanaged fork under the new name, because
+        // the server restores the old one whole; deleting one reports a deletion the server undoes; saving one
+        // prints "Saved" over a value the server kept. Each refusal sits BEFORE the line that changes the set.
+        var js = ConfigJs();
+        foreach (var (opener, mutation) in new[]
+        {
+            ("renameProvisioningProfile: (page) => {", "delete profiles[from];"),
+            ("deleteProvisioningProfile: (page) => {", "delete profiles[name];"),
+            ("saveProvisioningProfile: (page) => {", "profiles[name] ="),
+        })
+        {
+            var body = ProvisioningTemplateFunctionBody(js, opener);
+            var guard = body.IndexOf("ssoConfigurationPage.isManagedProfile(", StringComparison.Ordinal);
+            var writes = body.IndexOf(mutation, StringComparison.Ordinal);
+            Assert.True(guard >= 0, $"{opener} no longer refuses a profile a declarative source defined.");
+            Assert.True(writes > guard, $"{opener} changes the profile set before asking whether the profile is managed.");
+        }
     }
 }
