@@ -43,6 +43,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 /// its own store. The caller writes it after that row is persisted and isolates a failure, so a layout can
 /// never fail a login or leave an account half-provisioned.
 /// </para>
+/// <para>
+/// One property of the host to know before reading a seeded account's rows: its update attaches the document
+/// to a fresh context as modified and never deletes a section row the collection no longer holds, so the
+/// user's own later save adds its rows beside the seeded ten rather than replacing them, and the read
+/// projection is last-wins by row order. That is how every user's second save already behaves on the host;
+/// the seed only moves it to the first. Measured against both host lines with an in-memory database during
+/// review (#1101): the user's later layout wins on every slot, and the growth is the ten rows, once.
+/// </para>
 /// </remarks>
 internal static class HomeScreenPolicy
 {

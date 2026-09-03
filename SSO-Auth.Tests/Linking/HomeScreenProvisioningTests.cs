@@ -42,12 +42,16 @@ public class HomeScreenProvisioningTests
         var id = await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
 
         Assert.Equal(Created, id);
-        var document = Assert.Single(store.Documents).Value;
-        Assert.Equal((Created, HomeScreenPolicy.UserSettingsItemId, HomeScreenPolicy.WebClient), (document.UserId, document.ItemId, document.Client));
+        Assert.Single(store.Documents);
+
+        // Read back THROUGH THE INTERFACE, with the key the web client asks for, which is the Done-when
+        // clause as written rather than a look at the fake's own dictionary.
+        var document = store.GetDisplayPreferences(Created, HomeScreenPolicy.UserSettingsItemId, HomeScreenPolicy.WebClient);
         Assert.Equal(HomeScreenPolicy.SlotCount, document.HomeSections.Count);
         Assert.Equal(
             new[] { HomeSectionType.SmallLibraryTiles, HomeSectionType.Resume, HomeSectionType.NextUp },
             document.HomeSections.OrderBy(s => s.Order).Take(3).Select(s => s.Type));
+        Assert.All(document.HomeSections.OrderBy(s => s.Order).Skip(3), s => Assert.Equal(HomeSectionType.None, s.Type));
     }
 
     [Fact]
@@ -195,13 +199,19 @@ public class HomeScreenProvisioningTests
         Assert.Contains($"'{name}'", refusal.Message, StringComparison.Ordinal);
         Assert.Contains("HomeSectionType", refusal.Message, StringComparison.Ordinal);
 
-        var (service, config, users, store, _) = Build();
+        // The writer's half is what a configuration written around the validator meets: the list is skipped
+        // whole, the store is not even read, and the log says so - a silent skip would leave an account on
+        // Jellyfin's own layout under a template naming one, with nothing anywhere saying why.
+        var (service, config, users, store, log) = Build();
         config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { HomeSections = ["Resume", name] };
         Provisionable(users, "alice");
 
         await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
 
         Assert.Equal(0, store.Reads);
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning
+            && e.Message.Contains("alice", StringComparison.Ordinal)
+            && e.Message.Contains("so none was written", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -214,13 +224,14 @@ public class HomeScreenProvisioningTests
             new ProvisioningPolicyTemplate { HomeSections = names }));
         Assert.Contains($"lists {names.Count} home-screen sections, more than the {HomeScreenPolicy.SlotCount} slots", refusal.Message, StringComparison.Ordinal);
 
-        var (service, config, users, store, _) = Build();
+        var (service, config, users, store, log) = Build();
         config.ProvisioningPolicyTemplate = new ProvisioningPolicyTemplate { HomeSections = names };
         Provisionable(users, "alice");
 
         await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
 
         Assert.Equal(0, store.Reads);
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("so none was written", StringComparison.Ordinal));
     }
 
     [Fact]

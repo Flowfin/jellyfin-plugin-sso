@@ -747,7 +747,17 @@ internal sealed class CanonicalLinkService
 
         try
         {
-            HomeScreenPolicy.ApplyAtProvisioning(_displayPreferences, userId, template);
+            if (HomeScreenPolicy.ApplyAtProvisioning(_displayPreferences, userId, template) == 0)
+            {
+                // A layout was named and none was written: the stored list fails the parse the save-time
+                // validator applies, so this is a configuration written around it. The policy skips the
+                // list whole and says nothing; the line is here so an account that came out with Jellyfin's
+                // own layout under a template naming one is not a mystery.
+                _logger.LogWarning(
+                    "SSO user {Name}: the provisioning template's home-screen layout names a section that is not a HomeSectionType or lists more than {Slots} entries, so none was written; a save would have refused the same list.",
+                    provisionedName.ReplaceLineEndings(string.Empty),
+                    HomeScreenPolicy.SlotCount);
+            }
         }
         catch (Exception ex)
         {

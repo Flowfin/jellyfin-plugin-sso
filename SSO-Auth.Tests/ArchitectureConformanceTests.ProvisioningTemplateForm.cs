@@ -304,7 +304,8 @@ public partial class ArchitectureConformanceTests
         // whole box as one string, which the server refuses for a list member, so the save would fail on
         // every provider carrying a layout; a select cannot carry an order; and the flat contract's
         // sso-line-list marker would persist the box as a top-level provider member the type does not
-        // declare. The field set is DERIVED from the type, so a second list member joins this rule on its own.
+        // declare. The field set is read from the type and pinned to exactly this member on purpose: a
+        // second list member fails the rule, so its control kind is decided here rather than inherited.
         var lists = typeof(ProvisioningPolicyTemplate)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.PropertyType == typeof(List<string>))
