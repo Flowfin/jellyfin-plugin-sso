@@ -359,7 +359,7 @@
 
           <!--
             Provisioning profiles (#1105): the editor for the GLOBAL named profile set. A profile is a
-            ProvisioningPolicyTemplate under a name, so the nine controls below are the SAME control set
+            ProvisioningPolicyTemplate under a name, so the ten controls below are the SAME control set
             both provider forms carry, with the same sso-tmpl-* markers and the same three-state rules,
             under a "profile-Tmpl-" id prefix. They are deliberately a third rendering rather than a
             shared one: the page has no template engine, and the conformance rules that pin the kind and
@@ -704,6 +704,33 @@
                     Whether a subtitle chosen during playback is remembered for
                     next time. Leaving this unset keeps Jellyfin's own default;
                     No is a deliberate setting rather than an absent one.
+                  </div>
+                </div>
+                <div class="inputContainer">
+                  <label
+                    class="inputLabel inputLabelUnfocused"
+                    for="profile-Tmpl-HomeSections"
+                    data-i18n="config.template_home_sections_label"
+                    >Home screen sections:</label
+                  >
+                  <textarea
+                    is="emby-textarea"
+                    id="profile-Tmpl-HomeSections"
+                    name="profile-Tmpl-HomeSections"
+                    type="text"
+                    class="sso-tmpl-list emby-textarea"
+                  ></textarea>
+                  <div
+                    class="fieldDescription"
+                    data-i18n="config.template_home_sections_help"
+                  >
+                    The sections of the web client's home screen, one per line,
+                    top slot first: None, SmallLibraryTiles, LibraryButtons,
+                    ActiveRecordings, Resume, ResumeAudio, LatestMedia, NextUp,
+                    LiveTv or ResumeBook, spelled exactly like that. Up to ten
+                    lines; the slots you do not fill show nothing, as they would
+                    after saving the client's own home-screen settings. Leave
+                    the box empty to keep Jellyfin's own layout.
                   </div>
                 </div>
                 <div class="sso-subgroup">
@@ -2050,6 +2077,34 @@
                       for next time. Leaving this unset keeps Jellyfin's own
                       default; No is a deliberate setting rather than an absent
                       one.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="Tmpl-HomeSections"
+                      data-i18n="config.template_home_sections_label"
+                      >Home screen sections:</label
+                    >
+                    <textarea
+                      is="emby-textarea"
+                      id="Tmpl-HomeSections"
+                      name="Tmpl-HomeSections"
+                      type="text"
+                      class="sso-tmpl-list emby-textarea"
+                    ></textarea>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_home_sections_help"
+                    >
+                      The sections of the web client's home screen, one per
+                      line, top slot first: None, SmallLibraryTiles,
+                      LibraryButtons, ActiveRecordings, Resume, ResumeAudio,
+                      LatestMedia, NextUp, LiveTv or ResumeBook, spelled exactly
+                      like that. Up to ten lines; the slots you do not fill show
+                      nothing, as they would after saving the client's own
+                      home-screen settings. Leave the box empty to keep
+                      Jellyfin's own layout.
                     </div>
                   </div>
                   <div class="sso-subgroup">
@@ -4036,6 +4091,34 @@
                       for next time. Leaving this unset keeps Jellyfin's own
                       default; No is a deliberate setting rather than an absent
                       one.
+                    </div>
+                  </div>
+                  <div class="inputContainer">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="saml-Tmpl-HomeSections"
+                      data-i18n="config.template_home_sections_label"
+                      >Home screen sections:</label
+                    >
+                    <textarea
+                      is="emby-textarea"
+                      id="saml-Tmpl-HomeSections"
+                      name="saml-Tmpl-HomeSections"
+                      type="text"
+                      class="sso-tmpl-list emby-textarea"
+                    ></textarea>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_home_sections_help"
+                    >
+                      The sections of the web client's home screen, one per
+                      line, top slot first: None, SmallLibraryTiles,
+                      LibraryButtons, ActiveRecordings, Resume, ResumeAudio,
+                      LatestMedia, NextUp, LiveTv or ResumeBook, spelled exactly
+                      like that. Up to ten lines; the slots you do not fill show
+                      nothing, as they would after saving the client's own
+                      home-screen settings. Leave the box empty to keep
+                      Jellyfin's own layout.
                     </div>
                   </div>
                   <div class="sso-subgroup">

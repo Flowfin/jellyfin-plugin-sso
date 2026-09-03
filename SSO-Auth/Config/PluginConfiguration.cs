@@ -1113,6 +1113,23 @@ public class ProvisioningPolicyTemplate
     /// account (#1100). Null leaves Jellyfin's own default alone.
     /// </summary>
     public bool? RememberSubtitleSelections { get; set; }
+
+    /// <summary>
+    /// Gets or sets the web client's home-screen sections written for a brand-new account (#1101), top
+    /// slot first, each as the exact <c>HomeSectionType</c> enum name (for example
+    /// <c>SmallLibraryTiles</c>, <c>Resume</c>, <c>NextUp</c>, <c>LatestMedia</c>). Null or empty writes
+    /// nothing at all, so the account keeps Jellyfin's own layout. Up to ten entries; the remaining slots
+    /// are written as <c>None</c>, so the list is the whole layout rather than a prefix the client
+    /// completes with its own defaults.
+    /// </summary>
+    /// <remarks>
+    /// Unlike every other field of this template this is not a column on the account: it is written into
+    /// the account's display-preferences document for the web client, through the host's
+    /// display-preferences store, after the account itself is persisted, and a failure there is logged and
+    /// never fails the login. An unknown name, or a list longer than the web client's ten slots, is
+    /// rejected on save.
+    /// </remarks>
+    public List<string>? HomeSections { get; set; }
 }
 
 /// <summary>

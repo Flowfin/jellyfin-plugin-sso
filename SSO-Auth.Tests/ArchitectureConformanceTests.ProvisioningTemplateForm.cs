@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -30,7 +31,7 @@ public partial class ArchitectureConformanceTests
     // to the NESTED ProvisioningPolicyTemplate instead, so a marker of that family would be refused by
     // ProviderFormFieldIds_MatchOidConfigProperties - correctly, because the flat save path cannot reach it.
     private static readonly string[] TemplateMarkerClasses =
-        ["sso-tmpl-number", "sso-tmpl-text", "sso-tmpl-bool", "sso-tmpl-perms"];
+        ["sso-tmpl-number", "sso-tmpl-text", "sso-tmpl-bool", "sso-tmpl-list", "sso-tmpl-perms"];
 
     private static string ProvisioningTemplateMarkup()
         => File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
@@ -291,6 +292,63 @@ public partial class ArchitectureConformanceTests
         // The named-profile branch, immediately after the assembled one: null, not the object.
         var tail = save[assembled..];
         Assert.Contains(": null;", tail, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("oidc", "")]
+    [InlineData("saml", "saml-")]
+    public void ProvisioningTemplateLists_RenderAsOneEntryPerLineTextareas(string protocol, string prefix)
+    {
+        // The list-typed member (#1101) is an ORDERED list of enum names, and the serializer reads a list
+        // control one entry per line and sends no member for an empty box. A text control would post the
+        // whole box as one string, which the server refuses for a list member, so the save would fail on
+        // every provider carrying a layout; a select cannot carry an order; and the flat contract's
+        // sso-line-list marker would persist the box as a top-level provider member the type does not
+        // declare. The field set is read from the type and pinned to exactly this member on purpose: a
+        // second list member fails the rule, so its control kind is decided here rather than inherited.
+        var lists = typeof(ProvisioningPolicyTemplate)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.PropertyType == typeof(List<string>))
+            .Select(p => p.Name)
+            .ToList();
+        Assert.Equal(new[] { nameof(ProvisioningPolicyTemplate.HomeSections) }, lists);
+
+        var form = protocol == "oidc"
+            ? OidcProviderFormMarkup(ProvisioningTemplateMarkup())
+            : SamlProviderFormMarkup(ProvisioningTemplateMarkup());
+
+        foreach (var name in lists)
+        {
+            var id = prefix + "Tmpl-" + name;
+            var control = TemplateControls(form).SingleOrDefault(c => c.Id == id);
+            Assert.True(control.Tag != null, $"{id} is not a marked template control on the {protocol} form");
+            Assert.StartsWith("<textarea", control.Tag, StringComparison.Ordinal);
+            Assert.Contains("sso-tmpl-list", control.Classes, StringComparison.Ordinal);
+            Assert.DoesNotContain("sso-line-list", control.Classes, StringComparison.Ordinal);
+        }
+
+        var reader = ProvisioningTemplateFunctionBody(ProvisioningTemplateScript(), "readProvisioningTemplate: (page, prefix) => {");
+        Assert.Contains("controls.lists.forEach", reader, StringComparison.Ordinal);
+        Assert.Contains("if (lines.length > 0)", reader, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProvisioningTemplateHomeSections_HelpNamesEveryDeclaredSection()
+    {
+        // The layout's vocabulary is closed, like the subtitle mode's, but ORDERED, so it cannot be a
+        // select and the names live in the help text instead. A hand-written list drifts against the enum
+        // in both directions, so the expectation is read out of the enum: a section Jellyfin adds or
+        // removes fails this rule rather than reaching an administrator as a wrong list. Read from the
+        // catalog, which the built-in markup is pinned equal to by MarkupBuiltInEnglish_MatchesTheCatalog.
+        using var catalog = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Localization", "en.json")));
+        var help = catalog.RootElement.GetProperty("config.template_home_sections_help").GetString() ?? string.Empty;
+
+        foreach (var name in Enum.GetNames<HomeSectionType>())
+        {
+            Assert.True(
+                Regex.IsMatch(help, $@"\b{Regex.Escape(name)}\b"),
+                $"the home-sections help text does not name the declared section '{name}'");
+        }
     }
 
     // The text of one property on the ssoConfigurationPage object literal, by the same rule the
