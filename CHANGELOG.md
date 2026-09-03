@@ -508,6 +508,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The OpenID provider API stored a post-logout return URL the configuration
+  page would have refused (#1504).** `OID/Add` writes the provider it is given
+  without the configuration save's checks, and the check that a post-logout
+  redirect URI sits at or under the configured base URL was not among the ones
+  it ran at the door. Such a URL was stored and answered with success, and the
+  logout path then dropped it, so the return never fired and nothing said why.
+  The door now refuses it with the message the configuration page gives, and
+  skips the check exactly where the page does: without a base URL override the
+  base is the request host, unknown at save time, and the logout-time allow-list
+  stays the only check.
+
 - **The provider API stored a starting policy the configuration page would have
   refused (#1502).** `OID/Add` and `SAML/Add` write the provider they are given
   without running the configuration save's checks, and nothing ran the

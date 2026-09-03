@@ -783,6 +783,10 @@ public class SSOController : ControllerBase
         // so this Add path - which persists through MutateConfiguration and bypasses the save-time Validate -
         // shares the same fail-closed guard.
         ProviderConfigValidator.ValidateAcrRequirement(provider, config);
+        // And a post-logout return URL off the configured base (#727, SLO-4) at the door too (#1504): the
+        // runtime drops such a URL at logout, so it would be stored with a 200 and never fire. Same predicate
+        // and same skip as the save - without a determinate base the runtime allow-list stays the only check.
+        ProviderConfigValidator.ValidatePostLogoutRedirectUri(OpenIdProtocol, provider, config.BaseUrlOverride, config.PostLogoutRedirectUri);
         SSOPlugin.Instance.MutateConfiguration(configuration =>
         {
             // The name guard needs the under-lock existence check (#336) and runs before any mutation,
