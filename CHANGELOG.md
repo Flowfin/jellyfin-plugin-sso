@@ -508,6 +508,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The configuration page could not see that a provisioning profile is decided
+  by a configuration file (#1498).** A profile a declarative source defines is
+  frozen on the server, the way a provider from that source is: a save keeps
+  the stored value and records the ignored write. The page knew this for
+  providers and not for profiles, so editing such a profile printed "Saved"
+  while nothing changed, and renaming it left an unmanaged copy under the new
+  name with the managed providers still pointing at the old one. The managed
+  report now names the profiles beside the providers, the profile editor
+  disables a managed profile's fields and its Save, Rename and Delete and says
+  at the selector why, and each of the three acts refuses a managed profile
+  before it touches anything, naming the source and the restart.
 - **The provider API stored a starting policy the configuration page would have
   refused (#1502).** `OID/Add` and `SAML/Add` write the provider they are given
   without running the configuration save's checks, and nothing ran the
