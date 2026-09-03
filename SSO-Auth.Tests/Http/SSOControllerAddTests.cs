@@ -390,6 +390,38 @@ public class SSOControllerAddTests
         Assert.Null(Stored(openId));
     }
 
+    [Fact]
+    public void OidAdd_PostLogoutRedirectUriOffTheBase_Throws_AndDoesNotPersist()
+    {
+        // #1504: the save refuses a post-logout return URL that is not at or under the configured base
+        // (#727, SLO-4), because the runtime drops it at logout; this door stored it with a 200. The message
+        // is the save's own, and it does not echo the rejected URL.
+        var harness = new SsoControllerHarness();
+
+        var ex = Assert.Throws<ArgumentException>(() => harness.Controller.OidAdd("keycloak", new OidConfig
+        {
+            BaseUrlOverride = "https://jellyfin.example.com",
+            PostLogoutRedirectUri = "https://evil.example.net/steal",
+        }));
+
+        Assert.Contains("not at or under the configured Base URL", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil.example.net", ex.Message, StringComparison.Ordinal);
+        Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs.ContainsKey("keycloak")));
+    }
+
+    [Fact]
+    public void OidAdd_PostLogoutRedirectUriWithoutABase_Persists()
+    {
+        // Without a Base URL override the canonical base is the request host, unknown at save time, so the
+        // save leaves the runtime allow-list as the only check. The door must agree, or it would refuse a
+        // body the configuration page accepts.
+        var harness = new SsoControllerHarness();
+
+        harness.Controller.OidAdd("keycloak", new OidConfig { PostLogoutRedirectUri = "https://evil.example.net/steal" });
+
+        Assert.Equal("https://evil.example.net/steal", SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"].PostLogoutRedirectUri));
+    }
+
     // One template per field the save refuses, with the fragment of the save's message that names it.
     private static (ProvisioningPolicyTemplate Template, string Names) TemplateTheSaveRefuses(string field) => field switch
     {
