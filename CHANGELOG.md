@@ -508,6 +508,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The provider API stored a starting policy the configuration page would have
+  refused (#1502).** `OID/Add` and `SAML/Add` write the provider they are given
+  without running the configuration save's checks, and nothing ran the
+  provisioning-template ones at that door. A template naming a permission that
+  is not one Jellyfin declares, a subtitle mode or home-screen section it does
+  not know, a negative ceiling, or a provisioning profile the configuration
+  does not define was stored as posted and answered with success. Nothing was
+  widened by it - every writer skips a value it cannot read - but the template
+  did nothing, and the first sign was an account that arrived without the
+  policy. Both doors now refuse such a body and store nothing. The reason is the
+  same message the configuration page shows, naming the field; for an API caller
+  it is written to the server log, because Jellyfin answers every refused request
+  with a bare 400 outside a development host.
+
 - **The sign-in buttons did not look like the login page's own buttons (#1372).**
   Jellyfin restyles every link in the login disclaimer at runtime: it adds its
   own `button-link` class, which is declared after `emby-button` at the same
