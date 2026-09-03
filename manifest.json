@@ -6,7 +6,7 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "iderex",
+    "owner": "Flowfin",
     "versions": [
       {
         "changelog": "Jellyfin 12.0 (.NET 10) beta 5.0.0-JF12-beta (plugin version 5.0.0.72).\nInstall via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\nScope note (#743/#1466): the JF12/5.0 line has **had no manual Release-QA pass against a live Jellyfin 12.0 server** - no 12.0 GA server exists to run the E2E checklist against, and this line is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate. What it does carry since #1466 is the automated seven-stack provider matrix that gates this publish: it boots a live `jellyfin/jellyfin:12.0-rc2` server, installs the net10.0 artifact this release ships into it, and drives OIDC and SAML login round-trips against seven identity providers. That is the rc the net10.0 build compiles against and no later 12.0 build. The 5.0 line clears its own live-validation gate when a Jellyfin 12.0 GA build exists and the manual checklist has been run against it. Use these betas for testing, not production.\n\n\n## What's Changed\n* Refuse a numeric SubtitleMode at both sites that read one [#1482] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1488\n* Publish the mappable permission vocabulary from one producer [#1484] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1489\n* Record the trusted-header verdict where the analysis is [#808] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1490\n* Report every endpoint of an authorization walk, not the first dead one by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1491\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.57...5.0.0-JF12-beta.72",
@@ -129,6 +129,14 @@
         "version": "5.0.0.53"
       },
       {
+        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.59).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Require a named vouch in the pull request body before a non-English catalogue lands by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1495\n* Seed the authorization fixture as a process-wide door by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1496\n* Surface the whole provisioning template on both provider forms by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1492\n* Edit named provisioning profiles from the configuration page by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1500\n* Seed the web client's home-screen layout from the provisioning template by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1503\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.58...4.3.0-beta.59",
+        "checksum": "02b71aa2a87b1612c7188cef197a4c8d",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.59/community-sso-for-jellyfin_4.3.0.59.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-09-03T08:58:56Z",
+        "version": "4.3.0.59"
+      },
+      {
         "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.58).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Refuse a numeric SubtitleMode at both sites that read one [#1482] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1488\n* Publish the mappable permission vocabulary from one producer [#1484] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1489\n* Record the trusted-header verdict where the analysis is [#808] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1490\n* Report every endpoint of an authorization walk, not the first dead one by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1491\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.57...4.3.0-beta.58",
         "checksum": "69bcdf0349b060daf3f41b4f8a1d1ee7",
         "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.58/community-sso-for-jellyfin_4.3.0.58.zip",
@@ -239,14 +247,6 @@
         "targetAbi": "10.11.0.0",
         "timestamp": "2026-08-20T04:47:00Z",
         "version": "4.3.0.40"
-      },
-      {
-        "changelog": "Jellyfin 10.11 beta 4.3.0-beta (plugin version 4.3.0.39).\nInstall via the beta repository URL:\nhttps://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json\n\n\n## What's Changed\n* Watch the dependency graph, do not only record it by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1379\n* Drop the coverage collector's injected type from the structural rules by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1377\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.38...4.3.0-beta.39",
-        "checksum": "4933ee76af51033a6d713af7f8682b8a",
-        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.0-beta.39/community-sso-for-jellyfin_4.3.0.39.zip",
-        "targetAbi": "10.11.0.0",
-        "timestamp": "2026-08-19T04:46:09Z",
-        "version": "4.3.0.39"
       }
     ]
   }
