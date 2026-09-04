@@ -36,8 +36,9 @@ answers 204 and restores nothing: the posted document reaches the importer with
 its entries dropped, so the step that completes a migration is a no-op that
 reports completion, and none of the refusals below is reachable at all. A server
 migrated on one of those builds has an empty link table and was never told. That
-is #1517, whose fix is #1523 and is waiting to land on the 4.4 line; when a release
-carrying it is out, running step 4 again with the same file restores the links.
+is #1517, whose fix landed on the 4.4 line in #1523 and is not yet in any
+published build; when a release carrying it is out, running step 4 again with
+the same file restores the links.
 
 ## The two files, and why there are two
 
