@@ -146,6 +146,53 @@ internal static class Whatever
         Assert.False(HoldsASecondBodyRead(Source));
     }
 
+    /// <summary>
+    /// Every property of a type the host binds from a request body must be assignable by that binder
+    /// (#1517). A property the binder cannot set is not an error and not a warning: System.Text.Json skips
+    /// it and hands the action a document with that member missing, so the endpoint acts on less than was
+    /// posted and answers as though it acted on all of it.
+    /// <para>
+    /// This is the rule the account-link restore was missing. `LinkExportDocument.Links` was a get-only
+    /// collection, the whole payload was dropped, and `POST /sso/Config/Links/Import` answered 204 while
+    /// restoring nothing - a migration that looked complete and left every account unlinked. Nothing
+    /// caught it because every test of the importer built its document in process; the boundary the
+    /// operator posts across was crossed by no test at all.
+    /// </para>
+    /// <para>
+    /// A source scan decides this, like its neighbour above, rather than an assertion about the
+    /// formatter: the test process does not load the System.Text.Json the plugin binds in production. What
+    /// is checked is a fact about this tree - the reflected shape of the bound types - and it holds
+    /// whichever serializer the host brings, because no serializer can assign a property with no setter.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void RequestBodyTypes_HaveNoPropertyTheBinderCannotAssign()
+    {
+        var unassignable = RequestBodyTypes()
+            .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.GetMethod is not null && property.SetMethod is null)
+                .Select(property => $"{type.Name}.{property.Name}"))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(unassignable);
+
+        // Vacuous-pass guard: a scan that found no bound type would be empty for the wrong reason.
+        Assert.NotEmpty(RequestBodyTypes());
+    }
+
+    // The types the controller binds from a request body, deduplicated. Primitives are excluded: a
+    // [FromBody] string has no properties to drop and is bound whole.
+    private static IReadOnlyList<Type> RequestBodyTypes() =>
+        typeof(Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .SelectMany(method => method.GetParameters())
+            .Where(parameter => parameter.GetCustomAttribute<FromBodyAttribute>() is not null)
+            .Select(parameter => parameter.ParameterType)
+            .Where(type => type.IsClass && type != typeof(string))
+            .Distinct()
+            .OrderBy(type => type.FullName, StringComparer.Ordinal)
+            .ToList();
     // Whether a source text reaches a request body outside the host's binder, on a code line.
     private static bool HoldsASecondBodyRead(string source) =>
         SecondBodyReadSpellings.Any(spelling => SourceCallsInCode(source, spelling));

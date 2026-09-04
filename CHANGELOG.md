@@ -508,6 +508,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **Restoring an account-link backup restored nothing, and said it had worked
+  (#1517).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
+  button that posts to it, accepted the file the matching export produces,
+  answered success and wrote no link at all: the document arrived with its
+  entries dropped, because the property holding them could not be assigned by
+  the serializer the host binds a request body with. The version check ran, so
+  a wrong file was still refused; only the payload was silently lost. An
+  operator who migrated or rebuilt a server on any beta from `4.3.0-beta.43`
+  has an empty link table and no sign of it, and every account that signed in
+  through SSO is unlinked - **re-run the import after upgrading**, and read the
+  audit line it writes: it names how many links were rebound, and said 0. The
+  four refusals both operator pages quote were unreachable for the same reason
+  and answer again.
+
 - **The OpenID provider API stored a post-logout return URL the configuration
   page would have refused (#1504).** `OID/Add` writes the provider it is given
   without the configuration save's checks, and the check that a post-logout
