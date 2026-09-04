@@ -32,6 +32,20 @@ public class LinkImportTests
     private static readonly Guid TargetBob = Guid.Parse("7a19e700-0000-0000-0000-00000000000b");
     private static readonly Guid TargetMallory = Guid.Parse("7a19e700-0000-0000-0000-00000000000c");
 
+    // The four refusal messages `docs/SERVER-MIGRATION.md` and `docs/ACCOUNT-MANAGEMENT-API.md` quote to an
+    // operator, held here in full rather than as the prefixes these assertions carried before #1514. The tail
+    // is the half that tells the operator what to do: `; unlink it first` is the instruction, and `for that
+    // protocol on this instance` is what separates a provider that is missing from one that is named
+    // differently. Nothing outside those two pages held those tails, so editing one left the build, the suite
+    // and every gate green while both pages went on quoting a sentence the plugin no longer emits.
+    private const string NoSuchProvider =
+        "no provider of that name is configured for that protocol on this instance";
+    private const string NoSuchAccount = "no Jellyfin account is named 'nobody' on this instance";
+    private const string AlreadyLinkedElsewhere =
+        "this instance already links that identity to a different account; unlink it first";
+    private const string AlreadyBoundToAnotherIssuer =
+        "this instance already binds that link to a different issuer; unlink it first";
+
     [Fact]
     public void ExportOnOneServer_ImportsOntoAnother_ReboundToTheTargetsOwnIds()
     {
@@ -114,7 +128,7 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() =>
             LinkImport.Apply(target, Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice")), TargetDirectory));
 
-        Assert.Contains("no provider of that name is configured", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
     }
 
@@ -142,7 +156,7 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() =>
             LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory));
 
-        Assert.Contains("no Jellyfin account is named 'nobody'", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(NoSuchAccount, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
     }
 
@@ -158,7 +172,7 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() =>
             LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory));
 
-        Assert.Contains("already links that identity to a different account", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(AlreadyLinkedElsewhere, refusal.Message, StringComparison.Ordinal);
         Assert.Equal(TargetMallory, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
     }
 
@@ -177,7 +191,7 @@ public class LinkImportTests
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://forged.example.test")),
             TargetDirectory));
 
-        Assert.Contains("binds that link to a different issuer", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(AlreadyBoundToAnotherIssuer, refusal.Message, StringComparison.Ordinal);
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
 
@@ -283,7 +297,7 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() =>
             LinkImport.Apply(target, Document(Entry("OpenID", "broken", "sub-alice", "alice")), TargetDirectory));
 
-        Assert.Contains("no provider of that name is configured", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
     }
 
     [Fact]
