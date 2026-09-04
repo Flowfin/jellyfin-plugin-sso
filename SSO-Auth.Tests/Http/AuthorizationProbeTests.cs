@@ -100,6 +100,24 @@ public sealed class AuthorizationProbeTests
     }
 
     [Fact]
+    public async Task TheNoStatusLineNamesTheThreadPoolItFailedUnder()
+    {
+        // A saturated pool produces exactly the fault the host counters report as "took 0": the connection is
+        // accepted and the request never dispatched, and it dies at the client timeout. Measured on this host,
+        // a request under a saturated pool read 63 threads with 229 work items pending against 5 and 0 for one
+        // that answered - while GetAvailableThreads still reported 32735 of 32766 free, which is why the
+        // pending count is the number in the line and the available count is not. Take the reading out and this
+        // goes red, and a red run says the request never reached the pipeline without saying why.
+        var failures = await Walk(
+            Endpoints(1),
+            _ => throw new HttpRequestException("no connection"));
+
+        var line = Assert.Single(failures);
+        Assert.Contains("thread pool ", line, StringComparison.Ordinal);
+        Assert.Contains(" work item(s) pending", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AWalkWithNoHostBehindItReportsNoCountersRatherThanZeroes()
     {
         // A scripted transport has no host, so a pair of zeroes here would read as "Kestrel never saw it" and
