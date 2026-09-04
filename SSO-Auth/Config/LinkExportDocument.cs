@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
@@ -22,6 +23,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// </remarks>
 public class LinkExportDocument
 {
+    private Collection<LinkExportEntry> _links = new();
+
     /// <summary>
     /// Gets or sets the document format version. It is its own sequence, independent of
     /// <see cref="ConfigExport.FormatVersion"/>, because the two documents change shape for unrelated
@@ -30,11 +33,34 @@ public class LinkExportDocument
     public int FormatVersion { get; set; }
 
     /// <summary>
-    /// Gets the exported links, one entry per canonical link across every provider of both protocols. A
-    /// link whose Jellyfin user id no longer resolves to an account is absent rather than exported with a
-    /// blank username, so the document never carries an entry nothing could be restored to.
+    /// Gets or sets the exported links, one entry per canonical link across every provider of both
+    /// protocols. A link whose Jellyfin user id no longer resolves to an account is absent rather than
+    /// exported with a blank username, so the document never carries an entry nothing could be restored to.
+    /// <para>
+    /// THE SETTER IS LOAD-BEARING AND REMOVING IT BREAKS THE RESTORE SILENTLY. System.Text.Json - which is
+    /// what the host binds a posted body with - ignores a property it cannot set, and this one is posted:
+    /// with a get-only collection here the import received an EMPTY link list, restored nothing, answered
+    /// 204 and audited <c>0 link(s) rebound</c> at an administrator who had just been told the migration
+    /// worked. <c>FormatVersion</c> binds either way, so the document was parsed and version-checked while
+    /// only the payload was dropped. Found by walking <c>docs/SERVER-MIGRATION.md</c> against a scratch
+    /// server rebuild (#1135), pinned by <c>SSO-Auth.Tests/Config/LinkExportDocumentJsonTests.cs</c>.
+    /// </para>
+    /// <para>
+    /// The setter coalesces null rather than storing it, because a posted <c>"Links": null</c> must not
+    /// reach the importer as a null reference. It leaves such a document meaning what a document omitting
+    /// the member has always meant - no links to restore - instead of a 500. The creation-handling
+    /// attribute that would keep the property read-only was rejected for the same reason: it cannot assign
+    /// null and throws out of model binding, past the null check and the rate limiter both, and it makes
+    /// repeated <c>Links</c> members APPEND where every JSON reader an operator inspects the file with
+    /// takes the last one - a difference between what they read and what the server applies.
+    /// </para>
     /// </summary>
-    public Collection<LinkExportEntry> Links { get; } = new();
+    [SuppressMessage("Usage", "CA2227:Collection properties should be read only", Justification = "JSON transport shape: the deserializer must be able to assign this property, and a read-only one is silently dropped by System.Text.Json. See the remarks above.")]
+    public Collection<LinkExportEntry> Links
+    {
+        get => _links;
+        set => _links = value ?? new Collection<LinkExportEntry>();
+    }
 }
 
 /// <summary>
