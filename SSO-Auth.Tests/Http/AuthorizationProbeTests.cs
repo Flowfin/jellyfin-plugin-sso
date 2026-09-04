@@ -77,6 +77,42 @@ public sealed class AuthorizationProbeTests
     }
 
     [Fact]
+    public async Task TheNoStatusLineSaysWhatTheHostSawWhileTheRequestRan()
+    {
+        // The last thing the elapsed time cannot say. An accepted connection Kestrel never dispatched and a
+        // pipeline that took the request and never answered both cost the whole client timeout and are
+        // different faults; only the host's own counters separate them. Take the counters out of the line and
+        // this goes red, and the next occurrence of #1444 is back to being unable to say which happened.
+        var entered = 7L;
+        var completed = 7L;
+
+        var failures = await Walk(
+            Endpoints(1),
+            _ =>
+            {
+                entered++;
+                throw new HttpRequestException("no connection");
+            },
+            traffic: () => (entered, completed));
+
+        var line = Assert.Single(failures);
+        Assert.Contains("the host pipeline took 1 request(s) and finished 0 while it ran", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AWalkWithNoHostBehindItReportsNoCountersRatherThanZeroes()
+    {
+        // A scripted transport has no host, so a pair of zeroes here would read as "Kestrel never saw it" and
+        // mean nothing of the sort. Absent is the honest answer and the units above depend on it.
+        var failures = await Walk(
+            Endpoints(1),
+            _ => throw new HttpRequestException("no connection"));
+
+        var line = Assert.Single(failures);
+        Assert.DoesNotContain("the host pipeline", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ConsecutiveTransportFailuresStopTheWalkAndSayWhatWasLeftUndriven()
     {
         // The bound the continuation is bought with. At the fixture's 30-second client timeout, walking every
@@ -154,7 +190,8 @@ public sealed class AuthorizationProbeTests
     private static async Task<IReadOnlyList<string>> Walk(
         IReadOnlyList<GatedEndpoint> endpoints,
         Func<HttpRequestMessage, HttpResponseMessage> answer,
-        string? role = null)
+        string? role = null,
+        Func<(long Entered, long Completed)>? traffic = null)
     {
         using var handler = new ScriptedTransport(answer);
 
@@ -166,7 +203,7 @@ public sealed class AuthorizationProbeTests
             Timeout = TimeSpan.FromSeconds(30),
         };
 
-        return await AuthorizationProbe.CollectFailuresAsync(client, endpoints, role, ExpectUnauthorized);
+        return await AuthorizationProbe.CollectFailuresAsync(client, endpoints, role, ExpectUnauthorized, traffic);
     }
 
     /// <summary>A transport that answers, or refuses to, exactly as the unit calling it says.</summary>

@@ -48,12 +48,17 @@ public static class AuthorizationProbe
     /// <param name="endpoints">The endpoints to drive, in order.</param>
     /// <param name="role">The <see cref="TestRoles"/> header value, or <c>null</c> for an unauthenticated caller.</param>
     /// <param name="expected">The predicate the returned status has to satisfy.</param>
+    /// <param name="traffic">
+    /// Reads the host's entered/completed request counters, or <c>null</c> where no host is being driven. It is
+    /// read either side of each request that produces no status, and the difference goes into that line.
+    /// </param>
     /// <returns>The failure lines, in the order the endpoints were driven.</returns>
     public static async Task<IReadOnlyList<string>> CollectFailuresAsync(
         HttpClient client,
         IReadOnlyList<GatedEndpoint> endpoints,
         string? role,
-        Func<int, bool> expected)
+        Func<int, bool> expected,
+        Func<(long Entered, long Completed)>? traffic = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(endpoints);
@@ -65,6 +70,7 @@ public static class AuthorizationProbe
         for (var i = 0; i < endpoints.Count; i++)
         {
             var endpoint = endpoints[i];
+            var before = traffic?.Invoke();
             var elapsed = Stopwatch.StartNew();
             int status;
 
@@ -79,8 +85,11 @@ public static class AuthorizationProbe
                 // exception names an address and, on a non-English host, says so in that host's language.
                 // The endpoint, the caller, the elapsed time and the bound that was in force are what the
                 // reader of a red run needs and cannot reconstruct - which is the evidence #1444 lost.
+                // The host counters are the last thing the elapsed time cannot say: an accepted connection
+                // Kestrel never dispatched and a pipeline that took the request and never answered cost the
+                // same wall clock and are different faults.
                 failures.Add(FormattableString.Invariant(
-                    $"the request produced no status: {endpoint} as {role ?? "an unauthenticated caller"} after {elapsed.ElapsedMilliseconds} ms, client timeout {client.Timeout}, {ex.GetType().Name}: {ex.Message}"));
+                    $"the request produced no status: {endpoint} as {role ?? "an unauthenticated caller"} after {elapsed.ElapsedMilliseconds} ms, client timeout {client.Timeout}, {ex.GetType().Name}: {ex.Message}{Seen(before, traffic)}"));
 
                 if (++consecutiveNoStatus >= ConsecutiveNoStatusLimit)
                 {
@@ -100,6 +109,23 @@ public static class AuthorizationProbe
         }
 
         return failures;
+    }
+
+    /// <summary>
+    /// Renders what the host saw during ONE request, as the difference between the counters either side of it.
+    /// Empty where no host is being driven, so a scripted transport reports nothing rather than zeroes it cannot
+    /// know the meaning of.
+    /// </summary>
+    private static string Seen((long Entered, long Completed)? before, Func<(long Entered, long Completed)>? traffic)
+    {
+        if (before is null || traffic is null)
+        {
+            return string.Empty;
+        }
+
+        var after = traffic();
+        return FormattableString.Invariant(
+            $", the host pipeline took {after.Entered - before.Value.Entered} request(s) and finished {after.Completed - before.Value.Completed} while it ran");
     }
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, GatedEndpoint endpoint, string? role)
