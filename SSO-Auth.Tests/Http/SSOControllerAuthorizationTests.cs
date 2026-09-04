@@ -185,10 +185,19 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // The walk itself lives in AuthorizationProbe so a red run reports EVERY endpoint's outcome rather
         // than stopping at the first request that produced no status (#1444). What the assertion needs from
         // it is only the list; the host counters go with it so a no-status line says whether the host ever
-        // saw that request.
-        var failures = await AuthorizationProbe.CollectFailuresAsync(
+        // saw that request, and so that a request the host never took is retried rather than reddening a
+        // guard it never reached.
+        var report = await AuthorizationProbe.CollectFailuresAsync(
             _fixture.Client, endpoints, role, expected, () => _fixture.Traffic).ConfigureAwait(false);
 
-        Assert.True(failures.Count == 0, $"{because}, but these did not: {string.Join("; ", failures)}");
+        // A stall that the retry survived leaves the assertion green, so this line is the only place the run
+        // says it happened at all. It is a warning rather than a failure because the endpoint answered, and
+        // the alternative - dropping it - is how the evidence was lost in the first place.
+        foreach (var note in report.Notes)
+        {
+            TestContext.Current.AddWarning(note);
+        }
+
+        Assert.True(report.Failures.Count == 0, $"{because}, but these did not: {string.Join("; ", report.Failures)}");
     }
 }

@@ -28,6 +28,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// The transport is scripted rather than a real host on purpose: a request that produces no status is the
 /// subject, and there is no way to make a live loopback server reliably not answer.
 /// </para>
+///
+/// <para>
+/// They also pin the repair that issue asks for: a red result from those five tests should mean the endpoints
+/// lost their attributes and nothing else, so a request the host pipeline never took is retried within a
+/// budget rather than reddening a guard it never reached, while one the pipeline took and did not finish stays
+/// red at the first occurrence.
+/// </para>
 /// </summary>
 public sealed class AuthorizationProbeTests
 {
@@ -196,6 +203,123 @@ public sealed class AuthorizationProbeTests
         Assert.Empty(failures);
     }
 
+    [Fact]
+    public async Task ARequestTheHostNeverTookIsRetriedAndTheAnswerIsWhatCounts()
+    {
+        // The repair #1444 asks for. The authorization stage cannot answer with NO status - an endpoint that
+        // lost its attribute answers with the wrong one - so a request the counters place before the dispatch
+        // reddens these five tests for a fault of the harness. Measured on this host, a saturated pool produces
+        // exactly that: accepted, never dispatched, dead at the client timeout. Take the retry out and this
+        // goes red with a no-status line for an endpoint that answered 401 the moment it was asked again.
+        var driven = 0;
+
+        var report = await Report(
+            Endpoints(1),
+            _ => ++driven == 1
+                ? throw new HttpRequestException("no connection")
+                : new HttpResponseMessage(HttpStatusCode.Unauthorized),
+            traffic: () => (11L, 11L));
+
+        Assert.Equal(2, driven);
+        Assert.Empty(report.Failures);
+        var note = Assert.Single(report.Notes);
+        Assert.Contains("answered 401 on retry 1", note, StringComparison.Ordinal);
+        Assert.Contains("GET /e0 [RequiresElevation] (A0)", note, StringComparison.Ordinal);
+        Assert.Contains(" work item(s) pending", note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARetriedRequestThatAnswersWrongIsStillAFailure()
+    {
+        // The retry must not become an escape. It buys the endpoint another chance to ANSWER; what it answers
+        // is judged exactly as before, so a guard that admits an unauthenticated caller cannot be rescued by
+        // having stalled first.
+        var driven = 0;
+
+        var report = await Report(
+            Endpoints(1),
+            _ => ++driven == 1
+                ? throw new HttpRequestException("no connection")
+                : new HttpResponseMessage(HttpStatusCode.OK),
+            traffic: () => (11L, 11L));
+
+        Assert.Equal("GET /e0 [RequiresElevation] (A0) -> 200", Assert.Single(report.Failures));
+        Assert.Single(report.Notes);
+    }
+
+    [Fact]
+    public async Task ARequestTheHostTookAndDidNotFinishIsReportedAtOnce()
+    {
+        // The other side of the same reading, and the reason the retry is granted on evidence rather than on
+        // the exception type. A pipeline that TOOK the request and never answered is the endpoint hanging,
+        // which is a real fault and must stay red at the first occurrence. Retry it and this goes red at two
+        // attempts for a fault that asking again cannot change.
+        var entered = 4L;
+        var driven = 0;
+
+        var report = await Report(
+            Endpoints(1),
+            _ =>
+            {
+                driven++;
+                entered++;
+                throw new HttpRequestException("no connection");
+            },
+            traffic: () => (entered, 4L));
+
+        Assert.Equal(1, driven);
+        var line = Assert.Single(report.Failures);
+        Assert.Contains("the host pipeline took 1 request(s) and finished 0 while it ran", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("retried", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCountersMeansNoRetry()
+    {
+        // Fail closed where the question cannot be asked. Without the host's counters nothing separates a stall
+        // in front of the dispatch from an endpoint that hung inside it, and retrying on the exception type
+        // alone would quietly re-ask a request that a real fault killed.
+        var driven = 0;
+
+        var report = await Report(
+            Endpoints(1),
+            _ =>
+            {
+                driven++;
+                throw new HttpRequestException("no connection");
+            });
+
+        Assert.Equal(1, driven);
+        Assert.DoesNotContain("retried", Assert.Single(report.Failures), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheRetryBudgetIsSpentOnceForTheWholeWalk()
+    {
+        // The bound the retry is bought with, and it is per WALK rather than per endpoint. A walk in which
+        // every request dies before the dispatch is not something a retry rescues, and at the fixture's
+        // 30-second timeout an allowance per endpoint would multiply the worst case by three. So the first
+        // endpoint spends the budget, and the two after it are failed on their first attempt.
+        var driven = 0;
+
+        var report = await Report(
+            Endpoints(3),
+            _ =>
+            {
+                driven++;
+                throw new HttpRequestException("no connection");
+            },
+            traffic: () => (11L, 11L));
+
+        Assert.Equal(AuthorizationProbe.NoStatusRetryBudget + 3, driven);
+        Assert.Contains("retried 2 time(s) because the host pipeline never took the request", report.Failures[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("retried", report.Failures[1], StringComparison.Ordinal);
+        Assert.Equal(
+            "stopped after 3 consecutive requests that produced no status, leaving 0 of 3 endpoints undriven",
+            report.Failures[^1]);
+        Assert.Empty(report.Notes);
+    }
+
     private static bool IsOdd(string path) => (path[^1] - '0') % 2 == 1;
 
     private static string N(int i) => i.ToString(CultureInfo.InvariantCulture);
@@ -206,6 +330,15 @@ public sealed class AuthorizationProbeTests
             .ToList();
 
     private static async Task<IReadOnlyList<string>> Walk(
+        IReadOnlyList<GatedEndpoint> endpoints,
+        Func<HttpRequestMessage, HttpResponseMessage> answer,
+        string? role = null,
+        Func<(long Entered, long Completed)>? traffic = null)
+    {
+        return (await Report(endpoints, answer, role, traffic)).Failures;
+    }
+
+    private static async Task<ProbeReport> Report(
         IReadOnlyList<GatedEndpoint> endpoints,
         Func<HttpRequestMessage, HttpResponseMessage> answer,
         string? role = null,
