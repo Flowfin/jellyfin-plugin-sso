@@ -24,11 +24,20 @@ moves with the code it names; a number does not. So there is no number on this
 page meant to be exact, because there are none, and a citation that stops
 resolving is a defect worth reporting.
 
-**Not walked end to end yet.** Everything below is read out of the source files
-cited beside each claim, at the commit this page last changed on. The procedure
-has not been followed against a scratch server rebuild, and the failure messages
-are quoted from the code rather than from a run. Issue #1135 stays open for
-exactly that, and until it is closed this page is derived rather than tested.
+**Walked end to end, and the walk changed the plugin.** The procedure below was
+followed against a scratch server rebuild - a fresh Jellyfin 10.11.11 on an empty
+configuration directory, the accounts recreated, both files imported - and every
+refusal quoted on this page was read back from that run rather than from the
+source. It is tested rather than derived, and #1135 records the run.
+
+**It did not pass the first time, and step 4 does not work on any build published
+so far.** On every beta from `4.3.0-beta.43` to `4.3.0-beta.61` the link import
+answers 204 and restores nothing: the posted document reaches the importer with
+its entries dropped, so the step that completes a migration is a no-op that
+reports completion, and none of the refusals below is reachable at all. A server
+migrated on one of those builds has an empty link table and was never told. That
+is #1517, whose fix is #1523 and is waiting to land on the 4.4 line; when a release
+carrying it is out, running step 4 again with the same file restores the links.
 
 ## The two files, and why there are two
 
@@ -171,7 +180,20 @@ are what say whether what came back matches the file that was applied.
 
 ## Rolling back
 
-Both imports are atomic, so a refused one leaves nothing to undo. After a
-successful one, the way back is the pair of files taken from the old server:
-re-importing them reproduces the same state, because neither import writes
-anything the documents do not name.
+A refused import leaves nothing to undo. Both resolve the whole document before
+they write, and the walk confirmed it in both directions: after each of the four
+refusals the target's own link export was identical to what it held before.
+
+After a SUCCESSFUL one there is less of a way back than this page used to claim,
+and the difference matters most on the mistake an operator actually makes -
+importing the wrong file. Re-importing the correct one does not undo it. The link
+import only adds and overwrites, never removes, so the wrong file's entries stay;
+the correct document then hits `this instance already links that identity to a
+different account; unlink it first`, and because the refusal is whole-document,
+one leftover entry blocks the restore of every other link. Unlinking is one call
+per canonical name and the refusal names at most ten entries at a time, by index.
+There is no replace mode and no bulk unlink. #1519 holds that gap.
+
+Re-importing the same file onto the state it produced IS safe, and the walk shows
+it: a second run of a successful import succeeds and changes nothing, because a
+mapping this instance already holds is not a repoint.
