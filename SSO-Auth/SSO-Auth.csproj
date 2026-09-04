@@ -8,8 +8,8 @@
     <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <RootNamespace>Jellyfin.Plugin.SSO_Auth</RootNamespace>
     <Nullable>enable</Nullable>
-    <AssemblyVersion>4.3.0</AssemblyVersion>
-    <FileVersion>4.3.0</FileVersion>
+    <AssemblyVersion>4.4.0</AssemblyVersion>
+    <FileVersion>4.4.0</FileVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- TreatWarningsAsErrors=true is set repo-wide in Directory.Build.props so a plain local
          build matches the CI warnaserror gate. -->
