@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -87,9 +88,12 @@ public static class AuthorizationProbe
                 // reader of a red run needs and cannot reconstruct - which is the evidence #1444 lost.
                 // The host counters are the last thing the elapsed time cannot say: an accepted connection
                 // Kestrel never dispatched and a pipeline that took the request and never answered cost the
-                // same wall clock and are different faults.
+                // same wall clock and are different faults. The thread pool goes with them because a saturated
+                // pool produces the first of those exactly - measured on this host, a request under one was
+                // accepted, never dispatched and died at the client timeout - and ThreadPool.GetAvailableThreads
+                // does not show it, while the pending count does.
                 failures.Add(FormattableString.Invariant(
-                    $"the request produced no status: {endpoint} as {role ?? "an unauthenticated caller"} after {elapsed.ElapsedMilliseconds} ms, client timeout {client.Timeout}, {ex.GetType().Name}: {ex.Message}{Seen(before, traffic)}"));
+                    $"the request produced no status: {endpoint} as {role ?? "an unauthenticated caller"} after {elapsed.ElapsedMilliseconds} ms, client timeout {client.Timeout}, {ex.GetType().Name}: {ex.Message}{Seen(before, traffic)}{Pool()}"));
 
                 if (++consecutiveNoStatus >= ConsecutiveNoStatusLimit)
                 {
@@ -110,6 +114,14 @@ public static class AuthorizationProbe
 
         return failures;
     }
+
+    /// <summary>
+    /// Renders the thread pool as it stands at the moment a request produced no status. A pool with work
+    /// queued and no thread free to run it accepts a connection and never dispatches it, which is one of the
+    /// two faults the host counters distinguish and the only one this reading names.
+    /// </summary>
+    private static string Pool() => FormattableString.Invariant(
+        $", thread pool {ThreadPool.ThreadCount} thread(s) with {ThreadPool.PendingWorkItemCount} work item(s) pending");
 
     /// <summary>
     /// Renders what the host saw during ONE request, as the difference between the counters either side of it.
