@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -156,6 +157,23 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
             because: "a bare [Authorize] endpoint must admit any authenticated caller (no 401/403)");
     }
 
+    [Fact]
+    public async Task TheHostCountersMoveByOneAcrossOneRealRequest()
+    {
+        // What makes the numbers in a no-status line readable. The walk reports the DIFFERENCE across one
+        // request, so the pair is only worth printing if a request that the host both took and finished moves
+        // each side by exactly one. The facts of this class run one after the other - measured, not assumed -
+        // so nothing else is in flight to inflate it. Remove the middleware and this goes red at 0.
+        var before = _fixture.Traffic;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, _fixture.Endpoints.ElevationGated[0].Url);
+        using var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        var after = _fixture.Traffic;
+        Assert.Equal(1, after.Entered - before.Entered);
+        Assert.Equal(1, after.Completed - before.Completed);
+    }
+
     private async Task AssertAllAsync(
         IReadOnlyList<GatedEndpoint> endpoints,
         string? role,
@@ -166,8 +184,10 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
 
         // The walk itself lives in AuthorizationProbe so a red run reports EVERY endpoint's outcome rather
         // than stopping at the first request that produced no status (#1444). What the assertion needs from
-        // it is only the list.
-        var failures = await AuthorizationProbe.CollectFailuresAsync(_fixture.Client, endpoints, role, expected).ConfigureAwait(false);
+        // it is only the list; the host counters go with it so a no-status line says whether the host ever
+        // saw that request.
+        var failures = await AuthorizationProbe.CollectFailuresAsync(
+            _fixture.Client, endpoints, role, expected, () => _fixture.Traffic).ConfigureAwait(false);
 
         Assert.True(failures.Count == 0, $"{because}, but these did not: {string.Join("; ", failures)}");
     }

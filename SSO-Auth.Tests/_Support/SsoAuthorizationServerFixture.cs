@@ -7,6 +7,7 @@ using System.IO;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
@@ -77,6 +78,10 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
 {
     private readonly WebApplication _app;
 
+    private long _entered;
+
+    private long _completed;
+
     public SsoAuthorizationServerFixture()
     {
         // Set the process-wide SSOPlugin.Instance the controller reads at construction
@@ -117,6 +122,27 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
         builder.Services.AddControllers().AddApplicationPart(typeof(SSOController).Assembly);
 
         _app = builder.Build();
+
+        // First in the pipeline, so the pair answers the question a request producing no status otherwise
+        // leaves open (#1444): a connection the operating system accepted and Kestrel never dispatched
+        // increments neither counter, while a request that entered the pipeline and never came back out
+        // increments only the first. Measured on this host, those two cost different amounts of wall clock -
+        // a refused port answers in about two seconds, an accepted-but-unanswered connection costs the whole
+        // client timeout - so the elapsed time already separates them from a refusal; what it cannot say is
+        // which side of Kestrel the request died on.
+        _app.Use(async (context, next) =>
+        {
+            Interlocked.Increment(ref _entered);
+            try
+            {
+                await next(context).ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Increment(ref _completed);
+            }
+        });
+
         _app.UseRouting();
         _app.UseAuthentication();
         _app.UseAuthorization();
@@ -142,6 +168,14 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
 
     /// <summary>Gets the authorization metadata discovered from the live endpoint table.</summary>
     public EndpointCatalog Endpoints { get; }
+
+    /// <summary>
+    /// Gets the count of requests that have entered the host pipeline and the count that have left it again,
+    /// read as one snapshot. The walk reads it either side of a request that produced no status, and the
+    /// difference says whether the host ever saw that request (#1444).
+    /// </summary>
+    public (long Entered, long Completed) Traffic =>
+        (Interlocked.Read(ref _entered), Interlocked.Read(ref _completed));
 
     /// <summary>The role name Jellyfin grants administrators; the elevation policy requires it.</summary>
     internal const string AdministratorRole = "Administrator";
