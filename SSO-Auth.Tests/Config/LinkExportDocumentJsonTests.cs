@@ -19,6 +19,17 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// turns the restore into a success that restores nothing: HTTP 204, an audit line reading `0 link(s)
 /// rebound`, and an empty link table on a server whose administrator has just been told the migration
 /// worked. Silence is the whole danger here, so the property is pinned where the bytes are.
+///
+/// <para>
+/// WHAT THIS BOUNDARY IS NOT is the endpoint's, and the difference is measured rather than assumed.
+/// These cases deserialize with <c>JsonDefaults.Options</c>, which is where Jellyfin declares its
+/// serializer defaults; the MVC input formatter the endpoint is actually bound by is configured FROM
+/// those and is not identical to them. A member spelled <c>links</c> binds nothing here and binds fine at
+/// the endpoint, read off a running 10.11.11 with this build installed - so the formatter is
+/// case-insensitive where these options are not. The property below survives that difference, because a
+/// property no serializer can assign is dropped by every one of them, and the endpoint behaviour itself
+/// was verified against a real server rather than inferred from here.
+/// </para>
 /// </summary>
 public class LinkExportDocumentJsonTests
 {
