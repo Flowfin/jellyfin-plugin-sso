@@ -1781,10 +1781,19 @@ public class SSOController : ControllerBase
     /// </para>
     /// </remarks>
     /// <param name="document">The link export document to restore.</param>
-    /// <returns>No content on success, or 400 when the document is missing, unsupported, or carries an entry this instance cannot restore.</returns>
+    /// <returns>What the import restored, or 400 when the document is unsupported or carries an entry this instance cannot restore.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Config/Links/Import")]
     [RequestSizeLimit(ConfigImportMaxBytes)]
+    // NO [Produces] HERE, DELIBERATELY, and this endpoint is the one place in the controller where
+    // that attribute would cost something. It would retype the refusal body too: the reachable 400 is
+    // BadRequest(ex.Message) below, whose literals docs/ACCOUNT-MANAGEMENT-API.md and
+    // docs/SERVER-MIGRATION.md quote and LinkImportTests pins, and under [Produces] that plain string
+    // is written as a JSON string - quoted, and typed application/json - so the sentence an operator
+    // reads on the settings page arrives inside quotation marks. It buys nothing in exchange:
+    // measured against a running 10.11.11, Config/Export carries no [Produces] and answers
+    // `Content-Type: application/json; charset=utf-8` anyway, including to a caller sending
+    // `Accept: application/xml`, so the success body is JSON either way on this host.
     [Consumes(MediaTypeNames.Application.Json)]
     public async Task<ActionResult> ImportLinks([FromBody] LinkExportDocument document)
     {
@@ -1799,6 +1808,13 @@ public class SSOController : ControllerBase
             return throttled;
         }
 
+        // A backstop rather than the answer an operator reads. Measured against a running 10.11.11 with
+        // this plugin installed, an absent, null or unparseable body is refused by the host model
+        // validation before this action runs, so this literal reaches no caller and what a caller gets is
+        // a ProblemDetails this plugin neither chooses nor formats. docs/ACCOUNT-MANAGEMENT-API.md quoted
+        // this sentence as what such a caller reads until #1520. The arm stays, because the plugin does
+        // not own the pipeline that makes it unreachable and a hosted route that stops binding for it
+        // would otherwise dereference null.
         if (document is null)
         {
             return BadRequest("The link import document is missing or is not valid JSON.");
@@ -1834,13 +1850,19 @@ public class SSOController : ControllerBase
             return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
         }
 
+        var result = LinkImportResultDocument.Of(restored);
+
         SsoAudit.LinksImported(
             _logger,
             await ResolveActorAsync().ConfigureAwait(false),
-            restored.Sum(count => count.Links),
+            result.Restored,
             string.Join(", ", restored.Select(count => $"{count.Protocol} '{count.Provider}': {count.Links.ToString(CultureInfo.InvariantCulture)}")));
 
-        return NoContent();
+        // The count leaves with the ANSWER and not only with the audit line (#1520). Answering 204 made a
+        // restore that rebound every link and one that rebound none identical on the wire and identical on
+        // the settings page, and that is what let #1517 - an import that silently restored nothing - stand
+        // from 4.3.0-beta.43 until it was found by reading the code rather than by anybody using it.
+        return Ok(result);
     }
 
     /// <summary>

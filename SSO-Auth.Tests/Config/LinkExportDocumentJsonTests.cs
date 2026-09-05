@@ -16,9 +16,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// an operator actually posts to receives one that did, bound by the host's serializer.
 ///
 /// The two are not the same document. A get-only collection property is dropped by System.Text.Json, which
-/// turns the restore into a success that restores nothing: HTTP 204, an audit line reading `0 link(s)
-/// rebound`, and an empty link table on a server whose administrator has just been told the migration
-/// worked. Silence is the whole danger here, so the property is pinned where the bytes are.
+/// turns the restore into a success that restores nothing: an audit line reading `0 link(s) rebound`, and
+/// an empty link table on a server whose administrator has just been told the migration worked. Silence is
+/// the whole danger here, so the property is pinned where the bytes are. The success that hid it was an
+/// HTTP 204 saying nothing at all; since #1520 it is a 200 carrying `"Restored": 0`, which is the same
+/// defect with one surface that would now show it.
 ///
 /// <para>
 /// WHAT THIS BOUNDARY IS NOT is the endpoint's, and the difference is measured rather than assumed.

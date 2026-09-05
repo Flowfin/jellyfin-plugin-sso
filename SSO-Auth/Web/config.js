@@ -2948,13 +2948,49 @@ const ssoConfigurationPage = {
           contentType: "application/json",
         });
       })
-      .then(() => {
+      .then((answer) => {
+        // NO dataType ON THE FETCH ABOVE, AND THAT IS TWO DECISIONS RATHER THAN AN OMISSION. It would
+        // put `accept: application/json` on the REQUEST, and the refusal body is a plain string: under
+        // that header the server writes it as a JSON string, quotes included, so the sentence the toast
+        // below shows an operator would arrive wrapped in them - and those sentences are quoted verbatim
+        // by both migration pages and pinned by LinkImportTests. Without it the client hands back the
+        // Response itself, so the JSON is read HERE, and a 2xx carrying no readable JSON - a rolled-back
+        // server answering 204 to a page served from cache - reaches the uncounted branch instead of
+        // being reported as a failure that did not happen.
+        return Promise.resolve(answer)
+          .then((body) =>
+            body && typeof body.json === "function" ? body.json() : null,
+          )
+          .catch(() => null);
+      })
+      .then((result) => {
+        // The number comes from the ANSWER now (#1520). Until it did, one fixed sentence stood over every
+        // outcome, so a restore that rebound nothing read exactly like one that rebound everything - which
+        // is how #1517 shipped unnoticed through every beta it was in. Three states, because they are three
+        // different facts: a count, a zero worth acting on, and an answer that carried no count at all.
+        // The last one is not reported as zero: claiming a number the server did not send is the shape this
+        // whole issue is about.
+        const restored =
+          result && typeof result.Restored === "number"
+            ? result.Restored
+            : null;
         ssoConfigurationPage.renderTransferMessage(
           container,
-          tr(
-            "config.link_import_done",
-            "Imported. Each link was restored onto the account this server holds for its username today.",
-          ),
+          restored === null
+            ? tr(
+                "config.link_import_done_uncounted",
+                "Imported, but this server did not say how many links it restored. The [SSO Audit] line in the server log carries the count.",
+              )
+            : restored === 0
+              ? tr(
+                  "config.link_import_done_none",
+                  "Imported, and no link was restored. This file named none that could be restored here - check that it is the account-link export rather than the configuration export.",
+                )
+              : tr(
+                  "config.link_import_done",
+                  "Imported {count} account link(s). Each was restored onto the account this server holds for its username today.",
+                  { count: String(restored) },
+                ),
         );
       })
       .catch((e) => {

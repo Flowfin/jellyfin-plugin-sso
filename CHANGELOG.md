@@ -445,6 +445,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **Restoring an account-link backup now says how many links it restored
+  (#1520).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
+  button that posts to it, answered the same empty success whatever the number
+  was - a file that rebound every link and a file that rebound none produced
+  the same `204` and the same fixed sentence on the settings page. The count
+  existed only in the server log, which is not where anybody looks during a
+  migration, and that is how #1517 - an import that silently restored nothing -
+  went unnoticed across every beta it shipped in. The endpoint now answers 200
+  with the total and a per-provider breakdown, and the page prints the number.
+  A restore of nothing says so and points at the likely cause, which is the
+  configuration export posted in place of the account-link export: both declare
+  format version 1, so nothing else tells them apart. **An integration that
+  asserts on `204` from this route has to accept `200` instead**; nothing else
+  about the request or the refusals changed. The reference page also quoted a
+  refusal sentence for a missing or unparseable body that no caller was ever
+  served - Jellyfin refuses such a body before the plugin runs - and now says
+  what is actually returned.
+
 - **A misspelled protocol segment on a link route now answers 400 (#1399).**
   The three account-link routes carry an `oid` or `saml` segment in their path,
   and a value that is neither used to throw. The refusal was correct and is
