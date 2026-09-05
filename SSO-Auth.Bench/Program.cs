@@ -26,16 +26,25 @@ internal static class Program
     private const int DefaultWarmup = 50;
     private const int DefaultConcurrency = 8;
 
+    // Their own defaults, and small on purpose: one ten-thousand-entry import already builds ten thousand
+    // mocked accounts and writes twenty thousand map entries, so five hundred of them would measure the
+    // patience of whoever started the run rather than the endpoint.
+    private const int DefaultLinkImportIterations = 20;
+    private const int DefaultLinkImportWarmup = 3;
+
     private static async Task<int> Main(string[] args)
     {
         int iterations = DefaultIterations, warmup = DefaultWarmup, concurrency = DefaultConcurrency;
+        var linkImport = false;
+        bool iterationsGiven = false, warmupGiven = false;
         for (var i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
-                case "--iterations": iterations = Number(args, ++i); break;
-                case "--warmup": warmup = Number(args, ++i); break;
+                case "--iterations": iterations = Number(args, ++i); iterationsGiven = true; break;
+                case "--warmup": warmup = Number(args, ++i); warmupGiven = true; break;
                 case "--concurrency": concurrency = Number(args, ++i); break;
+                case "--link-import": linkImport = true; break;
                 case "--help" or "-h": Usage(); return 0;
                 default:
                     Console.Error.WriteLine("Unknown argument: " + args[i]);
@@ -48,6 +57,18 @@ internal static class Program
         {
             Console.Error.WriteLine("--iterations and --concurrency must be at least 1, --warmup at least 0.");
             return 2;
+        }
+
+        // The second scenario is a separate run rather than a section of this one (#1522). It measures a
+        // different subject - how long one bulk admin write holds the configuration lock - and its own
+        // defaults are two orders of magnitude smaller, because a ten-thousand-entry import is not a
+        // thing to do five hundred times. Behind a flag, so the invocation the perf workflow makes is
+        // byte-for-byte the run it has always made.
+        if (linkImport)
+        {
+            return await LinkImportCost.RunAsync(
+                iterationsGiven ? iterations : DefaultLinkImportIterations,
+                warmupGiven ? warmup : DefaultLinkImportWarmup).ConfigureAwait(false);
         }
 
         using var idp = new OidcTokenFixture(Authority, ClientId);
@@ -156,5 +177,6 @@ internal static class Program
         Console.WriteLine("  --iterations N   measured round-trips per scenario (default " + DefaultIterations.ToString(CultureInfo.InvariantCulture) + ")");
         Console.WriteLine("  --warmup N       discarded round-trips per caller before measuring (default " + DefaultWarmup.ToString(CultureInfo.InvariantCulture) + ")");
         Console.WriteLine("  --concurrency N  concurrent callers in the second scenario (default " + DefaultConcurrency.ToString(CultureInfo.InvariantCulture) + ")");
+        Console.WriteLine("  --link-import    measure the account-link import instead (#1522); --iterations defaults to " + DefaultLinkImportIterations.ToString(CultureInfo.InvariantCulture) + ", --warmup to " + DefaultLinkImportWarmup.ToString(CultureInfo.InvariantCulture));
     }
 }
