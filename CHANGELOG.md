@@ -508,6 +508,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A declarative document that could not be written still locked its providers
+  against the settings page (#1534).** A provider document mounted as a file or
+  set through the environment freezes the providers it names, so the settings
+  page refuses an edit and points at the document instead. The freeze was
+  recorded before the document was written, and since #1521 a write that cannot
+  reach the disk - a read-only volume, a full disk on a freshly built server -
+  is undone again. The two then disagreed: the document was gone and the freeze
+  stayed, so for the rest of that run the plugin reverted every edit an
+  administrator made to those providers back to values that were in effect
+  nowhere, while the boot log said nothing had been changed. The freeze is now
+  recorded only once the write has landed, so a document that never reached the
+  file locks nothing and the providers stay editable. A document that was
+  already current still freezes its providers, since it writes nothing and has
+  nothing to wait for.
+
 - **A first login that failed half way left an account nobody could use
   (#1533).** When SSO creates a Jellyfin account for a new user, several
   things still have to happen before that account is usable: it is given the
