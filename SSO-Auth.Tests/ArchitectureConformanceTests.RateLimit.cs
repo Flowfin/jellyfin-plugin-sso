@@ -141,8 +141,9 @@ public partial class ArchitectureConformanceTests
     public void EverySignInRoute_RefusesWhileTheStoredConfigurationCouldNotBeRead()
     {
         // #1543. The per-route behaviour is pinned by SSOControllerServingDefaultsTests; this pins that the
-        // gate is PRESENT on every one of them, so a seventh sign-in action added later cannot quietly ship
-        // without it - which is the class of miss a fixed battery of endpoint tests does not catch.
+        // gate is PRESENT on every route the list names. On its own that is only as complete as the list,
+        // which is what EverySignInAction_IsInTheSignInRouteList below is for - it derives the surface from
+        // the source instead, so a seventh sign-in action cannot ship by being left out of a literal.
         var actions = ControllerActionBlocks();
         var missing = new List<string>();
         foreach (var route in SignInRoutes)
@@ -158,6 +159,37 @@ public partial class ArchitectureConformanceTests
         Assert.True(
             missing.Count == 0,
             "These sign-in endpoints must call RefuseWhileServingDefaults() and do not, so they would answer 'no matching provider' on a server whose configuration could not be read: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void EverySignInAction_IsInTheSignInRouteList()
+    {
+        // The completeness half (#1543). The surface is DERIVED: a controller action that drives one of the
+        // flow services' sign-in legs is a sign-in action, whatever it is called, so an eighth one added
+        // later fails here rather than shipping unlisted - which is the miss the list alone cannot catch.
+        // It also fails on a stale entry, so the list cannot drift the other way.
+        var signInLeg = new Regex(@"_(?:oidc|saml)\.(?:Challenge|Callback|Authenticate)(?:Async)?\(");
+        var derived = ControllerActionBlocks()
+            .Where(action => signInLeg.IsMatch(action.Body))
+            .SelectMany(action => action.Routes)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            derived.Count >= 6,
+            $"The sign-in walk found only {derived.Count} routes; it has stopped seeing the flow-service calls and this rule would now pass over a surface too small to mean anything (#1543).");
+
+        var listed = SignInRoutes.ToHashSet(StringComparer.Ordinal);
+        var unlisted = derived.Where(route => !listed.Contains(route)).ToList();
+        Assert.True(
+            unlisted.Count == 0,
+            "These routes drive a sign-in leg but are not in SignInRoutes, so nothing checks they refuse while the stored configuration could not be read: " + string.Join(", ", unlisted));
+
+        var derivedSet = derived.ToHashSet(StringComparer.Ordinal);
+        var stale = SignInRoutes.Where(route => !derivedSet.Contains(route)).ToList();
+        Assert.True(
+            stale.Count == 0,
+            "These routes are listed as sign-in routes but no longer drive a sign-in leg - remove them: " + string.Join(", ", stale));
     }
 
     [Fact]

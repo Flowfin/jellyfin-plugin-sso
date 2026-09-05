@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
@@ -115,11 +116,65 @@ public class SSOControllerServingDefaultsTests
         var imported = harness.Controller.ImportConfig(new ConfigExportDocument
         {
             FormatVersion = ConfigExport.FormatVersion,
-            Configuration = new PluginConfiguration(),
+            Configuration = Restored(),
         });
 
         Assert.IsType<NoContentResult>(imported);
         Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AnEmptyImport_DoesNotEndTheRefusal()
+    {
+        // What ends it is a configuration ARRIVING, not a request being accepted. A document that merges
+        // nothing leaves the server on the same defaults it was refusing for, and flipping the answer from
+        // an accurate 503 to "no matching provider" would hand the operator back the confusion this
+        // exists to end.
+        var harness = ServingDefaults();
+
+        var imported = harness.Controller.ImportConfig(new ConfigExportDocument
+        {
+            FormatVersion = ConfigExport.FormatVersion,
+            Configuration = new PluginConfiguration(),
+        });
+
+        Assert.IsType<NoContentResult>(imported);
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AnAdministratorSavingAProviderOnTheSettingsPage_EndsTheRefusal()
+    {
+        // THE DOCUMENTED RECOVERY, and it does not go through the plugin-configuration door: the settings
+        // page saves a provider through MutateConfiguration, which never enters UpdateConfiguration. A rule
+        // written at that override alone left a server that had done exactly what the banner told it to do
+        // refusing every SSO sign-in for good.
+        var harness = ServingDefaults();
+
+        harness.Controller.OidAdd("keycloak", new OidConfig { OidEndpoint = "https://idp.example", OidClientId = "client" });
+
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AConfigurationArrivingFromADeclarativeSource_EndsTheRefusal()
+    {
+        // The deployment style that can repair itself without a person: a mounted document or a set of
+        // environment variables is applied through the same MutateConfiguration the page save uses. A
+        // server whose operator declared its providers must not come up holding exactly those providers
+        // and refusing every sign-in until somebody clicks something.
+        var harness = ServingDefaults();
+
+        SSOPlugin.Instance.MutateConfiguration(configuration => configuration.OidConfigs["declared"] = new OidConfig());
+
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    private static PluginConfiguration Restored()
+    {
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["keycloak"] = new OidConfig();
+        return configuration;
     }
 
     [Fact]
@@ -139,6 +194,30 @@ public class SSOControllerServingDefaultsTests
         Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
     }
 
+    [Fact]
+    public void TheConfigurationCheck_ReportsTheState()
+    {
+        // The page reads it from here, and this is the report whose empty provider list would otherwise
+        // read as "nothing configured" on a server whose providers are on disk in a file it refused.
+        var harness = ServingDefaults();
+
+        var report = Assert.IsType<ProviderCheckDocument>(Assert.IsType<OkObjectResult>(harness.Controller.CheckProviders().Result).Value);
+
+        Assert.True(report.ConfigurationUnreadable);
+    }
+
+    [Fact]
+    public void TheConfigurationCheck_OnAHealthyServer_ReportsNothing()
+    {
+        // The falsifier: one thing changes - the stored configuration reads back - and the same report says
+        // so, which is what stops the banner from being permanently on.
+        var harness = new SsoControllerHarness();
+
+        var report = Assert.IsType<ProviderCheckDocument>(Assert.IsType<OkObjectResult>(harness.Controller.CheckProviders().Result).Value);
+
+        Assert.False(report.ConfigurationUnreadable);
+    }
+
     private static SsoControllerHarness ServingDefaults() => new(unreadableConfiguration: true);
 
     private static void AssertUnavailable(ActionResult result) => Assert.Equal(503, Status(result));
@@ -153,6 +232,10 @@ public class SSOControllerServingDefaultsTests
         ObjectResult objectResult => objectResult.StatusCode,
         ContentResult contentResult => contentResult.StatusCode,
         StatusCodeResult statusCodeResult => statusCodeResult.StatusCode,
-        _ => null,
+
+        // Never null. A null would make Assert.NotEqual(503, …) pass for any result shape this does not
+        // know, which is a falsifier that cannot fail - the negative assertions below would then hold for
+        // a redirect, an empty result, or anything else a refactor produced.
+        _ => throw new InvalidOperationException($"Unhandled result type in a sign-in assertion: {result.GetType().Name}"),
     };
 }

@@ -55,9 +55,13 @@ internal static class ProviderCheck
     /// Builds the aggregate report over a configuration snapshot.
     /// </summary>
     /// <param name="config">The configuration to evaluate; never modified.</param>
-    /// <param name="configurationUnreadable">Whether the stored configuration could not be read at start, so these rows describe a default one (#1543).</param>
+    /// <param name="configurationUnreadable">
+    /// Whether the stored configuration could not be read at start, so these rows describe a default one
+    /// (#1543). Required rather than defaulted: the reassuring value is the wrong one to reach by
+    /// forgetting, and a caller that omitted it would silently report a damaged server as healthy.
+    /// </param>
     /// <returns>One row per configured provider, OpenID first, in configuration order.</returns>
-    internal static ProviderCheckDocument Build(PluginConfiguration config, bool configurationUnreadable = false)
+    internal static ProviderCheckDocument Build(PluginConfiguration config, bool configurationUnreadable)
     {
         ArgumentNullException.ThrowIfNull(config);
 

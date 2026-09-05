@@ -183,6 +183,97 @@ public class UnreadableConfigurationTests
         Assert.Empty(Copies(path));
     }
 
+    [Fact]
+    public void AFileThatCouldNotBeOpenedAtAll_DecidesNothing()
+    {
+        // THE FAILURE THAT MUST NOT LATCH. A locked file - a virus scanner, a backup agent or a sync
+        // client holding it at exactly the moment plugins load - is not damage: this check could not read
+        // the bytes, and the server's own read a moment later may well succeed. Refusing on it would take
+        // SSO offline permanently on a server whose configuration is perfectly good and live in memory,
+        // with a log line false in both halves, until somebody noticed and pressed Save.
+        var root = Path.Combine(Path.GetTempPath(), "sso-unreadable-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "SSO-Auth.xml");
+        File.WriteAllText(path, "<PluginConfiguration />");
+
+        var serializer = Substitute.For<IXmlSerializer>();
+        serializer.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(_ => throw new IOException("the file is in use"));
+
+        var state = UnreadableConfiguration.Preserve(path, serializer, Logger(), DateTime.UtcNow);
+
+        Assert.False(state.IsUnreadable);
+        Assert.Empty(Copies(path));
+        Assert.False(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+    }
+
+    [Fact]
+    public void AFileThatCannotBeAccessed_DecidesNothingEither()
+    {
+        // The same reading for the permission flavour of the same failure.
+        var (path, _) = Stored("<PluginConfiguration />", readable: true);
+        var serializer = Substitute.For<IXmlSerializer>();
+        serializer.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(_ => throw new UnauthorizedAccessException());
+
+        Assert.False(UnreadableConfiguration.Preserve(path, serializer, Logger(), DateTime.UtcNow).IsUnreadable);
+    }
+
+    [Fact]
+    public void TheStateSurvivesARestart()
+    {
+        // By the next start the server has replaced the damaged file with a readable default, so the screen
+        // alone would report healthy - no line, no refusal - and SSO would go back to answering that the
+        // provider is unknown, which is the confusion this exists to end. Restarting is also the first
+        // thing an operator does when told SSO is down. The marker is what makes the second start agree
+        // with the first.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        Assert.True(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+
+        // The host has now written its defaults over the file, so a fresh screen reads it back.
+        File.WriteAllText(path, "<PluginConfiguration />");
+        var healthy = Substitute.For<IXmlSerializer>();
+        healthy.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(new PluginConfiguration());
+
+        var second = UnreadableConfiguration.Preserve(path, healthy, Logger(), DateTime.UtcNow);
+
+        Assert.True(second.IsUnreadable);
+        Assert.Equal(Copies(path)[0], second.PreservedCopyPath);
+    }
+
+    [Fact]
+    public void ClearingTheMarkerEndsIt_AndLeavesTheEvidence()
+    {
+        // The falsifier for the test above, and the property that keeps it from being a one-way door: what
+        // an administrator supplying a configuration removes is the marker, never the copy.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow);
+        var copy = Copies(path)[0];
+
+        UnreadableConfiguration.ClearMarker(path, Logger());
+
+        File.WriteAllText(path, "<PluginConfiguration />");
+        var healthy = Substitute.For<IXmlSerializer>();
+        healthy.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(new PluginConfiguration());
+
+        Assert.False(UnreadableConfiguration.Preserve(path, healthy, Logger(), DateTime.UtcNow).IsUnreadable);
+        Assert.True(File.Exists(copy));
+    }
+
+    [Fact]
+    public void ASecondFailingStart_AddsNoSecondCopy()
+    {
+        // A server crash-looping before anything reads the configuration would otherwise write one full
+        // copy of the file per restart into the directory the whole server needs writable. The evidence is
+        // already kept, and the second copy would be the same bytes as the first.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+
+        var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(second.IsUnreadable);
+        Assert.Single(Copies(path));
+        Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z", second.PreservedCopyPath);
+    }
+
     private static ILogger Logger() => Substitute.For<ILogger>();
 
     private static string[] Copies(string path)

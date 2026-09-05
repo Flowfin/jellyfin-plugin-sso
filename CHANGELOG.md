@@ -45,18 +45,33 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   could have worked on, in the same act. The plugin now spends the window it has
   before that: it checks the stored file itself, in its own constructor, before
   anything reads the configuration, and when it does not read back it copies it
-  aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — never overwriting an
-  earlier copy, so a server that keeps failing to start does not grind its own
-  evidence away one boot at a time. An Error line in the log says what happened
-  and where the copy went; the configuration page says the same thing until you
-  act on it. While the server is in that state every SSO sign-in answers 503 and
-  points at the log, instead of reporting that the provider is unknown — which is
-  what a default configuration would have made every flow say, sending you to
-  look for a deleted provider instead of a damaged file. Local Jellyfin sign-in
-  is untouched, so an administrator can always get in to repair, and importing or
-  saving a configuration ends the refusal. Nothing here makes the write atomic:
-  the destructive act is on the load side and is the host's, so a write-side
-  repair would not have reached it.
+  aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — once per incident, so a
+  server that keeps failing to start does not write one full copy of it per boot
+  into the directory it needs writable. An Error line in the log says what
+  happened and where the copy went; the configuration page says the same until a
+  configuration arrives. While the server is in that state every SSO sign-in
+  answers 503 and points at the log, instead of reporting that the provider is
+  unknown — which is what a default configuration would have made every flow say,
+  sending you to look for a deleted provider instead of a damaged file.
+
+  The refusal ends when a configuration actually arrives: a provider saved on the
+  settings page, an imported document, or one a declarative source supplies. It
+  survives a restart, because by the next start the server has already replaced
+  the damaged file with a readable default and would otherwise decide it was
+  healthy while serving nobody's settings. This plugin does not touch Jellyfin
+  password sign-in — but an account it provisioned has no usable password, so on
+  a server whose administrators all arrived through SSO there is no local door to
+  fall back to: the state lives in a marker file beside the configuration, and
+  deleting it and restarting puts SSO back exactly where it was before this check
+  existed. Every log line that announces the refusal says so.
+
+  A file that could not be READ at all — locked by a scanner, a backup agent or a
+  sync client at exactly the moment plugins load — is not treated as damage and
+  changes nothing: the server's own read a moment later may well succeed, and
+  refusing on it would take SSO offline on a server whose configuration is
+  perfectly good. Nothing here makes the write atomic either: the destructive act
+  is on the load side and is the host's, so a write-side repair would not have
+  reached it.
 
 - **A starting policy can seed the home screen (#1101).** The provisioning
   template gains a **Home screen sections** list: the sections of the web

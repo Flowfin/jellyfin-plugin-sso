@@ -56,72 +56,209 @@ internal static class UnreadableConfiguration
     internal const string CopySuffix = ".unreadable-";
 
     /// <summary>
-    /// Copies the configuration file aside when it cannot be deserialized, and answers with where it was
-    /// kept, so the caller can say what is being served instead. Reports readable for a file that reads
-    /// back and for no file at all - a first start has nothing to preserve and nothing to refuse, and
-    /// treating it as damage would take every new installation offline before it was ever configured.
+    /// The suffix of the marker that keeps the state across a restart. Its own file rather than a flag in
+    /// the configuration, because the configuration is the thing that was lost.
+    /// </summary>
+    internal const string MarkerSuffix = ".unreadable";
+
+    /// <summary>
+    /// Screens the stored configuration before anything reads it, keeps the evidence when it cannot be
+    /// read, and answers whether this server is about to serve defaults.
     /// </summary>
     /// <remarks>
-    /// The readability question is answered with the SAME serializer the host will use, because the failure
-    /// this guards is "the host's deserialize threw", not "the bytes are not well-formed XML": a document
-    /// that parses as XML but not as this type produces defaults just as surely. That costs one extra parse
-    /// per start, paid once, before any login can exist.
-    /// <para>
-    /// It never overwrites an existing copy. A server that keeps failing to start must not grind its own
-    /// evidence away one boot at a time, so the timestamp makes each copy its own file and a collision
-    /// leaves the older one standing. A copy that cannot be written is reported and does not stop the
-    /// refusal: the state is unreadable either way, and the operator learning that from the log is worth
-    /// more than the copy that failed.
-    /// </para>
+    /// THREE ANSWERS, NOT TWO, and the third is the one a fail-closed reading gets wrong. A file that
+    /// deserializes is healthy. A file that fails to deserialize for a reason about its CONTENT is damage.
+    /// A file that could not be READ AT ALL - locked by a virus scanner, a backup agent or a sync client at
+    /// exactly the moment plugins load, an IO error on the volume - is neither: this check could not run,
+    /// and the host's own read a moment later may well succeed. Latching the refusal on that would take SSO
+    /// offline permanently on a server whose configuration is perfectly good and is live in memory, with a
+    /// log line that is false in both halves, until somebody notices and presses Save. The refusal is
+    /// worth having against real damage and is not worth that, so an IO failure says so and changes
+    /// nothing - which leaves the behaviour exactly where it stood before this check existed.
+    /// </remarks>
+    /// <remarks>
+    /// IT SURVIVES A RESTART, and it has to. By the next boot the host has already replaced the damaged
+    /// file with a readable default, so the screen alone would report healthy - no banner, no line, no
+    /// refusal - and every SSO sign-in would go back to answering that the provider is unknown, which is
+    /// the confusion this exists to end. Restarting is also the first thing an operator does when told SSO
+    /// is down. So a marker file is written beside the copy and outlives the process; only an administrator
+    /// supplying a configuration removes it, and it is a marker rather than the copy, so the evidence is
+    /// never what gets deleted.
     /// </remarks>
     /// <param name="configurationFilePath">The host's configuration file path for this plugin.</param>
     /// <param name="serializer">The host's XML serializer, asked the same question the host will ask it.</param>
     /// <param name="logger">The logger the refusal is announced on.</param>
-    /// <param name="nowUtc">The instant the copy is named after.</param>
+    /// <param name="nowUtc">The instant a copy is named after.</param>
     /// <returns>The screened state: unreadable or not, and where the damaged file was kept.</returns>
     internal static UnreadableConfigurationState Preserve(string? configurationFilePath, IXmlSerializer serializer, ILogger logger, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(serializer);
 
-        if (string.IsNullOrWhiteSpace(configurationFilePath) || !File.Exists(configurationFilePath))
+        if (string.IsNullOrWhiteSpace(configurationFilePath))
         {
             return default;
         }
 
-        if (ReadsBack(configurationFilePath, serializer))
+        // No file at all is a first start: nothing to preserve and nothing to refuse. Treating it as damage
+        // would take every new installation offline before it was ever configured. The marker is still
+        // consulted below, because a server whose file was deleted after damage has not been repaired.
+        var readable = !File.Exists(configurationFilePath) || ReadsBack(configurationFilePath, serializer, logger);
+        if (readable)
+        {
+            return CarriedOver(configurationFilePath, logger);
+        }
+
+        // One copy per incident. A boot loop on a genuinely damaged file must not write one full copy of it
+        // per restart into the configuration directory, and the second copy would be the same bytes as the
+        // first - the evidence is already kept, which is what the marker records.
+        var preserved = ExistingCopy(configurationFilePath) ?? Copy(configurationFilePath, nowUtc, logger);
+        Mark(configurationFilePath, logger);
+        SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved);
+        return new UnreadableConfigurationState(true, preserved);
+    }
+
+    /// <summary>
+    /// Removes the marker, so a server that has been given a configuration stops serving defaults across
+    /// restarts too (#1543). The preserved copies are deliberately left where they are: they are the
+    /// evidence, and an operator may not have looked at them yet.
+    /// </summary>
+    /// <param name="configurationFilePath">The host's configuration file path for this plugin.</param>
+    /// <param name="logger">The logger a failure to remove it is reported on.</param>
+    internal static void ClearMarker(string? configurationFilePath, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(configurationFilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(configurationFilePath + MarkerSuffix);
+        }
+#pragma warning disable CA1031 // a marker that cannot be removed must not turn a successful save into a failure
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            SsoAudit.UnreadableConfigurationMarkerNotCleared(logger, configurationFilePath + MarkerSuffix, ex);
+        }
+    }
+
+    // The state a previous boot left behind. The file reads back now - the host replaced it with a default
+    // one - and that is exactly why the marker has to be believed over it: what is being served is a
+    // default configuration, and the fact that it now parses says nothing about whether it is this server's.
+    private static UnreadableConfigurationState CarriedOver(string configurationFilePath, ILogger logger)
+    {
+        if (!MarkerExists(configurationFilePath))
         {
             return default;
         }
 
+        var preserved = ExistingCopy(configurationFilePath);
+        SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved);
+        return new UnreadableConfigurationState(true, preserved);
+    }
+
+    // The oldest copy this incident produced, or null when none was written. Ordinal ordering over a fixed
+    // UTC timestamp format is chronological, so "oldest" is the first entry.
+    private static string? ExistingCopy(string configurationFilePath)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(configurationFilePath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                return null;
+            }
+
+            var copies = Directory.GetFiles(directory, Path.GetFileName(configurationFilePath) + CopySuffix + "*");
+            Array.Sort(copies, StringComparer.Ordinal);
+            return copies.Length > 0 ? copies[0] : null;
+        }
+#pragma warning disable CA1031 // not being able to look is the same answer as there being nothing to find
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return null;
+        }
+    }
+
+    // Copies the damaged file aside, never over an existing name. A copy that cannot be written is reported
+    // and does not soften the refusal: the state is unreadable either way, and losing the evidence is the
+    // worse outcome rather than a reason to serve logins as though nothing had happened.
+    private static string? Copy(string configurationFilePath, DateTime nowUtc, ILogger logger)
+    {
         var copy = configurationFilePath + CopySuffix + nowUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "Z";
-        string? preserved = null;
         try
         {
             File.Copy(configurationFilePath, copy, overwrite: false);
-            preserved = copy;
+            return copy;
         }
 #pragma warning disable CA1031 // the state is unreadable whether or not the copy succeeded, and saying so is what matters
         catch (Exception ex)
 #pragma warning restore CA1031
         {
             SsoAudit.UnreadableConfigurationNotPreserved(logger, copy, ex);
+            return null;
         }
-
-        SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved);
-        return new UnreadableConfigurationState(true, preserved);
     }
 
-    // Whether the host serializer can turn the stored bytes back into this plugin configuration type. Every
-    // failure is one answer - no, fail closed - because every failure has one outcome downstream: the host
-    // catches it, hands out defaults and persists them over the file. A null result counts as a failure for
-    // the same reason: it is not a configuration, and serving it would be serving defaults under another name.
-    private static bool ReadsBack(string configurationFilePath, IXmlSerializer serializer)
+    // Writes the marker that outlives the process. A marker that cannot be written costs the state its
+    // survival across a restart and nothing else, so it is reported rather than thrown - this runs in a
+    // plugin constructor, and a server that cannot start is a worse answer than one that forgets.
+    private static void Mark(string configurationFilePath, ILogger logger)
+    {
+        try
+        {
+            File.WriteAllText(
+                configurationFilePath + MarkerSuffix,
+                "This server could not read its SSO configuration and is serving defaults. Import or save a configuration to clear this; the file beside it is the copy that was kept.");
+        }
+#pragma warning disable CA1031 // a marker that cannot be written costs only its survival across a restart
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            SsoAudit.UnreadableConfigurationMarkerNotWritten(logger, configurationFilePath + MarkerSuffix, ex);
+        }
+    }
+
+    private static bool MarkerExists(string configurationFilePath)
+    {
+        try
+        {
+            return File.Exists(configurationFilePath + MarkerSuffix);
+        }
+#pragma warning disable CA1031 // not being able to look is the same answer as there being no marker
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return false;
+        }
+    }
+
+    // Whether the host serializer can turn the stored bytes back into this plugin configuration type. A
+    // failure ABOUT THE CONTENT is the condition being detected: the host catches it, hands out defaults and
+    // persists them over the file, whatever its type, and a deserialize that returns null is the same
+    // outcome under another name. An IO failure is not that: it means this check could not read the bytes
+    // at all, the host's own read may still succeed, and latching a permanent refusal on a file somebody
+    // else had open for a moment is a worse failure than the one being guarded. It says so and reports
+    // readable, which leaves the server exactly where it stood before this check existed.
+    private static bool ReadsBack(string configurationFilePath, IXmlSerializer serializer, ILogger logger)
     {
         try
         {
             return serializer.DeserializeFromFile(typeof(PluginConfiguration), configurationFilePath) is PluginConfiguration;
         }
-#pragma warning disable CA1031 // any failure to deserialize is the condition being detected, whatever its type
+        catch (IOException ex)
+        {
+            SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
+            return true;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
+            return true;
+        }
+#pragma warning disable CA1031 // any other failure to deserialize is the condition being detected, whatever its type
         catch (Exception)
 #pragma warning restore CA1031
         {

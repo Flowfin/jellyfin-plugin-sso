@@ -1795,11 +1795,6 @@ public class SSOController : ControllerBase
             }
         }
 
-        // The other door that ends a serve-defaults state (#1543), beside the settings-page save. An import
-        // is exactly the recovery this refusal points an operator at, so the refusal has to stop when one
-        // lands - and only after the merge has persisted, so a rejected document leaves the state standing.
-        SSOPlugin.Instance.ConfigurationSuppliedByAdministrator();
-
         return NoContent();
     }
 

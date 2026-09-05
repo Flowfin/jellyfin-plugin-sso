@@ -93,15 +93,16 @@ internal sealed class SsoControllerHarness
         Xml = Substitute.For<IXmlSerializer>();
         if (unreadableConfiguration)
         {
-            // #1543: a stored file the serializer refuses. The FIRST deserialize is the plugin's own
-            // readability screen, in the constructor window before anything reads Configuration, and it
-            // throws the way the host's own does; every later one reads back, so the rest of this harness
-            // behaves exactly as it does everywhere else and what a test is left holding is the one thing
-            // under examination - a plugin that knows it is serving defaults.
+            // #1543: a stored file the serializer refuses, EVERY time it is asked - which is what a
+            // truncated file actually does. Making only the first read throw would leave the plugin
+            // serving a fully seeded configuration while reporting that it is serving defaults, a state
+            // that cannot exist on a real server, and a test written against it would prove nothing.
+            // So the plugin here serves the host's own default configuration, exactly as it would in
+            // production, and a test that needs providers must not ask for this flag.
             Directory.CreateDirectory(configurations);
             File.WriteAllText(Path.Combine(configurations, "SSO-Auth.xml"), "<PluginConfig");
             Xml.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>())
-                .Returns(_ => throw new InvalidOperationException("truncated"), _ => Configuration);
+                .Returns(_ => throw new InvalidOperationException("truncated"));
         }
         else
         {

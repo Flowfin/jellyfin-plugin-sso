@@ -409,7 +409,7 @@ const ssoConfigurationPage = {
         notice.textContent = unreadable
           ? tr(
               "config.unreadable_configuration",
-              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until you import or save a configuration here; local Jellyfin sign-in is unaffected. The server log says where the unreadable file was kept - keep that copy before you save over it.",
+              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside it and restart, and SSO will answer as it did before.",
             )
           : "";
         notice.hidden = !unreadable;
@@ -2745,6 +2745,18 @@ const ssoConfigurationPage = {
         const rows =
           report && Array.isArray(report.Providers) ? report.Providers : [];
         list.replaceChildren();
+        // #1543 first, because it is the reason the list below is empty. Without it this action - the one
+        // an operator clicks to find out why SSO is down - answers "nothing is configured yet" on a server
+        // whose providers are on disk in a file it refused, which is the sentence the flag exists to stop.
+        if (report && report.ConfigurationUnreadable === true) {
+          ssoConfigurationPage.renderCheckNote(
+            list,
+            tr(
+              "config.unreadable_configuration",
+              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside it and restart, and SSO will answer as it did before.",
+            ),
+          );
+        }
 
         if (rows.length === 0) {
           ssoConfigurationPage.renderCheckNote(
