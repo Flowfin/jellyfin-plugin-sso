@@ -30,13 +30,16 @@
 #       * a build.yaml version bump also touches CHANGELOG.md.
 #       * a pull request putting a non-English localization catalogue on the
 #         board carries a vouch line naming the reader and the language (#1494).
-#     The whole FAIL tier is skipped for bots and for authors from outside this
-#     repository; the two skips have different reasons and both are written at
-#     the check, not only here (#1207). The character check and the catalogue
-#     vouch take that skip too, but drop to the WARN tier rather than going
-#     silent, so a skipped run is never mistaken for a clean one. The vouch
-#     check's own self-test is outside the narrowing entirely: it judges the
-#     gate rather than the author.
+#     The whole FAIL tier is skipped for bots, and for nobody else (#1516). It
+#     was skipped for authors from outside this repository too, until the
+#     association that decides it was read on two routes and answered
+#     differently on each, on a board where every pull request comes from an
+#     inside account - so the narrowing decided whether a required context could
+#     fail at all, and nothing else. The character check and the catalogue vouch
+#     still drop to the WARN tier for a bot rather than going silent, so a
+#     skipped run is never mistaken for a clean one. The vouch check's own
+#     self-test is outside the skip entirely: it judges the gate rather than the
+#     author.
 #   - WARN  (soft convention, annotation only - never fails):
 #       * the diff is large (>=400 changed lines) - advisory; a feature, doc
 #         migration, or bulk rename legitimately exceeds any cap, so size never reds.
@@ -96,47 +99,42 @@ jobs:
             const labels = (pr.labels || []).map((l) => l.name);
             const isBot = pr.user && pr.user.type === "Bot";
 
-            // --- Who the FAIL tier is for (#1207) --------------------------------
-            // The issue convention this tier enforces is OURS. Somebody arriving
-            // from outside has no way to know the issue numbers this board expects
-            // before they file, and often no issue exists yet - so failing their
-            // contribution on it is a gatekeeping ritual, not a caught slip.
-            // Applied to work from inside the repository the same check catches a
-            // real one, which is why the tier is narrowed by audience rather than
-            // removed.
+            // --- Who the FAIL tier is for (#1207 narrowed it, #1516 un-narrowed) -
+            // EVERY AUTHOR, bots excepted. The tier used to skip an author whose
+            // `author_association` was outside ["OWNER", "MEMBER"], on the argument
+            // that the issue convention is ours and somebody arriving from outside
+            // cannot know the issue numbers this board expects before they file.
+            // The argument was sound; the field it rested on is not. Read through
+            // the event payload and read through the pulls API, `author_association`
+            // answers differently for the same account, so the narrowing decided
+            // nothing except whether a required context could fail at all - and on
+            // this board every pull request comes from an inside account, so it
+            // could not. A required check that cannot fail refuses nothing while
+            // reading as covered.
             //
-            // This is NOT the bot reason. A bot cannot know the convention; a
-            // person can, and is simply not the one who owes it here.
+            // The bot skip stays, and it is a different reason rather than the same
+            // one narrower: it is keyed on the account BEING a bot, which no
+            // reading of a payload moves, and a bot cannot know the convention.
             //
-            // `author_association` reports the author's relationship to THIS
-            // repository, so an occasional outside collaborator who is later added
-            // as a member stops being exempt from that moment - correct, and worth
-            // knowing rather than discovering. COLLABORATOR is deliberately NOT in
-            // the inside set: the issue asks for member-or-owner.
-            //
-            // The linkage itself is still wanted for an outside contribution - it
-            // moves to whoever handles it, and the annotation below says so on the
-            // pull request, where that person will meet it. Read this skip as
-            // "not their obligation", never as "linkage does not matter here".
-            const INSIDE_ASSOCIATIONS = ["OWNER", "MEMBER"];
-            const isOutside = !INSIDE_ASSOCIATIONS.includes(
-              pr.author_association || "NONE",
-            );
-            const failTierApplies = !isBot && !isOutside;
-            if (isOutside && !isBot) {
+            // What the old skip protected is not lost. The linkage an outside
+            // contribution owes moves to whoever handles it, and the failure they
+            // meet names what to add rather than refusing the work: an issue
+            // reference in the body, filed where no issue exists yet.
+            const failTierApplies = !isBot;
+            if (!isBot) {
               warnings.push(
-                "Author is outside this repository " +
-                  `(author_association: ${pr.author_association || "NONE"}), so the ` +
-                  "FAIL-tier hygiene checks are skipped. The issue linkage is still " +
-                  "wanted: whoever handles this contribution supplies the issue " +
-                  "reference, and files the issue where none exists yet.",
+                "The failing tier applies to this author " +
+                  `(author_association: ${pr.author_association || "NONE"}). It is ` +
+                  "applied whatever that value is, since #1516: reading it decided " +
+                  "nothing but whether the tier ran, and it answered differently on " +
+                  "the two routes that read it.",
               );
             }
 
             // --- Check 1: PR body references an issue (Closes/Refs #N) ----------
             // Directive: every change is issue-driven and linked. Bots (Dependabot)
-            // open PRs with no issue, so they are exempt; so is an outside author,
-            // for the separate reason written above. A bare `#123`, a keyword
+            // open PRs with no issue, so they are exempt, and no author is (#1516).
+            // A bare `#123`, a keyword
             // form (`Closes #123`), or a full issue URL all satisfy it - lenient on
             // purpose so a legitimately-linked PR is never flagged on phrasing.
             const body = pr.body || "";
@@ -156,9 +154,10 @@ jobs:
             // PR-body link (check 1) is not enough. The reference lives in the
             // subject, bracketed, one bracket per issue: `Fix the thing [#12][#34]`.
             // (GitHub's auto-close keywords still go in the body - `[#N]` in a
-            // subject does not close anything.) Bots, outside authors and merge
-            // commits (subject starts with "Merge ") are exempt; merge commits are
-            // machine-generated and inherit the merged PR's own linkage.
+            // subject does not close anything.) Bots and merge commits (subject
+            // starts with "Merge ") are exempt, and no author is (#1516); merge
+            // commits are machine-generated and inherit the merged PR's own
+            // linkage.
             const commits = await github.paginate(github.rest.pulls.listCommits, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -295,11 +294,10 @@ jobs:
                 "listed at check 1c in .github/workflows/pr-hygiene.yml. Repair the " +
                 "message before it reaches main, where it can only be repaired by " +
                 "rewriting history.";
-              // Outside the FAIL tier this is reported and not failed, for the same
-              // audience reason as checks 1, 1b and 2 (#1207) - the tier is skipped
-              // whole. Reporting rather than staying silent keeps the skip from
-              // reading as "nothing was found here", which is the shape a hostile
-              // message would arrive in.
+              // Outside the FAIL tier - a bot, and since #1516 nothing else - this
+              // is reported and not failed. Reporting rather than staying silent
+              // keeps the skip from reading as "nothing was found here", which is
+              // the shape a hostile message would arrive in.
               (failTierApplies ? failures : warnings).push(report);
             }
 
@@ -307,9 +305,9 @@ jobs:
             // The version field only changes in a release PR, which must also record
             // the release in CHANGELOG.md. Near-zero false-positive: a non-release PR
             // never edits the `version:` line, so this stays silent for it. It is in
-            // the FAIL tier, so it takes the same audience narrowing as checks 1 and
-            // 1b - the tier is skipped as a whole rather than per check, so a later
-            // reader does not have to work out which failures a skip covered.
+            // the FAIL tier, so it takes the same bot skip as checks 1 and 1b - the
+            // tier is skipped as a whole rather than per check, so a later reader
+            // does not have to work out which failures a skip covered.
             const buildYaml = files.find((f) => f.filename === "build.yaml");
             const versionBumped =
               buildYaml &&
@@ -544,16 +542,16 @@ jobs:
               }
             }
 
-            // The FAIL tier's audience narrowing (#1207) is taken here deliberately
-            // rather than inherited without a thought, and for this check the reason
-            // is its own. An outside contributor offering a catalogue in their own
-            // language is the growth path #1154 named, and they cannot discharge
-            // this anyway: the vouch names a READER, so a contributor writing their
-            // own name against their own translation is not a second pair of eyes.
-            // The person who can supply one is whoever merges the contribution, and
-            // the annotation below is what that person meets on the pull request.
-            // Reported rather than silent, like check 1c, so a skipped run is never
-            // read as a clean one.
+            // The FAIL tier's bot skip is taken here deliberately rather than
+            // inherited without a thought. A bot cannot discharge this: the vouch
+            // names a READER who has read that language, and an account that is not
+            // a person is not one. An outside contributor offering a catalogue in
+            // their own language is the growth path #1154 named, and since #1516
+            // this reds for them like everybody else - the vouch they cannot write
+            // for their own translation is written by whoever merges the
+            // contribution, which is a line on the pull request rather than a
+            // refusal of the work. Reported rather than silent for a bot, like
+            // check 1c, so a skipped run is never read as a clean one.
             const unvouched = missingVouches(files, body);
             if (unvouched.length > 0) {
               const report =
