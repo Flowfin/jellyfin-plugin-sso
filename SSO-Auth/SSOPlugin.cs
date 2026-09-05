@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using Duende.IdentityModel.OidcClient.Infrastructure;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Secrets;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Common.Configuration;
@@ -29,6 +30,8 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // page identity - like the root namespace, they must NOT track a display-name change (a rename here
     // would break every existing config page's load path). The display Name is free to change; this is not.
     private const string PageId = "SSO-Auth";
+
+    private readonly ILogger _logger;
 
     private readonly Lazy<SecretStore> _secrets;
 
@@ -57,6 +60,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
         // config path and loads the configuration lazily on first access, so nothing calls back into
         // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
+        _logger = logger;
         ConfigStore = new ProviderConfigStore(() => Configuration, PersistBase, logger);
 
         // Lazy with the default thread-safe mode: the SecretStore (and thus the data-encryption key) is
@@ -122,6 +126,14 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// through this rather than reading <see cref="BasePlugin{T}.Configuration"/>, mutating, and
     /// calling <c>UpdateConfiguration</c> separately.
     /// </summary>
+    /// <remarks>
+    /// All-or-nothing against BOTH failures, which is what callers document to their operators (#1521):
+    /// a mutation that throws persists nothing, and a WRITE that throws - a full disk, a read-only
+    /// volume - is rolled back out of the live configuration before the exception reaches the caller.
+    /// The residual is named rather than implied: a caller holding a reference to a PROVIDER object
+    /// taken before the mutation keeps an object carrying the rejected values, and is receiving the
+    /// exception rather than carrying on.
+    /// </remarks>
     /// <param name="mutate">The mutation to apply to the live configuration.</param>
     public void MutateConfiguration(Action<PluginConfiguration> mutate) => ConfigStore.Mutate(mutate);
 
@@ -163,12 +175,47 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // so re-persisting is a no-op and a legacy plaintext value is rewritten encrypted on its next save.
     private void PersistBase(BasePluginConfiguration configuration)
     {
-        if (configuration is PluginConfiguration incoming)
+        if (configuration is not PluginConfiguration incoming)
         {
-            ConfigSecretProtection.ProtectAll(incoming, Secrets);
+            // Not this plugin's configuration type, so there is nothing to encrypt and nothing this
+            // method knows how to swap in; hand it to the base class unchanged.
+            base.UpdateConfiguration(configuration);
+            return;
         }
 
-        base.UpdateConfiguration(configuration);
+        ConfigSecretProtection.ProtectAll(incoming, Secrets);
+
+        // The file FIRST (#1521). Measured rather than assumed: base.UpdateConfiguration assigns
+        // Configuration BEFORE it serializes, so a write that threw - a full disk, a read-only volume -
+        // left the plugin running on a configuration that is not on disk, with no error path back.
+        // SaveConfiguration is the write half alone: it creates the configuration directory and
+        // serializes to the same file, and it neither assigns Configuration nor raises
+        // ConfigurationChanged. So a throw here reaches the caller with nothing made live.
+        SaveConfiguration(incoming);
+
+        // Then the live object, in place rather than by reference: every reader in this plugin holds the
+        // object Configuration returns, and Jellyfin core hands it out on GET /Plugins/{id}/Configuration
+        // without taking the store's lock, so replacing the reference would leave holders on an
+        // abandoned configuration. A no-op when the caller handed in the live object itself, which is
+        // every Mutate.
+        Configuration.AdoptFrom(incoming);
+
+        // Last, and it cannot undo either of the two above. The base-class update this method replaces
+        // raised this event, so the replacement owes it; but the store rolls a write back on any
+        // exception out of this delegate, and the write is already durable here - a subscriber that
+        // threw would otherwise revert the live configuration away from a file that has the change.
+        // Swallowed for the same reason the insecure-option audit is emitted outside the config lock: a
+        // misbehaving subscriber must not turn a completed save into a failure.
+        try
+        {
+            ConfigurationChanged?.Invoke(this, Configuration);
+        }
+#pragma warning disable CA1031 // any subscriber failure, and none of them may unwind a durable write
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            SsoAudit.ConfigurationChangedSubscriberFailed(_logger, ex);
+        }
     }
 
     // Both tables below are the plugin's public URL contract (#370): the first element of each Page()

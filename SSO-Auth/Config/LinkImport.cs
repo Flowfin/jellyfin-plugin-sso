@@ -29,9 +29,10 @@ internal readonly record struct LinkImportCount(string Protocol, string Provider
 /// <list type="bullet">
 /// <item>Validate first, mutate second. Every entry is checked before a single link is written, and the
 /// first failure rejects the WHOLE document. Called inside <c>MutateConfiguration</c>, which persists only
-/// when the mutation returns without throwing, so a rebuilt server either gets its complete link table
-/// back or is left exactly as it was. A half-applied link table is the worst outcome available here: it
-/// looks restored and silently is not.</item>
+/// when the mutation returns without throwing AND rolls the change back out of the live configuration when
+/// the write itself fails (#1521), so a rebuilt server either gets its complete link table back or is left
+/// exactly as it was. A half-applied link table is the worst outcome available here: it looks restored and
+/// silently is not.</item>
 /// <item>No silent repoint. A canonical name this instance already links to a DIFFERENT account is
 /// refused rather than overwritten, because otherwise a crafted backup file is a primitive for remapping
 /// an identity-provider subject onto an administrator's account. An administrator unlinks first and then

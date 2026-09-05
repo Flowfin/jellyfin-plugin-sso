@@ -32,7 +32,8 @@ internal static class ConfigImport
     /// <summary>
     /// Validates and merges the export document into <paramref name="live"/>. Throws before any mutation on a
     /// document with an unsupported version, an absent payload, or an invalid provider, so the caller's
-    /// <c>MutateConfiguration</c> persists nothing.
+    /// <c>MutateConfiguration</c> persists nothing - and where the merge is valid but the WRITE fails, that
+    /// same caller rolls the merge back out of the live configuration (#1521).
     /// </summary>
     /// <param name="live">The live configuration to merge into (mutated in place).</param>
     /// <param name="document">The import document.</param>

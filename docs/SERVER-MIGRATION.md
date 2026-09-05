@@ -112,6 +112,25 @@ when the mutation throws - the remarks on `ImportConfig` and `ImportLinks` say
 so - so a step run too early leaves the instance exactly as it was and is simply
 re-run once the step before it is done.
 
+The other failure is the write, and it is covered as far as this plugin
+reaches. A valid import whose persist fails - a full disk, a read-only volume,
+which is exactly what a freshly built target can hit - used to leave the
+running instance carrying the whole import while nothing reached the XML, so
+logins behaved as though it had succeeded until the next restart.
+`MutateConfiguration` now rolls the change back out of the live configuration
+before the `500` reaches you, so the running instance goes back to the stored
+state. Retry the import once the disk or the mount is fixed.
+
+**What that does not promise, stated rather than implied.** The write itself is
+the Jellyfin plugin base class's, and it serializes straight over
+`SSO-Auth.xml` with no temporary file and no rename, so a disk that fills
+mid-write leaves a truncated file. The rollback puts the running instance back
+on what was stored; it cannot repair the file. A truncated `SSO-Auth.xml` does
+not load on the next start, and the base class replaces an unloadable one with
+an empty configuration - so **take a copy of `SSO-Auth.xml` before a migration
+step, and check it after a failed one, before restarting the server.** #1532
+holds the change that would make the write itself atomic.
+
 Re-running the link import after a partial migration is safe: re-importing a
 mapping this instance already holds is not a repoint and succeeds, because the
 refusal in `LinkImport.Resolve` fires only when the stored link resolves to a

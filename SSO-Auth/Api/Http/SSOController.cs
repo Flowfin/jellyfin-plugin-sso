@@ -1766,9 +1766,12 @@ public class SSOController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Fail-closed and atomic. The whole document is validated before a single link is written, and the
-    /// mutation runs inside <c>MutateConfiguration</c>, which persists nothing when the lambda throws, so
-    /// a rebuilt server either gets its complete link table back or is left exactly as it was. A
-    /// half-applied link table is the worst outcome available here, because it looks restored and is not.
+    /// mutation runs inside <c>MutateConfiguration</c>, which persists nothing when the lambda throws and
+    /// rolls the change back out of the live configuration when the WRITE throws (#1521), so a rebuilt
+    /// server either gets its complete link table back or goes back to what it had stored. A
+    /// half-applied link table is the worst outcome available here, because it looks restored and is
+    /// not. The rollback reaches the running server and not the file: the write is the plugin base
+    /// class's and is not atomic, which is #1532.
     /// <para>
     /// The refusal that matters is the repoint: a canonical name this instance already links to a
     /// DIFFERENT account is rejected rather than overwritten, so a crafted backup file cannot remap an

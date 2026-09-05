@@ -3,7 +3,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.Logging;
@@ -286,5 +290,269 @@ public class ProviderConfigStoreTests
         Assert.Throws<ArgumentNullException>(() => store.Read<bool>(null!));
         Assert.Throws<ArgumentNullException>(() => store.Mutate(null!));
         Assert.Throws<ArgumentNullException>(() => store.Mutate<bool>(null!));
+    }
+
+    [Fact]
+    public void Mutate_PersistThrows_LeavesTheLiveConfigurationExactlyAsItWas()
+    {
+        // #1521: the failure the promise was false for. MutateConfiguration's own remarks and the
+        // operator page both say a refused import leaves the server exactly as it was; that was true
+        // for a mutation that threw and false for a PERSIST that threw - a full disk, a read-only
+        // volume, exactly the conditions a freshly built migration target hits. The live object kept
+        // every change while nothing reached the XML, so logins behaved as though the import had
+        // succeeded until the process restarted, and the next unrelated save committed the changes
+        // silently. Delete the rollback in Mutate and this test reads "hijacked" back out of the live
+        // configuration.
+        var live = new PluginConfiguration();
+        live.OidConfigs["idp"] = new OidConfig { OidClientId = "client-1" };
+        var store = new ProviderConfigStore(() => live, _ => throw new IOException("read-only volume"), new CapturingLogger());
+
+        // What a restart would load out of the file, which is the state the rollback owes rather than
+        // "the object as it stood": a round trip through the persisted form normalizes a null role-map
+        // list to an empty one, so the live object and the file it came from are not byte-identical to
+        // begin with. The equality below is therefore against the file's content, not against the
+        // object's history - and without the rollback it reads "hijacked" and fails either way.
+        var onDisk = live.DetachedCopy().ToPersistedForm();
+
+        Assert.Throws<IOException>(() => store.Mutate(c =>
+        {
+            c.OidConfigs["idp"].OidClientId = "hijacked";
+            c.OidConfigs["second"] = new OidConfig();
+            c.DisablePasswordLogin = true;
+        }));
+
+        Assert.Equal(onDisk, live.ToPersistedForm());
+        Assert.Equal("client-1", live.OidConfigs["idp"].OidClientId);
+        Assert.False(live.OidConfigs.ContainsKey("second"));
+        Assert.False(live.DisablePasswordLogin);
+    }
+
+    [Fact]
+    public void Mutate_WithResult_PersistThrows_LeavesTheLiveConfigurationExactlyAsItWas()
+    {
+        // The result-returning overload is the one the removal endpoints and the link import use, so it
+        // carries the same obligation: a removal that could not be written down did not happen.
+        var live = new PluginConfiguration();
+        live.OidConfigs["idp"] = new OidConfig();
+        var store = new ProviderConfigStore(() => live, _ => throw new IOException("no space left on device"), new CapturingLogger());
+        var onDisk = live.DetachedCopy().ToPersistedForm();
+
+        Assert.Throws<IOException>(() => store.Mutate(c => c.OidConfigs.Remove("idp")));
+
+        Assert.Equal(onDisk, live.ToPersistedForm());
+        Assert.True(live.OidConfigs.ContainsKey("idp"));
+    }
+
+    [Fact]
+    public void Mutate_PersistThrows_RollsBackWithoutSwappingTheLiveObject()
+    {
+        // The rollback restores the live configuration IN PLACE, and this is the half of that which is
+        // load-bearing: the store hands the SAME configuration object out on every read, so a rollback
+        // that swapped the reference would leave every holder of a read - the plugin's own
+        // Configuration property among them - pointing at an object the store had abandoned.
+        //
+        // How far it reaches is stated rather than implied. The provider objects UNDER the
+        // configuration are replaced by the restored ones, so a caller that took a reference to a
+        // provider before this mutation keeps an object carrying the rejected values. That caller is
+        // receiving this exception rather than carrying on, and the live configuration - which is what
+        // the next login reads - is correct.
+        var live = new PluginConfiguration();
+        var provider = new OidConfig { OidClientId = "client-1" };
+        live.OidConfigs["idp"] = provider;
+        var store = new ProviderConfigStore(() => live, _ => throw new IOException("read-only volume"), new CapturingLogger());
+
+        Assert.Throws<IOException>(() => store.Mutate(c => c.OidConfigs["idp"].OidClientId = "hijacked"));
+
+        Assert.Same(live, store.Read(c => c));
+        Assert.Equal("client-1", live.OidConfigs["idp"].OidClientId);
+        Assert.NotSame(provider, live.OidConfigs["idp"]);
+        Assert.Equal("hijacked", provider.OidClientId);
+    }
+
+    [Fact]
+    public void Mutate_PersistReturns_KeepsTheChange()
+    {
+        // The positive control the three above need: the rollback fires on a failed write and on
+        // nothing else. Without it, a Mutate that rolled back every time would pass all three.
+        var (store, live, persisted) = CreateStore();
+
+        store.Mutate(c => c.OidConfigs["idp"] = new OidConfig { OidClientId = "client-1" });
+
+        Assert.Equal("client-1", live.OidConfigs["idp"].OidClientId);
+        Assert.Same(live, Assert.Single(persisted));
+    }
+
+    [Fact]
+    public void Save_PersistThrows_LeavesTheLiveConfigurationExactlyAsItWas()
+    {
+        // The config-page save carries the same promise and used to break it in a louder way: the base
+        // class made the posted configuration live BEFORE serializing it, so a failed write left the
+        // server running on settings that are not on disk.
+        var live = new PluginConfiguration();
+        live.OidConfigs["idp"] = new OidConfig { OidClientId = "client-1" };
+        var store = new ProviderConfigStore(() => live, _ => throw new IOException("read-only volume"), new CapturingLogger());
+        var onDisk = live.DetachedCopy().ToPersistedForm();
+
+        var incoming = new PluginConfiguration();
+        incoming.OidConfigs["idp"] = new OidConfig { OidClientId = "posted" };
+
+        Assert.Throws<IOException>(() => store.Save(incoming));
+
+        Assert.Equal(onDisk, live.ToPersistedForm());
+        Assert.Equal("client-1", live.OidConfigs["idp"].OidClientId);
+    }
+
+    [Fact]
+    public void Save_PersistThrows_UndoesWhatThePipelineDidToTheLiveObject()
+    {
+        // Why Save needs the rollback even though the posted object is a different one: the pipeline
+        // hands the LIVE logout-session map to the posted configuration (ServerManagedFields.Preserve),
+        // and the real persist delegate encrypts the secrets inside those shared objects in place. A
+        // write that throws after that would leave the live configuration carrying state the file does
+        // not have. Simulated here by a persist that mutates what it was handed and then fails, which is
+        // the shape rather than the encryption itself.
+        var live = new PluginConfiguration();
+        live.LogoutSessions["session"] = new LogoutSession { IdToken = "plaintext" };
+        var onDisk = live.DetachedCopy().ToPersistedForm();
+
+        var store = new ProviderConfigStore(
+            () => live,
+            posted =>
+            {
+                ((PluginConfiguration)posted).LogoutSessions["session"].IdToken = "ssoenc:rewritten";
+                throw new IOException("read-only volume");
+            },
+            new CapturingLogger());
+
+        var incoming = new PluginConfiguration();
+
+        Assert.Throws<IOException>(() => store.Save(incoming));
+
+        Assert.Equal(onDisk, live.ToPersistedForm());
+        Assert.Equal("plaintext", live.LogoutSessions["session"].IdToken);
+    }
+
+    [Fact]
+    public void AdoptFrom_CarriesEveryPersistedField()
+    {
+        // AdoptFrom derives its field set from the type instead of listing it, and this is what makes
+        // that derivation checkable: a property added to the configuration model tomorrow that the
+        // reflection walk does not carry makes these two persisted forms differ, and the rollback above
+        // would otherwise restore a configuration missing that field WITHOUT anything going red.
+        var source = new PluginConfiguration
+        {
+            DisablePasswordLogin = true,
+            EnableSingleLogout = true,
+            ManageLoginPageButtons = true,
+            EnableRateLimit = true,
+            RateLimitMaxAttempts = 7,
+            RateLimitWindowSeconds = 11,
+            BreakGlassAdminUsername = "root",
+        };
+        source.OidConfigs["idp"] = new OidConfig { OidClientId = "client-1", Enabled = true };
+        source.SamlConfigs["saml"] = new SamlConfig { SamlClientId = "sp" };
+        source.ProvisioningProfiles["profile"] = new ProvisioningPolicyTemplate { MaxActiveSessions = 3 };
+        source.SsoOnlyRepointedUserIds.Add(User);
+        source.LogoutSessions["session"] = new LogoutSession();
+
+        var target = new PluginConfiguration();
+        target.AdoptFrom(source);
+
+        Assert.Equal(source.ToPersistedForm(), target.ToPersistedForm());
+    }
+
+    [Fact]
+    public void AdoptFrom_TheSameObject_IsANoOp()
+    {
+        // Save hands the live object to AdoptFrom when a caller posts it back, so self-adoption has to
+        // be harmless rather than a walk that assigns every property to itself.
+        var live = new PluginConfiguration();
+        live.OidConfigs["idp"] = new OidConfig { OidClientId = "client-1" };
+        var before = live.ToPersistedForm();
+
+        live.AdoptFrom(live);
+
+        Assert.Equal(before, live.ToPersistedForm());
+    }
+
+    [Fact]
+    public void Mutate_MutationThrowsHalfWay_LeavesNothingBehind()
+    {
+        // The import endpoints promise their callers that a rejected document changes nothing, and
+        // ConfigImport.Apply writes the provisioning profiles before it merges the providers - so a
+        // throw in the second half used to leave the first half applied in memory with no undo. The
+        // guarded region covers the mutation as well as the write, so it does not any more.
+        var live = new PluginConfiguration();
+        var store = new ProviderConfigStore(() => live, _ => { }, new CapturingLogger());
+        var onDisk = live.DetachedCopy().ToPersistedForm();
+
+        Assert.Throws<InvalidOperationException>(() => store.Mutate(c =>
+        {
+            c.ProvisioningProfiles["guest"] = new ProvisioningPolicyTemplate();
+            throw new InvalidOperationException("the second half refused");
+        }));
+
+        Assert.Equal(onDisk, live.ToPersistedForm());
+        Assert.Empty(live.ProvisioningProfiles);
+    }
+
+    [Fact]
+    public void Mutate_SnapshotCannotBeTaken_StillWrites_AndSaysSo()
+    {
+        // The rollback is bought with a serialization, and that serializer refuses characters that can
+        // reach a canonical-link key: neither LinkImport nor the login-path writer checks for them.
+        // Refusing the write when the snapshot cannot be taken would make a configuration that once
+        // reached this state permanently unwritable - including the DELETE that would repair it - so the
+        // write goes ahead without an undo and the log carries the loss. Fail-open on the rollback,
+        // deliberately, because the alternative is a write outage nothing can clear.
+        // Built rather than written as a literal: a raw control byte in a source file is the kind of
+        // thing an editor, a diff or a normalization step eats without saying so, and this test is
+        // entirely about that byte.
+        var unserializable = "sub" + (char)0x01 + "one";
+
+        var live = new PluginConfiguration();
+        var provider = new OidConfig();
+        live.OidConfigs["idp"] = provider;
+        provider.CanonicalLinks[unserializable] = User;
+        Assert.ThrowsAny<Exception>(() => live.ToPersistedForm()); // the premise, read rather than assumed
+
+        var logger = new CapturingLogger();
+        var persisted = new List<BasePluginConfiguration>();
+        var store = new ProviderConfigStore(() => live, persisted.Add, logger);
+
+        store.Mutate(c => c.OidConfigs["idp"].CanonicalLinks.Remove(unserializable));
+
+        Assert.Single(persisted);
+        Assert.False(live.OidConfigs["idp"].CanonicalLinks.ContainsKey(unserializable));
+        Assert.Contains(logger.Entries, e => e.Message.Contains("without a rollback", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AdoptableSet_CoversEveryFieldTheSerializerPersists()
+    {
+        // The derivation-proof half of AdoptFrom_CarriesEveryPersistedField, which compares only fields a
+        // test remembered to populate. This one asks the SERIALIZER what it persists - every top-level
+        // element it emits - and refuses a name AdoptFrom's rule does not select, so a property added to
+        // the configuration model tomorrow bites here without anybody remembering this test.
+        //
+        // What it does NOT prove is stated rather than implied: the rule is restated here rather than
+        // read out of the production field, which is private. It catches a new PERSISTED property the
+        // rule misses - a get-only collection is the shape that would - and not a change to the rule
+        // itself, which the behavioural tests above are for.
+        var persistedNames = XDocument
+            .Parse(new PluginConfiguration().ToPersistedForm())
+            .Root!
+            .Elements()
+            .Select(element => element.Name.LocalName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var adopted = typeof(PluginConfiguration)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0)
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(persistedNames);
+        Assert.Empty(persistedNames.Except(adopted));
     }
 }

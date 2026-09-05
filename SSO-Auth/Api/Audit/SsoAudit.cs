@@ -239,6 +239,67 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records that a subscriber to the plugin's <c>ConfigurationChanged</c> event threw (#1521). The write
+    /// it is being told about is already on disk and already live, so the failure is contained here rather
+    /// than unwound: letting it out would reach the store's rollback and revert a durable change. Warning
+    /// rather than Error: whoever subscribed did not get its update, and nothing this plugin owns is wrong.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="error">What the subscriber threw. No configuration content is recorded.</param>
+    internal static void ConfigurationChangedSubscriberFailed(ILogger logger, Exception error)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] A ConfigurationChanged subscriber failed after a completed configuration save ({Reason}). The save itself is stored and live; whatever that subscriber keeps in step with the configuration may not be.",
+            error?.Message?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records that a configuration write went ahead without an undo, because the state it would have
+    /// restored could not be serialized (#1521). The write itself is NOT refused: refusing it would make a
+    /// configuration that once reached this state permanently unwritable, including the delete that would
+    /// repair it. Warning, because the all-or-nothing property the import endpoints promise does not hold
+    /// for this one write and an operator reading a later 500 deserves to find this line above it.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="error">What refused the serialization. No configuration content is recorded.</param>
+    internal static void ConfigurationRollbackUnavailable(ILogger logger, Exception error)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Configuration write proceeding without a rollback: the current configuration could not be serialized for one ({Reason}). If this write fails, the running server keeps the change while the file does not, until the next restart.",
+            error?.Message?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records that a configuration write failed AND the undo for it failed too (#1521), so the running
+    /// server is left carrying a change the file does not have. Error rather than Warning: this is the state
+    /// the rollback exists to prevent, the exception the caller sees names the write rather than this, and a
+    /// restart is what puts the server back on the file.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="error">What the restore threw. No configuration content is recorded.</param>
+    internal static void ConfigurationRollbackFailed(ILogger logger, Exception error)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] Configuration write failed and could not be rolled back ({Reason}): the running server is carrying a change that is not in the file. Restart the server to put it back on the stored configuration.",
+            error?.Message?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
     /// Records a config-page save whose changes to a declaratively managed provider were ignored (#1102). The
     /// provider is decided by the mounted document or the environment, so the stored value was kept and the
     /// posted one discarded. Warning rather than Information: an administrator has just made an edit the
