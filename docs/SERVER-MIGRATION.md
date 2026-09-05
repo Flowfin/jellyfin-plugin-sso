@@ -201,6 +201,53 @@ number of entries in the file you applied: that comparison is the check on this
 step, and until #1520 it could only be made in the server log, because the
 endpoint answered `204` whatever the number was.
 
+## How long the link import holds the server
+
+The import resolves every username BEFORE it takes the configuration lock, and
+then does the writes and the persist inside it. That lock is the one every login
+waits on, so on a server with many thousands of linked accounts the question is
+how long one import stops logins, and nothing said (#1522).
+
+Nothing bounds the number of entries a document may carry except the
+one-mebibyte request-size limit on the route, and a minimal entry is small, so
+about ten thousand of them fit in one body. That is the ceiling, and it is what
+the top row below measures.
+
+Measured 2026-09-05, Release `net9.0` on .NET 10.0.11 x64, forty measured
+imports per size with five discarded, one OpenID provider, every entry carrying
+an issuer stamp so both maps are written:
+
+```
+dotnet run --project SSO-Auth.Bench -c Release -- --link-import --iterations 40 --warmup 5
+
+scenario   stage            n    p50 ms    p95 ms    p99 ms    max ms
+import     100 entries     40     0.835     0.943     2.883     2.883
+import     1000 entries     40     3.852     6.683    29.502    29.502
+import     5000 entries     40    15.481    22.199    22.652    22.652
+import     10000 entries    40    43.901    76.230   100.581   100.581
+```
+
+**So a restore at the ceiling this route admits holds the lock for tens of
+milliseconds, not seconds.** The cost is close to linear in the number of
+entries. There is no entry cap on the route and this is why: a cap set where it
+would bite would refuse a large real migration, which is the only shape that
+reaches these sizes, and a cap set above the request-size limit would refuse
+nothing.
+
+**Two bounds on those numbers, and both make them a floor rather than a total.**
+The harness persists through a mocked serializer, so the host's own write to
+`SSO-Auth.xml` is not in them - which on a table this size is tens of
+milliseconds again (#1532 measures the serialization alone at 33.6 ms for five
+thousand links). And it runs on whatever box you run it on; the figures above
+are one developer machine, not a claim about yours.
+
+**A trap met while measuring this, because the next person will meet it too.**
+The first run of this harness read 1871 ms at p50 for ten thousand entries -
+forty times the number above - and the cost was the harness. Configuring the
+mocked user manager with one return per username makes it match every call
+against a list that grows with the size, so the instrument was quadratic and the
+endpoint was not. One configured call answering every username removed it.
+
 ## Rolling back
 
 A refused import leaves nothing to undo. Both resolve the whole document before

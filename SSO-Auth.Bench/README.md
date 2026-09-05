@@ -17,10 +17,27 @@ dotnet run --project SSO-Auth.Bench -c Release -- --iterations 2000 --warmup 200
 | `--iterations`  | 500     | measured round-trips per scenario                 |
 | `--warmup`      | 50      | round-trips each caller discards before measuring |
 | `--concurrency` | 8       | callers driving the concurrent scenario at once   |
+| `--link-import` | off     | measure the account-link import instead (#1522)   |
 
 The project is **not** in `SSO-Auth.sln`, the same way `SSO-Auth.Fuzz` is not: `dotnet build`,
 `dotnet test`, the coverage gate and the dependency scan all work from the solution and never
 restore or build this. No CI job runs it either.
+
+## The account-link import cost
+
+`--link-import` measures a different subject, and is a separate run rather than a section of the
+one above: how long ONE bulk administrative write holds the process-wide configuration lock, which
+is the lock every login waits on. It drives the real `ImportLinks` through the same harness, at
+100, 1000, 5000 and 10000 entries - the top of that range being roughly what the route's
+one-mebibyte request-size limit admits. `--iterations` defaults to 20 here and `--warmup` to 3,
+because a ten-thousand-entry import is not a thing to do five hundred times.
+
+Two bounds it prints on every run. The harness persists through a mocked serializer, so the host's
+own write to `SSO-Auth.xml` is outside the figures and every one of them is a floor; and the
+username resolution happens outside the lock in `ImportLinks`, so it is real cost but not
+lock-held time. The numbers taken with it live in
+[docs/SERVER-MIGRATION.md](../docs/SERVER-MIGRATION.md), where an operator planning a migration
+reads them.
 
 ## What the two scenarios measure
 
