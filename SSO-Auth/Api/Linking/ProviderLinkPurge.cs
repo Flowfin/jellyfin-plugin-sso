@@ -102,12 +102,20 @@ internal readonly record struct LinksElsewhere(HashSet<Guid> Any, HashSet<Guid> 
 /// The administrator accounts whose last way in the run would have taken, named so the way out is
 /// explicit. Empty on every other arm.
 /// </param>
+/// <param name="TargetWasEnabled">
+/// Whether the emptied provider was enabled, so its links were a way in before the run and the run took
+/// something. False means it took nothing from anybody, which is why the guard refused nobody - and why
+/// the after-the-fact check must not be asked either: an account with no way in on a server whose
+/// provider is switched off had none before the run, and reporting it as a lockout this run caused would
+/// be a false alarm on the workflow the route exists for.
+/// </param>
 internal readonly record struct ProviderLinkPurgeOutcome(
     ProviderLinkPurgeResult Result,
     int RemovedLinks,
     int ActualLinkCount,
     IReadOnlyList<Guid> RevokedUserIds,
-    IReadOnlyList<string> StrandedAdministrators)
+    IReadOnlyList<string> StrandedAdministrators,
+    bool TargetWasEnabled = false)
 {
     /// <summary>
     /// A refusal: nothing was removed, nobody is revoked, and the only fields that carry anything are the
@@ -118,5 +126,5 @@ internal readonly record struct ProviderLinkPurgeOutcome(
     /// <param name="actualLinkCount">How many links the provider actually holds.</param>
     /// <returns>The refusal outcome.</returns>
     internal static ProviderLinkPurgeOutcome Refusing(ProviderLinkPurgeResult result, int actualLinkCount)
-        => new(result, 0, actualLinkCount, Array.Empty<Guid>(), Array.Empty<string>());
+        => new(result, 0, actualLinkCount, Array.Empty<Guid>(), Array.Empty<string>(), TargetWasEnabled: false);
 }

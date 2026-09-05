@@ -279,12 +279,13 @@ another provider keep their sessions.
 
 It refuses, before removing anything, when the result would leave an
 administrator account with no way to sign in, and the refusal names those
-accounts. Give one of them a usable password, or unlink it deliberately with the
-single-link DELETE, and run it again. A way in means a password the account can
-actually use, or a link on another **enabled** provider - a link on a disabled
-one signs nobody in, so it does not count.
-`docs/ACCOUNT-MANAGEMENT-API.md` carries the full contract, including what counts
-while SSO-only login is on and the one window the check cannot cover.
+accounts. A way in means a link on another **enabled** provider and nothing else -
+a link on a disabled one signs nobody in, and a stored password proves nothing,
+because this plugin mints an unusable one onto the accounts it provisions and
+cannot tell the two apart. Link such an account to another enabled provider, or
+unlink it deliberately with the single-link DELETE, and run this again.
+`docs/ACCOUNT-MANAGEMENT-API.md` carries the full contract, including the one
+window the check cannot cover.
 
 There is still no replace mode on the import itself, and that is deliberate: an
 import that replaced would be a second destructive path with the same blast

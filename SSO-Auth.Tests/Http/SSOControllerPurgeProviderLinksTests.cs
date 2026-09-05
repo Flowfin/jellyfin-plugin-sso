@@ -211,17 +211,25 @@ public class SSOControllerPurgeProviderLinksTests
     }
 
     [Fact]
-    public async Task PurgeProviderLinks_WithAnAdministratorWhoCanStillUseAPassword_Proceeds()
+    public async Task PurgeProviderLinks_WithAnAdministratorHoldingAStoredPassword_IsStillRefused()
     {
-        // The falsifier for the refusal above: one field changes - the administrator has a usable password
-        // door - and the same call goes through. Without it the guard could be refusing for any reason.
+        // A STORED PASSWORD IS NOT A WAY IN HERE, and this is the reading the whole guard turns on. This
+        // plugin mints an unguessable password onto every account it provisions and onto every passwordless
+        // linked account it finds at boot (#1440), records nowhere which accounts those were, and the hash
+        // it writes is the same field and the same shape as a real one. So a non-empty User.Password is a
+        // secret somebody holds or a seal nobody can open, and nothing in the tree separates them. Counting
+        // it would clear this guard for every SSO-provisioned administrator on a server whose provider
+        // routes accounts to the built-in password provider - silently, which is the lockout it exists to
+        // refuse. The cost is this refusal, and the ways out are in its message.
         var harness = SeedProvider(links: 1);
         SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: true);
 
         var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
 
-        Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(0, LinkCount(harness));
+        var conflict = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(409, conflict.StatusCode);
+        Assert.Contains("stored password does not count", conflict.Value?.ToString(), StringComparison.Ordinal);
+        Assert.Equal(2, LinkCount(harness));
     }
 
     [Fact]
@@ -235,48 +243,6 @@ public class SSOControllerPurgeProviderLinksTests
         {
             Enabled = true,
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["nameid-root"] = RootId },
-        });
-
-        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
-
-        Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(0, LinkCount(harness));
-    }
-
-    [Fact]
-    public async Task PurgeProviderLinks_UnderSsoOnlyLogin_DoesNotCountANonExemptAdministratorsPassword()
-    {
-        // The reading a hand-written guard gets wrong. The administrator routes to the built-in password
-        // provider and carries a stored password, so the account-side reading says "has a password door" -
-        // but SSO-only login is on and this account is not the designated break-glass admin, so that door is
-        // shut for it. Counting it would strand exactly the administrator the mode was configured to keep
-        // out of the password path.
-        var harness = SeedProvider(links: 1);
-        SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: true);
-        SSOPlugin.Instance.MutateConfiguration(c =>
-        {
-            c.DisablePasswordLogin = true;
-            c.BreakGlassAdminUsername = "somebody-else";
-        });
-
-        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
-
-        Assert.Equal(409, Assert.IsType<ObjectResult>(result).StatusCode);
-        Assert.Equal(2, LinkCount(harness));
-    }
-
-    [Fact]
-    public async Task PurgeProviderLinks_UnderSsoOnlyLogin_CountsTheBreakGlassAdministratorsPassword()
-    {
-        // The other half of the same rule, so the test above cannot pass merely because the mode flag
-        // refuses everything: the break-glass admin is the one account whose password door the mode leaves
-        // standing, and the purge goes through.
-        var harness = SeedProvider(links: 1);
-        SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: true);
-        SSOPlugin.Instance.MutateConfiguration(c =>
-        {
-            c.DisablePasswordLogin = true;
-            c.BreakGlassAdminUsername = "root";
         });
 
         var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
@@ -351,6 +317,25 @@ public class SSOControllerPurgeProviderLinksTests
 
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal(0, LinkCount(harness));
+    }
+
+    [Fact]
+    public async Task PurgeProviderLinks_OnADisabledProvider_DoesNotReportALockoutItDidNotCause()
+    {
+        // The after-the-fact check exists to catch a race, and its line says so - "they were judged to have
+        // one, so something changed in between". On a provider that was already switched off nothing
+        // changed and nothing was taken: the administrator had no way in before the run either. Printing
+        // the line here would cry wolf on the exact workflow the route is for, in the one line whose value
+        // is that it means a real race happened.
+        var harness = SeedProvider(links: 1);
+        SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: false);
+        SSOPlugin.Instance.MutateConfiguration(c => c.OidConfigs["keycloak"].Enabled = false);
+
+        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
+
+        Assert.IsType<OkObjectResult>(result);
+        var log = string.Join("\n", harness.ControllerLog.Records.ConvertAll(r => r.Message));
+        Assert.DoesNotContain("have no way to sign in", log, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1629,7 +1629,7 @@ internal sealed class CanonicalLinkService
             var stillLinked = UsersWithAnEnabledLink(configuration);
             return (IReadOnlyList<string>)doors
                 .Where(door => door.IsAdministrator && !door.IsDisabled)
-                .Where(door => !HasPasswordDoor(configuration, door) && !stillLinked.Contains(door.UserId))
+                .Where(door => !stillLinked.Contains(door.UserId))
                 .Select(door => door.Username)
                 .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1653,12 +1653,28 @@ internal sealed class CanonicalLinkService
     /// T-D1, the mass-lockout guard: this is the first primitive here that can take every account on a
     /// server off SSO in one call, so it REFUSES rather than excluding. Silently keeping an administrator's
     /// link would leave the provider not empty while the answer says it is, and the next import would hit
-    /// the very refusal this action exists to clear. A link on another provider counts as a way in, and so
-    /// does a password the account can actually use - which is not a field on a Jellyfin account: it is the
-    /// reading the SSO-only break-glass guard already makes (built-in password provider plus a stored
-    /// password), narrowed here by the mode flag, because while SSO-only login is on the only account whose
-    /// password door survives is the designated break-glass admin. An account that is disabled, or that has
-    /// vanished since it was judged, is not stranded by this run: it already has no way in.
+    /// the very refusal this action exists to clear. An account that is disabled, or that has vanished
+    /// since it was judged, is not stranded by this run: it already has no way in.
+    /// </para>
+    /// <para>
+    /// WHAT COUNTS AS A WAY IN IS A LINK ON AN ENABLED PROVIDER, AND A STORED PASSWORD DOES NOT COUNT.
+    /// The decision that asked for this guard left the reading of "a password the account can use" to be
+    /// measured rather than assumed, and the measurement says the tree cannot make it. This plugin mints
+    /// an unguessable password onto every account it provisions and onto every passwordless linked account
+    /// it finds at boot (#1440, <c>ProvisionedPassword.Mint</c>: 64 CSPRNG bytes, "never displayed, never
+    /// stored anywhere else and never recoverable"), and it records nowhere which accounts those were. So
+    /// a non-empty <c>User.Password</c> is a hash somebody may hold or a seal nobody can open, and the two
+    /// are the same bytes. On a server whose provider routes accounts to the built-in password provider -
+    /// which the configuration page names as a common setting - counting it would have cleared this guard
+    /// for every SSO-provisioned administrator on the server, silently, which is the exact lockout it
+    /// exists to refuse.
+    /// </para>
+    /// <para>
+    /// So the password term is out until something can tell the two apart, and the cost is stated rather
+    /// than hidden: an administrator who really does sign in with a password and holds a link on the
+    /// provider being emptied makes this refuse. The refusal names them and the ways out - unlink that one
+    /// account deliberately through the single-link route, or link it to another enabled provider - and
+    /// both are one call. A refusal costs a call; the other error costs the server.
     /// </para>
     /// <para>
     /// The removal takes the issuer stamps (#186), the expiry deadlines (#1145) and the last-SSO-login
@@ -1723,14 +1739,14 @@ internal sealed class CanonicalLinkService
                 ? linked
                     .Select(userId => doors[userId])
                     .Where(door => door.IsAdministrator && !door.IsDisabled)
-                    .Where(door => !HasPasswordDoor(configuration, door) && !elsewhere.OnAnEnabledProvider.Contains(door.UserId))
+                    .Where(door => !elsewhere.OnAnEnabledProvider.Contains(door.UserId))
                     .Select(door => door.Username)
                     .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
                     .ToList()
                 : new List<string>();
             if (stranded.Count > 0)
             {
-                return new ProviderLinkPurgeOutcome(ProviderLinkPurgeResult.WouldStrandAdministrator, 0, links.Count, Array.Empty<Guid>(), stranded);
+                return new ProviderLinkPurgeOutcome(ProviderLinkPurgeResult.WouldStrandAdministrator, 0, links.Count, Array.Empty<Guid>(), stranded, elsewhere.TargetEnabled);
             }
 
             var removed = links.Count;
@@ -1749,20 +1765,9 @@ internal sealed class CanonicalLinkService
                 }
             }
 
-            return new ProviderLinkPurgeOutcome(ProviderLinkPurgeResult.Purged, removed, removed, losing, Array.Empty<string>());
+            return new ProviderLinkPurgeOutcome(ProviderLinkPurgeResult.Purged, removed, removed, losing, Array.Empty<string>(), elsewhere.TargetEnabled);
         });
     }
-
-    // Whether the account can still sign in with a password once its SSO links are gone. The provider and
-    // stored-password half is read from the account outside the lock (AccountDoors); the half that needs the
-    // configuration is applied here, because while SSO-only login is on every non-exempt account has been
-    // repointed off the password provider and only the break-glass admin's door is left standing. Fail
-    // toward the refusal: an account this cannot prove has a password door is treated as having none, so
-    // the guard errs on refusing a purge rather than on stranding an administrator.
-    private static bool HasPasswordDoor(PluginConfiguration configuration, AccountDoors door)
-        => door.RoutesToPasswordProvider
-           && door.HasStoredPassword
-           && !SsoOnlyLoginGuard.IsEnforcedNonExempt(configuration, door.Username);
 
     // Everything the purge needs to know about the OTHER providers, from ONE walk under the caller's
     // already-held config lock: which accounts hold a link somewhere else at all, which hold one on a

@@ -2351,8 +2351,9 @@ public class SSOController : ControllerBase
         // plugin's write is not atomic (#1532): a wrong count is the NORMAL outcome here and must not spend
         // a rewrite of SSO-Auth.xml. The authoritative checks stay inside the purge below.
         var survey = _canonicalLinks.SurveyProviderLinks(parsed, provider);
+        var doors = survey.ProviderExists ? _ssoOnly.DescribeAccountDoors(survey.LinkedUsers) : Array.Empty<AccountDoors>();
         var outcome = Screen(survey, expectedLinkCount)
-            ?? _canonicalLinks.TryPurgeProviderLinks(parsed, provider, expectedLinkCount, _ssoOnly.DescribeAccountDoors(survey.LinkedUsers));
+            ?? _canonicalLinks.TryPurgeProviderLinks(parsed, provider, expectedLinkCount, doors);
 
         if (outcome.Result != ProviderLinkPurgeResult.Purged)
         {
@@ -2390,7 +2391,7 @@ public class SSOController : ControllerBase
                     + (overflow > 0 ? FormattableString.Invariant($" and {overflow} more") : string.Empty);
                 return StatusCode(
                     StatusCodes.Status409Conflict,
-                    "This would take the last way in from these administrator accounts: " + stranded + ". Give each of them a password on Jellyfin's own password provider - the account has to be routed to that provider as well as carry a password - or link it to another enabled provider, or unlink it deliberately one link at a time. Then run this again. Nothing was removed.");
+                    "This would take the last way in from these administrator accounts: " + stranded + ". A stored password does not count as a way in here, because this plugin mints an unusable one onto the accounts it provisions and cannot tell the two apart. Link each of them to another enabled provider, or unlink it deliberately through the single-link route, then run this again. Nothing was removed.");
 
             case ProviderLinkPurgeResult.Purged:
                 break;
@@ -2431,10 +2432,27 @@ public class SSOController : ControllerBase
         // it off the password provider - and no link-table comparison can see that. So the same question is
         // asked once more against what is true now. It cannot undo the removal; it turns a silent lockout
         // into a line an operator can act on, which is the difference between a bad night and a rebuild.
-        var doorless = _canonicalLinks.AdministratorsWithNoWayIn(_ssoOnly.DescribeAccountDoors(outcome.RevokedUserIds));
+        // EVERY account the guard judged, not the subset this run signed out. The two sets are not the
+        // same: an account keeping a link on a DISABLED provider is not signed out - the revoke scope is
+        // the any-link reading (#468) - and is exactly the account this net exists for, because a disabled
+        // provider is where a way in stops being one. Feeding it the revoked subset would leave the case
+        // the guard was rewritten for as the one case the net cannot see.
+        // And only where the run actually TOOK something. On a provider that was already switched off,
+        // its links were not a way in before the run either, so an administrator with none afterwards had
+        // none before - reporting that as a lockout this run caused would be a false alarm, printed on
+        // exactly the disable-then-clean-up workflow the route exists for, in a line whose whole value is
+        // that it means a real race happened.
+        var doorless = outcome.TargetWasEnabled
+            ? _canonicalLinks.AdministratorsWithNoWayIn(doors)
+            : Array.Empty<string>();
         if (doorless.Count > 0)
         {
-            SsoAudit.ProviderLinksPurgeStrandedAdministrator(_logger, protocol, provider, string.Join(", ", doorless));
+            // Capped like the refusal body, and for the same reason: a server mapping administrator
+            // broadly from an identity-provider role can make this list as long as its roster.
+            var overflowing = doorless.Count - NamedStrandedAdministrators;
+            var named = string.Join(", ", doorless.Take(NamedStrandedAdministrators))
+                + (overflowing > 0 ? FormattableString.Invariant($" and {overflowing} more") : string.Empty);
+            SsoAudit.ProviderLinksPurgeStrandedAdministrator(_logger, protocol, provider, named);
         }
 
         return Ok(new ProviderLinkPurgeDocument { Removed = outcome.RemovedLinks, SignedOut = signedOut });
@@ -2540,6 +2558,9 @@ public class SSOController : ControllerBase
     // configuration is the ordinary way this input arrives, so an integrator needs a status they can depend
     // on. The body names the two accepted tokens and never echoes the supplied one, which would reflect
     // caller-controlled text into the response.
+    private static BadRequestObjectResult? RefuseUnknownMode(string mode, out ProviderMode parsed) =>
+        ProviderModeParser.TryParse(mode, out parsed) ? null : new BadRequestObjectResult(UnknownModeMessage);
+
     // The refusals the survey can answer on its own, so a stale page does not spend a rewrite of the
     // configuration file to be told its number is old (#1519). Null means nothing here decides it and the
     // purge runs, where both of these are checked again under the lock that removes - this is a cheaper
@@ -2555,9 +2576,6 @@ public class SSOController : ControllerBase
             ? null
             : ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.CountMismatch, survey.LinkCount);
     }
-
-    private static BadRequestObjectResult? RefuseUnknownMode(string mode, out ProviderMode parsed) =>
-        ProviderModeParser.TryParse(mode, out parsed) ? null : new BadRequestObjectResult(UnknownModeMessage);
 
     // Fronts a rate-limited endpoint with the shared per-client gate (#128, #160, #382, #516): null when the
     // request may proceed, else the throttled outcome the single mapper renders (#474). The anonymous login

@@ -27,14 +27,15 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   emptying a different number than the operator saw. It refuses before removing
   anything when the result would leave an administrator account with no way to
   sign in, and names those accounts so the way out is explicit. A way in is a
-  link on another **enabled** provider - a link left on a disabled one signs
-  nobody in - or a password the account can actually use, which while SSO-only
-  login is on means the break-glass admin alone. It refuses only where it would
-  TAKE the last one, so emptying an already-disabled provider is never blocked.
-  Accounts left holding no link at all are signed out; accounts that still hold
-  one elsewhere keep their sessions. The act and every refusal are audited, and
-  so is the one case the check cannot cover - an account that loses its password
-  door while the run is in flight is named in the log the moment it happens.
+  link on another **enabled** provider and nothing else: a link left on a disabled
+  one signs nobody in, and a stored password proves nothing, because this plugin
+  mints an unusable one onto the accounts it provisions and records nowhere which
+  those were. It refuses only where it would TAKE the last way in, so emptying an
+  already-disabled provider is never blocked. Accounts left holding no link at all
+  are signed out; accounts that still hold one elsewhere keep their sessions. The
+  act and every refusal are audited, and so is the case the check cannot cover: if
+  something changes while the run is in flight, an administrator left without a
+  way in is named in the log the moment it happens.
 
 - **A starting policy can seed the home screen (#1101).** The provisioning
   template gains a **Home screen sections** list: the sections of the web
