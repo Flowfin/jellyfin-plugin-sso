@@ -191,6 +191,31 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // SaveConfiguration is the write half alone: it creates the configuration directory and
         // serializes to the same file, and it neither assigns Configuration nor raises
         // ConfigurationChanged. So a throw here reaches the caller with nothing made live.
+        //
+        // THIS WRITE IS NOT ATOMIC AND DOES NOT GO THROUGH A TEMPORARY FILE, WHICH IS A DECISION RATHER
+        // THAN AN OVERSIGHT (#1532). It serializes straight over SSO-Auth.xml with no temporary copy and
+        // no rename, so the failure the line above is about - a disk that fills mid-write - leaves a
+        // truncated file. Three reasons it is left that way, in the order they bind:
+        //
+        // A rename would not save the file it is meant to save. BasePlugin<T>.LoadConfiguration catches
+        // every exception, builds a default configuration AND WRITES IT BACK over the file, so a
+        // truncated SSO-Auth.xml becomes an empty one on the next start with every provider, link and
+        // at-rest secret envelope gone and the evidence overwritten. The destructive half is on the LOAD
+        // side and is the host's; a write-side rename leaves it exactly as it is, and shipping one would
+        // buy the appearance of durability without the fact. That is #1543.
+        //
+        // Owning the write means owning what 'the serializer produced a file' means. Replacing this call
+        // with SerializeToFile-then-rename needs a definition of the temporary file having been written,
+        // and the plugin cannot tell a serializer that wrote nothing from one that wrote in place - the
+        // test harness mocks IXmlSerializer precisely so no file appears, so the rename would throw
+        // through every persisting test in the suite and the repair would be to make the mock write,
+        // which changes what those tests mean.
+        //
+        // And the running server is already covered, which is what #1521 bought: a write that throws is
+        // rolled back out of the live configuration, so the process goes back to the stored state rather
+        // than carrying a change the file does not have. What is not covered is the FILE, and the
+        // operator-facing consequence is stated where an operator reads it, in docs/SERVER-MIGRATION.md:
+        // copy SSO-Auth.xml before a migration step and check it after a failed one, before restarting.
         SaveConfiguration(incoming);
 
         // Then the live object, in place rather than by reference: every reader in this plugin holds the

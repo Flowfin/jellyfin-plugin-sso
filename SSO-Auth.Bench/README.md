@@ -12,12 +12,13 @@ dotnet run --project SSO-Auth.Bench -c Release
 dotnet run --project SSO-Auth.Bench -c Release -- --iterations 2000 --warmup 200 --concurrency 16
 ```
 
-| option          | default | meaning                                           |
-| --------------- | ------- | ------------------------------------------------- |
-| `--iterations`  | 500     | measured round-trips per scenario                 |
-| `--warmup`      | 50      | round-trips each caller discards before measuring |
-| `--concurrency` | 8       | callers driving the concurrent scenario at once   |
-| `--link-import` | off     | measure the account-link import instead (#1522)   |
+| option           | default | meaning                                              |
+| ---------------- | ------- | ---------------------------------------------------- |
+| `--iterations`   | 500     | measured round-trips per scenario                    |
+| `--warmup`       | 50      | round-trips each caller discards before measuring    |
+| `--concurrency`  | 8       | callers driving the concurrent scenario at once      |
+| `--link-import`  | off     | measure the account-link import instead (#1522)      |
+| `--config-write` | off     | measure the configuration write and its undo (#1532) |
 
 The project is **not** in `SSO-Auth.sln`, the same way `SSO-Auth.Fuzz` is not: `dotnet build`,
 `dotnet test`, the coverage gate and the dependency scan all work from the solution and never
@@ -38,6 +39,18 @@ username resolution happens outside the lock in `ImportLinks`, so it is real cos
 lock-held time. The numbers taken with it live in
 [docs/SERVER-MIGRATION.md](../docs/SERVER-MIGRATION.md), where an operator planning a migration
 reads them.
+
+## The configuration-write cost
+
+`--config-write` measures the undo behind a configuration write against the write it is paid on
+(#1532). Every write has taken a persisted-form snapshot of the whole configuration since #1521, so
+a persist that throws can be rolled back out of the running server, and that snapshot is paid inside
+the process-wide lock by writes on the LOGIN path as well as by an administrator saving a form. Two
+rows per size: the snapshot alone, and the production `MutateConfiguration` with it. The no-snapshot
+baseline is the difference, which is a reading of `ProviderConfigStore.Mutate` rather than an
+estimate - it calls `Snapshot` once and nothing else reads the result - and there is deliberately no
+switch in production that turns the undo off for a benchmark. The numbers and the decision they took
+live at that method.
 
 ## What the two scenarios measure
 

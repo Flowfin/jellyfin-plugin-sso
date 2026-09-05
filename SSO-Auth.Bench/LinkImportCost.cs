@@ -107,11 +107,7 @@ internal static class LinkImportCost
         {
             links.Add(new LinkExportEntry
             {
-                // The literal rather than LinkExport.OpenIdProtocol: that class is internal to the
-                // plugin and this project is not one of its two friends. The protocol name is part of
-                // the document format an operator posts, so it is stable in the same way the field
-                // names around it are.
-                Protocol = "OpenID",
+                Protocol = LinkExport.OpenIdProtocol,
                 Provider = Provider,
                 CanonicalName = "sub-" + i.ToString(CultureInfo.InvariantCulture),
                 Username = Username(i),
@@ -123,7 +119,7 @@ internal static class LinkImportCost
             });
         }
 
-        return new LinkExportDocument { FormatVersion = 1, Links = links };
+        return new LinkExportDocument { FormatVersion = LinkExport.FormatVersion, Links = links };
     }
 
     private const string UsernamePrefix = "bench-user-";
