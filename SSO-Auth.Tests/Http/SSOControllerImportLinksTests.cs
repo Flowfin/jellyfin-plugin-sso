@@ -41,9 +41,11 @@ public class SSOControllerImportLinksTests
             new[] { "OpenID/idp:1", "SAML/adfs:1" },
             result.Providers.Select(entry => $"{entry.Protocol}/{entry.Provider}:{entry.Links}").ToArray());
 
-        // The count has to be the truth about the write rather than a count of what was posted, so the
-        // stored table is read back: a body claiming two while the map holds none is the exact failure
-        // #1517 was, one field further along.
+        // The count is of restored entries, and the stored table is read back beside it because that is the
+        // part the number cannot prove on its own: a body claiming two while the map holds none is the exact
+        // failure #1517 was, one field further along. The two agree here because no entry repeats; a
+        // document repeating one identical entry counts it twice and writes one link, which is the same
+        // count the audit line has carried since #1129.
         Assert.Equal(TargetAlice, harness.Configuration.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(TargetBob, harness.Configuration.SamlConfigs["adfs"].CanonicalLinks["nameid-bob"]);
     }

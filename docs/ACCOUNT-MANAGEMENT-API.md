@@ -376,6 +376,12 @@ is the shape rather than the defect.
 applied. It carries no canonical name, for the reason the refusal path does not:
 that is the one field naming a real person at the identity provider.
 
+It counts restored ENTRIES rather than distinct links, which is what makes that
+check work: the comparison is against the number of entries in the file. A
+document repeating one identical entry contradicts nothing and is not refused,
+so it counts once per occurrence while writing one link. This is the same count
+`SsoAudit.LinksImported` has carried since #1129.
+
 ### Responses
 
 | Status | Meaning                                                                                                                                                  |

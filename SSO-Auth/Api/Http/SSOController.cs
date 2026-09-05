@@ -1785,8 +1785,16 @@ public class SSOController : ControllerBase
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Config/Links/Import")]
     [RequestSizeLimit(ConfigImportMaxBytes)]
+    // NO [Produces] HERE, DELIBERATELY, and this endpoint is the one place in the controller where
+    // that attribute would cost something. It would retype the refusal body too: the reachable 400 is
+    // BadRequest(ex.Message) below, whose literals docs/ACCOUNT-MANAGEMENT-API.md and
+    // docs/SERVER-MIGRATION.md quote and LinkImportTests pins, and under [Produces] that plain string
+    // is written as a JSON string - quoted, and typed application/json - so the sentence an operator
+    // reads on the settings page arrives inside quotation marks. It buys nothing in exchange:
+    // measured against a running 10.11.11, Config/Export carries no [Produces] and answers
+    // `Content-Type: application/json; charset=utf-8` anyway, including to a caller sending
+    // `Accept: application/xml`, so the success body is JSON either way on this host.
     [Consumes(MediaTypeNames.Application.Json)]
-    [Produces(MediaTypeNames.Application.Json)]
     public async Task<ActionResult> ImportLinks([FromBody] LinkExportDocument document)
     {
         // Throttle after the elevation guard, before any work (#382, #516): the [Authorize] filter refuses

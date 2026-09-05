@@ -30,6 +30,12 @@ public class LinkImportResultDocument
     /// Gets or sets how many links the document rebound. Zero is a real and reportable answer - an empty
     /// document, or one whose entries this instance could act on none of - and it is the value the fixed
     /// success sentence used to hide.
+    /// <para>
+    /// It counts restored ENTRIES rather than distinct map keys, which is the same count the audit line has
+    /// carried since #1129 and is what makes the check the migration runbook asks for work: compare it
+    /// against the number of entries in the file. A document repeating one identical entry contradicts
+    /// nothing and is not refused, so it counts once per occurrence while writing one link.
+    /// </para>
     /// </summary>
     public int Restored { get; set; }
 
@@ -37,6 +43,13 @@ public class LinkImportResultDocument
     /// Gets the per-provider breakdown, ordered by protocol and then provider name. Empty when nothing was
     /// restored, which is the same fact as <see cref="Restored"/> being zero and is carried beside it so a
     /// caller that renders the breakdown does not have to special-case the total.
+    /// <para>
+    /// GET-ONLY, AND THAT IS #1517 SHAPE POINTING THE OTHER WAY. A get-only collection is invisible to
+    /// System.Text.Json on the way IN, which is what dropped the whole link payload there. It is safe here
+    /// only because this document is written and never bound: the conformance rule that catches the defect
+    /// scans <c>[FromBody]</c> parameter types, so it would not catch this one. Bind this type from a
+    /// request body, or round-trip it in a .NET client, and the breakdown goes missing in silence.
+    /// </para>
     /// </summary>
     public Collection<LinkImportProviderResult> Providers { get; } = new();
 
@@ -52,7 +65,7 @@ public class LinkImportResultDocument
         var document = new LinkImportResultDocument();
         foreach (var count in counts)
         {
-            document.Restored += count.Links;
+            document.Restored += 1;
             document.Providers.Add(new LinkImportProviderResult
             {
                 Protocol = count.Protocol,
