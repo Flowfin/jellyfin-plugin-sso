@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -312,6 +313,30 @@ public class DeclarativeManagedProvidersTests
         Assert.Equal(DeclarativeLoadOutcome.Rejected, Load(store, document));
         Assert.True(store.ManagedProviders.IsEmpty);
         Assert.Empty(persisted);
+        Assert.Empty(live.OidConfigs);
+    }
+
+    [Fact]
+    public void ADocumentWhosePersistFailed_ManagesNothing()
+    {
+        // The third rejection arm, and the only one that gets all the way past the merge: a valid document
+        // whose write cannot reach the disk - a read-only volume, a full disk, which is what a freshly built
+        // target hits. Since #1521 the store rolls such a write back out of the running configuration, so a
+        // freeze recorded ahead of the write outlives the values it was a freeze FOR: Reinject would spend
+        // the rest of that process reverting an administrator's config-page edits to a document in effect
+        // nowhere, while the boot log said nothing had been changed (#1534). The window is one process
+        // lifetime, and it is exactly the dead end #1415 set out to remove.
+        var live = new PluginConfiguration();
+        var store = new ProviderConfigStore(() => live, _ => throw new IOException("read-only volume"), new CapturingLogger());
+        var document = new PluginConfiguration();
+        document.OidConfigs["keycloak"] = new OidConfig { OidEndpoint = Endpoint, OidClientId = "from-the-file" };
+
+        Assert.Throws<IOException>(() => Load(store, document));
+
+        Assert.True(store.ManagedProviders.IsEmpty);
+
+        // And the rollback the freeze must agree with actually happened, so this is a test of the ORDER
+        // rather than of a store that quietly kept the document.
         Assert.Empty(live.OidConfigs);
     }
 
