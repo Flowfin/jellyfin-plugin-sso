@@ -61,6 +61,10 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // The pre-provision link write (#1133): it grants an identity-provider subject the ability to sign
         // in as an account other than the caller's, with no identity-provider response behind it.
         "PreprovisionCanonicalLink",
+        // The per-provider bulk unlink (#1519): it removes canonical links on accounts other than the
+        // caller's, every one of them at once, and it is the only route here that can take a whole server
+        // off SSO in one call. There is no single subject a per-user authorization check could name.
+        "PurgeProviderLinks",
         // The mappable permission vocabulary (#1484): read-only and installation-independent, and
         // elevation-gated because the config page is the only caller it exists for - an anonymous route
         // would be a new unauthenticated surface bought for nothing.

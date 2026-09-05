@@ -11,6 +11,31 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A way back from a link import that restored the wrong document (#1519).**
+  `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
+  canonical link one provider holds. It exists because the link import merges -
+  it adds and overwrites and never removes - so re-importing the correct file
+  after the wrong one does not undo it: the correct document is refused whole,
+  and one leftover entry blocks the restore of every other link. Emptying the
+  provider and importing again clears that, and it is the smallest true way
+  back: a replace mode on the import would be a second destructive path with
+  the same blast radius as the mistake it answers. It touches links and nothing
+  else - no account, no permission and no password - and it creates, adopts and
+  re-points nothing. It is administrator-only, and the confirmation is the
+  server's rather than a browser dialog's: the caller sends the number of links
+  it was shown, and a call written against a stale page is refused instead of
+  emptying a different number than the operator saw. It refuses before removing
+  anything when the result would leave an administrator account with no way to
+  sign in, and names those accounts so the way out is explicit. A way in is a
+  link on another **enabled** provider and nothing else: a link left on a disabled
+  one signs nobody in, and a stored password proves nothing, because this plugin
+  mints an unusable one onto the accounts it provisions and records nowhere which
+  those were. It refuses only where it would TAKE the last way in, so emptying an
+  already-disabled provider is never blocked. Accounts left holding no link at all
+  are signed out; accounts that still hold one elsewhere keep their sessions. The
+  act and every refusal are audited, and so is the case the check cannot cover: if
+  something changes while the run is in flight, an administrator left without a
+  way in is named in the log the moment it happens.
 - **An unreadable `SSO-Auth.xml` is kept, announced, and refused rather than
   quietly replaced (#1543).** Jellyfin's plugin base class answers a
   configuration it cannot deserialize by building a default one and writing it
