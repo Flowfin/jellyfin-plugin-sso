@@ -133,7 +133,30 @@ internal sealed class ProviderConfigStore
             // an issuer stamp and a last-login stamp per subject: 0.127 ms at no links, 1.576 ms at 100,
             // 6.092 ms at 1000, 33.555 ms at 5000 - against 0.480 / 5.152 / 17.481 / 88.919 ms for a
             // detached copy. It is paid inside this process-wide lock, on top of the serialization the
-            // write itself does, and #1532 holds whether a large installation needs a cheaper undo.
+            // write itself does.
+            //
+            // #1532 ASKED WHAT THAT COSTS AGAINST THE WRITE IT IS PAID ON, AND THE ANSWER IS: NEARLY ALL
+            // OF IT. `dotnet run --project SSO-Auth.Bench -c Release -- --config-write --iterations 300
+            // --warmup 50`, 2026-09-05, Release net9.0 on .NET 10.0.11 x64, p50 ms:
+            //
+            //   links      0      100     1000     5000
+            //   snapshot   0.072  1.275   3.056   33.175
+            //   write      0.129  1.381   3.475   33.521
+            //
+            // The no-snapshot baseline is the difference, and that is a reading of this method rather
+            // than an estimate: Snapshot is called once, here, and nothing below reads the result except
+            // the rollback on the failure path. What the two rows say is that the host's own write is
+            // mocked out of the harness, so the undo is nearly the whole of what this plugin controls.
+            //
+            // THE CURRENT UNDO STANDS, and that is the decision #1532 asked the number to take rather
+            // than a deferral. Thirty-three milliseconds inside this lock on a five-thousand-link server
+            // is real and is not a login anybody notices; the p95 rows in that run are four times the
+            // p50, which is the large-object-heap allocation the string makes, and it is the shape to
+            // watch rather than the median. A cheaper undo exists in principle - record the mutation
+            // rather than the configuration, and replay it backwards - and it costs the property that
+            // makes this one worth having: it would have to be correct for every caller of Mutate,
+            // while a whole-configuration snapshot is correct for a caller nobody has written yet. It
+            // becomes worth building when a deployment reports contention on this lock, and not before.
             var snapshot = Snapshot(live);
 
             try

@@ -32,10 +32,16 @@ internal static class Program
     private const int DefaultLinkImportIterations = 20;
     private const int DefaultLinkImportWarmup = 3;
 
+    // The configuration write is cheap enough to repeat, so this one keeps a sample count that says
+    // something about a tail: the number a login-path write cares about is the slow one, not the median.
+    private const int DefaultConfigWriteIterations = 200;
+    private const int DefaultConfigWriteWarmup = 20;
+
     private static async Task<int> Main(string[] args)
     {
         int iterations = DefaultIterations, warmup = DefaultWarmup, concurrency = DefaultConcurrency;
         var linkImport = false;
+        var configWrite = false;
         bool iterationsGiven = false, warmupGiven = false;
         for (var i = 0; i < args.Length; i++)
         {
@@ -45,6 +51,7 @@ internal static class Program
                 case "--warmup": warmup = Number(args, ++i); warmupGiven = true; break;
                 case "--concurrency": concurrency = Number(args, ++i); break;
                 case "--link-import": linkImport = true; break;
+                case "--config-write": configWrite = true; break;
                 case "--help" or "-h": Usage(); return 0;
                 default:
                     Console.Error.WriteLine("Unknown argument: " + args[i]);
@@ -64,6 +71,13 @@ internal static class Program
         // defaults are two orders of magnitude smaller, because a ten-thousand-entry import is not a
         // thing to do five hundred times. Behind a flag, so the invocation the perf workflow makes is
         // byte-for-byte the run it has always made.
+        if (configWrite)
+        {
+            return ConfigWriteCost.Run(
+                iterationsGiven ? iterations : DefaultConfigWriteIterations,
+                warmupGiven ? warmup : DefaultConfigWriteWarmup);
+        }
+
         if (linkImport)
         {
             return await LinkImportCost.RunAsync(
@@ -178,5 +192,6 @@ internal static class Program
         Console.WriteLine("  --warmup N       discarded round-trips per caller before measuring (default " + DefaultWarmup.ToString(CultureInfo.InvariantCulture) + ")");
         Console.WriteLine("  --concurrency N  concurrent callers in the second scenario (default " + DefaultConcurrency.ToString(CultureInfo.InvariantCulture) + ")");
         Console.WriteLine("  --link-import    measure the account-link import instead (#1522); --iterations defaults to " + DefaultLinkImportIterations.ToString(CultureInfo.InvariantCulture) + ", --warmup to " + DefaultLinkImportWarmup.ToString(CultureInfo.InvariantCulture));
+        Console.WriteLine("  --config-write   measure the configuration write and its undo instead (#1532); --iterations defaults to " + DefaultConfigWriteIterations.ToString(CultureInfo.InvariantCulture) + ", --warmup to " + DefaultConfigWriteWarmup.ToString(CultureInfo.InvariantCulture));
     }
 }
