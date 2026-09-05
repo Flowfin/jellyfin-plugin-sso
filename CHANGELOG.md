@@ -508,6 +508,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A configuration write that could not reach the disk was applied anyway
+  (#1521).** Every configuration change - a link import, a configuration
+  import, adding a provider, the canonical link a first login writes - was
+  applied to the running plugin and only then written to the XML. If that write
+  failed, which is what a full disk or a read-only volume produces and what a
+  freshly built migration target can hit, the running server kept the change
+  while the file did not have it: logins behaved as though the import had
+  succeeded until the next restart, and the next unrelated settings save
+  committed it silently, at a moment nobody would connect to the import. Both
+  imports and the operator page promised the opposite - "no step
+  half-applies", "either gets its complete link table back or is left exactly
+  as it was" - and those sentences covered a rejected document but not a
+  refused write. The write now happens first and the change is rolled back out
+  of the running plugin if it fails, so the server goes back to what it had
+  stored. The same applies to the settings page, which previously made the
+  whole posted page live before serializing a byte of it. Retry the import or
+  the save once the disk or the mount is fixed. What this does **not** cover is
+  the write itself: Jellyfin's plugin base class serializes straight over the
+  file with no temporary copy, so a disk that fills mid-write still leaves a
+  truncated one, and an unloadable configuration file is replaced by an empty
+  one on the next start - copy `SSO-Auth.xml` before a migration step and check
+  it after a failed one, before restarting (#1532).
+
 - **Restoring an account-link backup restored nothing, and said it had worked
   (#1517).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
   button that posts to it, accepted the file the matching export produces,

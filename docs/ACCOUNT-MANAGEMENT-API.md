@@ -298,10 +298,15 @@ Every entry is checked before a single link is written, and the first failure
 rejects the whole document: `LinkImport.Resolve` collects every refusal and
 throws before `LinkImport.Write` is reached, and `LinkImport.Apply` is what
 `ImportLinks` hands to `MutateConfiguration`, which persists nothing when the
-mutation throws. So a rejected import leaves the stored link table exactly as it
-was. This is the property to know before running it once: the instance either
-gets its complete link table back or is left untouched, and there is no
-half-applied state that looks restored and is not.
+mutation throws and rolls the change back out of the running instance when the
+write itself fails - a full disk, a read-only volume. So a rejected import
+leaves the stored link table exactly as it was, and a running instance goes back
+to what it had stored rather than carrying links that never reached the file.
+The rollback reaches the running instance and not the file itself, whose write
+is the plugin base class's and is not atomic (#1532). This is the property to know
+before running it once: the instance either gets its complete link table back or
+is left untouched, and there is no half-applied state that looks restored and is
+not.
 
 ### What is refused, and why
 

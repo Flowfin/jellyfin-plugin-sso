@@ -15,6 +15,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// </summary>
 public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfiguration
 {
+    // Resolved once: reflection over the type is a startup cost, not a per-write one, and a write happens
+    // on the login path. See AdoptFrom for why the set is derived rather than listed.
+    private static readonly System.Reflection.PropertyInfo[] AdoptableProperties = Array.FindAll(
+        typeof(PluginConfiguration).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance),
+        property => property.CanRead && property.CanWrite && property.GetIndexParameters().Length == 0);
+
     private List<Guid>? _ssoOnlyRepointedUserIds;
     private SerializableDictionary<string, LogoutSession>? _logoutSessions;
 
@@ -191,9 +197,19 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
     /// on it and decide whether to keep it while the live object never holds a half-applied state (#1095).
     /// </summary>
     /// <returns>An independent configuration carrying the same persisted fields.</returns>
-    internal PluginConfiguration DetachedCopy()
+    internal PluginConfiguration DetachedCopy() => FromPersistedForm(ToPersistedForm());
+
+    /// <summary>
+    /// Reads back a configuration from what <see cref="ToPersistedForm"/> produced. Split out of
+    /// <see cref="DetachedCopy"/> so a caller that needs only to be ABLE to reconstruct - a mutation
+    /// holding an undo for a write that might fail (#1521) - pays one serialization and keeps the string,
+    /// instead of paying the parse as well for a reconstruction it will almost never use.
+    /// </summary>
+    /// <param name="persisted">The persisted form to read back.</param>
+    /// <returns>An independent configuration carrying the fields that form holds.</returns>
+    internal static PluginConfiguration FromPersistedForm(string persisted)
     {
-        // These bytes are this object's own output rather than anything that arrived from outside, and the
+        // These bytes are this plugin's own output rather than anything that arrived from outside, and the
         // reader is still hardened the way every other XML read in this plugin is: no DTD, no resolver. A
         // parse that is safe only because of where its input came from is one refactor away from not being.
         var settings = new XmlReaderSettings
@@ -202,9 +218,35 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
             XmlResolver = null,
         };
 
-        using var text = new StringReader(ToPersistedForm());
+        using var text = new StringReader(persisted);
         using var reader = XmlReader.Create(text, settings);
         return (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader)!;
+    }
+
+    /// <summary>
+    /// Takes over every persisted field of <paramref name="source"/> in place, so this object carries that
+    /// state without any holder of it seeing a different instance (#1521). This is the swap at the end of a
+    /// mutation: the change is prepared on a <see cref="DetachedCopy"/>, written to disk, and adopted here
+    /// only once the write returned, so a persist that throws leaves this object exactly as it was.
+    /// </summary>
+    /// <param name="source">The configuration whose state to take over. Its sub-objects are adopted by
+    /// reference, which is safe because a detached copy is reachable from nowhere else.</param>
+    internal void AdoptFrom(PluginConfiguration source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(this, source))
+        {
+            return;
+        }
+
+        // The field set is DERIVED from the type rather than listed here, and it is the same set the XML
+        // serializer persists: public instance properties with both a getter and a setter (this model
+        // declares no [XmlIgnore], which AdoptFromCarriesEveryPersistedField proves by comparing the two
+        // persisted forms). A property added tomorrow is carried without anybody remembering to add it.
+        foreach (var property in AdoptableProperties)
+        {
+            property.SetValue(this, property.GetValue(source));
+        }
     }
 }
 
