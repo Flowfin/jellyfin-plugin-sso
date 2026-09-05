@@ -639,91 +639,139 @@ internal sealed class CanonicalLinkService
         }
 
         var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
-        user.AuthenticationProviderId = SsoManagedProviderId.Value;
 
-        // #1139: counted where the account comes into existence, not at the pending-approval audit below.
-        // That line fires only for a provider that holds new accounts for approval, so counting there would
-        // report zero creations on every server that does not - the majority - while accounts were being made
-        // on each of them.
-        SsoMetrics.AccountProvisioned(ProvisioningOutcome.Created);
-
-        // The provider's static provisioning template (#1099), applied HERE and only here: this is the one
-        // arm on which an account is brand new, which is what lets an administrator's later per-user edit
-        // survive every subsequent login. It writes only the fields the template names, so a provider
-        // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
-        // an account created inert already carries its policy when an administrator comes to enable it,
-        // rather than getting it on a first login that may never happen.
-        var template = ProvisioningTemplateFor(mode, provider, provisioningProfile);
-        ProvisioningPolicy.ApplyAtProvisioning(user, template);
-        // The manual-login door (#1440), shut as the account comes into existence: a Jellyfin user created
-        // with no password accepts the EMPTY one on the ordinary login form. Minted through the one shared
-        // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
-        user.Password = ProvisionedPassword.Mint(_cryptoProvider);
-
-        // PERSISTED HERE, once, and this write is the door rather than the two assignments above it (#1440).
-        // The session mint re-resolves the account by id and writes THAT object, so everything set on the
-        // instance CreateUserAsync returned reached no database: the account was persisted routed at
-        // Jellyfin's own password provider with no password stored, which is a Jellyfin account that accepts
-        // the EMPTY password on the ordinary login form. Found by the end-to-end harness reading the account
-        // back after a real login, never by a unit test - every one of them asserts on the in-memory object,
-        // where both writes were always present.
+        // ONE guard from here to the link write, rather than one around each write inside it (#1533).
+        // What it holds is the whole sentence this arm is for: an account created here either ends up
+        // LINKED, or does not exist. Anything that throws in between - the persist (#1440/#737), the
+        // password mint, the template application, the link write - otherwise leaves an account that
+        // exists, is ENABLED, carries neither the SSO routing nor a password, and has no link: reachable
+        // from the ordinary login form with the empty password (#1440), and blocking every later attempt
+        // for the same identity, because the create-or-adopt gate refuses to adopt it. Fixing whatever
+        // failed does not clear that; only an administrator deleting the account does.
         //
-        // The pending-approval hold (#737) is applied BEFORE this write rather than after it, so one write
-        // carries the routing, the password and the disabled flag. IsDisabled is otherwise never written by
-        // this plugin and is barred from SSO role mapping (PermissionRolePolicy) precisely so no login can
-        // disable an EXISTING account; this is the one sanctioned write, and it targets ONLY a brand-new
-        // account on this create arm - never an existing or adopted one. No permissions are applied - the
-        // account carries Jellyfin's default new-user policy until an administrator enables it, and the
-        // caller reads the disabled state and refuses the login.
-        if (provisionDisabled)
-        {
-            user.SetPermission(PermissionKind.IsDisabled, true);
-        }
-
-        var persisted = false;
+        // Two of those throws already had a rollback of their own and the rest did not. The link write
+        // became a failure of this shape only when the configuration store learned to undo a write that
+        // could not reach the disk (#1521): before that the link survived in memory and a later write
+        // committed it, which was the defect there and, on this one path, an accidental self-heal.
+        //
+        // What reaches the rollback is NOT only a persistence failure, and that is deliberate rather than
+        // incidental: LinkCanonicalIfAbsent also refuses when the provider was deleted or disabled between
+        // the candidate read and the write (AccountLinkForbiddenException), and an account provisioned for
+        // a login that is then refused is the same orphan as one whose disk was full.
+        //
+        // THIS ARM ONLY, and that boundary is the load-bearing half: the adopt arm links an account that
+        // existed before this login and must never delete one. Every account this guard can reach was
+        // created by this invocation, seconds ago, carries no link, and is unreachable by any login.
+        var linked = false;
         try
         {
+            user.AuthenticationProviderId = SsoManagedProviderId.Value;
+
+            // #1139: counted where the account comes into existence, not at the pending-approval audit below.
+            // That line fires only for a provider that holds new accounts for approval, so counting there would
+            // report zero creations on every server that does not - the majority - while accounts were being made
+            // on each of them.
+            SsoMetrics.AccountProvisioned(ProvisioningOutcome.Created);
+
+            // The provider's static provisioning template (#1099), applied HERE and only here: this is the one
+            // arm on which an account is brand new, which is what lets an administrator's later per-user edit
+            // survive every subsequent login. It writes only the fields the template names, so a provider
+            // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
+            // an account created inert already carries its policy when an administrator comes to enable it,
+            // rather than getting it on a first login that may never happen.
+            var template = ProvisioningTemplateFor(mode, provider, provisioningProfile);
+            ProvisioningPolicy.ApplyAtProvisioning(user, template);
+            // The manual-login door (#1440), shut as the account comes into existence: a Jellyfin user created
+            // with no password accepts the EMPTY one on the ordinary login form. Minted through the one shared
+            // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
+            user.Password = ProvisionedPassword.Mint(_cryptoProvider);
+
+            // PERSISTED HERE, once, and this write is the door rather than the two assignments above it (#1440).
+            // The session mint re-resolves the account by id and writes THAT object, so everything set on the
+            // instance CreateUserAsync returned reached no database: the account was persisted routed at
+            // Jellyfin's own password provider with no password stored, which is a Jellyfin account that accepts
+            // the EMPTY password on the ordinary login form. Found by the end-to-end harness reading the account
+            // back after a real login, never by a unit test - every one of them asserts on the in-memory object,
+            // where both writes were always present.
+            //
+            // The pending-approval hold (#737) is applied BEFORE this write rather than after it, so one write
+            // carries the routing, the password and the disabled flag. IsDisabled is otherwise never written by
+            // this plugin and is barred from SSO role mapping (PermissionRolePolicy) precisely so no login can
+            // disable an EXISTING account; this is the one sanctioned write, and it targets ONLY a brand-new
+            // account on this create arm - never an existing or adopted one. No permissions are applied - the
+            // account carries Jellyfin's default new-user policy until an administrator enables it, and the
+            // caller reads the disabled state and refuses the login.
+            if (provisionDisabled)
+            {
+                user.SetPermission(PermissionKind.IsDisabled, true);
+            }
+
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-            persisted = true;
+
+            // The home-screen layout (#1101) is a second persistence surface with its own store, written only
+            // once the account row above is persisted: an account that exists is complete without it, and
+            // nothing about a layout may fail a login or roll an account back. Sequenced after the persist for
+            // that reason, and isolated inside.
+            SeedHomeScreen(user.Id, provisionedName, template);
+
+            if (provisionDisabled)
+            {
+                // Audited here, at the actual provisioning event, so the line fires exactly once (not on every
+                // later refused login of the now-pending account) and is always accurate - the completion-path
+                // gate that refuses the login covers any disabled account, including one an admin disabled, so
+                // auditing there would mislabel a deliberate ban as a fresh provisioning.
+                SsoAudit.ProvisionedPendingApproval(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, provisionedName);
+            }
+
+            // Atomic check-then-link (#133): if a concurrent first-login for the same identity
+            // linked meanwhile, use its account - this freshly created user is left unlinked rather
+            // than overwriting the winner's link (a rare, benign orphan, not a duplicate login). The
+            // link write stamps the login's issuer (#186), so the new link is issuer-bound.
+            // The role-mapped access duration (#1146) travels with the link write and is stamped only when THIS
+            // call actually wrote the link, in the same transaction. That placement is the whole guarantee: the
+            // #133 race loser writes no link and therefore stamps no deadline over the winner's, and a deadline
+            // can only ever come into existence beside a live link, which is what bounds the map.
+            var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration);
+
+            // The race loser is the one case that reaches here having written no link and still keeps its
+            // account: LinkCanonicalIfAbsent returns the winner's id rather than throwing, so the guard
+            // closes normally. That orphan is the pre-existing #133 outcome and is not what this guard is
+            // about - it is left exactly as it was rather than quietly widened into an account deletion.
+            linked = true;
+            return effectiveUserId;
         }
         finally
         {
-            if (!persisted)
+            if (!linked)
             {
-                // A create whose persist failed leaves an account that exists, is ENABLED, carries neither
-                // the SSO routing nor a password, and has no link - the exact shape this arm exists to
-                // prevent, reachable from the ordinary login form and adoptable by a later login (with
-                // AllowExistingAccountLink on). Roll it back so the login fails closed with no orphan. The
-                // original failure still propagates out of this finally.
-                await _userManager.DeleteUserAsync(user.Id).ConfigureAwait(false);
+                await RollBackProvisionedAccountAsync(user.Id, provisionedName, mode, provider).ConfigureAwait(false);
             }
         }
+    }
 
-        // The home-screen layout (#1101) is a second persistence surface with its own store, written only
-        // once the account row above is persisted: an account that exists is complete without it, and
-        // nothing about a layout may fail a login or roll an account back. Sequenced after the persist for
-        // that reason, and isolated inside.
-        SeedHomeScreen(user.Id, provisionedName, template);
-
-        if (provisionDisabled)
+    // Deletes an account this login created and could not finish (#1533). Its failure is SWALLOWED, and
+    // that is the whole reason it is a method rather than a line in the finally: a delete that throws
+    // from inside a finally replaces the exception being unwound, and that exception is the only thing
+    // that says what actually went wrong - the full disk, or the refusal the completion path catches by
+    // type to answer 403 rather than 500. The neighbouring rollback claimed "the original failure still
+    // propagates" and did not hold to it; this one does, and says out loud what it cost when it could not.
+    //
+    // The audit line is the second half. The provisioning that preceded this emitted its own lines - the
+    // pending-approval audit, the created-account metric, the legacy-orphan warning - and every one of
+    // them describes an account that no longer exists. This is the line that makes the log coherent again.
+    private async Task RollBackProvisionedAccountAsync(Guid userId, string provisionedName, ProviderMode mode, string provider)
+    {
+        try
         {
-            // Audited here, at the actual provisioning event, so the line fires exactly once (not on every
-            // later refused login of the now-pending account) and is always accurate - the completion-path
-            // gate that refuses the login covers any disabled account, including one an admin disabled, so
-            // auditing there would mislabel a deliberate ban as a fresh provisioning.
-            SsoAudit.ProvisionedPendingApproval(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, provisionedName);
+            await _userManager.DeleteUserAsync(userId).ConfigureAwait(false);
+            SsoAudit.ProvisionedAccountRolledBack(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, provisionedName);
         }
-
-        // Atomic check-then-link (#133): if a concurrent first-login for the same identity
-        // linked meanwhile, use its account - this freshly created user is left unlinked rather
-        // than overwriting the winner's link (a rare, benign orphan, not a duplicate login). The
-        // link write stamps the login's issuer (#186), so the new link is issuer-bound.
-        // The role-mapped access duration (#1146) travels with the link write and is stamped only when THIS
-        // call actually wrote the link, in the same transaction. That placement is the whole guarantee: the
-        // #133 race loser writes no link and therefore stamps no deadline over the winner's, and a deadline
-        // can only ever come into existence beside a live link, which is what bounds the map.
-        var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration);
-        return effectiveUserId;
+#pragma warning disable CA1031 // the failure being unwound must reach the caller, whatever the delete did
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            SsoAudit.ProvisionedAccountRollbackFailed(_logger, provisionedName, ex);
+        }
     }
 
     // Writes the template's home-screen layout (#1101) for a freshly persisted account, and never lets the

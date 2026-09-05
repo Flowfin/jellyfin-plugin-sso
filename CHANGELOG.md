@@ -508,6 +508,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A first login that failed half way left an account nobody could use
+  (#1533).** When SSO creates a Jellyfin account for a new user, several
+  things still have to happen before that account is usable: it is given the
+  SSO routing and a password, it is stored, and the link between it and the
+  identity provider is written. If any of those failed — a full disk, a
+  provider an administrator deleted while the login was in flight — the
+  account stayed behind with no link and no usable password, and it then
+  blocked that person from ever being provisioned again under the same name,
+  because SSO refuses to adopt an account it did not link. Fixing the original
+  problem did not clear it; only deleting the account by hand did. The account
+  is now removed again when the login cannot be completed, so there is nothing
+  left behind and the person can sign in once the underlying problem is fixed.
+  The log says when this happens, and says it louder if the removal itself
+  fails and the account has to be deleted manually after all. Accounts that
+  already existed before a login are never touched by this.
+
 - **A configuration write that could not reach the disk was applied anyway
   (#1521).** Every configuration change - a link import, a configuration
   import, adding a provider, the canonical link a first login writes - was
