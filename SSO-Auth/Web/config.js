@@ -2946,8 +2946,22 @@ const ssoConfigurationPage = {
           url: ApiClient.getUrl("sso/Config/Links/Import"),
           data: JSON.stringify(document_json),
           contentType: "application/json",
-          dataType: "json",
         });
+      })
+      .then((answer) => {
+        // NO dataType ON THE FETCH ABOVE, AND THAT IS TWO DECISIONS RATHER THAN AN OMISSION. It would
+        // put `accept: application/json` on the REQUEST, and the refusal body is a plain string: under
+        // that header the server writes it as a JSON string, quotes included, so the sentence the toast
+        // below shows an operator would arrive wrapped in them - and those sentences are quoted verbatim
+        // by both migration pages and pinned by LinkImportTests. Without it the client hands back the
+        // Response itself, so the JSON is read HERE, and a 2xx carrying no readable JSON - a rolled-back
+        // server answering 204 to a page served from cache - reaches the uncounted branch instead of
+        // being reported as a failure that did not happen.
+        return Promise.resolve(answer)
+          .then((body) =>
+            body && typeof body.json === "function" ? body.json() : null,
+          )
+          .catch(() => null);
       })
       .then((result) => {
         // The number comes from the ANSWER now (#1520). Until it did, one fixed sentence stood over every

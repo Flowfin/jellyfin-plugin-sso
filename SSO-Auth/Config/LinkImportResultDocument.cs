@@ -65,7 +65,7 @@ public class LinkImportResultDocument
         var document = new LinkImportResultDocument();
         foreach (var count in counts)
         {
-            document.Restored += 1;
+            document.Restored += count.Links;
             document.Providers.Add(new LinkImportProviderResult
             {
                 Protocol = count.Protocol,

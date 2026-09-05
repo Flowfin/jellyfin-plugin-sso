@@ -392,13 +392,25 @@ so it counts once per occurrence while writing one link. This is the same count
 | 429    | The `link` budget for this client is exhausted; see `Retry-After`                                                                                        |
 
 The `400` for a body that did not bind is the host's and not this plugin's.
-Measured against a running 10.11.11 with this plugin installed, `null`, an empty
-body and `not json` each answered:
+Measured against a running 10.11.11 with this plugin installed. All three answer
+`400` with `Content-Type: application/problem+json; charset=utf-8`, and their
+bodies are not identical - the `errors` member is what differs, and the `traceId`
+every one of them carries is elided here because it is per-request:
 
 ```
-HTTP 400
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."],"document":["The document field is required."]}}
+$ printf 'null' | curl -sD - -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+    --data-binary @- http://127.0.0.1:8096/sso/Config/Links/Import
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."],"document":["The document field is required."]},"traceId":"..."}
+
+# an empty body: byte-identical apart from the traceId
+
+# 'not json': a different errors member, because the body is not empty
+{"type":"...","title":"One or more validation errors occurred.","status":400,"errors":{"$":["'not json' is an invalid JSON literal. Expected the literal 'null'. Path: $ | LineNumber: 0 | BytePositionInLine: 1."],"document":["The document field is required."]},"traceId":"..."}
 ```
+
+So there is no single literal to quote for this row, which is half of why the
+one this page used to quote was wrong: it named one sentence for a family of
+answers the plugin does not write.
 
 This page quoted `The link import document is missing or is not valid JSON.` as
 what such a caller reads. That sentence is real - it is the `document is null`

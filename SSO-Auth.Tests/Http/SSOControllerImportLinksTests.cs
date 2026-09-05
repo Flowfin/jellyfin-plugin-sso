@@ -4,7 +4,9 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
+using Jellyfin.Extensions.Json;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
@@ -28,6 +30,7 @@ public class SSOControllerImportLinksTests
 {
     private static readonly Guid TargetAlice = Guid.Parse("7a19e700-0000-0000-0000-00000000000a");
     private static readonly Guid TargetBob = Guid.Parse("7a19e700-0000-0000-0000-00000000000b");
+    private static readonly Guid TargetCarol = Guid.Parse("7a19e700-0000-0000-0000-00000000000c");
 
     [Fact]
     public async Task TheImport_AnswersHowManyLinksItRebound()
@@ -48,6 +51,53 @@ public class SSOControllerImportLinksTests
         // count the audit line has carried since #1129.
         Assert.Equal(TargetAlice, harness.Configuration.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(TargetBob, harness.Configuration.SamlConfigs["adfs"].CanonicalLinks["nameid-bob"]);
+    }
+
+    [Fact]
+    public async Task TheTotal_IsTheLINKS_NotTheProvidersTheyArrivedOn()
+    {
+        // Written because the suite could not tell the two apart. Every other case here carries one link
+        // per provider, so the sum of the links, the number of providers and the number of entries are the
+        // same number, and a total built as `+= 1` per provider passed all 3683 tests. Three links on two
+        // providers separates them: a total of 3 is the links, a total of 2 would be the providers.
+        var harness = Harness();
+        var document = TwoLinks();
+        document.Links.Add(new LinkExportEntry
+        {
+            Protocol = LinkExport.OpenIdProtocol,
+            Provider = "idp",
+            CanonicalName = "sub-carol",
+            Username = "carol",
+        });
+        harness.UserManager.GetUserByName("carol").Returns(TestUsers.Named("carol", TargetCarol));
+
+        var result = Restore(await harness.Controller.ImportLinks(document).ConfigureAwait(true));
+
+        Assert.Equal(3, result.Restored);
+        Assert.Equal(
+            new[] { "OpenID/idp:2", "SAML/adfs:1" },
+            result.Providers.Select(entry => $"{entry.Protocol}/{entry.Provider}:{entry.Links}").ToArray());
+    }
+
+    [Fact]
+    public void TheAnswer_SurvivesTheJsonBoundaryTheCallerReadsItAcross()
+    {
+        // The count is read by a browser rather than by C#, so the shape that matters is the serialized
+        // one. #1517 was exactly a wire-shape defect that every in-process test passed straight through,
+        // and Providers here is a get-only collection - safe only in the write direction. A zero total has
+        // to survive too: dropped as a default it would reach the page as no count at all, and the page
+        // would then report the #1517 case as an answer that said nothing.
+        var json = JsonSerializer.Serialize(
+            LinkImportResultDocument.Of(new[] { new LinkImportCount(LinkExport.OpenIdProtocol, "idp", 2) }),
+            JsonDefaults.PascalCaseOptions);
+
+        Assert.Equal(
+            "{\"Restored\":2,\"Providers\":[{\"Protocol\":\"OpenID\",\"Provider\":\"idp\",\"Links\":2}]}",
+            json);
+
+        Assert.Equal(
+            "{\"Restored\":0,\"Providers\":[]}",
+            JsonSerializer.Serialize(LinkImportResultDocument.Of(Array.Empty<LinkImportCount>()), JsonDefaults.PascalCaseOptions));
     }
 
     [Fact]
