@@ -54,6 +54,10 @@ public class SSOController : ControllerBase
     // defined once (#318).
     private const string NoMatchingProviderMessage = LoginStatusMapper.NoMatchingProviderMessage;
 
+    // How many stranded administrators the mass-lockout refusal names before it summarizes the rest, so a
+    // roster-sized body cannot be driven by one request. Ten, matching the link import's own cap.
+    private const int NamedStrandedAdministrators = 10;
+
     // The refusal body for an unrecognized {mode} route token (#1399), named here beside the other fixed
     // refusal wordings. It names the two accepted tokens and never echoes the supplied one.
     private const string UnknownModeMessage = "The mode segment must be 'oid' or 'saml'.";
@@ -2282,6 +2286,179 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Removes every canonical link one provider holds. Requires administrator privileges.
+    /// </summary>
+    /// <remarks>
+    /// THE WAY BACK FROM A LINK IMPORT THAT RESTORED THE WRONG DOCUMENT (#1519). The import merges - it adds
+    /// and overwrites and never removes - so re-importing the right file after the wrong one does not undo
+    /// it: the correct document is refused whole by the repoint guard, and one leftover entry blocks every
+    /// other link in it. An unlink of everything one provider holds is the smallest true way back. It is not
+    /// a replace mode on the import, which would be a second destructive path with the same blast radius as
+    /// the mistake it answers, and it undoes nothing else: no Jellyfin account, no permission and no
+    /// password is touched, so an operator who runs this by mistake has removed links and nothing else.
+    /// <para>
+    /// It is also the first primitive here that can take every account on a server off SSO in one call, so
+    /// the confirmation is the SERVER's rather than a dialog's. The caller sends the count it was shown, and
+    /// four preconditions decide the run beside the elevation this route already requires: the provider must
+    /// be known, the count must equal what the table holds when the removal takes the lock, the table must
+    /// not have moved while the accounts were being judged, and the run must not leave an administrator
+    /// account with no way to sign in. A browser dialog protects nobody who calls the API.
+    /// </para>
+    /// <para>
+    /// The accounts whose LAST canonical link this removes are signed out, and only those - exactly the
+    /// scope the single unlink revokes at (#468). An account that keeps a link on another provider still has
+    /// a working SSO identity, so revoking it would be an unscoped mass-logout with no security gain.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">The mode of the function; SAML or OID.</param>
+    /// <param name="provider">The provider whose links are all removed.</param>
+    /// <param name="expectedLinkCount">The number of links the caller was shown and expects to remove; the run refuses when the provider holds a different number.</param>
+    /// <returns>What was removed, or the refusal that stopped it.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpDelete("{mode}/Links/{provider}/{expectedLinkCount}")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async Task<ActionResult> PurgeProviderLinks([FromRoute] string mode, [FromRoute] string provider, [FromRoute] int expectedLinkCount)
+    {
+        // Throttle after the elevation guard (#382): [Authorize] refuses a non-elevated caller before this
+        // body runs, so there is no rate-limit oracle. Past it, this shares the "link" bucket with the
+        // single link writes and the import, because it is the same config-XML persist under the global
+        // lock - and here every refusal pays that persist too, so an unthrottled caller could drive the
+        // disk write with nothing but wrong counts.
+        if (RateLimitCheck(SsoRateLimitClass.Link) is { } throttled)
+        {
+            return throttled;
+        }
+
+        if (RefuseUnknownMode(mode, out var parsed) is { } unknownMode)
+        {
+            return unknownMode;
+        }
+
+        var protocol = parsed == ProviderMode.Oid ? OpenIdProtocol : SamlProtocol;
+
+        // Resolved BEFORE anything is changed, and once. Reading the caller's own name goes to the
+        // authorization context, which can throw; doing it after the removal would turn that throw into a
+        // 500 on a run whose links are already gone and which then has no audit line at all - the one path
+        // where the trail matters most. The SSO-only endpoints resolve it up front for the same reason.
+        var actor = await ResolveActorAsync().ConfigureAwait(false);
+
+        // Two steps on purpose, and the split answers two different problems. The survey is a READ: it names
+        // every account holding a link on this provider under the config lock, so those accounts can be
+        // resolved through the user manager with the lock RELEASED - a provider can carry thousands of links,
+        // and a user-manager call per link inside the lock would block every login for the duration. It also
+        // answers the two refusals a stale page actually produces without entering a mutation at all, because
+        // every return out of one persists the configuration file even when it changed nothing, and this
+        // plugin's write is not atomic (#1532): a wrong count is the NORMAL outcome here and must not spend
+        // a rewrite of SSO-Auth.xml. The authoritative checks stay inside the purge below.
+        var survey = _canonicalLinks.SurveyProviderLinks(parsed, provider);
+        var doors = survey.ProviderExists ? _ssoOnly.DescribeAccountDoors(survey.LinkedUsers) : Array.Empty<AccountDoors>();
+        var outcome = Screen(survey, expectedLinkCount)
+            ?? _canonicalLinks.TryPurgeProviderLinks(parsed, provider, expectedLinkCount, doors);
+
+        if (outcome.Result != ProviderLinkPurgeResult.Purged)
+        {
+            // A blocked mass-lockout leaves a trail (T-R1), exactly as a blocked SSO-only activation does.
+            // The reason is the verdict's own enum name - a fixed constant, never request input - so the
+            // audit line cannot be written by the caller.
+            SsoAudit.ProviderLinksPurgeRefused(_logger, actor, protocol, provider, outcome.Result.ToString());
+        }
+
+        switch (outcome.Result)
+        {
+            case ProviderLinkPurgeResult.UnknownProvider:
+                return BadRequest(NoMatchingProviderMessage);
+
+            case ProviderLinkPurgeResult.CountMismatch:
+                return StatusCode(
+                    StatusCodes.Status409Conflict,
+                    FormattableString.Invariant($"This provider holds {outcome.ActualLinkCount} link(s), not the {expectedLinkCount} this request expects. Reload the page and run it again against the current number."));
+
+            case ProviderLinkPurgeResult.LinkTableChanged:
+                return StatusCode(
+                    StatusCodes.Status409Conflict,
+                    "The link table changed while this request was checking which accounts would be left without a way to sign in. Nothing was removed; run it again.");
+
+            case ProviderLinkPurgeResult.WouldStrandAdministrator:
+                // The names are the way out, which is why they are in the refusal: an operator who is only
+                // told "an administrator would be stranded" has to guess which account to give a password
+                // to. The caller is an elevated administrator, who can already list every account on this
+                // server, so this discloses nothing the roster does not - and it is a REFUSAL, so it names
+                // accounts nothing was done to.
+                // Capped, like the link import's own refusal: a server where many accounts hold
+                // administrator would otherwise make this body as long as the roster, on one request.
+                var overflow = outcome.StrandedAdministrators.Count - NamedStrandedAdministrators;
+                var stranded = string.Join(", ", outcome.StrandedAdministrators.Take(NamedStrandedAdministrators)).ReplaceLineEndings(string.Empty)
+                    + (overflow > 0 ? FormattableString.Invariant($" and {overflow} more") : string.Empty);
+                return StatusCode(
+                    StatusCodes.Status409Conflict,
+                    "This would take the last way in from these administrator accounts: " + stranded + ". A stored password does not count as a way in here, because this plugin mints an unusable one onto the accounts it provisions and cannot tell the two apart. Link each of them to another enabled provider, or unlink it deliberately through the single-link route, then run this again. Nothing was removed.");
+
+            case ProviderLinkPurgeResult.Purged:
+                break;
+
+            default:
+                throw new InvalidOperationException($"Unhandled provider-link purge result: {outcome.Result}");
+        }
+
+        // AFTER the removal is persisted, so a revoke that throws leaves the unlink already complete rather
+        // than half-done - the ordering DeleteCanonicalLink takes for the same reason. Scoped strictly to
+        // the accounts this run left with no canonical link anywhere; null revokes all of that account's
+        // tokens, which is the terminal "can no longer SSO in at all" state (#468). One account's revoke
+        // fault must not abort the rest: the links are already gone for every one of them, so stopping here
+        // would leave the remaining accounts holding live tokens with nothing recording why.
+        var signedOut = 0;
+        foreach (var userId in outcome.RevokedUserIds)
+        {
+            try
+            {
+                await _sessionManager.RevokeUserTokens(userId, null).ConfigureAwait(false);
+                signedOut++;
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation("Removed the last SSO link for user {UserId} in a bulk unlink and revoked their active tokens.", userId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Revoking tokens after a bulk unlink failed for user {UserId}; its links are removed and it may hold a live session, and the remaining accounts are still signed out.", userId);
+            }
+        }
+
+        SsoAudit.ProviderLinksPurged(_logger, actor, protocol, provider, outcome.RemovedLinks, outcome.RevokedUserIds.Count, signedOut);
+
+        // The gate refuses a run that would strand an administrator, and it judges accounts read before the
+        // removal took the lock. An account can lose its password door in that window without any link
+        // moving - an ordinary SSO login on a provider whose DefaultProvider is the SSO provider id repoints
+        // it off the password provider - and no link-table comparison can see that. So the same question is
+        // asked once more against what is true now. It cannot undo the removal; it turns a silent lockout
+        // into a line an operator can act on, which is the difference between a bad night and a rebuild.
+        // EVERY account the guard judged, not the subset this run signed out. The two sets are not the
+        // same: an account keeping a link on a DISABLED provider is not signed out - the revoke scope is
+        // the any-link reading (#468) - and is exactly the account this net exists for, because a disabled
+        // provider is where a way in stops being one. Feeding it the revoked subset would leave the case
+        // the guard was rewritten for as the one case the net cannot see.
+        // And only where the run actually TOOK something. On a provider that was already switched off,
+        // its links were not a way in before the run either, so an administrator with none afterwards had
+        // none before - reporting that as a lockout this run caused would be a false alarm, printed on
+        // exactly the disable-then-clean-up workflow the route exists for, in a line whose whole value is
+        // that it means a real race happened.
+        var doorless = outcome.TargetWasEnabled
+            ? _canonicalLinks.AdministratorsWithNoWayIn(doors)
+            : Array.Empty<string>();
+        if (doorless.Count > 0)
+        {
+            // Capped like the refusal body, and for the same reason: a server mapping administrator
+            // broadly from an identity-provider role can make this list as long as its roster.
+            var overflowing = doorless.Count - NamedStrandedAdministrators;
+            var named = string.Join(", ", doorless.Take(NamedStrandedAdministrators))
+                + (overflowing > 0 ? FormattableString.Invariant($" and {overflowing} more") : string.Empty);
+            SsoAudit.ProviderLinksPurgeStrandedAdministrator(_logger, protocol, provider, named);
+        }
+
+        return Ok(new ProviderLinkPurgeDocument { Removed = outcome.RemovedLinks, SignedOut = signedOut });
+    }
+
+    /// <summary>
     /// Gets all the saml links for a user.
     /// </summary>
     /// <param name="jellyfinUserId">The user ID within jellyfin for which to return the links.</param>
@@ -2383,6 +2560,22 @@ public class SSOController : ControllerBase
     // caller-controlled text into the response.
     private static BadRequestObjectResult? RefuseUnknownMode(string mode, out ProviderMode parsed) =>
         ProviderModeParser.TryParse(mode, out parsed) ? null : new BadRequestObjectResult(UnknownModeMessage);
+
+    // The refusals the survey can answer on its own, so a stale page does not spend a rewrite of the
+    // configuration file to be told its number is old (#1519). Null means nothing here decides it and the
+    // purge runs, where both of these are checked again under the lock that removes - this is a cheaper
+    // path to the same answer, never the authority for it.
+    private static ProviderLinkPurgeOutcome? Screen(ProviderLinkSurvey survey, int expectedLinkCount)
+    {
+        if (!survey.ProviderExists)
+        {
+            return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.UnknownProvider, 0);
+        }
+
+        return survey.LinkCount == expectedLinkCount
+            ? null
+            : ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.CountMismatch, survey.LinkCount);
+    }
 
     // Fronts a rate-limited endpoint with the shared per-client gate (#128, #160, #382, #516): null when the
     // request may proceed, else the throttled outcome the single mapper renders (#474). The anonymous login

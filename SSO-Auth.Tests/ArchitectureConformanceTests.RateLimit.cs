@@ -60,6 +60,11 @@ public partial class ArchitectureConformanceTests
         // The pre-provision link write (#1133): a config-XML persist under the global lock, and its 404 is
         // an existence answer about a user id, so it is throttled for both reasons the two neighbours are.
         "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}",
+        // The per-provider bulk unlink (#1519): the same config-XML persist under the global lock as the
+        // link writes above, in bulk - and here every REFUSAL pays that persist too, because the count
+        // comparison and the removal are one transaction, so an unthrottled caller could drive the disk
+        // write with nothing but wrong counts.
+        "{mode}/Links/{provider}/{expectedLinkCount}",
     };
 
     // Routes deliberately NOT rate-limited, each with the reason it is safe: an elevation-gated admin
@@ -235,6 +240,7 @@ public partial class ArchitectureConformanceTests
         "SAML/metadata/{provider}", // SP metadata built for a stored provider
         "{mode}/Link/{provider}/{jellyfinUserId}", "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}", // link write against a stored, enabled provider
         "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}", // pre-provision write against a stored, enabled provider (#1133)
+        "{mode}/Links/{provider}/{expectedLinkCount}", // bulk unlink of a STORED provider, 400 on a miss (#1519)
 
         // Not an SSO provider name at all: Unregister's body parameter happens to be called `provider` and
         // carries a JELLYFIN AuthenticationProviderId, written to the user record so the account falls back
