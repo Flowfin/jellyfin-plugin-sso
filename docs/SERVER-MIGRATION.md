@@ -194,9 +194,12 @@ these are the three a migration runs into.
   identity-provider subject onto another account. Unlink the existing link
   first, then re-import.
 
-An import that succeeds is audited with the total and the per-provider counts,
-and with no canonical name in the line (`SsoAudit.LinksImported`). Those counts
-are what say whether what came back matches the file that was applied.
+An import that succeeds ANSWERS with the total and the per-provider counts, and
+audits the same numbers with no canonical name in the line
+(`SsoAudit.LinksImported`). Read the `Restored` field in the answer against the
+number of entries in the file you applied: that comparison is the check on this
+step, and until #1520 it could only be made in the server log, because the
+endpoint answered `204` whatever the number was.
 
 ## Rolling back
 

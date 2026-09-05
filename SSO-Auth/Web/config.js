@@ -2946,15 +2946,37 @@ const ssoConfigurationPage = {
           url: ApiClient.getUrl("sso/Config/Links/Import"),
           data: JSON.stringify(document_json),
           contentType: "application/json",
+          dataType: "json",
         });
       })
-      .then(() => {
+      .then((result) => {
+        // The number comes from the ANSWER now (#1520). Until it did, one fixed sentence stood over every
+        // outcome, so a restore that rebound nothing read exactly like one that rebound everything - which
+        // is how #1517 shipped unnoticed through every beta it was in. Three states, because they are three
+        // different facts: a count, a zero worth acting on, and an answer that carried no count at all.
+        // The last one is not reported as zero: claiming a number the server did not send is the shape this
+        // whole issue is about.
+        const restored =
+          result && typeof result.Restored === "number"
+            ? result.Restored
+            : null;
         ssoConfigurationPage.renderTransferMessage(
           container,
-          tr(
-            "config.link_import_done",
-            "Imported. Each link was restored onto the account this server holds for its username today.",
-          ),
+          restored === null
+            ? tr(
+                "config.link_import_done_uncounted",
+                "Imported, but this server did not say how many links it restored. The [SSO Audit] line in the server log carries the count.",
+              )
+            : restored === 0
+              ? tr(
+                  "config.link_import_done_none",
+                  "Imported, and no link was restored. This file named none that could be restored here - check that it is the account-link export rather than the configuration export.",
+                )
+              : tr(
+                  "config.link_import_done",
+                  "Imported {count} account link(s). Each was restored onto the account this server holds for its username today.",
+                  { count: String(restored) },
+                ),
         );
       })
       .catch((e) => {

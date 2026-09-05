@@ -343,8 +343,8 @@ caller will actually read.
   partial migration without unlinking anything first.
 - A document with an empty `Links` list is applied and restores nothing rather
   than being refused (`LinkImport.Apply` resolves and writes it like any other).
-  The audited count then says plainly that zero links came back, which is what an
-  operator who applied the wrong file reads.
+  The answer then says `"Restored": 0`, which is what an operator who applied the
+  wrong file reads without going to the server log for it.
 - An entry carrying no `Issuer` overwrites no stored binding: the issuer check in
   `LinkImport.Resolve` is guarded on the entry's `Issuer` being non-blank, so a
   document taken before the binding existed restores against a bound link without
@@ -353,14 +353,53 @@ caller will actually read.
   protocol has no issuer binding (the `link.Config is OidConfig` test in
   `LinkImport.Write`).
 
+### What the answer carries
+
+A success answers `200` with the count, per provider and in total
+(`LinkImportResultDocument`). It used to answer `204 No Content`, which made a
+restore that rebound every link and one that rebound none the same bytes on the
+wire; the number existed only in the server log. That is how #1517 - an import
+whose payload was silently dropped - stood from `4.3.0-beta.43` onward, and #1520
+is the shape rather than the defect.
+
+```json
+{
+  "Restored": 3,
+  "Providers": [
+    { "Protocol": "OpenID", "Provider": "my-provider", "Links": 2 },
+    { "Protocol": "SAML", "Provider": "my-saml-provider", "Links": 1 }
+  ]
+}
+```
+
+`Restored` is the total and is the field to check against the backup that was
+applied. It carries no canonical name, for the reason the refusal path does not:
+that is the one field naming a real person at the identity provider.
+
 ### Responses
 
-| Status | Meaning                                                                                                                                                 |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 204    | The document was applied; every link it named is now bound to this instance's accounts                                                                  |
-| 400    | The body bound to nothing: `The link import document is missing or is not valid JSON.` (the `document is null` arm of `ImportLinks`)                    |
-| 400    | The version is unsupported, or an entry is unrestorable; the body carries the refusal text above (the `catch (ArgumentException)` arm of `ImportLinks`) |
-| 429    | The `link` budget for this client is exhausted; see `Retry-After`                                                                                       |
+| Status | Meaning                                                                                                                                                  |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | The document was applied; the body says how many links were rebound, in total and per provider, and `0` is a real answer                                 |
+| 400    | The body bound to nothing: the host's model validation refuses it before the action runs, with a `ProblemDetails` this plugin neither chooses nor writes |
+| 400    | The version is unsupported, or an entry is unrestorable; the body carries the refusal text above (the `catch (ArgumentException)` arm of `ImportLinks`)  |
+| 429    | The `link` budget for this client is exhausted; see `Retry-After`                                                                                        |
+
+The `400` for a body that did not bind is the host's and not this plugin's.
+Measured against a running 10.11.11 with this plugin installed, `null`, an empty
+body and `not json` each answered:
+
+```
+HTTP 400
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."],"document":["The document field is required."]}}
+```
+
+This page quoted `The link import document is missing or is not valid JSON.` as
+what such a caller reads. That sentence is real - it is the `document is null`
+arm of `ImportLinks` - and no caller reaches it, because `[ApiController]` model
+validation answers first. The arm stays as a backstop, since the plugin does not
+own the pipeline that makes it unreachable, but it is not what anybody sees
+(#1520).
 
 The route carries a one-mebibyte request-size limit
 (`[RequestSizeLimit(ConfigImportMaxBytes)]` on `ImportLinks`, where
@@ -368,10 +407,10 @@ The route carries a one-mebibyte request-size limit
 body is refused by the server before the action runs, so the plugin decides
 neither the status nor the body in that case.
 
-A successful import is audited with the total and the per-provider counts, and
-with no canonical name in the line (`SsoAudit.LinksImported`,
-`SSO-Auth/Api/Audit/SsoAudit.cs`). Those counts are what tell an operator
-whether the restore matched the backup they applied.
+A successful import is audited with the same total and per-provider counts the
+answer carries, and with no canonical name in the line (`SsoAudit.LinksImported`,
+`SSO-Auth/Api/Audit/SsoAudit.cs`). The log is the durable copy; the answer is the
+one an operator reads while they are still holding the file.
 
 ### The order this route belongs in
 
