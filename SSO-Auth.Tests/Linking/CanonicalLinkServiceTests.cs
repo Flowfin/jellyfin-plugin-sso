@@ -242,6 +242,27 @@ public class CanonicalLinkServiceTests
     }
 
     [Fact]
+    public async Task ResolveOrCreateAsync_SamlNewAccount_LinkWriteFails_RollsBackAndNamesTheProtocol()
+    {
+        // The SAML arm of the same guard. It is not a copy for symmetry's sake: the rollback names the
+        // protocol in its audit line, and an operator filtering the log by protocol has to find the SAML
+        // one too.
+        var (service, cfg, users, log) = BuildWithPersist(
+            c => c.SamlConfigs["idp"] = new SamlConfig { Enabled = true },
+            _ => throw new IOException("no space left on device"));
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Saml, "idp", "nameid-1", "alice", allowExistingAccountLink: false));
+
+        await users.Received(1).DeleteUserAsync(Other);
+        Assert.Contains(log.Entries, e => e.Message.Contains("SAML", StringComparison.Ordinal) && e.Message.Contains("rolled back", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ResolveOrCreateAsync_NewAccount_RollbackItselfFails_TheOriginalFailureStillReachesTheCaller()
     {
         // A delete that throws from inside a finally replaces the exception being unwound, and that

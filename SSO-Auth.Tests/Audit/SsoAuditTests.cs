@@ -328,6 +328,71 @@ public class SsoAuditTests
         Assert.Empty(off.Entries);
     }
 
+    [Fact]
+    public void TheRollbackAndPersistenceLines_RespectIsEnabled_AndTolerateNoLoggerAtAll()
+    {
+        // The same IsEnabled contract as the row above, for the lines #1521 and #1533 added, and at BOTH
+        // severities: two of them are Error, which a sink filtered to Warning would still take, so the
+        // level has to be off entirely to prove the guard rather than the sink. The null arm is not
+        // decoration either - ProviderConfigStore is constructed with a null logger by callers that want
+        // no audit at all, and an audit line that dereferenced it would fail the write it is reporting on.
+        var off = new LevelFilteredLogger(minimum: LogLevel.None);
+
+        SsoAudit.ConfigurationRollbackUnavailable(off, new InvalidOperationException("x"));
+        SsoAudit.ConfigurationRollbackFailed(off, new InvalidOperationException("x"));
+        SsoAudit.ConfigurationChangedSubscriberFailed(off, new InvalidOperationException("x"));
+        SsoAudit.ProvisionedAccountRolledBack(off, "SAML", "corp", "alice");
+        SsoAudit.ProvisionedAccountRollbackFailed(off, "alice", new InvalidOperationException("x"));
+
+        Assert.Empty(off.Entries);
+
+        SsoAudit.ConfigurationRollbackUnavailable(null!, new InvalidOperationException("x"));
+        SsoAudit.ConfigurationRollbackFailed(null!, new InvalidOperationException("x"));
+        SsoAudit.ConfigurationChangedSubscriberFailed(null!, new InvalidOperationException("x"));
+        SsoAudit.ProvisionedAccountRolledBack(null!, "SAML", "corp", "alice");
+        SsoAudit.ProvisionedAccountRollbackFailed(null!, "alice", new InvalidOperationException("x"));
+    }
+
+    [Fact]
+    public void TheRollbackLines_CarryThePrefix_AndStripLineEndings()
+    {
+        // A rollback line is what an operator finds above the failure that caused it, so it has to be
+        // filterable by the same prefix as every other audit line and carry no injected line break - the
+        // exception message and the username both arrive from outside this plugin.
+        var log = new CapturingLogger();
+
+        SsoAudit.ProvisionedAccountRolledBack(log, "SAML", "corp\nEVIL", "ali\nce");
+        SsoAudit.ProvisionedAccountRollbackFailed(log, "ali\nce", new InvalidOperationException("boom\nEVIL"));
+        SsoAudit.ConfigurationRollbackUnavailable(log, new InvalidOperationException("boom\nEVIL"));
+        SsoAudit.ConfigurationRollbackFailed(log, new InvalidOperationException("boom\nEVIL"));
+        SsoAudit.ConfigurationChangedSubscriberFailed(log, new InvalidOperationException("boom\nEVIL"));
+
+        Assert.Equal(5, log.Entries.Count);
+        Assert.All(log.Entries, e => Assert.StartsWith("[SSO Audit]", e.Message, StringComparison.Ordinal));
+        Assert.All(log.Entries, e => Assert.DoesNotContain("\n", e.Message, StringComparison.Ordinal));
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Error);
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public void TheRollbackLines_SurviveNullFields()
+    {
+        // Every field on these lines is null-conditional, and this is what proves those arms are reachable
+        // rather than decoration. A rollback line reports a failure that has already happened; one that
+        // threw on a null provider name would replace the diagnosis with a second fault, on the exact path
+        // an operator is trying to read.
+        var log = new CapturingLogger();
+
+        SsoAudit.ProvisionedAccountRolledBack(log, null!, null!, null!);
+        SsoAudit.ProvisionedAccountRollbackFailed(log, null!, null!);
+        SsoAudit.ConfigurationRollbackUnavailable(log, null!);
+        SsoAudit.ConfigurationRollbackFailed(log, null!);
+        SsoAudit.ConfigurationChangedSubscriberFailed(log, null!);
+
+        Assert.Equal(5, log.Entries.Count);
+        Assert.All(log.Entries, e => Assert.StartsWith("[SSO Audit]", e.Message, StringComparison.Ordinal));
+    }
+
     private sealed class LevelFilteredLogger : ILogger
     {
         private readonly LogLevel _minimum;
