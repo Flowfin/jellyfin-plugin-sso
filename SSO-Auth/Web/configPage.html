@@ -26,6 +26,18 @@
           </div>
 
           <!--
+            The server could not read its stored configuration and is running on defaults (#1543). Hidden
+            until the server says so, and it says so until an administrator imports or saves one - so this
+            is the one statement on the page that is not about what the form in front of you contains, but
+            about whether the form is showing you your settings at all.
+          -->
+          <div
+            id="sso-unreadable-config"
+            class="fieldDescription sso-empty-state"
+            hidden
+          ></div>
+
+          <!--
             About / notes, compact and collapsible so it does not push the provider workspace below the
             fold. Presentation-only: the same guidance the page always carried, moved into a native
             emby-collapse (collapsed by default) so the workspace is the first thing an admin sees.

@@ -63,7 +63,8 @@ internal sealed class SsoControllerHarness
     public SsoControllerHarness(
         Action<PluginConfiguration>? configure = null,
         IPAddress? clientIp = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? httpResponder = null)
+        Func<HttpRequestMessage, HttpResponseMessage>? httpResponder = null,
+        bool unreadableConfiguration = false)
     {
         // The OpenID flow keeps process-wide caches as statics on OidcLoginService; clear them so a prior
         // test that exercised the login flow cannot leak in-flight state into this one (#289). The
@@ -82,14 +83,31 @@ internal sealed class SsoControllerHarness
         configure?.Invoke(Configuration);
 
         var appPaths = Substitute.For<IApplicationPaths>();
-        appPaths.PluginConfigurationsPath.Returns(Path.Combine(Path.GetTempPath(), "sso-test-" + Guid.NewGuid()));
+        var configurations = Path.Combine(Path.GetTempPath(), "sso-test-" + Guid.NewGuid());
+        appPaths.PluginConfigurationsPath.Returns(configurations);
         // The plugin derives its at-rest secret key file from DataFolderPath (under PluginsPath) (#158);
         // point it at a fresh temp directory so a test that persists a real secret can create the key and
         // round-trip the encryption. The key is created lazily only when a non-empty secret is encrypted,
         // so tests that persist no secret never touch disk here.
         appPaths.PluginsPath.Returns(Path.Combine(Path.GetTempPath(), "sso-test-plugins-" + Guid.NewGuid()));
         Xml = Substitute.For<IXmlSerializer>();
-        Xml.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(Configuration);
+        if (unreadableConfiguration)
+        {
+            // #1543: a stored file the serializer refuses. The FIRST deserialize is the plugin's own
+            // readability screen, in the constructor window before anything reads Configuration, and it
+            // throws the way the host's own does; every later one reads back, so the rest of this harness
+            // behaves exactly as it does everywhere else and what a test is left holding is the one thing
+            // under examination - a plugin that knows it is serving defaults.
+            Directory.CreateDirectory(configurations);
+            File.WriteAllText(Path.Combine(configurations, "SSO-Auth.xml"), "<PluginConfig");
+            Xml.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>())
+                .Returns(_ => throw new InvalidOperationException("truncated"), _ => Configuration);
+        }
+        else
+        {
+            Xml.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(Configuration);
+        }
+
         // Constructing the plugin sets the static SSOPlugin.Instance the controller reads.
         _ = new SSOPlugin(appPaths, Xml, Substitute.For<ILogger<SSOPlugin>>());
 

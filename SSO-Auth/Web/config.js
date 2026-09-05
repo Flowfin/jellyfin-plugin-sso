@@ -387,10 +387,44 @@ const ssoConfigurationPage = {
       }
     });
   },
+  // Whether the server is running on a default configuration because it could not read the stored one
+  // (#1543). Read from the aggregate check, which is the report that already answers "would a login work"
+  // - and on such a server the answer is no for a reason no provider row can carry, because there are no
+  // provider rows. Without this the page would show an empty workspace and read as "nothing configured"
+  // to an operator whose providers are on disk in a file the server refused.
+  //
+  // Fail QUIET rather than fail loud: a check that cannot be fetched leaves the banner hidden. The state it
+  // reports is already an Error line in the server log and a 503 on every SSO sign-in, so a page that
+  // cannot reach the server is not the surface to invent an alarm on.
+  showUnreadableConfigurationNotice: (page) => {
+    const notice = page.querySelector("#sso-unreadable-config");
+    if (!notice) {
+      return Promise.resolve();
+    }
+
+    return ApiClient.getJSON(ApiClient.getUrl("sso/Config/Check"))
+      .then((report) => {
+        const unreadable = report && report.ConfigurationUnreadable === true;
+        // textContent, never markup (#221).
+        notice.textContent = unreadable
+          ? tr(
+              "config.unreadable_configuration",
+              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until you import or save a configuration here; local Jellyfin sign-in is unaffected. The server log says where the unreadable file was kept - keep that copy before you save over it.",
+            )
+          : "";
+        notice.hidden = !unreadable;
+      })
+      .catch(() => {
+        notice.hidden = true;
+      });
+  },
   loadConfiguration: (page) => {
     // Refreshed with the configuration itself: a provider that stopped being declaratively managed between
     // two loads must not keep a frozen form, and one that started being managed must not keep an open one.
     ssoConfigurationPage.loadManagedProviders();
+    // Same refresh reason: a save or an import ends the serve-defaults state, so the banner has to be
+    // re-asked rather than left standing from the load that found it.
+    ssoConfigurationPage.showUnreadableConfigurationNotice(page);
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
         ssoConfigurationPage.populateProviders(page, config.OidConfigs);

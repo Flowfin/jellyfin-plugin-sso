@@ -55,8 +55,9 @@ internal static class ProviderCheck
     /// Builds the aggregate report over a configuration snapshot.
     /// </summary>
     /// <param name="config">The configuration to evaluate; never modified.</param>
+    /// <param name="configurationUnreadable">Whether the stored configuration could not be read at start, so these rows describe a default one (#1543).</param>
     /// <returns>One row per configured provider, OpenID first, in configuration order.</returns>
-    internal static ProviderCheckDocument Build(PluginConfiguration config)
+    internal static ProviderCheckDocument Build(PluginConfiguration config, bool configurationUnreadable = false)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -72,7 +73,7 @@ internal static class ProviderCheck
             rows.Add(Row("SAML", kvp.Key, kvp.Value, SamlRequiredFields, Snapshot(config, saml: kvp)));
         }
 
-        return new ProviderCheckDocument { Providers = rows };
+        return new ProviderCheckDocument { Providers = rows, ConfigurationUnreadable = configurationUnreadable };
     }
 
     // A configuration carrying exactly one provider plus the shared profile set, so the whole-config

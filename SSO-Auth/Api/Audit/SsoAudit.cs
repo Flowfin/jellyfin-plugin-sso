@@ -743,4 +743,64 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty),
             string.Join(", ", options));
     }
+
+    /// <summary>
+    /// Records that the stored configuration could not be read at start, so defaults are being served and
+    /// SSO is refusing (#1543). Error rather than Warning: every provider, every canonical link and every
+    /// at-rest secret envelope is unreachable from this moment, and the host is about to overwrite the file
+    /// that holds them with those defaults.
+    /// </summary>
+    /// <remarks>
+    /// The preserved copy is named because it is the only artefact a repair can work on, and an operator
+    /// who is told the configuration is gone but not where the old one went has been told half of it. A
+    /// copy that could not be written is stated as such rather than elided, which is the disclosure staying
+    /// negative.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file that failed to read back.</param>
+    /// <param name="preservedCopyPath">Where the damaged file was copied, or <see langword="null"/> when the copy failed.</param>
+    internal static void UnreadableConfigurationFound(ILogger logger, string configurationFilePath, string? preservedCopyPath)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        if (preservedCopyPath is null)
+        {
+            logger.LogError(
+                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration is imported or saved. Local Jellyfin sign-in is unaffected.",
+                configurationFilePath?.ReplaceLineEndings(string.Empty));
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] {ConfigurationFile} could not be read. It was copied to {PreservedCopy} before the server overwrites it. Default settings are being served - no provider, no account link, no stored secret - and every SSO sign-in is refused with 503 until a configuration is imported or saved. Local Jellyfin sign-in is unaffected.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty),
+            preservedCopyPath?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records that the damaged configuration could not be copied aside (#1543). Its own line rather than a
+    /// clause in the one above, because the two failures are different sizes: the configuration being
+    /// unreadable is recoverable from a backup, and the evidence being gone is not.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="preservedCopyPath">The copy that was attempted.</param>
+    /// <param name="error">Why the copy failed.</param>
+    internal static void UnreadableConfigurationNotPreserved(ILogger logger, string preservedCopyPath, Exception error)
+        => logger.LogError(
+            error,
+            "[SSO Audit] The unreadable configuration could not be copied to {PreservedCopy}. The damaged file is about to be overwritten with defaults and no copy of it will remain.",
+            preservedCopyPath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records an administrator supplying a configuration while defaults were being served, which is what
+    /// ends the refusal (#1543). It is an audit line rather than a debug one because it is the moment SSO
+    /// sign-in becomes possible again on a server that was refusing it.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    internal static void UnreadableConfigurationCleared(ILogger logger)
+        => logger.LogWarning(
+            "[SSO Audit] A configuration was supplied by an administrator; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
 }

@@ -58,6 +58,13 @@ public class SSOController : ControllerBase
     // refusal wordings. It names the two accepted tokens and never echoes the supplied one.
     private const string UnknownModeMessage = "The mode segment must be 'oid' or 'saml'.";
 
+    // The refusal body served on every SSO sign-in route while the stored configuration could not be read
+    // (#1543). It is a distinct sentence from the no-matching-provider one on purpose: a default
+    // configuration holds no provider, so the flows would answer that a provider is unknown, and an
+    // operator reading it would go looking for a deleted provider instead of a damaged file. It names no
+    // path - the log carries the copy - so an anonymous caller learns only that SSO is down here.
+    private const string ServingDefaultsMessage = "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. Sign in with a local Jellyfin account to restore the configuration.";
+
     // Display names for the audit log (the internal link-map mode tokens are the lowercase "oid"/"saml").
     private const string OpenIdProtocol = "OpenID";
     private const string SamlProtocol = "SAML";
@@ -164,6 +171,11 @@ public class SSOController : ControllerBase
             return BrowserErrorPage.Wrap(throttled, Request, Response);
         }
 
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return BrowserErrorPage.Wrap(unavailable, Request, Response);
+        }
+
         // The OpenID redirect callback lives in the flow service (#160, #318): it validates the
         // browser-bound state, exchanges the code, validates the id_token and RFC 9207 response issuer,
         // applies the role gate, and renders the security-headered intermediate auth page on the response.
@@ -184,6 +196,11 @@ public class SSOController : ControllerBase
         if (RateLimitCheck(SsoRateLimitClass.Challenge) is { } throttled)
         {
             return BrowserErrorPage.Wrap(throttled, Request, Response);
+        }
+
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return BrowserErrorPage.Wrap(unavailable, Request, Response);
         }
 
         // The OpenID challenge lives in the flow service (#160, #318): it reads discovery, applies the
@@ -980,6 +997,11 @@ public class SSOController : ControllerBase
             return throttled;
         }
 
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return unavailable;
+        }
+
         // The session-minting authenticate leg lives in the flow service (#160, #318): it redeems the
         // browser-bound authorize state once and hands the verified identity to the shared completion tail.
         // The controller passes the presented binding cookie and the HttpContext-derived remote endpoint in,
@@ -1013,6 +1035,11 @@ public class SSOController : ControllerBase
             return BrowserErrorPage.Wrap(throttled, Request, Response);
         }
 
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return BrowserErrorPage.Wrap(unavailable, Request, Response);
+        }
+
         // The SAML assertion-consumer callback lives in the flow service (#160, #318): it validates the
         // signed response and, on a passing role gate, renders the security-headered intermediate auth
         // page on the response.
@@ -1033,6 +1060,11 @@ public class SSOController : ControllerBase
         if (RateLimitCheck(SsoRateLimitClass.Challenge) is { } throttled)
         {
             return BrowserErrorPage.Wrap(throttled, Request, Response);
+        }
+
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return BrowserErrorPage.Wrap(unavailable, Request, Response);
         }
 
         // The SAML challenge lives in the flow service (#160, #318): it builds the AuthnRequest, binds it
@@ -1510,7 +1542,12 @@ public class SSOController : ControllerBase
     [HttpGet("Config/Check")]
     public ActionResult<ProviderCheckDocument> CheckProviders()
     {
-        return Ok(SSOPlugin.Instance.ReadConfiguration(ProviderCheck.Build));
+        // The serve-defaults state rides along (#1543). Without it a server whose configuration could not
+        // be read answers this with an empty provider list, which reads as "nothing is configured" to an
+        // operator whose providers are sitting on disk in a file the server refused - the one report that
+        // exists to say whether a login would work would be the one hiding why none can.
+        var unreadable = SSOPlugin.Instance.ServingDefaultConfiguration;
+        return Ok(SSOPlugin.Instance.ReadConfiguration(configuration => ProviderCheck.Build(configuration, unreadable)));
     }
 
     /// <summary>
@@ -1754,6 +1791,11 @@ public class SSOController : ControllerBase
             }
         }
 
+        // The other door that ends a serve-defaults state (#1543), beside the settings-page save. An import
+        // is exactly the recovery this refusal points an operator at, so the refusal has to stop when one
+        // lands - and only after the merge has persisted, so a rejected document leaves the state standing.
+        SSOPlugin.Instance.ConfigurationSuppliedByAdministrator();
+
         return NoContent();
     }
 
@@ -1879,6 +1921,11 @@ public class SSOController : ControllerBase
         if (RateLimitCheck(SsoRateLimitClass.Auth) is { } throttled)
         {
             return throttled;
+        }
+
+        if (RefuseWhileServingDefaults() is { } unavailable)
+        {
+            return unavailable;
         }
 
         // The SAML session-minting authenticate leg lives in the flow service (#160, #318): it redeems the
@@ -2392,6 +2439,17 @@ public class SSOController : ControllerBase
     // IP classifier, endpoint-class keying, the #195 observability signal); this wrapper only supplies the
     // three request-scoped inputs it needs - the endpoint class, the connection's remote address, and the
     // response the retry-delay header is set on - so the controller keeps no rate-limit state of its own.
+    // #1543. The stored configuration could not be read at start, so what a login would resolve against is
+    // a default configuration holding no provider, no link and no secret. Refuse the whole sign-in surface
+    // with 503 rather than letting each flow answer "no matching provider", which is a true sentence about
+    // the wrong thing and sends an operator hunting a deleted provider. 503 because the condition is
+    // temporary and the server states it plainly. It gates SSO sign-in ONLY: local Jellyfin sign-in is not
+    // this plugin's and is untouched, which is what leaves an administrator a way in to repair (T-D1).
+    private ObjectResult? RefuseWhileServingDefaults() =>
+        SSOPlugin.Instance.ServingDefaultConfiguration
+            ? StatusCode(StatusCodes.Status503ServiceUnavailable, ServingDefaultsMessage)
+            : null;
+
     private ActionResult? RateLimitCheck(string endpointClass) =>
         SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
 }

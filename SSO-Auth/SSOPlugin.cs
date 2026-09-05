@@ -61,6 +61,17 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // config path and loads the configuration lazily on first access, so nothing calls back into
         // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
         _logger = logger;
+
+        // #1543, and it is FIRST on purpose. The host loads the configuration lazily and, when that load
+        // throws, hands out defaults and WRITES THEM OVER THE FILE - so the only moment the damaged bytes
+        // still exist is before anything reads Configuration. Nothing above this line touches that
+        // property, and the screen reads the file itself rather than through the base class, so it cannot
+        // trigger the load it exists to get ahead of. ConfigurationFilePath is composed from the
+        // application paths and reads no configuration.
+        var stored = UnreadableConfiguration.Preserve(ConfigurationFilePath, xmlSerializer, logger, DateTime.UtcNow);
+        ServingDefaultConfiguration = stored.IsUnreadable;
+        UnreadableConfigurationCopy = stored.PreservedCopyPath;
+
         ConfigStore = new ProviderConfigStore(() => Configuration, PersistBase, logger);
 
         // Lazy with the default thread-safe mode: the SecretStore (and thus the data-encryption key) is
@@ -113,6 +124,27 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal ProviderConfigStore ConfigStore { get; }
 
     /// <summary>
+    /// Gets a value indicating whether the stored configuration could not be read at start, so what is
+    /// being served is a default one and not the one this server had (#1543).
+    /// </summary>
+    /// <remarks>
+    /// While it is true every SSO sign-in route refuses with 503 rather than failing as no matching
+    /// provider, because a default configuration holds no provider and the two are not the same fact for
+    /// the operator reading the log. Local Jellyfin sign-in is untouched, so an administrator can always
+    /// get in to repair - which is T-D1 on this surface. It is cleared by an administrator importing or
+    /// saving a configuration, and by nothing else: a server that has served one default login for a week
+    /// must not quietly decide it is healthy.
+    /// </remarks>
+    internal bool ServingDefaultConfiguration { get; private set; }
+
+    /// <summary>
+    /// Gets where the unreadable configuration file was copied before the host overwrote it (#1543), or
+    /// <see langword="null"/> when the configuration read back - and also when it did not and the copy
+    /// could not be written, which the log states rather than this property.
+    /// </summary>
+    internal string? UnreadableConfigurationCopy { get; private set; }
+
+    /// <summary>
     /// Gets the store that encrypts the plugin's at-rest secrets - the OpenID client secret and the SAML
     /// signing key (#158). Its data-encryption key lives in a dedicated file in the plugin data folder,
     /// separate from the config XML, so a leaked config alone cannot decrypt anything. The login flows
@@ -163,7 +195,31 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// UpdatePluginConfiguration (the admin config-page save) enters here.
     /// </summary>
     /// <param name="configuration">The configuration to persist.</param>
-    public override void UpdateConfiguration(BasePluginConfiguration configuration) => ConfigStore.Save(configuration);
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        ConfigStore.Save(configuration);
+
+        // The save is what ends the refusal (#1543), and only AFTER it has been persisted: a save that
+        // throws leaves the server serving defaults and still refusing, which is the state it was
+        // actually in.
+        ConfigurationSuppliedByAdministrator();
+    }
+
+    /// <summary>
+    /// Ends the serve-defaults state an unreadable configuration put this server into (#1543). Called from
+    /// the two doors that mean an administrator has supplied a configuration - the settings-page save and
+    /// the configuration import - and from nowhere else, so a login-path write cannot clear it.
+    /// </summary>
+    internal void ConfigurationSuppliedByAdministrator()
+    {
+        if (!ServingDefaultConfiguration)
+        {
+            return;
+        }
+
+        ServingDefaultConfiguration = false;
+        SsoAudit.UnreadableConfigurationCleared(_logger);
+    }
 
     // The store's only road to disk: persistence stays with the plugin base class, and this named
     // bridge hands base.UpdateConfiguration to the store so a store save cannot re-enter the

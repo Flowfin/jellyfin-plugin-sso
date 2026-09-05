@@ -112,6 +112,49 @@ public partial class ArchitectureConformanceTests
         "i18n", // SSOViewsController: anonymous read-only UI-string catalog (#913), in-memory, no I/O, no login path
     };
 
+    // The SSO SIGN-IN routes, and only those: the two challenges, the two callbacks and the two
+    // authenticate legs. Each must refuse with 503 while the stored configuration could not be read
+    // (#1543), because a default configuration holds no provider and every one of them would otherwise
+    // answer that the provider is unknown - a true sentence about the wrong thing, which sends an operator
+    // hunting a deleted provider instead of a damaged file.
+    //
+    // What is NOT here is the boundary of the decision rather than an oversight. Logout must keep working
+    // (ending a session is safe with no configuration and is what a stranded user needs), the SP metadata
+    // and the admin doors must keep answering (they are how an administrator diagnoses and repairs this),
+    // and local Jellyfin sign-in is not this plugin's at all - which is what leaves a way in to repair,
+    // T-D1 on this surface.
+    private static readonly string[] SignInRoutes =
+    {
+        "OID/p/{provider}", "OID/start/{provider}",
+        "OID/r/{provider}", "OID/redirect/{provider}",
+        "OID/Auth/{provider}",
+        "SAML/p/{provider}", "SAML/start/{provider}", "SAML/post/{provider}",
+        "SAML/Auth/{provider}",
+    };
+
+    [Fact]
+    public void EverySignInRoute_RefusesWhileTheStoredConfigurationCouldNotBeRead()
+    {
+        // #1543. The per-route behaviour is pinned by SSOControllerServingDefaultsTests; this pins that the
+        // gate is PRESENT on every one of them, so a seventh sign-in action added later cannot quietly ship
+        // without it - which is the class of miss a fixed battery of endpoint tests does not catch.
+        var actions = ControllerActionBlocks();
+        var missing = new List<string>();
+        foreach (var route in SignInRoutes)
+        {
+            var block = actions.FirstOrDefault(a => a.Routes.Contains(route, StringComparer.Ordinal));
+            Assert.True(block.Routes is not null, $"SignInRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#1543).");
+            if (!block.Body.Contains("RefuseWhileServingDefaults()", StringComparison.Ordinal))
+            {
+                missing.Add(route);
+            }
+        }
+
+        Assert.True(
+            missing.Count == 0,
+            "These sign-in endpoints must call RefuseWhileServingDefaults() and do not, so they would answer 'no matching provider' on a server whose configuration could not be read: " + string.Join(", ", missing));
+    }
+
     [Fact]
     public void EveryMustThrottleEndpoint_CallsTheRateLimitGate()
     {

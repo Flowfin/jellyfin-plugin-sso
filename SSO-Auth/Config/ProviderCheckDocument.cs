@@ -40,6 +40,25 @@ public class ProviderCheckDocument
     /// report rather than an error.
     /// </summary>
     public IReadOnlyList<ProviderCheckResult> Providers { get; init; } = new List<ProviderCheckResult>();
+
+    /// <summary>
+    /// Gets a value indicating whether the stored configuration could not be read when this server
+    /// started, so what the rows above describe is a DEFAULT configuration and not the one this server
+    /// had (#1543).
+    /// </summary>
+    /// <remarks>
+    /// It rides on this report rather than on a route of its own because it is the same question the
+    /// report answers - would a login work today - given as the reason every row went missing. A server in
+    /// this state answers every SSO sign-in with 503 and has no provider to list, so a page that showed
+    /// only the empty list would say "nothing configured" to an operator whose configuration is sitting
+    /// on disk, damaged, one file away.
+    /// <para>
+    /// NO PATH ON THE WIRE. Where the unreadable file was kept is in the server log, which is where an
+    /// operator has to go anyway to act on this, and a filesystem path in an HTTP answer is a detail about
+    /// the host that the page has no use for.
+    /// </para>
+    /// </remarks>
+    public bool ConfigurationUnreadable { get; init; }
 }
 
 /// <summary>
