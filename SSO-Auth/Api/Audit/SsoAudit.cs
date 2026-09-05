@@ -41,6 +41,51 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records that an account this login had just created was deleted again because the login could not be
+    /// completed (#1533). Warning rather than Information: the lines the provisioning already emitted - the
+    /// created-account metric, the pending-approval audit, the legacy-orphan warning - all describe an
+    /// account that no longer exists, and this is what makes that stretch of the log readable.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="username">The Jellyfin username the account had been created under.</param>
+    internal static void ProvisionedAccountRolledBack(ILogger logger, string protocol, string provider, string username)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Provisioning rolled back for {Protocol} provider '{Provider}': the account '{Username}' was created and then deleted again because the login could not be completed. Nothing was left behind, and the failure that stopped it is logged separately. The user can sign in once that failure is fixed.",
+            protocol?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty),
+            username?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records that the rollback above could not delete the account (#1533), so a half-provisioned one
+    /// survives. Error, and it names what an administrator has to do: this account carries no link and no
+    /// usable password, and it blocks that identity from being provisioned again under the same name.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="username">The Jellyfin username the account was created under.</param>
+    /// <param name="error">What the delete threw. No credential material is recorded.</param>
+    internal static void ProvisionedAccountRollbackFailed(ILogger logger, string username, Exception error)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] Provisioning could not be rolled back ({Reason}): the account '{Username}' was created for a login that then failed, and deleting it again did not work. It holds no SSO link and no usable password, and it will refuse that identity a fresh account under the same name - delete it manually.",
+            error?.Message?.ReplaceLineEndings(string.Empty),
+            username?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
     /// Records a new SSO identity being provisioned as a disabled account pending administrator approval
     /// (#737, ProvisionNewUsersDisabled). No session was issued; an administrator must enable the account.
     /// </summary>

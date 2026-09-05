@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
@@ -13,6 +14,8 @@ using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Cryptography;
+using MediaBrowser.Model.Plugins;
 using NSubstitute;
 using Xunit;
 
@@ -148,6 +151,163 @@ public class CanonicalLinkServiceTests
 
         await users.Received(1).DeleteUserAsync(Other);
         Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_LinkWriteFails_RollsBackTheAccountAndFailsClosed()
+    {
+        // #1533, and the shape only became reachable with #1521: the store now undoes a configuration write
+        // that could not reach the disk, so the link is gone while the account this login created is not.
+        // That account then blocks every later attempt for the same identity - the create-or-adopt gate
+        // refuses to adopt it - so a full disk turned into a permanent per-identity lockout that fixing the
+        // disk did not clear. Deleting it leaves nothing behind, which is what the two persist rollbacks
+        // above already do for their own failure.
+        var (service, cfg, users, _) = BuildWithPersist(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true },
+            _ => throw new IOException("no space left on device"));
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false));
+
+        await users.Received(1).DeleteUserAsync(Other);
+        Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_LinkWriteSucceeds_KeepsTheAccount()
+    {
+        // The positive control the rollback needs: it fires on a failed link write and on nothing else.
+        // Without this, a service that deleted every account it created would satisfy the test above.
+        var (service, cfg, users, _) = BuildWithPersist(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true },
+            _ => { });
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        var resolved = await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.Equal(Other, resolved);
+        await users.DidNotReceive().DeleteUserAsync(Arg.Any<Guid>());
+        Assert.Equal(Other, cfg.OidConfigs["kc"].CanonicalLinks["sub-1"]);
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_AdoptedAccount_LinkWriteFails_LeavesTheAccountAlone()
+    {
+        // The boundary the rollback must not cross. The adopt arm links an account that existed before this
+        // login; a failed link write there must fail the login and leave the account exactly where it was.
+        // Deleting one would turn a disk error into account destruction, which is the worst outcome this
+        // file has.
+        var existing = TestUsers.Named("alice", Existing);
+        var (service, cfg, users, _) = BuildWithPersist(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true, AllowExistingAccountLink = true },
+            _ => throw new IOException("no space left on device"));
+        users.GetUserByName("alice").Returns(existing);
+        users.GetUserById(Existing).Returns(existing);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: true));
+
+        await users.DidNotReceive().DeleteUserAsync(Arg.Any<Guid>());
+        await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+        Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_ProviderDisabledMidFlight_RollsBackTheAccountToo()
+    {
+        // The rollback is not exception-type-blind by accident. LinkCanonicalIfAbsent also refuses when the
+        // provider was deleted or disabled between the candidate read and the write, and an account
+        // provisioned for a login that is then refused is the same orphan as one whose disk was full. The
+        // provider is removed here during the account persist, which is exactly that window.
+        var (service, cfg, users, _) = BuildWithPersist(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true },
+            _ => { });
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+        users.When(u => u.UpdateUserAsync(created)).Do(_ => cfg.OidConfigs.Remove("kc"));
+
+        await Assert.ThrowsAsync<AccountLinkForbiddenException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false));
+
+        await users.Received(1).DeleteUserAsync(Other);
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_RollbackItselfFails_TheOriginalFailureStillReachesTheCaller()
+    {
+        // A delete that throws from inside a finally replaces the exception being unwound, and that
+        // exception is the only thing that says what went wrong - the completion path catches the refusal
+        // BY TYPE to answer 403 rather than 500, and an operator reading a 500 needs to see the disk. So
+        // the rollback swallows its own failure and says so in the log instead.
+        var (service, cfg, users, log) = BuildWithPersist(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true },
+            _ => throw new IOException("no space left on device"));
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+        users.When(u => u.DeleteUserAsync(Other)).Do(_ => throw new InvalidOperationException("the delete failed too"));
+
+        var thrown = await Assert.ThrowsAsync<IOException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false));
+
+        Assert.Equal("no space left on device", thrown.Message);
+        Assert.Contains(log.Entries, e => e.Message.Contains("could not be rolled back", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResolveOrCreateAsync_NewAccount_ThrowBeforeThePersist_RollsBackTheAccount()
+    {
+        // The window the single guard closed. The password mint and the template application run between
+        // the create and the persist, and a throw in either used to leave behind the account this arm
+        // exists to prevent: enabled, without the SSO routing, without a password - the empty-password door
+        // on the ordinary login form - and unlinked.
+        // A concrete implementation rather than a substitute: NSubstitute cannot proxy the
+        // ReadOnlySpan<char> overload, which is why FakeCryptoProvider exists beside it in the first place.
+        var crypto = new RefusingCryptoProvider();
+
+        var cfg = new PluginConfiguration();
+        cfg.OidConfigs["kc"] = new OidConfig { Enabled = true };
+        var users = Substitute.For<IUserManager>();
+        var service = new CanonicalLinkService(users, crypto, new ProviderConfigStore(() => cfg, _ => { }, new CapturingLogger()), new CapturingLogger(), new IntervalGate(TimeSpan.FromMinutes(1)));
+
+        var created = TestUsers.Named("alice", Other);
+        users.GetUserByName("alice").Returns((User?)null);
+        users.CreateUserAsync("alice").Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false));
+
+        await users.Received(1).DeleteUserAsync(Other);
+        await users.DidNotReceive().UpdateUserAsync(Arg.Any<User>());
+        Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    // The same wiring as Build, with the store's persist delegate handed to the caller so a test can make
+    // the configuration write fail. Kept beside Build rather than folded into it: every other test in this
+    // file wants a persist that does nothing, and an optional parameter there would put the interesting
+    // case behind a default nobody reads.
+    private static (CanonicalLinkService Service, PluginConfiguration Config, IUserManager Users, CapturingLogger Log) BuildWithPersist(
+        Action<PluginConfiguration> seed,
+        Action<BasePluginConfiguration> persist)
+    {
+        var cfg = new PluginConfiguration();
+        seed(cfg);
+        var store = new ProviderConfigStore(() => cfg, persist, new CapturingLogger());
+        var users = Substitute.For<IUserManager>();
+        var log = new CapturingLogger();
+        var service = new CanonicalLinkService(users, new FakeCryptoProvider(), store, log, new IntervalGate(TimeSpan.FromMinutes(1)));
+        return (service, cfg, users, log);
     }
 
     [Fact]
@@ -1838,4 +1998,24 @@ public class CanonicalLinkServiceTests
 
         Assert.DoesNotContain(log.Entries, e => e.Message.Contains("orphaned", StringComparison.Ordinal));
     }
+}
+
+/// <summary>
+/// An <see cref="ICryptoProvider"/> that refuses to hash, so a test can make the account-provisioning path
+/// throw BETWEEN the account create and the account persist (#1533). NSubstitute cannot proxy the
+/// <c>ReadOnlySpan&lt;char&gt;</c> overload, which is why this is a class rather than a substitute - the same
+/// reason <see cref="FakeCryptoProvider"/> beside it is one.
+/// </summary>
+internal sealed class RefusingCryptoProvider : ICryptoProvider
+{
+    public string DefaultHashMethod => "PBKDF2-SHA512";
+
+    public PasswordHash CreatePasswordHash(ReadOnlySpan<char> password) =>
+        throw new InvalidOperationException("the host crypto refused");
+
+    public bool Verify(PasswordHash hash, ReadOnlySpan<char> password) => true;
+
+    public byte[] GenerateSalt() => Array.Empty<byte>();
+
+    public byte[] GenerateSalt(int length) => new byte[length];
 }
