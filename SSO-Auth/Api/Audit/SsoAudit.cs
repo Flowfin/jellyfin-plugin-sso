@@ -541,22 +541,50 @@ internal static class SsoAudit
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider whose link table was emptied.</param>
     /// <param name="removedLinks">How many links were removed.</param>
-    /// <param name="revokedAccounts">How many accounts lost their last SSO link and had their live tokens revoked.</param>
-    internal static void ProviderLinksPurged(ILogger logger, string actor, string protocol, string provider, int removedLinks, int revokedAccounts)
+    /// <param name="unlinkedAccounts">How many accounts were left holding no SSO link at all.</param>
+    /// <param name="signedOut">How many of those the token revocation actually reached.</param>
+    internal static void ProviderLinksPurged(ILogger logger, string actor, string protocol, string provider, int removedLinks, int unlinkedAccounts, int signedOut)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
         {
             return;
         }
 
+        // The two counts are separate on purpose. Collapsing them would report the accounts left without
+        // an SSO link as the accounts signed out, and a revoke that threw would then be invisible: the
+        // line would understate what happened by exactly the accounts still holding a live session.
         logger.LogWarning(
-            "[SSO Audit] Every canonical link on {Protocol} '{Provider}' removed by {Actor}: {RemovedLinks} link(s) gone, {RevokedAccounts} account(s) left with no SSO link and signed out. No Jellyfin account, permission or password was changed.",
+            "[SSO Audit] Every canonical link on {Protocol} '{Provider}' removed by {Actor}: {RemovedLinks} link(s) gone, {UnlinkedAccounts} account(s) left with no SSO link, {SignedOut} of them signed out. No Jellyfin account, permission or password was changed.",
             protocol,
             provider?.ReplaceLineEndings(string.Empty),
             actor?.ReplaceLineEndings(string.Empty),
             removedLinks,
-            revokedAccounts);
+            unlinkedAccounts,
+            signedOut);
     }
+
+    /// <summary>
+    /// Records that a bulk unlink left an administrator account with no way to sign in after all (#1519).
+    /// The gate refuses that outcome, so this line means the gate was right when it ran and the world
+    /// moved underneath it: an account can lose its password door between being judged and the removal
+    /// committing, without any link moving, which no link-table comparison can see.
+    /// </summary>
+    /// <remarks>
+    /// Error, and it names the accounts, because it is the one line that turns a silent lockout into a
+    /// repair somebody can make: give one of them a usable password, or re-link it. The caller is an
+    /// elevated administrator and the log is the operator's own, so naming them discloses nothing the
+    /// account roster does not.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider whose links were removed.</param>
+    /// <param name="administrators">The rendered list of administrator accounts now without a way in.</param>
+    internal static void ProviderLinksPurgeStrandedAdministrator(ILogger logger, string protocol, string provider, string administrators)
+        => logger.LogError(
+            "[SSO Audit] After emptying {Protocol} '{Provider}', these administrator account(s) have no way to sign in: {Administrators}. They were judged to have one when the run was checked, so something changed in between. Give one of them a usable password or re-link it.",
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty),
+            administrators?.ReplaceLineEndings(string.Empty));
 
     /// <summary>
     /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail

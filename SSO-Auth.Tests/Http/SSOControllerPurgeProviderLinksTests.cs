@@ -85,6 +85,42 @@ public class SSOControllerPurgeProviderLinksTests
     }
 
     [Fact]
+    public async Task PurgeProviderLinks_RefusedOnACount_WritesNothingToDisk()
+    {
+        // A count that does not match is this route's NORMAL outcome - a page that went stale - and every
+        // return out of a configuration mutation persists the file even when it changed nothing. This
+        // plugin's write is not atomic (#1532), so a routine refusal that rewrites SSO-Auth.xml is a
+        // routine chance to truncate it. The survey answers this one without entering a mutation.
+        var harness = SeedProvider(links: 3);
+        harness.Xml.ClearReceivedCalls();
+
+        await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
+        await harness.Controller.PurgeProviderLinks("oid", "not-configured", 2);
+
+        harness.Xml.DidNotReceive().SerializeToFile(Arg.Any<object>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task PurgeProviderLinks_StrandingRefusal_NamesAtMostTenAdministrators()
+    {
+        // The refusal names the way out, and on a server where many accounts hold administrator that would
+        // otherwise be a roster-sized body driven by one request. Capped like the link import's own refusal.
+        var harness = SeedProvider(links: 0);
+        for (var i = 0; i < 12; i++)
+        {
+            var name = "admin" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            SeedAdminLinkedTo(harness, name, Guid.NewGuid(), "sub-" + name, withPassword: false);
+        }
+
+        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 12);
+
+        var conflict = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(409, conflict.StatusCode);
+        Assert.Contains("and 2 more", conflict.Value?.ToString(), StringComparison.Ordinal);
+        Assert.Equal(12, LinkCount(harness));
+    }
+
+    [Fact]
     public async Task PurgeProviderLinks_MatchingCount_RemovesEveryLink_AndAnswersWhatItDid()
     {
         var harness = SeedProvider(links: 3);
@@ -134,10 +170,12 @@ public class SSOControllerPurgeProviderLinksTests
         {
             c.OidConfigs["keycloak"] = new OidConfig
             {
+                Enabled = true,
                 CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-alice"] = AliceId, ["sub-bob"] = BobId },
             };
             c.SamlConfigs["adfs"] = new SamlConfig
             {
+                Enabled = true,
                 CanonicalLinks = new SerializableDictionary<string, Guid> { ["nameid-bob"] = BobId },
             };
         });
@@ -195,6 +233,7 @@ public class SSOControllerPurgeProviderLinksTests
         SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: false);
         SSOPlugin.Instance.MutateConfiguration(c => c.SamlConfigs["adfs"] = new SamlConfig
         {
+            Enabled = true,
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["nameid-root"] = RootId },
         });
 
@@ -239,6 +278,45 @@ public class SSOControllerPurgeProviderLinksTests
             c.DisablePasswordLogin = true;
             c.BreakGlassAdminUsername = "root";
         });
+
+        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0, LinkCount(harness));
+    }
+
+    [Fact]
+    public async Task PurgeProviderLinks_WithAnAdministratorLinkedOnlyToADisabledProvider_IsRefused()
+    {
+        // The falsifier for the test above, and the reason the guard reads Enabled at all. The
+        // administrator holds a second link - but on a provider somebody disabled, and the login path
+        // resolves through TryGetLinks(requireEnabled: true), so that link signs nobody in. Counting it as
+        // a way in would strand the administrator on exactly the disable-then-clean-up workflow this route
+        // exists for (#380), which is how this guard fail-opened before it shipped.
+        var harness = SeedProvider(links: 1);
+        SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: false);
+        SSOPlugin.Instance.MutateConfiguration(c => c.SamlConfigs["adfs"] = new SamlConfig
+        {
+            Enabled = false,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["nameid-root"] = RootId },
+        });
+
+        var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
+
+        Assert.Equal(409, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Equal(2, LinkCount(harness));
+    }
+
+    [Fact]
+    public async Task PurgeProviderLinks_OnADisabledProvider_DoesNotRefuseForWhatItTakesNothingFrom()
+    {
+        // The other direction of the same reading, and the one a guard written only against Enabled would
+        // get wrong the opposite way. The target provider is already disabled, so its links are not a way
+        // in BEFORE the run either - the administrator is no worse off afterwards, and refusing here would
+        // make a disabled provider impossible to clean up, which is the workflow the route is for.
+        var harness = SeedProvider(links: 1);
+        SeedAdminLinkedTo(harness, "root", RootId, "sub-root", withPassword: false);
+        SSOPlugin.Instance.MutateConfiguration(c => c.OidConfigs["keycloak"].Enabled = false);
 
         var result = await harness.Controller.PurgeProviderLinks("oid", "keycloak", 2);
 
@@ -296,7 +374,9 @@ public class SSOControllerPurgeProviderLinksTests
     {
         var harness = new SsoControllerHarness(c =>
         {
-            var config = new OidConfig { CanonicalLinks = new SerializableDictionary<string, Guid>() };
+            // Enabled, because that is what makes its links a way in: the login path resolves through
+            // TryGetLinks(requireEnabled: true), so a link on a disabled provider signs nobody in.
+            var config = new OidConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid>() };
             for (var i = 0; i < links; i++)
             {
                 config.CanonicalLinks["sub-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)] = Guid.NewGuid();

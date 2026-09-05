@@ -1601,8 +1601,39 @@ internal sealed class CanonicalLinkService
     {
         return _configStore.Read(configuration =>
             TryGetLinks(configuration, mode, provider, requireEnabled: false, out var links)
-                ? new ProviderLinkSurvey(true, links.Count, UsersLosingTheirLastLink(configuration, links))
+                ? new ProviderLinkSurvey(true, links.Count, links.Values.Distinct().ToList())
                 : new ProviderLinkSurvey(false, 0, Array.Empty<Guid>()));
+    }
+
+    /// <summary>
+    /// Names the administrator accounts among the given doors that have no way to sign in at all, read
+    /// against the configuration as it stands now (#1519).
+    /// </summary>
+    /// <remarks>
+    /// The safety net under the purge rather than part of its gate. The gate judges accounts resolved
+    /// before the removal took the lock, and an account can lose its password door in that window without
+    /// its LINKS moving - an ordinary SSO login on a provider whose DefaultProvider is the SSO provider id
+    /// repoints the account off the password provider, which no link-table comparison can see. That window
+    /// cannot be closed from here (the user records are the host's and are not under this lock), so it is
+    /// read again afterwards instead, and an administrator left with nothing reaches the operator as an
+    /// Error line the moment it happens rather than at their next sign-in.
+    /// </remarks>
+    /// <param name="doors">The accounts to re-judge, resolved through the user manager after the removal.</param>
+    /// <returns>The usernames of administrators with neither a password door nor a link on an enabled provider.</returns>
+    internal IReadOnlyList<string> AdministratorsWithNoWayIn(IReadOnlyList<AccountDoors> doors)
+    {
+        ArgumentNullException.ThrowIfNull(doors);
+
+        return _configStore.Read(configuration =>
+        {
+            var stillLinked = UsersWithAnEnabledLink(configuration);
+            return (IReadOnlyList<string>)doors
+                .Where(door => door.IsAdministrator && !door.IsDisabled)
+                .Where(door => !HasPasswordDoor(configuration, door) && !stillLinked.Contains(door.UserId))
+                .Select(door => door.Username)
+                .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        });
     }
 
     /// <summary>
@@ -1650,31 +1681,53 @@ internal sealed class CanonicalLinkService
         {
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: false, out var links))
             {
-                return Refused(ProviderLinkPurgeResult.UnknownProvider, 0);
+                return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.UnknownProvider, 0);
             }
 
             if (links.Count != expectedLinkCount)
             {
-                return Refused(ProviderLinkPurgeResult.CountMismatch, links.Count);
+                return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.CountMismatch, links.Count);
             }
 
             // Re-derived here rather than carried in: the set the survey read was read in an EARLIER
             // transaction, and this is the one that acts. An account it names that was never judged means a
             // link moved in between, so the guard below would be deciding on a stale reading of who can
             // still sign in - refuse and let the caller start again rather than act on it.
-            var losing = UsersLosingTheirLastLink(configuration, links);
+            var linked = links.Values.Distinct().ToList();
             var doors = judged.ToDictionary(door => door.UserId);
-            if (losing.Any(userId => !doors.ContainsKey(userId)))
+            if (linked.Any(userId => !doors.ContainsKey(userId)))
             {
-                return Refused(ProviderLinkPurgeResult.LinkTableChanged, links.Count);
+                return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.LinkTableChanged, links.Count);
             }
 
-            var stranded = losing
-                .Select(userId => doors[userId])
-                .Where(door => door.IsAdministrator && !door.IsDisabled && !HasPasswordDoor(configuration, door))
-                .Select(door => door.Username)
-                .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // TWO DIFFERENT QUESTIONS OVER THE SAME ACCOUNTS, and they take opposite readings of a disabled
+            // provider. Who gets signed out is who is left holding NO canonical link anywhere, enabled or
+            // not - the reading the single unlink already revokes on (#468). Who would be STRANDED is
+            // decided against enabled providers only, because the login path resolves a link through
+            // TryGetLinks(requireEnabled: true): a link on a disabled provider is a row in a table, not a
+            // way in. Counting one as a way in is how this guard fail-opened before it shipped, on exactly
+            // the disable-then-clean-up workflow the action exists for (#380).
+            //
+            // Both are answered from ONE walk of the other providers, built before either is asked. Asking
+            // per account instead would be a scan of every other provider per linked account, inside the
+            // process-wide configuration lock that every login takes - quadratic in exactly the case this
+            // endpoint exists for, a provider carrying thousands of links.
+            var elsewhere = LinksHeldElsewhere(configuration, links);
+            var losing = linked.Where(userId => !elsewhere.Any.Contains(userId)).ToList();
+
+            // A run strands an administrator only when it TAKES their last way in. Every candidate holds a
+            // link on the target, so "had a way in before" reduces to "the target is enabled, or they had
+            // one that survives anyway" - which is why the target being disabled refuses nobody: its links
+            // were not a way in before the run either, and cleaning it up takes nothing away.
+            var stranded = elsewhere.TargetEnabled
+                ? linked
+                    .Select(userId => doors[userId])
+                    .Where(door => door.IsAdministrator && !door.IsDisabled)
+                    .Where(door => !HasPasswordDoor(configuration, door) && !elsewhere.OnAnEnabledProvider.Contains(door.UserId))
+                    .Select(door => door.Username)
+                    .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : new List<string>();
             if (stranded.Count > 0)
             {
                 return new ProviderLinkPurgeOutcome(ProviderLinkPurgeResult.WouldStrandAdministrator, 0, links.Count, Array.Empty<Guid>(), stranded);
@@ -1700,11 +1753,6 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    // A refusal changes nothing, so every field but the reason and the count that refused is empty. Named
-    // rather than repeated three times, so a new refusal arm cannot accidentally report links removed.
-    private static ProviderLinkPurgeOutcome Refused(ProviderLinkPurgeResult result, int actualLinkCount)
-        => new(result, 0, actualLinkCount, Array.Empty<Guid>(), Array.Empty<string>());
-
     // Whether the account can still sign in with a password once its SSO links are gone. The provider and
     // stored-password half is read from the account outside the lock (AccountDoors); the half that needs the
     // configuration is applied here, because while SSO-only login is on every non-exempt account has been
@@ -1716,27 +1764,68 @@ internal sealed class CanonicalLinkService
            && door.HasStoredPassword
            && !SsoOnlyLoginGuard.IsEnforcedNonExempt(configuration, door.Username);
 
-    // The accounts holding a link in the given map and in no OTHER provider's, read under the caller's
-    // already-held config lock. Identity is by reference to the map itself rather than by provider name, so
-    // the target provider is excluded exactly once even though the two protocols keep separate namespaces
-    // and a SAML and an OpenID provider may share a name. A provider stored with a null config object
-    // (reachable via #350's null-body add) holds no links and is skipped rather than dereferenced - the
-    // same fail-closed treatment TryGetLinks and RemoveUserEverywhere give it.
-    private static List<Guid> UsersLosingTheirLastLink(PluginConfiguration configuration, SerializableDictionary<string, Guid> targetLinks)
+    // Everything the purge needs to know about the OTHER providers, from ONE walk under the caller's
+    // already-held config lock: which accounts hold a link somewhere else at all, which hold one on a
+    // provider a login could actually resolve through, and whether the target itself is enabled. The
+    // target is excluded by reference to its own links map rather than by name, so it is excluded exactly
+    // once even though a SAML and an OpenID provider may share a name. A provider stored with a null
+    // config object (reachable via #350's null-body add) holds no links and is skipped rather than
+    // dereferenced - the same fail-closed treatment TryGetLinks and RemoveUserEverywhere give it.
+    private static LinksElsewhere LinksHeldElsewhere(PluginConfiguration configuration, SerializableDictionary<string, Guid> targetLinks)
     {
-        var losing = new HashSet<Guid>(targetLinks.Values);
-        foreach (var config in configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values))
+        var any = new HashSet<Guid>();
+        var enabled = new HashSet<Guid>();
+        var targetEnabled = false;
+
+        foreach (var config in AllProviders(configuration))
         {
-            if (config?.CanonicalLinks is { } links && !ReferenceEquals(links, targetLinks))
+            if (config?.CanonicalLinks is not { } links)
             {
-                foreach (var userId in links.Values)
+                continue;
+            }
+
+            if (ReferenceEquals(links, targetLinks))
+            {
+                targetEnabled |= config.Enabled;
+                continue;
+            }
+
+            foreach (var userId in links.Values)
+            {
+                any.Add(userId);
+                if (config.Enabled)
                 {
-                    losing.Remove(userId);
+                    enabled.Add(userId);
                 }
             }
         }
 
-        return losing.ToList();
+        return new LinksElsewhere(any, enabled, targetEnabled);
+    }
+
+    // Both protocols' providers as one sequence (covariant Concat over the shared base), so a walk over
+    // them is written once.
+    private static IEnumerable<ProviderConfigBase> AllProviders(PluginConfiguration configuration)
+        => configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values);
+
+    // Every account an enabled provider still points a link at - the after-the-fact form of the guard's
+    // reading, with no target to exclude because the removal has already happened. One walk for the same
+    // reason the guard takes one: this runs under the lock every login takes.
+    private static HashSet<Guid> UsersWithAnEnabledLink(PluginConfiguration configuration)
+    {
+        var linked = new HashSet<Guid>();
+        foreach (var config in AllProviders(configuration))
+        {
+            if (config is { Enabled: true, CanonicalLinks: { } links })
+            {
+                foreach (var userId in links.Values)
+                {
+                    linked.Add(userId);
+                }
+            }
+        }
+
+        return linked;
     }
 
     // Whether any SAML or OpenID provider still holds a canonical link pointing at the user, read under the

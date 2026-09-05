@@ -518,13 +518,34 @@ because the way out is to give one of them a usable password or to unlink it
 deliberately through the single-link route, and an operator told only that "an
 administrator would be stranded" has to guess which.
 
-A link on another provider counts as a way in, and so does a password the
-account can actually use. "Can actually use" is not a single field on a Jellyfin
-account: it means the account routes to the built-in password provider and
-carries a stored password - and, while SSO-only login is on, that the account is
-the designated break-glass admin, since the mode has taken the password door
-away from everybody else. A disabled administrator is not stranded by the run,
-because it already has no way in.
+A link on another **enabled** provider counts as a way in, and so does a password
+the account can actually use. Enabled matters: a login resolves a link only on an
+enabled provider, so a link left behind on one somebody disabled is a row in a
+table and not a way to sign in - counting it would strand an administrator on
+exactly the disable-then-clean-up workflow this route exists for.
+
+"Can actually use" is not a single field on a Jellyfin account either: it means
+the account routes to the built-in password provider and carries a stored
+password - and, while SSO-only login is on, that the account is the designated
+break-glass admin, since the mode has taken the password door away from everybody
+else. An account on a third-party authentication provider is read as having no
+password door, which can refuse a purge that was in fact safe; the way past that
+is the single-link DELETE.
+
+The run asks both sides of the question, so it only refuses where it would TAKE
+the last way in. Emptying a provider that is already disabled refuses nobody: its
+links were not a way in before the run either. An administrator whose account is
+disabled is not stranded for the same reason.
+
+The refusal names at most ten accounts and then says how many more there are.
+
+One case the gate cannot cover, stated rather than implied: the accounts are read
+just before the removal takes the configuration lock, and an account can lose its
+password door in that window without any link moving - an ordinary SSO login on a
+provider whose default provider is the SSO one repoints the account off the
+password provider. The run therefore asks the question again afterwards and
+writes an Error line naming any administrator that is now without a way in. It
+cannot undo the removal; it is what turns a silent lockout into a repair.
 
 The run refuses rather than silently keeping the administrator's link. Keeping
 it would leave the provider not empty while the answer said it was, and the next

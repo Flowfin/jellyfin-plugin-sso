@@ -30,22 +30,6 @@ internal enum ProviderLinkPurgeResult
 }
 
 /// <summary>
-/// What one provider's link table looks like to the bulk unlink before it acts (#1519): how many links
-/// the provider holds, and which accounts would be left holding no canonical link at all once those links
-/// are gone. A detached snapshot taken under the configuration lock, so the caller can resolve those
-/// accounts through the user manager WITHOUT holding it - the same discipline the link import takes for
-/// the same reason, since a provider can carry thousands of links and a user-manager call per link inside
-/// the lock would block every login for the duration.
-/// </summary>
-/// <param name="ProviderExists">Whether a provider of that mode and name is stored at all.</param>
-/// <param name="LinkCount">How many links the provider holds.</param>
-/// <param name="UsersLosingTheirLastLink">
-/// The distinct accounts that hold a link on this provider and none on any other, so the purge would take
-/// their last one. Re-derived under the lock when the purge runs; this copy exists only to be judged.
-/// </param>
-internal readonly record struct ProviderLinkSurvey(bool ProviderExists, int LinkCount, IReadOnlyList<Guid> UsersLosingTheirLastLink);
-
-/// <summary>
 /// What the tree can read about one account's ways in, resolved through the user manager OUTSIDE the
 /// configuration lock and judged inside it (#1519, T-D1). "Can use a password" is not a single field on a
 /// Jellyfin account and is not asked of the host: it is the same reading the SSO-only break-glass guard
@@ -66,6 +50,40 @@ internal readonly record struct AccountDoors(
     bool IsDisabled,
     bool RoutesToPasswordProvider,
     bool HasStoredPassword);
+
+/// <summary>
+/// What one provider's link table looks like to the bulk unlink before it acts (#1519): whether the
+/// provider is stored at all, how many links it holds, and which accounts hold them.
+/// </summary>
+/// <remarks>
+/// A detached snapshot taken under the configuration lock and WITHOUT a write, which is both of the jobs
+/// it has. It lets the accounts be resolved through the user manager with the lock released - a provider
+/// can carry thousands of links, and a user-manager call per link inside the lock would block every login
+/// for the duration - and it lets the two refusals a stale page actually produces be answered without
+/// entering a mutation, because every return out of one persists the configuration file even when it
+/// changed nothing, and a count that does not match is this endpoint's NORMAL outcome rather than an
+/// exceptional one. The authoritative checks stay inside the mutation; this only keeps the routine
+/// refusal off the write path.
+/// </remarks>
+/// <param name="ProviderExists">Whether a provider of that mode and name is stored.</param>
+/// <param name="LinkCount">How many links it holds.</param>
+/// <param name="LinkedUsers">The distinct accounts holding those links, to be judged before the purge runs.</param>
+internal readonly record struct ProviderLinkSurvey(bool ProviderExists, int LinkCount, IReadOnlyList<Guid> LinkedUsers);
+
+/// <summary>
+/// What one walk of every provider OTHER than the one being emptied says about the accounts it holds
+/// (#1519), plus whether the target itself is enabled.
+/// </summary>
+/// <remarks>
+/// Two sets rather than one, because the purge asks two questions with opposite readings of a disabled
+/// provider: who is left holding no link at all decides who is signed out, and who is left holding no
+/// link a login could resolve decides who would be stranded. Built once, because it is built inside the
+/// process-wide configuration lock every login takes, and a provider can carry thousands of links.
+/// </remarks>
+/// <param name="Any">Accounts holding a link on some other provider, enabled or not.</param>
+/// <param name="OnAnEnabledProvider">Accounts holding a link on some other ENABLED provider, which is what a login can resolve.</param>
+/// <param name="TargetEnabled">Whether the provider being emptied is itself enabled, so its links were a way in before the run.</param>
+internal readonly record struct LinksElsewhere(HashSet<Guid> Any, HashSet<Guid> OnAnEnabledProvider, bool TargetEnabled);
 
 /// <summary>
 /// The outcome of a per-provider bulk unlink (#1519), with everything the controller needs to answer, to
@@ -89,4 +107,16 @@ internal readonly record struct ProviderLinkPurgeOutcome(
     int RemovedLinks,
     int ActualLinkCount,
     IReadOnlyList<Guid> RevokedUserIds,
-    IReadOnlyList<string> StrandedAdministrators);
+    IReadOnlyList<string> StrandedAdministrators)
+{
+    /// <summary>
+    /// A refusal: nothing was removed, nobody is revoked, and the only fields that carry anything are the
+    /// reason and the count that refused. Named rather than written out at each arm, so a new refusal
+    /// cannot accidentally report links removed.
+    /// </summary>
+    /// <param name="result">Why the run refused.</param>
+    /// <param name="actualLinkCount">How many links the provider actually holds.</param>
+    /// <returns>The refusal outcome.</returns>
+    internal static ProviderLinkPurgeOutcome Refusing(ProviderLinkPurgeResult result, int actualLinkCount)
+        => new(result, 0, actualLinkCount, Array.Empty<Guid>(), Array.Empty<string>());
+}
