@@ -465,6 +465,77 @@ while the user still holds another one does not revoke, so unlinking one
 provider does not log somebody out of a session they legitimately hold through
 another.
 
+## Remove every link one provider holds
+
+```
+DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}
+```
+
+`PurgeProviderLinks`. Elevation-gated, and the way back from an import that
+restored the wrong document: the import merges, so re-importing the right file
+does not undo the wrong one. This empties one provider's link table so the right
+document can be imported into a clean provider.
+
+`expectedLinkCount` is the number of links the caller believes the provider
+holds. It is a precondition and not a display value: the server compares it
+against what the table holds under the same lock it removes under, and refuses
+on a difference. A call written against a page that has gone stale is refused
+rather than removing a different number of links than the operator was shown, so
+a browser confirmation is not what protects this route.
+
+| Status | Meaning                                                                          |
+| ------ | -------------------------------------------------------------------------------- |
+| 200    | Every link was removed; the body carries the counts                              |
+| 400    | `mode` is neither `oid` nor `saml`, or no provider of that name is configured    |
+| 403    | The caller is not an administrator                                               |
+| 409    | The count does not match, an administrator would be stranded, or the table moved |
+| 429    | The `link` budget for this client is exhausted                                   |
+
+The success body:
+
+```json
+{ "Removed": 42, "SignedOut": 39 }
+```
+
+`Removed` is the number of links that went, and always equals the count sent -
+a count that did not match is a refusal rather than a partial run. `SignedOut`
+is how many accounts were left holding no canonical link at all and had their
+live tokens revoked; it is smaller than `Removed` whenever an account held
+several of the removed links or still holds one on another provider. That is the
+same scope the single unlink revokes at: an account with a working link
+elsewhere keeps its sessions.
+
+Nothing but links is touched. No Jellyfin account, permission or password is
+changed, and no link is created, adopted or re-pointed - so an operator who runs
+this by mistake has removed links and nothing else. There is no undo: the way
+back is the account-link backup taken before the migration, re-imported.
+
+### The refusal that keeps administration reachable
+
+The run refuses, before it removes anything, when emptying the table would leave
+an administrator account with no way to sign in. The 409 names those accounts,
+because the way out is to give one of them a usable password or to unlink it
+deliberately through the single-link route, and an operator told only that "an
+administrator would be stranded" has to guess which.
+
+A link on another provider counts as a way in, and so does a password the
+account can actually use. "Can actually use" is not a single field on a Jellyfin
+account: it means the account routes to the built-in password provider and
+carries a stored password - and, while SSO-only login is on, that the account is
+the designated break-glass admin, since the mode has taken the password door
+away from everybody else. A disabled administrator is not stranded by the run,
+because it already has no way in.
+
+The run refuses rather than silently keeping the administrator's link. Keeping
+it would leave the provider not empty while the answer said it was, and the next
+import would hit exactly the repoint refusal this route exists to clear.
+
+Both the act and every refusal are audited (`SsoAudit.ProviderLinksPurged` and
+`SsoAudit.ProviderLinksPurgeRefused`, `SSO-Auth/Api/Audit/SsoAudit.cs`). The act
+is one Warning line naming the administrator who ran it, the provider and the
+counts, with the per-account detail at Information beneath it; a refusal names a
+fixed verdict code and no account. No canonical name appears in either.
+
 ## Revoke SSO for an account entirely
 
 ```

@@ -525,6 +525,64 @@ internal static class SsoAudit
             jellyfinUserId);
     }
 
+    /// <summary>
+    /// Records an administrator removing every canonical link one provider holds (#1519). One line for the
+    /// act, at Warning, because a bulk removal of a thousand links must not reach an operator as a thousand
+    /// indistinguishable per-user lines with no statement of what was done - the per-account detail is
+    /// written at Information beneath it by the caller, for the accounts whose last link this took.
+    /// </summary>
+    /// <remarks>
+    /// The actor is named because this is an action taken on other people's accounts, and the counts are
+    /// what tell an operator whether the run matched the provider they meant. No canonical subject and no
+    /// account name is a field here (T-I1): the removal is identified by the provider it emptied.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="actor">The elevated administrator who ran the unlink.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider whose link table was emptied.</param>
+    /// <param name="removedLinks">How many links were removed.</param>
+    /// <param name="revokedAccounts">How many accounts lost their last SSO link and had their live tokens revoked.</param>
+    internal static void ProviderLinksPurged(ILogger logger, string actor, string protocol, string provider, int removedLinks, int revokedAccounts)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Every canonical link on {Protocol} '{Provider}' removed by {Actor}: {RemovedLinks} link(s) gone, {RevokedAccounts} account(s) left with no SSO link and signed out. No Jellyfin account, permission or password was changed.",
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty),
+            removedLinks,
+            revokedAccounts);
+    }
+
+    /// <summary>
+    /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail
+    /// (T-R1) exactly as a blocked SSO-only activation does. The reason is a fixed verdict CODE, never
+    /// caller input and never the account names the refusal itself carries (T-I1).
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="actor">The elevated administrator whose unlink was refused.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider named in the request.</param>
+    /// <param name="reasonCode">The refusal verdict name (a fixed enum member, not user input).</param>
+    internal static void ProviderLinksPurgeRefused(ILogger logger, string actor, string protocol, string provider, string reasonCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Bulk unlink REFUSED for {Actor} on {Protocol} '{Provider}' ({ReasonCode}). No link was removed.",
+            actor?.ReplaceLineEndings(string.Empty),
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty),
+            reasonCode);
+    }
+
     /// <summary>Records SSO-only login being turned on (#165), with the guaranteed break-glass survivor.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator who enabled the mode.</param>

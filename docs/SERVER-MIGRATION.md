@@ -260,9 +260,33 @@ importing the wrong file. Re-importing the correct one does not undo it. The lin
 import only adds and overwrites, never removes, so the wrong file's entries stay;
 the correct document then hits `this instance already links that identity to a
 different account; unlink it first`, and because the refusal is whole-document,
-one leftover entry blocks the restore of every other link. Unlinking is one call
-per canonical name and the refusal names at most ten entries at a time, by index.
-There is no replace mode and no bulk unlink. #1519 holds that gap.
+one leftover entry blocks the restore of every other link.
+
+What clears it is emptying the provider and importing again, not importing over
+the top:
+
+```
+DELETE /sso/oid/Links/keycloak/{the number of links the provider holds}
+```
+
+`PurgeProviderLinks`, elevation-gated, one provider at a time. It removes every
+canonical link that provider holds and nothing else - no account, no permission
+and no password is touched - and the count in the path is checked against what
+the table actually holds, so a call written against a stale page is refused
+rather than emptying a different number of links than you were shown. Accounts
+left holding no link at all are signed out; accounts that still have a link on
+another provider keep their sessions.
+
+It refuses, before removing anything, when the result would leave an
+administrator account with no way to sign in, and the refusal names those
+accounts. Give one of them a usable password, or unlink it deliberately with the
+single-link DELETE, and run it again. `docs/ACCOUNT-MANAGEMENT-API.md` carries
+the full contract, including what counts as a way in while SSO-only login is on.
+
+There is still no replace mode on the import itself, and that is deliberate: an
+import that replaced would be a second destructive path with the same blast
+radius as the mistake it answers. The purge above is the way back, and the pair
+of backup files remains the way back from the purge.
 
 Re-importing the same file onto the state it produced IS safe, and the walk shows
 it: a second run of a successful import succeeds and changes nothing, because a

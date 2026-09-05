@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -97,6 +98,49 @@ internal sealed class SsoOnlyLoginService
             IsAdministrator: user.HasPermission(PermissionKind.IsAdministrator),
             IsEnabled: !user.HasPermission(PermissionKind.IsDisabled),
             HasUsablePasswordLogin: usablePasswordLogin);
+    }
+
+    /// <summary>
+    /// Resolves the named accounts into what the tree can read about their ways in (#1519), for the
+    /// per-provider bulk unlink's mass-lockout guard. The same reading <see cref="DescribeBreakGlass"/>
+    /// makes, and it lives here rather than beside the caller so "can this account use a password" has one
+    /// home: the built-in password provider plus a non-empty stored password. The mode-dependent half - that
+    /// while SSO-only login is on only the break-glass admin's password door survives - is left to the
+    /// caller, which is the only side holding the configuration.
+    /// </summary>
+    /// <remarks>
+    /// Called OUTSIDE the configuration lock, deliberately: the accounts come from a snapshot of one
+    /// provider's link table, that table can carry thousands of entries, and a user-manager call per entry
+    /// inside the lock would block every login for the duration. An id that resolves to no account is
+    /// reported as disabled rather than dropped, so the caller's set stays exactly the set it asked about -
+    /// an account that is not there has no way in for a purge to take, which is the same answer.
+    /// </remarks>
+    /// <param name="userIds">The accounts to resolve, as the link-table snapshot named them.</param>
+    /// <returns>One entry per requested id, in the order asked.</returns>
+    internal IReadOnlyList<AccountDoors> DescribeAccountDoors(IReadOnlyList<Guid> userIds)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+
+        var doors = new List<AccountDoors>(userIds.Count);
+        foreach (var userId in userIds)
+        {
+            var user = _userManager.GetUserById(userId);
+            if (user is null)
+            {
+                doors.Add(new AccountDoors(userId, string.Empty, IsAdministrator: false, IsDisabled: true, RoutesToPasswordProvider: false, HasStoredPassword: false));
+                continue;
+            }
+
+            doors.Add(new AccountDoors(
+                userId,
+                user.Username,
+                user.HasPermission(PermissionKind.IsAdministrator),
+                user.HasPermission(PermissionKind.IsDisabled),
+                SsoAuthenticationProviders.IsDefaultPasswordProvider(user.AuthenticationProviderId),
+                !string.IsNullOrEmpty(user.Password)));
+        }
+
+        return doors;
     }
 
     /// <summary>
