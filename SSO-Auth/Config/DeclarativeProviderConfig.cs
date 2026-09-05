@@ -365,6 +365,15 @@ internal static class DeclarativeProviderConfig
         // reverting an administrator's config-page edits back to values in effect nowhere, with the boot log
         // saying nothing had changed. A persist failure escapes past this line - the catch above names
         // ArgumentException only - so a document that never reached the file freezes nothing.
+        //
+        // WHAT THIS ORDER RESTS ON, so that removing it is a decision rather than an accident: the freeze
+        // is now conditional on the rollback in ProviderConfigStore.Mutate actually undoing a failed write,
+        // and that rollback is allowed to give up - its snapshot may be null and its restore swallows. What
+        // keeps it from giving up here is the DetachedCopy above, which is the same persisted-form round
+        // trip on the same live object under the same lock, moments earlier: a configuration the round trip
+        // cannot survive throws there and never reaches Mutate. That call exists for change detection, not
+        // as a pre-flight for the undo, so an optimisation that replaces it with a cheaper predicate brings
+        // the fail-open back - the document live in memory, its providers editable from the settings page.
         store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
 
         if (logger?.IsEnabled(LogLevel.Information) == true)
