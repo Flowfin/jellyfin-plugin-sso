@@ -327,14 +327,15 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, rejection);
         }
 
-        // Recorded before both accepting returns below, and on BOTH of them (#1102). A document that changed
-        // nothing still decided the providers it names - it agrees with the store rather than being absent
-        // from it - so releasing those providers to the config page whenever a restart happens to find the
-        // mount already applied would make the freeze depend on whether anything moved.
-        store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
-
         if (!changed)
         {
+            // Recorded on this arm too (#1102). A document that changed nothing still decided the providers
+            // it names - it agrees with the store rather than being absent from it - so releasing those
+            // providers to the config page whenever a restart happens to find the mount already applied
+            // would make the freeze depend on whether anything moved. Nothing is written here, so there is
+            // no write for the record to wait on.
+            store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
+
             if (logger?.IsEnabled(LogLevel.Debug) == true)
             {
                 logger.LogDebug(
@@ -356,6 +357,24 @@ internal static class DeclarativeProviderConfig
             // before anything was written and the store persisted nothing.
             return Reject(logger, sourcePath, ex.Message);
         }
+
+        // Recorded only once the write has landed, and the ORDER is the whole of #1534. It used to be taken
+        // before the mutation, and the two agreed until the rollback arrived: a persist failure at boot - a
+        // read-only volume, a full disk - now undoes the document out of the running configuration (#1521)
+        // while the freeze it had already recorded stayed, so Reinject spent the rest of that process
+        // reverting an administrator's config-page edits back to values in effect nowhere, with the boot log
+        // saying nothing had changed. A persist failure escapes past this line - the catch above names
+        // ArgumentException only - so a document that never reached the file freezes nothing.
+        //
+        // WHAT THIS ORDER RESTS ON, so that removing it is a decision rather than an accident: the freeze
+        // is now conditional on the rollback in ProviderConfigStore.Mutate actually undoing a failed write,
+        // and that rollback is allowed to give up - its snapshot may be null and its restore swallows. What
+        // keeps it from giving up here is the DetachedCopy above, which is the same persisted-form round
+        // trip on the same live object under the same lock, moments earlier: a configuration the round trip
+        // cannot survive throws there and never reaches Mutate. That call exists for change detection, not
+        // as a pre-flight for the undo, so an optimisation that replaces it with a cheaper predicate brings
+        // the fail-open back - the document live in memory, its providers editable from the settings page.
+        store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
 
         if (logger?.IsEnabled(LogLevel.Information) == true)
         {
