@@ -14,7 +14,7 @@ name: Repo Invariant Lint (Opengrep)
 
 on:
   push:
-    branches: [main]
+    branches: [main, "4.*", "5.*"]
   pull_request:
     branches: ["**"]
 
