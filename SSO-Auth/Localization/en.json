@@ -2,7 +2,7 @@
   "error.return_to_login": "Return to login",
   "error.permission_denied": "Login denied. Your account is not permitted to sign in through this provider.",
   "error.no_matching_provider": "No matching provider found",
-  "error.serving_default_configuration": "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. An administrator who has a Jellyfin password can sign in and restore the configuration; accounts this plugin created do not have one, and neither do accounts it moved to single sign-on, so on such a server it is the break-glass administrator.",
+  "error.serving_default_configuration": "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. An administrator who has a Jellyfin password can sign in and restore the configuration; the server log says which accounts have one.",
   "error.rate_limited": "Too many attempts. Please wait a moment and try again.",
   "error.login_rate_limited": "Too many login attempts. Please wait a moment and try again.",
   "error.invalid_state": "Invalid or expired state",

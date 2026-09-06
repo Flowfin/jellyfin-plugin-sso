@@ -176,20 +176,6 @@ internal static class UnreadableConfiguration
         var incident = IncidentOf(configurationFilePath);
         var carried = ReadMarker(configurationFilePath);
 
-        // A MARKER THAT IS THERE AND CANNOT BE READ IS NOT A NEW INCIDENT. Reading it as one - which is
-        // what a null record means everywhere else here - makes every restart take a fresh full copy of
-        // the configuration into the directory the whole server needs writable, on the disk that caused
-        // the damage, with nothing capping it. A marker exists only because an earlier boot ran this arm,
-        // so that boot's copy is already beside the file; what is lost by stopping here is the NAME of it,
-        // which the log says plainly, and what is saved is a loop that fills a full disk. The marker is
-        // left exactly as it is: rewriting one this boot could not read would destroy the record that
-        // stops the loop.
-        if (carried is null && MarkerExists(configurationFilePath))
-        {
-            SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, null);
-            return new UnreadableConfigurationState(true, null);
-        }
-
         var sameIncident = incident is not null
             && carried?.Incident is { } previous
             && string.Equals(previous, incident, StringComparison.Ordinal);
@@ -274,8 +260,24 @@ internal static class UnreadableConfiguration
     // Copies the damaged file aside, never over an existing name. A copy that cannot be written is reported
     // and does not soften the refusal: the state is unreadable either way, and losing the evidence is the
     // worse outcome rather than a reason to serve logins as though nothing had happened.
+    //
+    // THE BOUND IS THE BYTES, NOT A DECISION. The marker's record deduplicates a boot loop, and it is
+    // itself a file that can be locked or refused - and the causes that stop it being read are the causes
+    // that stop it being deleted, so a stale marker and an unreadable one are one fault rather than two
+    // coincidences. Declining to copy when the marker cannot be read bounds the loop by throwing away the
+    // evidence of whatever incident is actually happening, which inverts this module's whole priority. So
+    // the bound is asked of the copies themselves instead: a copy already beside the configuration holding
+    // exactly these bytes IS this incident's copy, whoever wrote it and whatever any record says, and a
+    // second one would be the same file under another name. That answer needs no marker, cannot be wrong
+    // about a NEW incident - different bytes, different answer - and costs one read of a file that is
+    // small enough for the plugin to deserialize.
     private static string? Copy(string configurationFilePath, DateTime nowUtc, ILogger logger)
     {
+        if (AlreadyCopied(configurationFilePath) is { } existing)
+        {
+            return existing;
+        }
+
         var copy = configurationFilePath + CopySuffix + nowUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "Z";
         try
         {
@@ -335,6 +337,40 @@ internal static class UnreadableConfiguration
             return new Marker(incident, copy);
         }
 #pragma warning disable CA1031 // a marker that cannot be read is the same answer as one that records nothing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return null;
+        }
+    }
+
+    // A copy already beside the configuration whose bytes are exactly the damaged file's, or null. Length
+    // first, because it settles almost every pair without a read, and the read that follows is of a file
+    // this plugin was about to hand to an XML deserializer. Not being able to look is answered as "no
+    // copy", which costs one more copy and never the evidence.
+    private static string? AlreadyCopied(string configurationFilePath)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(configurationFilePath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                return null;
+            }
+
+            var damaged = new FileInfo(configurationFilePath);
+            foreach (var candidate in Directory.GetFiles(directory, Path.GetFileName(configurationFilePath) + CopySuffix + "*"))
+            {
+                if (new FileInfo(candidate).Length == damaged.Length
+                    && File.ReadAllBytes(candidate).AsSpan().SequenceEqual(File.ReadAllBytes(configurationFilePath)))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+#pragma warning disable CA1031 // not being able to look is the same answer as there being no copy, which costs one copy
         catch (Exception)
 #pragma warning restore CA1031
         {

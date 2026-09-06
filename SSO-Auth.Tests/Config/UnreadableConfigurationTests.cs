@@ -560,33 +560,56 @@ public class UnreadableConfigurationTests
     }
 
     [Fact]
-    public void AMarkerThatCannotBeRead_StopsTheLoopRatherThanCopyingEveryBoot()
+    public void AMarkerThatCannotBeRead_StillCopiesOnceAndOnlyOnce()
     {
-        // The only unbounded path this screen had. A marker that is THERE and cannot be read - held open
-        // by another process, an ACL a restore left behind, an IO error on the volume - answered "no
-        // record", which is read everywhere else here as a new incident, so every restart took another
-        // full copy of the configuration into the directory the whole server needs writable, on the disk
-        // that caused the damage, with nothing capping it. A marker exists only because an earlier boot
-        // ran this arm, so its copy is already beside the file; what stopping costs is the NAME of it,
-        // which the log states.
+        // The only unbounded path this screen had, and the bound must not be "stop copying". A marker
+        // that is THERE and cannot be read - held open by another process, an ACL a restore left behind,
+        // an IO error on the volume - answers "no record", which is read everywhere else here as a new
+        // incident, so every restart would take another full copy into the directory the whole server
+        // needs writable, on the disk that caused the damage.
+        //
+        // Declining to copy would bound it and is the wrong trade: the conditions that stop a marker
+        // being READ are the conditions that stop it being DELETED, so an unreadable marker and one that
+        // outlived its incident are one fault - and on that fault a genuinely new damage would go
+        // unpreserved for good. So the bound is asked of the copies instead: the same bytes are already
+        // kept, whatever the marker can or cannot say.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
-        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         Assert.Single(Copies(path));
 
         using (File.Open(path + UnreadableConfiguration.MarkerSuffix, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             for (var boot = 0; boot < 4; boot++)
             {
-                // A different damaged file each time, so nothing but the marker could dedupe this.
-                File.WriteAllText(path, "<Damaged" + boot.ToString(CultureInfo.InvariantCulture));
                 var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, boot, DateTimeKind.Utc));
 
                 Assert.True(state.IsUnreadable);
-                Assert.Null(state.PreservedCopyPath);
+                Assert.Equal(first.PreservedCopyPath, state.PreservedCopyPath);
             }
         }
 
         Assert.Single(Copies(path));
+    }
+
+    [Fact]
+    public void AMarkerThatCannotBeRead_StillPreservesADifferentDamage()
+    {
+        // The other half, and the one the bound must not cost. On the same unreadable marker, a file that
+        // is not the one already kept is a different incident whatever the marker can say, and its bytes
+        // are the only copy of a configuration that is about to be overwritten with defaults.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+
+        using (File.Open(path + UnreadableConfiguration.MarkerSuffix, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            File.WriteAllText(path, "<DifferentDamage");
+            var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+            Assert.True(state.IsUnreadable);
+            Assert.Equal("<DifferentDamage", File.ReadAllText(state.PreservedCopyPath!));
+        }
+
+        Assert.Equal(2, Copies(path).Length);
     }
 
     private static ILogger Logger() => Substitute.For<ILogger>();
