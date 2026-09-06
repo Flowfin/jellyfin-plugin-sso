@@ -274,6 +274,83 @@ public class UnreadableConfigurationTests
         Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z", second.PreservedCopyPath);
     }
 
+    [Fact]
+    public void AConfigurationRestoredOnDisk_EndsIt()
+    {
+        // THE REPAIR AN OPERATOR ACTUALLY PERFORMS, and the one the marker nearly broke. Restoring the
+        // backup over the file is not a write this plugin ever sees, so a marker that only a persisted
+        // write could clear would have left a server whose providers, links and secrets are all correct
+        // and live answering 503 to every sign-in for good - and on a server whose administrators all
+        // arrived through SSO, with nobody able to log in and clear it.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        Assert.True(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+
+        var restored = Substitute.For<IXmlSerializer>();
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["keycloak"] = new OidConfig();
+        restored.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(configuration);
+
+        var second = UnreadableConfiguration.Preserve(path, restored, Logger(), DateTime.UtcNow);
+
+        Assert.False(second.IsUnreadable);
+        Assert.False(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+        Assert.Single(Copies(path));
+    }
+
+    [Fact]
+    public void ADefaultConfigurationOnDisk_DoesNotEndIt()
+    {
+        // The falsifier for the test above, and the reason the marker exists at all: the host replaces a
+        // damaged file with a DEFAULT, which parses perfectly and holds nothing. If merely parsing counted
+        // as a repair, the state would clear on the first restart and SSO would go back to answering that
+        // the provider is unknown.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow);
+
+        var defaults = Substitute.For<IXmlSerializer>();
+        defaults.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(new PluginConfiguration());
+
+        Assert.True(UnreadableConfiguration.Preserve(path, defaults, Logger(), DateTime.UtcNow).IsUnreadable);
+    }
+
+    [Fact]
+    public void AnIoFailureTheSerializerWrapped_DecidesNothing()
+    {
+        // The serializer turns anything the stream threw into an InvalidOperationException with the real
+        // cause inside, so matching only the top-level type catches a file that would not OPEN and misses
+        // one that failed halfway through - a network mount hiccupping, a device read error, a restore
+        // rewriting the file under the read - and would call it damage on a healthy server.
+        var (path, _) = Stored("<PluginConfiguration />", readable: true);
+        var serializer = Substitute.For<IXmlSerializer>();
+        serializer.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>())
+            .Returns(_ => throw new InvalidOperationException("There is an error in XML document (1, 10).", new IOException("device error")));
+
+        var state = UnreadableConfiguration.Preserve(path, serializer, Logger(), DateTime.UtcNow);
+
+        Assert.False(state.IsUnreadable);
+        Assert.Empty(Copies(path));
+        Assert.False(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+    }
+
+    [Fact]
+    public void ASecondIncidentAfterARepair_IsCopiedInItsOwnRight()
+    {
+        // The dedup is per INCIDENT, keyed on the marker. Keyed on "some copy exists" instead, a second
+        // failure months later would go uncopied while the log said it had been kept, and the operator
+        // would be pointed at a stale artefact from a different incident - the feature failing on exactly
+        // its second occurrence.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        UnreadableConfiguration.ClearMarker(path, Logger());
+
+        File.WriteAllText(path, "<DifferentDamage");
+        var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(second.IsUnreadable);
+        Assert.Equal(2, Copies(path).Length);
+        Assert.Equal("<DifferentDamage", File.ReadAllText(second.PreservedCopyPath!));
+    }
+
     private static ILogger Logger() => Substitute.For<ILogger>();
 
     private static string[] Copies(string path)

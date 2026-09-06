@@ -855,13 +855,13 @@ internal static class SsoAudit
         if (preservedCopyPath is null)
         {
             logger.LogError(
-                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, so if no administrator can sign in at all, delete the file named like it with the suffix .unreadable and restart: SSO then answers as it did before this check existed.",
+                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, so if no administrator can sign in at all, delete the marker file - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - and restart: SSO then answers as it did before this check existed. Do not delete the timestamped copy; that is the only surviving copy of your providers, links and secrets.",
                 configurationFilePath?.ReplaceLineEndings(string.Empty));
             return;
         }
 
         logger.LogError(
-            "[SSO Audit] {ConfigurationFile} could not be read. It was copied to {PreservedCopy} before the server overwrites it. Default settings are being served - no provider, no account link, no stored secret - and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, so if no administrator can sign in at all, delete the marker beside that copy and restart: SSO then answers as it did before this check existed.",
+            "[SSO Audit] {ConfigurationFile} could not be read. It was copied to {PreservedCopy} before the server overwrites it. Default settings are being served - no provider, no account link, no stored secret - and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, so if no administrator can sign in at all, delete the marker file - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - and restart: SSO then answers as it did before this check existed. Do not delete the timestamped copy named above; it is the only surviving copy of your providers, links and secrets.",
             configurationFilePath?.ReplaceLineEndings(string.Empty),
             preservedCopyPath?.ReplaceLineEndings(string.Empty));
     }
@@ -905,9 +905,21 @@ internal static class SsoAudit
     /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when no copy was written.</param>
     internal static void UnreadableConfigurationStillUnrepaired(ILogger logger, string configurationFilePath, string? preservedCopyPath)
         => logger.LogError(
-            "[SSO Audit] {ConfigurationFile} was unreadable at an earlier start and no configuration has been supplied since, so this server is still serving default settings and still refusing every SSO sign-in. The kept copy is {PreservedCopy}. Import or save a configuration to clear this; if no administrator can sign in at all, delete the file named like it with the suffix .unreadable and restart.",
+            "[SSO Audit] {ConfigurationFile} was unreadable at an earlier start and no configuration has been supplied since, so this server is still serving default settings and still refusing every SSO sign-in. The kept copy is {PreservedCopy}. Import or save a configuration to clear this; if no administrator can sign in at all, delete the marker file - the configuration file plus .unreadable, with no timestamp - and restart. Do not delete the timestamped copy named above.",
             configurationFilePath?.ReplaceLineEndings(string.Empty),
             preservedCopyPath?.ReplaceLineEndings(string.Empty) ?? "not written");
+
+    /// <summary>
+    /// Records that the configuration came back on disk while the marker still stood (#1543) - somebody
+    /// restored the backup over the file, or copied one in - so the refusal ends without anything having
+    /// been written through this plugin.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file that now holds providers again.</param>
+    internal static void UnreadableConfigurationRepairedOnDisk(ILogger logger, string configurationFilePath)
+        => logger.LogWarning(
+            "[SSO Audit] {ConfigurationFile} holds a configuration again, so this server stops serving defaults and accepts SSO sign-in. The preserved copy of the unreadable file is left where it is.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty));
 
     /// <summary>
     /// Records that the marker keeping the state across a restart could not be written (#1543). It costs

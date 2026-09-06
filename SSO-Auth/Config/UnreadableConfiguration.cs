@@ -11,6 +11,24 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
 /// <summary>
+/// What one read of the stored file said (#1543): whether it came back at all, and whether what came
+/// back is a configuration somebody put there rather than the empty default the host writes.
+/// </summary>
+/// <param name="Readable">Whether the file yielded a configuration, or could not be judged at all.</param>
+/// <param name="HoldsAProvider">Whether that configuration holds at least one provider, which is what makes it somebody's rather than a default.</param>
+internal readonly record struct Restored(bool Readable, bool HoldsAProvider)
+{
+    /// <summary>Gets the answer for a file that is not there: nothing to preserve and nothing to refuse.</summary>
+    internal static Restored Nothing => new(true, false);
+
+    /// <summary>Gets the answer for a read that could not be made at all, which decides nothing.</summary>
+    internal static Restored Unknown => new(true, false);
+
+    /// <summary>Gets the answer for a file that is there and does not come back.</summary>
+    internal static Restored Damaged => new(false, false);
+}
+
+/// <summary>
 /// Whether the stored configuration could be read at start, and where the damaged file was kept (#1543).
 /// </summary>
 /// <remarks>
@@ -100,18 +118,21 @@ internal static class UnreadableConfiguration
         }
 
         // No file at all is a first start: nothing to preserve and nothing to refuse. Treating it as damage
-        // would take every new installation offline before it was ever configured. The marker is still
-        // consulted below, because a server whose file was deleted after damage has not been repaired.
-        var readable = !File.Exists(configurationFilePath) || ReadsBack(configurationFilePath, serializer, logger);
-        if (readable)
+        // would take every new installation offline before it was ever configured.
+        var stored = File.Exists(configurationFilePath) ? ReadsBack(configurationFilePath, serializer, logger) : Restored.Nothing;
+        if (stored.Readable)
         {
-            return CarriedOver(configurationFilePath, logger);
+            return CarriedOver(configurationFilePath, stored.HoldsAProvider, logger);
         }
 
-        // One copy per incident. A boot loop on a genuinely damaged file must not write one full copy of it
-        // per restart into the configuration directory, and the second copy would be the same bytes as the
-        // first - the evidence is already kept, which is what the marker records.
-        var preserved = ExistingCopy(configurationFilePath) ?? Copy(configurationFilePath, nowUtc, logger);
+        // One copy per INCIDENT, keyed on the marker rather than on whether some copy exists. A boot loop
+        // on a damaged file must not write one full copy of it per restart into the directory the whole
+        // server needs writable - but a second, unrelated incident months later is a different file, and
+        // finding the first incident's copy must not make this one go uncopied while the log says it was
+        // kept. The marker is cleared when the server is repaired; a stray copy is not.
+        var preserved = MarkerExists(configurationFilePath)
+            ? ExistingCopy(configurationFilePath) ?? Copy(configurationFilePath, nowUtc, logger)
+            : Copy(configurationFilePath, nowUtc, logger);
         Mark(configurationFilePath, logger);
         SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved);
         return new UnreadableConfigurationState(true, preserved);
@@ -143,13 +164,27 @@ internal static class UnreadableConfiguration
         }
     }
 
-    // The state a previous boot left behind. The file reads back now - the host replaced it with a default
-    // one - and that is exactly why the marker has to be believed over it: what is being served is a
-    // default configuration, and the fact that it now parses says nothing about whether it is this server's.
-    private static UnreadableConfigurationState CarriedOver(string configurationFilePath, ILogger logger)
+    // The state a previous boot left behind, judged against what the file now holds.
+    //
+    // A file that reads back is not yet a repair: the host replaces a damaged one with a DEFAULT, which
+    // parses perfectly and holds nothing, so the marker has to be believed over the mere fact that it
+    // parses. A file that reads back AND holds a provider is a different thing entirely - somebody put the
+    // configuration back, and the two ways they will actually do it are restoring the backup over the file
+    // and copying it in from elsewhere, neither of which is a write this plugin ever sees. Refusing on
+    // through those would leave a server whose providers, links and secrets are all correct and live
+    // answering 503 to every sign-in for good, with the log telling the operator that no configuration had
+    // been supplied - and on a server whose administrators all arrived through SSO, nobody to fix it.
+    private static UnreadableConfigurationState CarriedOver(string configurationFilePath, bool holdsAProvider, ILogger logger)
     {
         if (!MarkerExists(configurationFilePath))
         {
+            return default;
+        }
+
+        if (holdsAProvider)
+        {
+            ClearMarker(configurationFilePath, logger);
+            SsoAudit.UnreadableConfigurationRepairedOnDisk(logger, configurationFilePath);
             return default;
         }
 
@@ -242,27 +277,35 @@ internal static class UnreadableConfiguration
     // at all, the host's own read may still succeed, and latching a permanent refusal on a file somebody
     // else had open for a moment is a worse failure than the one being guarded. It says so and reports
     // readable, which leaves the server exactly where it stood before this check existed.
-    private static bool ReadsBack(string configurationFilePath, IXmlSerializer serializer, ILogger logger)
+    private static Restored ReadsBack(string configurationFilePath, IXmlSerializer serializer, ILogger logger)
     {
         try
         {
-            return serializer.DeserializeFromFile(typeof(PluginConfiguration), configurationFilePath) is PluginConfiguration;
+            return serializer.DeserializeFromFile(typeof(PluginConfiguration), configurationFilePath) is PluginConfiguration configuration
+                ? new Restored(true, configuration.OidConfigs.Count > 0 || configuration.SamlConfigs.Count > 0)
+                : Restored.Damaged;
         }
-        catch (IOException ex)
-        {
-            SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
-            return true;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
-            return true;
-        }
-#pragma warning disable CA1031 // any other failure to deserialize is the condition being detected, whatever its type
-        catch (Exception)
+#pragma warning disable CA1031 // the shape of the failure is the whole question, and it is asked below
+        catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return false;
+            // WRAPPED OR NOT, an IO failure is an IO failure. The serializer turns anything the stream
+            // threw into an InvalidOperationException with the real cause inside, so matching only the
+            // top-level type catches a file that would not OPEN and misses one that failed halfway
+            // through - a network mount hiccupping, a device read error, a restore rewriting the file
+            // under the read - and calls it damage. Nothing genuine is lost by looking inside: an
+            // XmlException is a SystemException and is never an IOException, so real corruption still
+            // lands on the damage arm.
+            for (var cause = ex; cause is not null; cause = cause.InnerException)
+            {
+                if (cause is IOException or UnauthorizedAccessException)
+                {
+                    SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
+                    return Restored.Unknown;
+                }
+            }
+
+            return Restored.Damaged;
         }
     }
 }
