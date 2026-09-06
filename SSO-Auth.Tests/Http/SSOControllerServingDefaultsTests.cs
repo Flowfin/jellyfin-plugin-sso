@@ -249,7 +249,9 @@ public class SSOControllerServingDefaultsTests
     // A refusal on the sign-in surface arrives either as the plain result or as the restyled error page a
     // browser-navigated route wraps it in, and the two are different result types. The status is the same
     // fact in both, so it is what these read.
-    private static int? Status(ActionResult result) => result switch
+    private static int Status(ActionResult result) => StatusOrNull(result) ?? throw new InvalidOperationException($"A sign-in result carried no status at all: {result.GetType().Name}");
+
+    private static int? StatusOrNull(ActionResult result) => result switch
     {
         ObjectResult objectResult => objectResult.StatusCode,
         ContentResult contentResult => contentResult.StatusCode,

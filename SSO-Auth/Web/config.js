@@ -2758,7 +2758,13 @@ const ssoConfigurationPage = {
           );
         }
 
-        if (rows.length === 0) {
+        // Not when the reason is already on the line above (#1543): telling an operator that nothing is
+        // configured, directly under a line saying the configuration could not be read, is the sentence
+        // the flag exists to stop - printed twice over.
+        if (
+          rows.length === 0 &&
+          !(report && report.ConfigurationUnreadable === true)
+        ) {
           ssoConfigurationPage.renderCheckNote(
             list,
             tr(
