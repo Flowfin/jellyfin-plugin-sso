@@ -60,8 +60,13 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   unknown — which is what a default configuration would have made every flow say,
   sending you to look for a deleted provider instead of a damaged file.
 
-  The refusal ends on one condition, whichever door the write came through: a
-  configuration holding at least one provider is persisted — a provider saved on
+  The refusal ends when a configuration comes back, and there are two ways for
+  that to happen. Restoring the file on disk is one: a stored configuration that
+  reads back and holds a provider ends the state at the next start, with nothing
+  written through the plugin at all, because restoring a backup over the file is
+  not a write it ever sees. The other is a persist, and there the rule is one
+  condition whichever door the write came through: a configuration holding at
+  least one provider is persisted — a provider saved on
   the settings page, an imported document, or one a declarative source supplies.
   Saving an unrelated setting does not end it and does not remove the marker, and
   on a server in this state the page holds no providers, so every save made from
@@ -71,9 +76,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   healthy while serving nobody's settings. This plugin does not touch Jellyfin
   password sign-in — but an account it provisioned has no usable password, so on
   a server whose administrators all arrived through SSO there is no local door to
-  fall back to: the state lives in a marker file beside the configuration, and
-  deleting it and restarting puts SSO back exactly where it was before this check
-  existed. Every log line that announces the refusal says so.
+  fall back to: the state lives in a marker file beside the configuration, so
+  moving the unreadable file out of the way, deleting that marker and restarting
+  puts SSO back exactly where it was before this check existed. Deleting the
+  marker on its own is not enough while the file is still unreadable — the next
+  start finds the same damage and marks it again. Every log line that announces
+  the refusal says both halves, and so does the marker file itself.
 
   A file that could not be READ at all — locked by a scanner, a backup agent or a
   sync client at exactly the moment plugins load — is not treated as damage and

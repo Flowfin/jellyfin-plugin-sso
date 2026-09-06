@@ -855,7 +855,7 @@ internal static class SsoAudit
         if (preservedCopyPath is null)
         {
             logger.LogError(
-                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, and on a server that was in SSO-only mode the accounts it repointed have none either, so the only certain way in is the break-glass administrator. If nobody can sign in at all, move the unreadable configuration file out of the way and delete the marker file beside it - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - then restart: SSO then answers as it did before this check existed. If timestamped copies are lying beside the configuration file they are from an earlier fault and none of them holds what was just lost, but keep them rather than deleting them.",
+                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration is imported or saved. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, and on a server that was in SSO-only mode the accounts it repointed have none either, so the only certain way in is the break-glass administrator. If nobody can sign in at all, move the unreadable configuration file out of the way and delete the marker file beside it - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - then restart: SSO then answers as it did before this check existed. Keep any timestamped copies lying beside the configuration file rather than deleting them: they are from an earlier fault, or from an earlier boot of this one whose record was lost, and one of them may hold more than this server now has.",
                 configurationFilePath?.ReplaceLineEndings(string.Empty));
             return;
         }
@@ -902,12 +902,12 @@ internal static class SsoAudit
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="configurationFilePath">The configuration file now holding defaults.</param>
-    /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when no copy was written.</param>
+    /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when the marker records no copy or the copy it records is no longer there.</param>
     internal static void UnreadableConfigurationStillUnrepaired(ILogger logger, string configurationFilePath, string? preservedCopyPath)
         => logger.LogError(
             "[SSO Audit] {ConfigurationFile} was unreadable at an earlier start and no configuration has been supplied since, so this server is still serving default settings and still refusing every SSO sign-in. The copy kept for this incident: {PreservedCopy}. Save or import a configuration holding at least one provider to clear this; if no administrator can sign in at all, move the unreadable configuration file out of the way, delete the marker file beside it - the configuration file plus .unreadable, with no timestamp - and restart. Do not delete the copy named above, nor any other timestamped copy beside the configuration file: the one named is this incident's, and an earlier one may hold more than it does.",
             configurationFilePath?.ReplaceLineEndings(string.Empty),
-            preservedCopyPath?.ReplaceLineEndings(string.Empty) ?? "not written");
+            preservedCopyPath?.ReplaceLineEndings(string.Empty) ?? "none recorded, or the recorded one is no longer beside the configuration");
 
     /// <summary>
     /// Records that the configuration came back on disk while the marker still stood (#1543) - somebody

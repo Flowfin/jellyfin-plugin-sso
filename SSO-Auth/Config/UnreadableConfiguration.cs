@@ -51,8 +51,10 @@ internal readonly record struct Restored(bool Readable, bool HoldsAProvider, boo
 /// </remarks>
 /// <param name="IsUnreadable">Whether the stored configuration failed to deserialize, so the host is about to serve defaults over it.</param>
 /// <param name="PreservedCopyPath">
-/// Where the damaged file was copied, or <see langword="null"/> when the copy could not be written. Null
-/// does NOT weaken <paramref name="IsUnreadable"/>: the evidence is gone, the refusal is not.
+/// Where the damaged file was copied, or <see langword="null"/> - when the copy could not be written, when
+/// the marker records none, or when the one it records is no longer there. Null does NOT weaken
+/// <paramref name="IsUnreadable"/>: what is uncertain is the evidence, not the refusal. Read by the log
+/// lines and by the tests; the plugin itself acts on <paramref name="IsUnreadable"/> alone.
 /// </param>
 internal readonly record struct UnreadableConfigurationState(bool IsUnreadable, string? PreservedCopyPath);
 
@@ -245,8 +247,10 @@ internal static class UnreadableConfiguration
         // is null. Searching the directory instead finds whatever is lying there, which after an earlier,
         // repaired incident is a months-old file holding different providers, different links and
         // different secret envelopes; naming it as the copy kept for THIS damage is the both-halves-false
-        // sentence this record exists to remove. The log says "not written", which is true, and the
-        // operator is told separately to keep every timestamped file it finds.
+        // sentence this record exists to remove. Null here means one of two things - the marker records no
+        // copy, or the one it records is no longer beside the configuration because somebody moved it to
+        // look at it, which the log invites - and the line says exactly that rather than picking one of
+        // them, because nothing here can tell them apart.
         var preserved = ReadMarker(configurationFilePath)?.Kept;
         SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved);
         return new UnreadableConfigurationState(true, preserved);
@@ -374,8 +378,14 @@ internal static class UnreadableConfiguration
             // whose catch means "the file's CONTENT is damaged", so a null map here would be reported as a
             // damaged configuration on a file the host reads back perfectly - and because the host never
             // touches these members it never rewrites the file, so every boot repeats it and the 503
-            // stands until an administrator who can still sign in intervenes. Every other reader of these
-            // two in this plugin already tolerates a null.
+            // stands until an administrator who can still sign in intervenes.
+            //
+            // WHAT THIS DOES NOT CLAIM is that the rest of the plugin survives a null map. Plenty of
+            // readers of these two dereference them without a guard, so a configuration that really
+            // carried one would fail somewhere else. That is not this screen's question: it is asked
+            // whether the stored file could be READ, a file that deserializes could be, and answering
+            // "unreadable" because of how this method reads a member of the result would be this check
+            // reporting its own fault as the file's.
             return serializer.DeserializeFromFile(typeof(PluginConfiguration), configurationFilePath) is PluginConfiguration configuration
                 ? new Restored(true, configuration.OidConfigs?.Count > 0 || configuration.SamlConfigs?.Count > 0, true)
                 : Restored.Damaged;

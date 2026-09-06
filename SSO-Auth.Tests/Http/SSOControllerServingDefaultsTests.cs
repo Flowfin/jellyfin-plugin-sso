@@ -119,8 +119,8 @@ public class SSOControllerServingDefaultsTests
         // buttons, a provisioning profile - is a whole-configuration save that on this server carries no
         // provider. So an administrator changing something else made the banner vanish, deleted the marker
         // that keeps the diagnosis across a restart, and got the log line saying a configuration had been
-        // supplied, while the server still held nothing. The import door was already tested to refuse
-        // exactly this shape, one method above.
+        // supplied, while the server still held nothing. AnEmptyImport_DoesNotEndTheRefusal, below,
+        // already refuses exactly this shape at the import door; the two doors agree.
         var harness = ServingDefaults();
 
         SSOPlugin.Instance.UpdateConfiguration(new PluginConfiguration { EnableSingleLogout = true });

@@ -66,8 +66,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
-        // config path and loads the configuration lazily on first access, so nothing calls back into
-        // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
+        // The logger first, because everything below reports through it.
         _logger = logger;
 
         // #1543, and it is FIRST on purpose. The host loads the configuration lazily and, when that load
