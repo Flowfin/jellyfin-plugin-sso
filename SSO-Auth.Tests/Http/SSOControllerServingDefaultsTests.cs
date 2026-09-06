@@ -99,15 +99,33 @@ public class SSOControllerServingDefaultsTests
     public async Task AnAdministratorSavingAConfiguration_EndsTheRefusal()
     {
         // The way out, and the reason local Jellyfin sign-in is deliberately untouched: an administrator
-        // has to be able to get in to make this call.
+        // has to be able to get in to make this call. What ends it is what the save CARRIES - a
+        // configuration holding a provider - and not which door it came through.
         var harness = ServingDefaults();
         Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
 
-        SSOPlugin.Instance.UpdateConfiguration(new PluginConfiguration());
+        SSOPlugin.Instance.UpdateConfiguration(Restored());
 
         Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
         var result = await harness.Controller.OidChallenge("keycloak");
         AssertNotUnavailable(result);
+    }
+
+    [Fact]
+    public void AnUnrelatedSettingSavedOnThePage_DoesNotEndTheRefusal()
+    {
+        // ONE RULE FOR EVERY DOOR, and this is the falsifier for it. The whole-configuration save used to
+        // clear unconditionally, and every unrelated toggle on the settings page - single logout, the login
+        // buttons, a provisioning profile - is a whole-configuration save that on this server carries no
+        // provider. So an administrator changing something else made the banner vanish, deleted the marker
+        // that keeps the diagnosis across a restart, and got the log line saying a configuration had been
+        // supplied, while the server still held nothing. The import door was already tested to refuse
+        // exactly this shape, one method above.
+        var harness = ServingDefaults();
+
+        SSOPlugin.Instance.UpdateConfiguration(new PluginConfiguration { EnableSingleLogout = true });
+
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
     }
 
     [Fact]

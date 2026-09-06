@@ -2627,6 +2627,9 @@ public class SSOController : ControllerBase
     // IP classifier, endpoint-class keying, the #195 observability signal); this wrapper only supplies the
     // three request-scoped inputs it needs - the endpoint class, the connection's remote address, and the
     // response the retry-delay header is set on - so the controller keeps no rate-limit state of its own.
+    private ActionResult? RateLimitCheck(string endpointClass) =>
+        SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
+
     // #1543. The stored configuration could not be read at start, so what a login would resolve against is
     // a default configuration holding no provider, no link and no secret. Refuse the whole sign-in surface
     // with 503 rather than letting each flow answer "no matching provider", which is a true sentence about
@@ -2637,7 +2640,4 @@ public class SSOController : ControllerBase
         SSOPlugin.Instance.ServingDefaultConfiguration
             ? StatusCode(StatusCodes.Status503ServiceUnavailable, ServingDefaultsMessage)
             : null;
-
-    private ActionResult? RateLimitCheck(string endpointClass) =>
-        SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
 }

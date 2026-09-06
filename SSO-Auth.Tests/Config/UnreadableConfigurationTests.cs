@@ -351,6 +351,81 @@ public class UnreadableConfigurationTests
         Assert.Equal("<DifferentDamage", File.ReadAllText(second.PreservedCopyPath!));
     }
 
+    [Fact]
+    public void AnUndecidableReadWhileAMarkerStands_DoesNotRefuse()
+    {
+        // THE BOOT THIS FEATURE'S OWN RECOVERY STORY ENDS ON. The operator restores the backup over the
+        // file and restarts; the marker is by construction still there, because this is the boot that
+        // clears it. If the read cannot be MADE at that moment - the backup agent that just finished is
+        // still holding the file - the answer is "I could not look", and it used to be carried into the
+        // arm that asks whether the file holds a provider. That arm has no answer for it, read "no", and
+        // latched 503 on every SSO sign-in for the whole process on a server whose providers, links and
+        // secrets are correct and live on disk.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        Assert.True(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+
+        var locked = Substitute.For<IXmlSerializer>();
+        locked.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(_ => throw new IOException("the file is in use"));
+
+        var second = UnreadableConfiguration.Preserve(path, locked, Logger(), DateTime.UtcNow);
+
+        Assert.False(second.IsUnreadable);
+
+        // And it decided NOTHING rather than deciding the other way: the marker and the copy are untouched,
+        // so the next start judges the same file again with nothing lost.
+        Assert.True(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+        Assert.Single(Copies(path));
+    }
+
+    [Fact]
+    public void ASecondIncidentAfterAMarkerDeleteFailed_IsStillCopied()
+    {
+        // The dedup used to key on the marker EXISTING, and ClearMarker swallows a delete that fails - a
+        // backup agent holding that one file, an ACL, a read-only mount. So a marker could outlive its
+        // incident, and the next incident months later was read as a restart of the first: its damaged
+        // bytes were never copied, the host overwrote them moments later, and the log named the FIRST
+        // incident's file as the only surviving copy of the providers, links and secrets. Both halves of
+        // that sentence were then false. The marker records which file it was written for, so this is a
+        // different incident whatever the marker's presence says.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+
+        // The repair happened and the marker delete did not, so the marker stands over a new incident.
+        File.WriteAllText(path, "<DifferentDamage");
+        var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(second.IsUnreadable);
+        Assert.NotEqual(first.PreservedCopyPath, second.PreservedCopyPath);
+        Assert.Equal("<DifferentDamage", File.ReadAllText(second.PreservedCopyPath!));
+    }
+
+    [Fact]
+    public void ALaterBootNamesThisIncidentsCopy_AndNotTheOldestInTheDirectory()
+    {
+        // The copies are deliberately never deleted, so a directory accumulates them across incidents. The
+        // name to give an operator is the one THIS incident produced; the oldest in the directory is a
+        // months-old artefact holding a different configuration, and telling somebody to recover from it -
+        // and to protect it rather than the file that matters - is worse than saying nothing.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        UnreadableConfiguration.ClearMarker(path, Logger());
+
+        File.WriteAllText(path, "<DifferentDamage");
+        var current = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+        // The host has now written its defaults over the file, so the next boot reads it back and has only
+        // the marker to go on.
+        File.WriteAllText(path, "<PluginConfiguration />");
+        var healthy = Substitute.For<IXmlSerializer>();
+        healthy.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(new PluginConfiguration());
+
+        var later = UnreadableConfiguration.Preserve(path, healthy, Logger(), DateTime.UtcNow);
+
+        Assert.True(later.IsUnreadable);
+        Assert.Equal(current.PreservedCopyPath, later.PreservedCopyPath);
+        Assert.NotEqual(Copies(path).OrderBy(name => name, StringComparer.Ordinal).First(), later.PreservedCopyPath);
+    }
+
     private static ILogger Logger() => Substitute.For<ILogger>();
 
     private static string[] Copies(string path)

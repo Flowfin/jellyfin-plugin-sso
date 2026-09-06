@@ -116,11 +116,29 @@ public partial class ArchitectureConformanceTests
         var js = ConfigJs();
         var html = ConfigPageHtml();
 
-        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result" })
+        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result", "sso-unreadable-config" })
         {
             Assert.Contains("\"#" + id + "\"", js, StringComparison.Ordinal);
             Assert.Contains("id=\"" + id + "\"", html, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void TheServeDefaultsBanner_ReadsTheMemberTheReportDeclares()
+    {
+        // #1543. This one member is why the banner appears at all, and BOTH of its consumers fail quiet: the
+        // page tests it with === true, and the fetch around it swallows a failure by hiding the notice. So a
+        // rename on the server takes the banner off every page silently and forever, on the one state the
+        // banner exists to announce - a server serving nobody's configuration. Nothing else pins it: the
+        // rule above walks ProviderCheckResult's members and this member is on the DOCUMENT.
+        Assert.Contains(
+            nameof(ProviderCheckDocument.ConfigurationUnreadable),
+            typeof(ProviderCheckDocument)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Select(p => p.Name),
+            StringComparer.Ordinal);
+
+        Assert.Contains("report." + nameof(ProviderCheckDocument.ConfigurationUnreadable), ConfigJs(), StringComparison.Ordinal);
     }
 
     [Fact]

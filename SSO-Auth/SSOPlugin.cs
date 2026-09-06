@@ -35,9 +35,12 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private readonly Lazy<SecretStore> _secrets;
 
-    // Volatile because it is written during construction and read from request threads afterwards, and
-    // the wrong answer on this one is the permissive one: a reader that saw the instance before the flag
-    // would serve a login the server has no configuration for.
+    // Volatile because it is written during construction and on the repair path, and read from request
+    // threads: it makes each read see the last write rather than a value the reader cached. What it does
+    // NOT do is order this field against the static Instance a request thread reaches it through - that
+    // would be a property of the write to Instance, not of this one. Nothing rests on it: Instance is
+    // assigned at the end of the constructor, and the HTTP pipeline serves nothing before the plugin has
+    // loaded.
     private volatile bool _servingDefaultConfiguration;
 
     /// <summary>
@@ -81,9 +84,7 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // route. A screen that could not run leaves the server where it stood before it existed.
         try
         {
-            var stored = UnreadableConfiguration.Preserve(ConfigurationFilePath, xmlSerializer, logger, DateTime.UtcNow);
-            ServingDefaultConfiguration = stored.IsUnreadable;
-            UnreadableConfigurationCopy = stored.PreservedCopyPath;
+            ServingDefaultConfiguration = UnreadableConfiguration.Preserve(ConfigurationFilePath, xmlSerializer, logger, DateTime.UtcNow).IsUnreadable;
         }
 #pragma warning disable CA1031, RCS1075 // a failed screen must never be the reason the plugin does not load
         catch (Exception)
@@ -153,10 +154,13 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <remarks>
     /// While it is true every SSO sign-in route refuses with 503 rather than failing as no matching
     /// provider, because a default configuration holds no provider and the two are not the same fact for
-    /// the operator reading the log. It is cleared when a configuration actually arrives - through the
-    /// settings page, an import, or a declarative source - and it survives a restart, because by the next
-    /// start the host has replaced the damaged file with a readable default and the screen alone would
-    /// report a healthy server that is serving nobody's settings.
+    /// the operator reading the log. ONE RULE ENDS IT, whichever door the write came through: a persisted
+    /// configuration that holds at least one provider. A save of the whole configuration from the settings
+    /// page is not a special case of that and used to be - which meant an administrator toggling single
+    /// logout, on a server holding nothing, cleared the refusal and deleted the marker, and the log said a
+    /// configuration had been supplied. It survives a restart, because by the next start the host has
+    /// replaced the damaged file with a readable default and the screen alone would report a healthy
+    /// server that is serving nobody's settings.
     /// <para>
     /// T-D1 ON THIS SURFACE IS THE MARKER FILE, NOT LOCAL SIGN-IN, and the difference matters. This plugin
     /// does not touch Jellyfin password sign-in - but an account it PROVISIONED has no usable password by
@@ -172,13 +176,6 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         get => _servingDefaultConfiguration;
         private set => _servingDefaultConfiguration = value;
     }
-
-    /// <summary>
-    /// Gets where the unreadable configuration file was copied before the host overwrote it (#1543), or
-    /// <see langword="null"/> when the configuration read back - and also when it did not and the copy
-    /// could not be written, which the log states rather than this property.
-    /// </summary>
-    internal string? UnreadableConfigurationCopy { get; private set; }
 
     /// <summary>
     /// Gets the store that encrypts the plugin's at-rest secrets - the OpenID client secret and the SAML
@@ -231,27 +228,18 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// UpdatePluginConfiguration (the admin config-page save) enters here.
     /// </summary>
     /// <param name="configuration">The configuration to persist.</param>
-    public override void UpdateConfiguration(BasePluginConfiguration configuration)
-    {
-        ConfigStore.Save(configuration);
-
-        // The save is what ends the refusal (#1543), and only AFTER it has been persisted: a save that
-        // throws leaves the server serving defaults and still refusing, which is the state it was
-        // actually in.
-        ConfigurationSuppliedByAdministrator();
-    }
+    public override void UpdateConfiguration(BasePluginConfiguration configuration) => ConfigStore.Save(configuration);
 
     /// <summary>
     /// Ends the serve-defaults state an unreadable configuration put this server into (#1543), and
     /// removes the marker so the next start agrees.
     /// </summary>
     /// <remarks>
-    /// Reached from two places, and both mean the same thing: a configuration arrived. The
-    /// settings-page save of the whole configuration comes through the override above, and every other
-    /// door - a provider saved on the page, an imported document, a declarative source - comes through
-    /// the persist below, once the write has actually landed and only when what landed holds a provider.
-    /// A login-path write cannot reach it: a server serving defaults holds no provider, so it has no
-    /// login to write for.
+    /// Reached from ONE place, which is the point: the persist bridge below, once the write has actually
+    /// landed and only when what landed holds a provider. Every door an administrator has - a provider
+    /// saved on the page, a whole-configuration save, an imported document, a declarative source - ends
+    /// there, so none of them needs a rule of its own. A login-path write cannot reach it: a server
+    /// serving defaults holds no provider, so it has no login to write for.
     /// </remarks>
     internal void ConfigurationSuppliedByAdministrator()
     {
@@ -281,10 +269,13 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // banner told it to do refusing every SSO sign-in for good.
     //
     // What counts is DERIVED rather than declared: a persisted configuration holding at least one provider
-    // is a configuration somebody supplied, whichever door it came through. A login-path write cannot
-    // satisfy it, because a server serving defaults holds no provider and therefore has no login to write
-    // for. The settings-page save of an empty configuration is handled by the override, which says so
-    // explicitly - the one case where an administrator means "this, and nothing in it".
+    // is a configuration somebody supplied, whichever door it came through, and there is no second rule
+    // beside it. A whole-configuration save from the settings page was one until #1543's fifth review:
+    // every unrelated toggle on that page - single logout, the login buttons, a provisioning profile - is
+    // a whole-configuration save, and on a server serving defaults it carries no provider, so the refusal
+    // and the marker were being cleared by a change that repaired nothing. A server that genuinely holds
+    // no provider has no SSO sign-in to refuse; what it loses by staying marked is a banner it can end by
+    // saving a provider, importing one, or removing the marker, which is what the banner says.
     private void PersistBase(BasePluginConfiguration configuration)
     {
         if (configuration is not PluginConfiguration incoming)
@@ -334,9 +325,27 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // area is about - must leave the server on the state it is actually in: still serving defaults,
         // still refusing. Clearing first would have answered logins with "no matching provider" for the
         // rest of the process on a server whose configuration never reached the disk.
+        //
+        // AND IT MAY NOT THROW, for the reason the ConfigurationChanged notification below is wrapped for:
+        // the write above is already durable, and the store rolls the live configuration back on any
+        // exception out of this delegate. An unwrapped line here would revert the live configuration away
+        // from a file that HAS the change - and what it does is delete a file and write a log line, on a
+        // server whose defining symptom is a disk that fails writes and a log sink that fails with it.
         if (ServingDefaultConfiguration && (incoming.OidConfigs.Count > 0 || incoming.SamlConfigs.Count > 0))
         {
-            ConfigurationSuppliedByAdministrator();
+            try
+            {
+                ConfigurationSuppliedByAdministrator();
+            }
+#pragma warning disable CA1031, RCS1075 // nothing on the repair path may unwind a write that has landed
+            catch (Exception)
+#pragma warning restore CA1031, RCS1075
+            {
+                // Silent for the same reason the constructor's screen is: the failure that reaches here is
+                // the logger itself, so reporting it is the thing that just failed. The state is already
+                // false, so the running server accepts sign-in; the marker is what may be left behind, and
+                // the next start reads a configuration holding a provider and removes it.
+            }
         }
 
         // Then the live object, in place rather than by reference: every reader in this plugin holds the

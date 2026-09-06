@@ -47,15 +47,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   anything reads the configuration, and when it does not read back it copies it
   aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — once per incident, so a
   server that keeps failing to start does not write one full copy of it per boot
-  into the directory it needs writable. An Error line in the log says what
+  into the directory it needs writable. Which incident a copy belongs to is
+  recorded in the marker, so a second, unrelated damage months later is copied in
+  its own right and the log names that copy rather than an older one. An Error line in the log says what
   happened and where the copy went; the configuration page says the same until a
   configuration arrives. While the server is in that state every SSO sign-in
   answers 503 and points at the log, instead of reporting that the provider is
   unknown — which is what a default configuration would have made every flow say,
   sending you to look for a deleted provider instead of a damaged file.
 
-  The refusal ends when a configuration actually arrives: a provider saved on the
-  settings page, an imported document, or one a declarative source supplies. It
+  The refusal ends on one condition, whichever door the write came through: a
+  configuration holding at least one provider is persisted — a provider saved on
+  the settings page, a whole configuration saved there, an imported document, or
+  one a declarative source supplies. Saving an unrelated setting on a server that
+  still holds nothing does not end it, and does not remove the marker. It
   survives a restart, because by the next start the server has already replaced
   the damaged file with a readable default and would otherwise decide it was
   healthy while serving nobody's settings. This plugin does not touch Jellyfin
@@ -67,9 +72,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
   A file that could not be READ at all — locked by a scanner, a backup agent or a
   sync client at exactly the moment plugins load — is not treated as damage and
-  changes nothing: the server's own read a moment later may well succeed, and
-  refusing on it would take SSO offline on a server whose configuration is
-  perfectly good. Nothing here makes the write atomic either: the destructive act
+  changes nothing, including on the boot where a marker from an earlier incident
+  still stands, which is the boot a restore-and-restart ends on: the server's own
+  read a moment later may well succeed, and refusing on it would take SSO offline
+  on a server whose configuration is perfectly good. A restore that rewrites the
+  file _while_ it is being read is a different case and is judged damage, because
+  nothing in the bytes separates a torn read from real corruption; that costs one
+  boot of refusal, and the next start reads the finished file and clears the
+  marker itself. Nothing here makes the write atomic either: the destructive act
   is on the load side and is the host's, so a write-side repair would not have
   reached it.
 

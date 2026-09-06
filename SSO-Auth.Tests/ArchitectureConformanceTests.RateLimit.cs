@@ -150,7 +150,13 @@ public partial class ArchitectureConformanceTests
         {
             var block = actions.FirstOrDefault(a => a.Routes.Contains(route, StringComparer.Ordinal));
             Assert.True(block.Routes is not null, $"SignInRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#1543).");
-            if (!block.Body.Contains("RefuseWhileServingDefaults()", StringComparison.Ordinal))
+            // The CALL and never the declaration. An action's body runs to the next [Http...] attribute,
+            // so the last action in a file absorbs the private helpers below it - and "RefuseWhileServingDefaults()"
+            // occurs verbatim in the helper's own signature. Matching that would let the gate be deleted
+            // from a sign-in action that happened to be last in the file, with this rule still green. The
+            // pattern below cannot appear in a declaration, which is the same choice the rate-limit rule
+            // beside it makes.
+            if (!block.Body.Contains("RefuseWhileServingDefaults() is { }", StringComparison.Ordinal))
             {
                 missing.Add(route);
             }

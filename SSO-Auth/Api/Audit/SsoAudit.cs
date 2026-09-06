@@ -949,12 +949,18 @@ internal static class SsoAudit
             markerPath?.ReplaceLineEndings(string.Empty));
 
     /// <summary>
-    /// Records an administrator supplying a configuration while defaults were being served, which is what
-    /// ends the refusal (#1543). It is an audit line rather than a debug one because it is the moment SSO
-    /// sign-in becomes possible again on a server that was refusing it.
+    /// Records a configuration arriving while defaults were being served, which is what ends the refusal
+    /// (#1543). It is an audit line rather than a debug one because it is the moment SSO sign-in becomes
+    /// possible again on a server that was refusing it.
     /// </summary>
+    /// <remarks>
+    /// IT NAMES WHAT LANDED AND NOT WHO LANDED IT. The state is ended by a persisted configuration holding
+    /// a provider, whichever door the write came through, and this line has no access to the caller's
+    /// identity - so a sentence crediting an administrator would be an assertion nothing here established,
+    /// on a security surface. The write itself is audited by the endpoint that made it.
+    /// </remarks>
     /// <param name="logger">The logger.</param>
     internal static void UnreadableConfigurationCleared(ILogger logger)
         => logger.LogWarning(
-            "[SSO Audit] A configuration was supplied by an administrator; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
+            "[SSO Audit] A configuration holding at least one provider was persisted; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
 }
