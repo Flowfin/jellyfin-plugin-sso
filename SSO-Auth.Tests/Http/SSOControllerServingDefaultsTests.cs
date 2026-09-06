@@ -183,6 +183,12 @@ public class SSOControllerServingDefaultsTests
         // environment variables is applied through the same MutateConfiguration the page save uses. A
         // server whose operator declared its providers must not come up holding exactly those providers
         // and refusing every sign-in until somebody clicks something.
+        //
+        // WHAT THIS PINS IS THE PERSIST, NOT THE LOADER'S DECISION TO PERSIST. The declarative loader
+        // returns without writing when the document it holds already equals the live configuration, so on
+        // the one boot where a HEALTHY declarative server is judged damaged - a restore rewriting the file
+        // under the screen's own read - there is nothing to apply and nothing clears until a restart or an
+        // administrator's save. That is stated rather than covered: this test drives the write.
         var harness = ServingDefaults();
 
         SSOPlugin.Instance.MutateConfiguration(configuration => configuration.OidConfigs["declared"] = new OidConfig());
@@ -224,10 +230,13 @@ public class SSOControllerServingDefaultsTests
         // nothing, so the server is still serving defaults and must still say so.
         var harness = ServingDefaults();
 
+        // The document CARRIES a provider, which is what makes this a falsifier rather than a restatement
+        // of the empty-import test above: accept it and the state would end, so the assertion below fails
+        // for the reason the comment gives instead of holding whatever the import does.
         var imported = harness.Controller.ImportConfig(new ConfigExportDocument
         {
             FormatVersion = ConfigExport.FormatVersion + 99,
-            Configuration = new PluginConfiguration(),
+            Configuration = Restored(),
         });
 
         Assert.IsType<BadRequestObjectResult>(imported);

@@ -67,7 +67,7 @@ public class SSOController : ControllerBase
     // configuration holds no provider, so the flows would answer that a provider is unknown, and an
     // operator reading it would go looking for a deleted provider instead of a damaged file. It names no
     // path - the log carries the copy - so an anonymous caller learns only that SSO is down here.
-    private const string ServingDefaultsMessage = "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. Sign in with a local Jellyfin account to restore the configuration.";
+    private const string ServingDefaultsMessage = "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. An administrator who has a Jellyfin password can sign in and restore the configuration; accounts this plugin created do not have one.";
 
     // Display names for the audit log (the internal link-map mode tokens are the lowercase "oid"/"saml").
     private const string OpenIdProtocol = "OpenID";

@@ -240,47 +240,16 @@ internal static class UnreadableConfiguration
             return default;
         }
 
-        // The copy the marker itself recorded, and NOTHING ELSE once the marker records anything. A copy
-        // that could not be written - the full disk this whole area is about, one step further along -
-        // leaves a marker that records the incident and no copy, and reading that as "no record" sent the
-        // scan looking through the directory and naming a PREVIOUS incident's file as the surviving copy
-        // of this one. That is the both-halves-false sentence the marker record was added to remove,
-        // surviving on the one branch where the evidence is genuinely gone. Null here is the truth, and
-        // the log says "not written" rather than naming somebody else's configuration.
-        //
-        // The scan answers only for a marker from before these records existed, which is the one case
-        // where the marker has nothing to say, and what it finds is stated as the oldest copy IN THE
-        // DIRECTORY rather than this incident's, because that is all it can be.
-        var carried = ReadMarker(configurationFilePath);
-        var preserved = carried is { Records: true } record ? record.Kept : ExistingCopy(configurationFilePath);
+        // THE MARKER'S OWN RECORD AND NOTHING ELSE. A copy that could not be written - the full disk this
+        // area is about, one step further along - leaves a marker naming no copy, and the answer to that
+        // is null. Searching the directory instead finds whatever is lying there, which after an earlier,
+        // repaired incident is a months-old file holding different providers, different links and
+        // different secret envelopes; naming it as the copy kept for THIS damage is the both-halves-false
+        // sentence this record exists to remove. The log says "not written", which is true, and the
+        // operator is told separately to keep every timestamped file it finds.
+        var preserved = ReadMarker(configurationFilePath)?.Kept;
         SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved);
         return new UnreadableConfigurationState(true, preserved);
-    }
-
-    // The oldest copy in the directory, whichever incident produced it, or null when there is none. This
-    // is the fallback for a marker that records no copy name; the marker is the authority when it has one,
-    // because nothing about a file name says which incident it belongs to. Ordinal ordering over a fixed
-    // UTC timestamp format is chronological, so "oldest" is the first entry.
-    private static string? ExistingCopy(string configurationFilePath)
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(configurationFilePath);
-            if (string.IsNullOrEmpty(directory))
-            {
-                return null;
-            }
-
-            var copies = Directory.GetFiles(directory, Path.GetFileName(configurationFilePath) + CopySuffix + "*");
-            Array.Sort(copies, StringComparer.Ordinal);
-            return copies.Length > 0 ? copies[0] : null;
-        }
-#pragma warning disable CA1031 // not being able to look is the same answer as there being nothing to find
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return null;
-        }
     }
 
     // Copies the damaged file aside, never over an existing name. A copy that cannot be written is reported
@@ -363,7 +332,7 @@ internal static class UnreadableConfiguration
     {
         try
         {
-            var text = "This server could not read its SSO configuration and is serving defaults. Save or import a configuration holding at least one provider to clear this, or delete this file and restart; the timestamped files beside it are the copies that were kept."
+            var text = "This server could not read its SSO configuration and is serving defaults. Save or import a configuration holding at least one provider to clear this. To clear it by hand instead, move the unreadable configuration file out of the way AND delete this file, then restart - deleting this file alone re-arms the refusal on the next start if the configuration file is still unreadable. The timestamped files beside it are the copies that were kept."
                 + Environment.NewLine + IncidentPrefix + (incident ?? string.Empty)
                 + Environment.NewLine + CopyPrefix + (preservedCopyPath ?? string.Empty);
             File.WriteAllText(configurationFilePath + MarkerSuffix, text);
@@ -401,8 +370,14 @@ internal static class UnreadableConfiguration
     {
         try
         {
+            // NULL-TOLERANT ON BOTH MAPS, and it is not politeness. These two reads are inside the try
+            // whose catch means "the file's CONTENT is damaged", so a null map here would be reported as a
+            // damaged configuration on a file the host reads back perfectly - and because the host never
+            // touches these members it never rewrites the file, so every boot repeats it and the 503
+            // stands until an administrator who can still sign in intervenes. Every other reader of these
+            // two in this plugin already tolerates a null.
             return serializer.DeserializeFromFile(typeof(PluginConfiguration), configurationFilePath) is PluginConfiguration configuration
-                ? new Restored(true, configuration.OidConfigs.Count > 0 || configuration.SamlConfigs.Count > 0, true)
+                ? new Restored(true, configuration.OidConfigs?.Count > 0 || configuration.SamlConfigs?.Count > 0, true)
                 : Restored.Damaged;
         }
 #pragma warning disable CA1031 // the shape of the failure is the whole question, and it is asked below
@@ -441,12 +416,6 @@ internal static class UnreadableConfiguration
     // cost a copy rather than the evidence.
     private readonly record struct Marker(string? Incident, string? CopyPath)
     {
-        // Whether this marker was written by a version that records anything. A marker with no records is
-        // the only one a directory scan may answer for; a marker that records NO copy is a marker saying
-        // the copy failed, and answering that with somebody else's file is the defect this record exists
-        // against.
-        internal bool Records => Incident is not null;
-
         // The recorded copy, and only if it is still there. A recorded name that no longer resolves - a
         // directory remounted elsewhere, a copy an operator moved - is answered as none rather than
         // printed at somebody, because a path that does not exist helps nobody and a scan for a

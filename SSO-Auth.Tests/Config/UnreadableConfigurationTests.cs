@@ -512,6 +512,52 @@ public class UnreadableConfigurationTests
         Assert.Equal("<DifferentDamage", File.ReadAllText(retried.PreservedCopyPath!));
     }
 
+    [Fact]
+    public void AConfigurationWhoseProviderMapsAreNull_IsNotDamage()
+    {
+        // THE SCREEN'S OWN FAULT MUST NOT BE REPORTED AS THE FILE'S. The two provider maps are read inside
+        // the try whose catch means "the content is damaged", so a null map - which every other reader in
+        // this plugin tolerates, and which the suite feeds through the save path on purpose - would be
+        // announced as a damaged configuration, copied aside, marked, and answered with 503 on every SSO
+        // sign-in. And it would not end: the host never touches these members, so it never rewrites the
+        // file, so every boot repeats it until an administrator who can still sign in intervenes.
+        var root = Path.Combine(Path.GetTempPath(), "sso-unreadable-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "SSO-Auth.xml");
+        File.WriteAllText(path, "<PluginConfiguration />");
+
+        var serializer = Substitute.For<IXmlSerializer>();
+        serializer.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>())
+            .Returns(new PluginConfiguration { OidConfigs = null!, SamlConfigs = null! });
+
+        var state = UnreadableConfiguration.Preserve(path, serializer, Logger(), DateTime.UtcNow);
+
+        Assert.False(state.IsUnreadable);
+        Assert.Empty(Copies(path));
+        Assert.False(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+    }
+
+    [Fact]
+    public void ARecordedCopyThatIsGone_IsTakenAgainRatherThanCountedAsKept()
+    {
+        // The log invites an operator to keep the timestamped copy, and some of them will move it to a
+        // workstation to look at it. If the marker's recorded name were believed without checking, the
+        // next boot of the same incident would count a copy as already kept and never take another - so
+        // moving the evidence somewhere safe would be what destroys it, since the host overwrites the
+        // damaged file regardless.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+
+        File.Delete(first.PreservedCopyPath!);
+
+        var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(second.IsUnreadable);
+        Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-040506Z", second.PreservedCopyPath);
+        Assert.Equal("<PluginConfig", File.ReadAllText(second.PreservedCopyPath!));
+    }
+
     private static ILogger Logger() => Substitute.For<ILogger>();
 
     private static string[] Copies(string path)
