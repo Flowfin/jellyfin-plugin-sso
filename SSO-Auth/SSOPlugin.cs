@@ -237,9 +237,9 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <remarks>
     /// Reached from ONE place, which is the point: the persist bridge below, once the write has actually
     /// landed and only when what landed holds a provider. Every door an administrator has - a provider
-    /// saved on the page, a whole-configuration save, an imported document, a declarative source - ends
-    /// there, so none of them needs a rule of its own. A login-path write cannot reach it: a server
-    /// serving defaults holds no provider, so it has no login to write for.
+    /// saved on the page, a whole-configuration save that carries one, an imported document, a declarative
+    /// source - ends there, so none of them needs a rule of its own. A login-path write cannot reach it,
+    /// because every SSO sign-in route answers 503 while this stands.
     /// </remarks>
     internal void ConfigurationSuppliedByAdministrator()
     {
@@ -270,7 +270,9 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     //
     // What counts is DERIVED rather than declared: a persisted configuration holding at least one provider
     // is a configuration somebody supplied, whichever door it came through, and there is no second rule
-    // beside it. A whole-configuration save from the settings page was one until #1543's fifth review:
+    // beside it. A login-path write cannot satisfy it, and the reason is the 503 on every sign-in route
+    // rather than the configuration being empty - it can hold providers while this state stands, on the
+    // boot where a restore rewrote the file under the screen's own read. A whole-configuration save from the settings page was one until #1543's fifth review:
     // every unrelated toggle on that page - single logout, the login buttons, a provisioning profile - is
     // a whole-configuration save, and on a server serving defaults it carries no provider, so the refusal
     // and the marker were being cleared by a change that repaired nothing. A server that genuinely holds
@@ -331,21 +333,26 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // exception out of this delegate. An unwrapped line here would revert the live configuration away
         // from a file that HAS the change - and what it does is delete a file and write a log line, on a
         // server whose defining symptom is a disk that fails writes and a log sink that fails with it.
-        if (ServingDefaultConfiguration && (incoming.OidConfigs.Count > 0 || incoming.SamlConfigs.Count > 0))
+        // NULL-TOLERANT ON BOTH MAPS, and the condition is INSIDE the try rather than beside it. Every
+        // other reader of these two on this path already tolerates a null - a legacy store, a posted
+        // document naming one of them as null - and this was the one that did not, in the one place where
+        // throwing costs the most: after the write has landed, where the store's rollback would revert the
+        // live configuration away from a file that HAS the change.
+        try
         {
-            try
+            if (ServingDefaultConfiguration && (incoming.OidConfigs?.Count > 0 || incoming.SamlConfigs?.Count > 0))
             {
                 ConfigurationSuppliedByAdministrator();
             }
+        }
 #pragma warning disable CA1031, RCS1075 // nothing on the repair path may unwind a write that has landed
-            catch (Exception)
+        catch (Exception)
 #pragma warning restore CA1031, RCS1075
-            {
-                // Silent for the same reason the constructor's screen is: the failure that reaches here is
-                // the logger itself, so reporting it is the thing that just failed. The state is already
-                // false, so the running server accepts sign-in; the marker is what may be left behind, and
-                // the next start reads a configuration holding a provider and removes it.
-            }
+        {
+            // Silent for the same reason the constructor's screen is: the one failure that reaches here is
+            // the logger itself, so reporting it is the thing that just failed. Where the clear did run,
+            // the state is already false and the running server accepts sign-in; the marker is what may be
+            // left behind, and the next start reads a configuration holding a provider and removes it.
         }
 
         // Then the live object, in place rather than by reference: every reader in this plugin holds the

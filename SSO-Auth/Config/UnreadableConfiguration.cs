@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
@@ -24,7 +26,14 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// </param>
 internal readonly record struct Restored(bool Readable, bool HoldsAProvider, bool Judged)
 {
-    /// <summary>Gets the answer for a file that is not there: nothing to preserve and nothing to refuse.</summary>
+    /// <summary>
+    /// Gets the answer for a file that is not there: nothing to preserve, and a first start rather than
+    /// damage. It is not "nothing to refuse", and the difference is a marker: a file that is GONE while an
+    /// unrepaired incident is recorded is still a server about to serve defaults, so the carried-over arm
+    /// judges it like any other file that holds no provider. An operator who followed the break-glass
+    /// instruction moves the file aside AND deletes the marker; doing half of it leaves the state standing,
+    /// which is the honest answer rather than a hole.
+    /// </summary>
     internal static Restored Nothing => new(true, false, true);
 
     /// <summary>Gets the answer for a read that could not be made at all, which decides nothing.</summary>
@@ -169,10 +178,15 @@ internal static class UnreadableConfiguration
         var sameIncident = incident is not null
             && carried?.Incident is { } previous
             && string.Equals(previous, incident, StringComparison.Ordinal);
-        var preserved = sameIncident && carried?.CopyPath is { } kept && File.Exists(kept)
+        var alreadyKept = carried?.Copies ?? Array.Empty<string>();
+        var preserved = sameIncident && carried?.Earliest is { } kept
             ? kept
             : Copy(configurationFilePath, nowUtc, logger);
-        Mark(configurationFilePath, incident, preserved, logger);
+        Mark(configurationFilePath, incident, alreadyKept, preserved, logger);
+
+        // What the log leads with is the earliest copy the marker now holds and not the one this boot took,
+        // for the reason Marker.Earliest gives.
+        preserved = ReadMarker(configurationFilePath)?.Earliest ?? preserved;
         SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved);
         return new UnreadableConfigurationState(true, preserved);
     }
@@ -227,11 +241,19 @@ internal static class UnreadableConfiguration
             return default;
         }
 
-        // The copy the marker itself recorded, so a directory holding several incidents' copies cannot
-        // send the operator to the wrong one. The scan is the fallback for a marker written before it
-        // carried the name, and it is stated as the oldest copy IN THE DIRECTORY rather than this
-        // incident's, because that is all it can be.
-        var preserved = ReadMarker(configurationFilePath)?.CopyPath ?? ExistingCopy(configurationFilePath);
+        // The copy the marker itself recorded, and NOTHING ELSE once the marker records anything. A copy
+        // that could not be written - the full disk this whole area is about, one step further along -
+        // leaves a marker that records the incident and no copy, and reading that as "no record" sent the
+        // scan looking through the directory and naming a PREVIOUS incident's file as the surviving copy
+        // of this one. That is the both-halves-false sentence the marker record was added to remove,
+        // surviving on the one branch where the evidence is genuinely gone. Null here is the truth, and
+        // the log says "not written" rather than naming somebody else's configuration.
+        //
+        // The scan answers only for a marker from before these records existed, which is the one case
+        // where the marker has nothing to say, and what it finds is stated as the oldest copy IN THE
+        // DIRECTORY rather than this incident's, because that is all it can be.
+        var carried = ReadMarker(configurationFilePath);
+        var preserved = carried is { Records: true } record ? record.Earliest : ExistingCopy(configurationFilePath);
         SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved);
         return new UnreadableConfigurationState(true, preserved);
     }
@@ -310,20 +332,20 @@ internal static class UnreadableConfiguration
             }
 
             string? incident = null;
-            string? copy = null;
+            var copies = new List<string>();
             foreach (var line in File.ReadAllLines(configurationFilePath + MarkerSuffix))
             {
                 if (line.StartsWith(IncidentPrefix, StringComparison.Ordinal))
                 {
                     incident = line[IncidentPrefix.Length..];
                 }
-                else if (line.StartsWith(CopyPrefix, StringComparison.Ordinal))
+                else if (line.StartsWith(CopyPrefix, StringComparison.Ordinal) && line.Length > CopyPrefix.Length)
                 {
-                    copy = line[CopyPrefix.Length..];
+                    copies.Add(line[CopyPrefix.Length..]);
                 }
             }
 
-            return new Marker(incident, string.IsNullOrEmpty(copy) ? null : copy);
+            return new Marker(incident, copies);
         }
 #pragma warning disable CA1031 // a marker that cannot be read is the same answer as one that records nothing
         catch (Exception)
@@ -338,13 +360,19 @@ internal static class UnreadableConfiguration
     // plugin constructor, and a server that cannot start is a worse answer than one that forgets.
     // The sentence stays first, because an operator who opens this file is reading it rather than parsing
     // it; the two records below it are for the next boot.
-    private static void Mark(string configurationFilePath, string? incident, string? preservedCopyPath, ILogger logger)
+    private static void Mark(string configurationFilePath, string? incident, IReadOnlyList<string> alreadyKept, string? preservedCopyPath, ILogger logger)
     {
         try
         {
-            var text = "This server could not read its SSO configuration and is serving defaults. Save or import a configuration holding at least one provider to clear this, or delete this file and restart; the timestamped file beside it is the copy that was kept."
+            var copies = alreadyKept.Where(File.Exists).ToList();
+            if (preservedCopyPath is not null && !copies.Contains(preservedCopyPath, StringComparer.Ordinal))
+            {
+                copies.Add(preservedCopyPath);
+            }
+
+            var text = "This server could not read its SSO configuration and is serving defaults. Save or import a configuration holding at least one provider to clear this, or delete this file and restart; the timestamped files beside it are the copies that were kept."
                 + Environment.NewLine + IncidentPrefix + (incident ?? string.Empty)
-                + Environment.NewLine + CopyPrefix + (preservedCopyPath ?? string.Empty);
+                + string.Concat(copies.Select(copy => Environment.NewLine + CopyPrefix + copy));
             File.WriteAllText(configurationFilePath + MarkerSuffix, text);
         }
 #pragma warning disable CA1031 // a marker that cannot be written costs only its survival across a restart
@@ -418,5 +446,19 @@ internal static class UnreadableConfiguration
     // Both may be absent - a marker from before this record existed, or one whose copy could not be
     // written - and absent is answered as "not this incident" and "no copy", which are the readings that
     // cost a copy rather than the evidence.
-    private readonly record struct Marker(string? Incident, string? CopyPath);
+    private readonly record struct Marker(string? Incident, IReadOnlyList<string> Copies)
+    {
+        // Whether this marker was written by a version that records anything. A marker with no records is
+        // the only one a directory scan may answer for; a marker that records NO copy is a marker saying
+        // the copy failed, and answering that with somebody else's file is the defect this whole record
+        // exists against.
+        internal bool Records => Incident is not null;
+
+        // The earliest copy this marker still has on disk, which is the one closest to the configuration
+        // the operator actually had. The host's rewrite of a damaged file can fail again on the disk that
+        // caused the damage, so a later boot meets a DIFFERENT unreadable file - the host's leftovers - and
+        // copies that too. Naming the newest would hand the operator the leftovers and call them their
+        // providers. Every copy is kept; this is only which one the log leads with.
+        internal string? Earliest => Copies.FirstOrDefault(File.Exists);
+    }
 }

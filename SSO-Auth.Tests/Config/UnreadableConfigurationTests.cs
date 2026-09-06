@@ -388,15 +388,20 @@ public class UnreadableConfigurationTests
         // that sentence were then false. The marker records which file it was written for, so this is a
         // different incident whatever the marker's presence says.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
-        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
 
         // The repair happened and the marker delete did not, so the marker stands over a new incident.
         File.WriteAllText(path, "<DifferentDamage");
         var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
 
+        // WHAT IS PINNED IS THAT THE BYTES SURVIVE, which is what was lost: the second incident's file is
+        // copied in its own right rather than skipped because a marker happened to be lying there. Which
+        // of the two the log LEADS with is a separate question and is the earliest of the chain, because
+        // nothing on disk tells a stale marker apart from a boot loop whose file the host has since
+        // rewritten - so both are kept and the log says to keep both.
         Assert.True(second.IsUnreadable);
-        Assert.NotEqual(first.PreservedCopyPath, second.PreservedCopyPath);
-        Assert.Equal("<DifferentDamage", File.ReadAllText(second.PreservedCopyPath!));
+        Assert.Equal(2, Copies(path).Length);
+        Assert.Contains(Copies(path), copy => File.ReadAllText(copy) == "<DifferentDamage");
     }
 
     [Fact]
@@ -424,6 +429,59 @@ public class UnreadableConfigurationTests
         Assert.True(later.IsUnreadable);
         Assert.Equal(current.PreservedCopyPath, later.PreservedCopyPath);
         Assert.NotEqual(Copies(path).OrderBy(name => name, StringComparer.Ordinal).First(), later.PreservedCopyPath);
+    }
+
+    [Fact]
+    public void ACopyThatFailed_IsReportedAsNoneAndNeverAsAnEarlierIncidentsFile()
+    {
+        // THE BRANCH THE MARKER RECORD DID NOT REACH AT FIRST. A copy that cannot be written leaves a
+        // marker recording the incident and NO copy, and reading that as "this marker records nothing"
+        // sent the directory scan looking - which after an earlier, repaired incident finds THAT copy and
+        // names it as the surviving copy of this one. The operator is then told to recover from, and to
+        // protect, a months-old file holding different providers, different links and different secret
+        // envelopes. Null is the truth here and the log says "not written".
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        UnreadableConfiguration.ClearMarker(path, Logger());
+
+        // A second incident whose copy cannot be written: the name it would take is already occupied, and
+        // the copy is never made over an existing file.
+        File.WriteAllText(path, "<DifferentDamage");
+        File.WriteAllText(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z", "in the way");
+        var incident = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(incident.IsUnreadable);
+        Assert.Null(incident.PreservedCopyPath);
+
+        // The host has now written its defaults over the file, so this boot has only the marker to go on.
+        File.WriteAllText(path, "<PluginConfiguration />");
+        var healthy = Substitute.For<IXmlSerializer>();
+        healthy.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(new PluginConfiguration());
+
+        var later = UnreadableConfiguration.Preserve(path, healthy, Logger(), DateTime.UtcNow);
+
+        Assert.True(later.IsUnreadable);
+        Assert.Null(later.PreservedCopyPath);
+    }
+
+    [Fact]
+    public void AFileMovedAsideWhileTheMarkerStands_StillServesDefaults()
+    {
+        // Half of the break-glass instruction. It says to move the unreadable file out of the way AND to
+        // delete the marker; doing only the first leaves an unrepaired incident recorded over a server
+        // that will be handed a default configuration the moment anything reads it. Refusing is the honest
+        // answer, and this pins it rather than leaving it as a side effect of a missing file reading like
+        // a first start.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        Assert.True(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+
+        File.Delete(path);
+
+        Assert.True(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+
+        // And deleting the marker as well is what ends it, which is what the log and the page both say.
+        UnreadableConfiguration.ClearMarker(path, Logger());
+        Assert.False(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
     }
 
     private static ILogger Logger() => Substitute.For<ILogger>();

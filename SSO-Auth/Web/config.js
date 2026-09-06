@@ -409,7 +409,7 @@ const ssoConfigurationPage = {
         notice.textContent = unreadable
           ? tr(
               "config.unreadable_configuration",
-              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside it and restart, and SSO will answer as it did before.",
+              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside the configuration - its name is the configuration file plus .unreadable, with no timestamp on the end - and restart, and SSO will answer as it did before.",
             )
           : "";
         notice.hidden = !unreadable;
@@ -2753,7 +2753,7 @@ const ssoConfigurationPage = {
             list,
             tr(
               "config.unreadable_configuration",
-              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside it and restart, and SSO will answer as it did before.",
+              "This server could not read its SSO configuration when it started, so it is running on default settings: no provider, no account link and no stored secret. Every SSO sign-in is refused until a configuration arrives - save a provider here, import one, or let a declarative source supply it. The server log says where the unreadable file was kept; keep that copy. If nobody can sign in at all, delete the marker file beside the configuration - its name is the configuration file plus .unreadable, with no timestamp on the end - and restart, and SSO will answer as it did before.",
             ),
           );
         }

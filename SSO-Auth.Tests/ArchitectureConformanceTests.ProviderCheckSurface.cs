@@ -131,13 +131,14 @@ public partial class ArchitectureConformanceTests
         // rename on the server takes the banner off every page silently and forever, on the one state the
         // banner exists to announce - a server serving nobody's configuration. Nothing else pins it: the
         // rule above walks ProviderCheckResult's members and this member is on the DOCUMENT.
-        Assert.Contains(
-            nameof(ProviderCheckDocument.ConfigurationUnreadable),
-            typeof(ProviderCheckDocument)
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Select(p => p.Name),
-            StringComparer.Ordinal);
+        // THE SERIALIZED NAME, not the C# one. A rule asserting that the property is among the type's
+        // properties is a tautology - nameof renames with it - and it would leave the case that actually
+        // takes the banner off every page: a [JsonPropertyName] on the member, which changes what reaches
+        // the browser while every C# name stays as it was. Both consumers of it fail quiet, so the banner
+        // would simply never appear again on the one state it exists to announce.
+        var wire = JsonSerializer.Serialize(new ProviderCheckDocument { ConfigurationUnreadable = true });
 
+        Assert.Contains("\"" + nameof(ProviderCheckDocument.ConfigurationUnreadable) + "\"", wire, StringComparison.Ordinal);
         Assert.Contains("report." + nameof(ProviderCheckDocument.ConfigurationUnreadable), ConfigJs(), StringComparison.Ordinal);
     }
 

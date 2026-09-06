@@ -58,9 +58,10 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
   The refusal ends on one condition, whichever door the write came through: a
   configuration holding at least one provider is persisted — a provider saved on
-  the settings page, a whole configuration saved there, an imported document, or
-  one a declarative source supplies. Saving an unrelated setting on a server that
-  still holds nothing does not end it, and does not remove the marker. It
+  the settings page, an imported document, or one a declarative source supplies.
+  Saving an unrelated setting does not end it and does not remove the marker, and
+  on a server in this state the page holds no providers, so every save made from
+  it that is not a provider save is an unrelated one. It
   survives a restart, because by the next start the server has already replaced
   the damaged file with a readable default and would otherwise decide it was
   healthy while serving nobody's settings. This plugin does not touch Jellyfin
