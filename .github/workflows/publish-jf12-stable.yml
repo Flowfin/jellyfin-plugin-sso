@@ -117,7 +117,7 @@ jobs:
       # (12.0.0.0); without it the manifest would fall back to the repo's JF10.11 build.yaml and mislabel
       # the 5.0 build. fail_on_unmatched_files stays true so a missing build asset fails the run rather
       # than publishing an empty release.
-      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
           name: ${{ github.ref_name }}
           prerelease: false

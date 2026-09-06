@@ -215,7 +215,7 @@ jobs:
         popd
     - name: Upload JF12 beta assets to a draft release
       id: publish-assets
-      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
           # Immutable-releases repo: attach assets while the release is a DRAFT, then publish the draft
           # (same flow as publish-beta.yml). Release NAME is the clean 5.0.0-JF12-beta; the git TAG
