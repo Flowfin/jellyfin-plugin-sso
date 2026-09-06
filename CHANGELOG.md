@@ -47,9 +47,11 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   anything reads the configuration, and when it does not read back it copies it
   aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — once per incident, so a
   server that keeps failing to start does not write one full copy of it per boot
-  into the directory it needs writable. Which incident a copy belongs to is
-  recorded in the marker, so a second, unrelated damage months later is copied in
-  its own right and the log names that copy rather than an older one. An Error line in the log says what
+  into the directory it needs writable. The marker beside it records which damaged
+  file the incident is about and which copy was kept for it, and it inherits
+  nothing from the incident before it, so a second, unrelated damage months later
+  is copied in its own right rather than skipped because a marker happened to be
+  lying there — and the log names that copy rather than an older one. An Error line in the log says what
   happened and where the copy went; the configuration page says the same until a
   configuration arrives. While the server is in that state every SSO sign-in
   answers 503 and points at the log, instead of reporting that the provider is

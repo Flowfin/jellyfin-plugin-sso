@@ -394,14 +394,12 @@ public class UnreadableConfigurationTests
         File.WriteAllText(path, "<DifferentDamage");
         var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
 
-        // WHAT IS PINNED IS THAT THE BYTES SURVIVE, which is what was lost: the second incident's file is
-        // copied in its own right rather than skipped because a marker happened to be lying there. Which
-        // of the two the log LEADS with is a separate question and is the earliest of the chain, because
-        // nothing on disk tells a stale marker apart from a boot loop whose file the host has since
-        // rewritten - so both are kept and the log says to keep both.
+        // The bytes survive AND the log names them. A marker records the copy of ITS OWN incident and
+        // inherits nothing from the one before it: inheriting looks tidy and names a months-old file
+        // holding different providers as this incident's kept copy.
         Assert.True(second.IsUnreadable);
         Assert.Equal(2, Copies(path).Length);
-        Assert.Contains(Copies(path), copy => File.ReadAllText(copy) == "<DifferentDamage");
+        Assert.Equal("<DifferentDamage", File.ReadAllText(second.PreservedCopyPath!));
     }
 
     [Fact]
@@ -482,6 +480,36 @@ public class UnreadableConfigurationTests
         // And deleting the marker as well is what ends it, which is what the log and the page both say.
         UnreadableConfiguration.ClearMarker(path, Logger());
         Assert.False(UnreadableConfiguration.Preserve(path, damaged, Logger(), DateTime.UtcNow).IsUnreadable);
+    }
+
+    [Fact]
+    public void ACopyThatFailedUnderAStaleMarker_IsRetriedOnTheNextBoot()
+    {
+        // The two failures of this area meeting at once: a marker whose delete failed after an earlier
+        // repair, and a new damage whose first copy attempt fails - the full disk, which is the same disk
+        // that caused the damage. What must NOT happen is the marker deciding that a copy is already kept,
+        // because the only copy it knows is the earlier incident's: the retry stops, the host overwrites
+        // the damaged file, and the bytes this whole screen exists to keep are gone while the log names
+        // somebody else's configuration.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+
+        // Repaired, and the marker delete failed, so it stands over what follows.
+        File.WriteAllText(path, "<DifferentDamage");
+
+        // The first attempt of the new incident cannot write its copy: that name is already taken.
+        File.WriteAllText(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z", "in the way");
+        var firstAttempt = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(firstAttempt.IsUnreadable);
+        Assert.Null(firstAttempt.PreservedCopyPath);
+
+        // Same file, next boot: the copy is attempted again, and this time its name is free.
+        var retried = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 7, 8, 9, DateTimeKind.Utc));
+
+        Assert.True(retried.IsUnreadable);
+        Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20261201-070809Z", retried.PreservedCopyPath);
+        Assert.Equal("<DifferentDamage", File.ReadAllText(retried.PreservedCopyPath!));
     }
 
     private static ILogger Logger() => Substitute.For<ILogger>();
