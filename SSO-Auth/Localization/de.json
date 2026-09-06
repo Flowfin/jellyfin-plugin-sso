@@ -2,7 +2,7 @@
   "error.return_to_login": "Zurück zur Anmeldung",
   "error.permission_denied": "Anmeldung abgelehnt. Ihr Konto ist nicht berechtigt, sich über diesen Anbieter anzumelden.",
   "error.no_matching_provider": "Kein passender Anbieter gefunden",
-  "error.serving_default_configuration": "Die Single-Sign-on-Anmeldung ist auf diesem Server nicht verfügbar: Seine SSO-Konfiguration konnte nicht gelesen werden und es werden Standardeinstellungen verwendet. Im Serverprotokoll steht, was geschehen ist und wo die unlesbare Datei abgelegt wurde. Ein Administrator mit Jellyfin-Passwort kann sich anmelden und die Konfiguration wiederherstellen; von diesem Plugin angelegte Konten haben keines.",
+  "error.serving_default_configuration": "Die Single-Sign-on-Anmeldung ist auf diesem Server nicht verfügbar: Seine SSO-Konfiguration konnte nicht gelesen werden und es werden Standardeinstellungen verwendet. Im Serverprotokoll steht, was geschehen ist und wo die unlesbare Datei abgelegt wurde. Ein Administrator mit Jellyfin-Passwort kann sich anmelden und die Konfiguration wiederherstellen; von diesem Plugin angelegte Konten haben keines, und auf einheitliche Anmeldung umgestellte Konten ebenso wenig - auf einem solchen Server ist es das Notfall-Administratorkonto.",
   "error.rate_limited": "Zu viele Versuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
   "error.login_rate_limited": "Zu viele Anmeldeversuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
   "error.invalid_state": "Ungültiger oder abgelaufener Anmeldestatus",

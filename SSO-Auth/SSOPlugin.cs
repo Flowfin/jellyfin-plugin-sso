@@ -65,7 +65,6 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public SSOPlugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<SSOPlugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
-        // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
         // The logger first, because everything below reports through it.
         _logger = logger;
 
@@ -95,6 +94,9 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
             ServingDefaultConfiguration = false;
         }
 
+        // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
+        // config path and loads the configuration lazily on first access, so nothing calls back into
+        // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
         ConfigStore = new ProviderConfigStore(() => Configuration, PersistBase, logger);
 
         // Lazy with the default thread-safe mode: the SecretStore (and thus the data-encryption key) is

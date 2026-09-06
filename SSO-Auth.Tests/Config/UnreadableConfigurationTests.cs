@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -556,6 +557,36 @@ public class UnreadableConfigurationTests
         Assert.True(second.IsUnreadable);
         Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-040506Z", second.PreservedCopyPath);
         Assert.Equal("<PluginConfig", File.ReadAllText(second.PreservedCopyPath!));
+    }
+
+    [Fact]
+    public void AMarkerThatCannotBeRead_StopsTheLoopRatherThanCopyingEveryBoot()
+    {
+        // The only unbounded path this screen had. A marker that is THERE and cannot be read - held open
+        // by another process, an ACL a restore left behind, an IO error on the volume - answered "no
+        // record", which is read everywhere else here as a new incident, so every restart took another
+        // full copy of the configuration into the directory the whole server needs writable, on the disk
+        // that caused the damage, with nothing capping it. A marker exists only because an earlier boot
+        // ran this arm, so its copy is already beside the file; what stopping costs is the NAME of it,
+        // which the log states.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.Single(Copies(path));
+
+        using (File.Open(path + UnreadableConfiguration.MarkerSuffix, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            for (var boot = 0; boot < 4; boot++)
+            {
+                // A different damaged file each time, so nothing but the marker could dedupe this.
+                File.WriteAllText(path, "<Damaged" + boot.ToString(CultureInfo.InvariantCulture));
+                var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, boot, DateTimeKind.Utc));
+
+                Assert.True(state.IsUnreadable);
+                Assert.Null(state.PreservedCopyPath);
+            }
+        }
+
+        Assert.Single(Copies(path));
     }
 
     private static ILogger Logger() => Substitute.For<ILogger>();

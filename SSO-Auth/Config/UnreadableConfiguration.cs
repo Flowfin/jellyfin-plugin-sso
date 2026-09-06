@@ -175,6 +175,21 @@ internal static class UnreadableConfiguration
         // never costs the evidence.
         var incident = IncidentOf(configurationFilePath);
         var carried = ReadMarker(configurationFilePath);
+
+        // A MARKER THAT IS THERE AND CANNOT BE READ IS NOT A NEW INCIDENT. Reading it as one - which is
+        // what a null record means everywhere else here - makes every restart take a fresh full copy of
+        // the configuration into the directory the whole server needs writable, on the disk that caused
+        // the damage, with nothing capping it. A marker exists only because an earlier boot ran this arm,
+        // so that boot's copy is already beside the file; what is lost by stopping here is the NAME of it,
+        // which the log says plainly, and what is saved is a loop that fills a full disk. The marker is
+        // left exactly as it is: rewriting one this boot could not read would destroy the record that
+        // stops the loop.
+        if (carried is null && MarkerExists(configurationFilePath))
+        {
+            SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, null);
+            return new UnreadableConfigurationState(true, null);
+        }
+
         var sameIncident = incident is not null
             && carried?.Incident is { } previous
             && string.Equals(previous, incident, StringComparison.Ordinal);
@@ -365,8 +380,10 @@ internal static class UnreadableConfiguration
 
     // Whether the host serializer can turn the stored bytes back into this plugin configuration type. A
     // failure ABOUT THE CONTENT is the condition being detected: the host catches it, hands out defaults and
-    // persists them over the file, whatever its type, and a deserialize that returns null is the same
-    // outcome under another name. An IO failure is not that: it means this check could not read the bytes
+    // persists them over the file, whatever its type. A deserialize that RETURNS null is judged the same
+    // way here and is not the same host outcome - the host would hand out a null configuration and write
+    // nothing - so this arm is a deliberate widening rather than an equivalence, taken because a plugin
+    // asked for a configuration and given null is a server that cannot answer either way. An IO failure is not that: it means this check could not read the bytes
     // at all, the host's own read may still succeed, and latching a permanent refusal on a file somebody
     // else had open for a moment is a worse failure than the one being guarded. It says so and reports
     // readable, which leaves the server exactly where it stood before this check existed.
