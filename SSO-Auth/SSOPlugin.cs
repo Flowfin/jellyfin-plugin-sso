@@ -242,10 +242,17 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Ends the serve-defaults state an unreadable configuration put this server into (#1543). Called from
-    /// the two doors that mean an administrator has supplied a configuration - the settings-page save and
-    /// the configuration import - and from nowhere else, so a login-path write cannot clear it.
+    /// Ends the serve-defaults state an unreadable configuration put this server into (#1543), and
+    /// removes the marker so the next start agrees.
     /// </summary>
+    /// <remarks>
+    /// Reached from two places, and both mean the same thing: a configuration arrived. The
+    /// settings-page save of the whole configuration comes through the override above, and every other
+    /// door - a provider saved on the page, an imported document, a declarative source - comes through
+    /// the persist below, once the write has actually landed and only when what landed holds a provider.
+    /// A login-path write cannot reach it: a server serving defaults holds no provider, so it has no
+    /// login to write for.
+    /// </remarks>
     internal void ConfigurationSuppliedByAdministrator()
     {
         if (!ServingDefaultConfiguration)
@@ -280,13 +287,6 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // explicitly - the one case where an administrator means "this, and nothing in it".
     private void PersistBase(BasePluginConfiguration configuration)
     {
-        if (configuration is PluginConfiguration supplied
-            && ServingDefaultConfiguration
-            && (supplied.OidConfigs.Count > 0 || supplied.SamlConfigs.Count > 0))
-        {
-            ConfigurationSuppliedByAdministrator();
-        }
-
         if (configuration is not PluginConfiguration incoming)
         {
             // Not this plugin's configuration type, so there is nothing to encrypt and nothing this
@@ -329,6 +329,15 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // operator-facing consequence is stated where an operator reads it, in docs/SERVER-MIGRATION.md:
         // copy SSO-Auth.xml before a migration step and check it after a failed one, before restarting.
         SaveConfiguration(incoming);
+
+        // AFTER the write and not before it (#1543). A persist that throws - the full disk this whole
+        // area is about - must leave the server on the state it is actually in: still serving defaults,
+        // still refusing. Clearing first would have answered logins with "no matching provider" for the
+        // rest of the process on a server whose configuration never reached the disk.
+        if (ServingDefaultConfiguration && (incoming.OidConfigs.Count > 0 || incoming.SamlConfigs.Count > 0))
+        {
+            ConfigurationSuppliedByAdministrator();
+        }
 
         // Then the live object, in place rather than by reference: every reader in this plugin holds the
         // object Configuration returns, and Jellyfin core hands it out on GET /Plugins/{id}/Configuration

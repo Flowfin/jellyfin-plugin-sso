@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
+using NSubstitute;
 using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -168,6 +170,26 @@ public class SSOControllerServingDefaultsTests
         SSOPlugin.Instance.MutateConfiguration(configuration => configuration.OidConfigs["declared"] = new OidConfig());
 
         Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void ASaveWhoseWriteFails_DoesNotEndTheRefusal()
+    {
+        // The falsifier for the ordering. The full disk this whole area is about is exactly the case where
+        // a save does not reach the file, and a server that answered logins with "no matching provider" for
+        // the rest of the process on the strength of a write that never landed would be reporting a repair
+        // that did not happen.
+        var harness = ServingDefaults();
+
+        // The lazy load first, so what fails below is the SAVE and not the host writing its own defaults.
+        // Without this the write throws before the persist bridge is ever reached and the assertion holds
+        // for a reason that has nothing to do with the ordering under examination.
+        _ = SSOPlugin.Instance.Configuration;
+        harness.Xml.When(x => x.SerializeToFile(Arg.Any<object>(), Arg.Any<string>())).Do(_ => throw new IOException("no space left on device"));
+
+        Assert.Throws<IOException>(() => harness.Controller.OidAdd("keycloak", new OidConfig()));
+
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
     }
 
     private static PluginConfiguration Restored()
