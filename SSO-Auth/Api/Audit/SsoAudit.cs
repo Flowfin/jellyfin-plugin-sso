@@ -829,4 +829,144 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty),
             string.Join(", ", options));
     }
+
+    /// <summary>
+    /// Records that the stored configuration could not be read at start, so defaults are being served and
+    /// SSO is refusing (#1543). Error rather than Warning: every provider, every canonical link and every
+    /// at-rest secret envelope is unreachable from this moment, and the host is about to overwrite the file
+    /// that holds them with those defaults.
+    /// </summary>
+    /// <remarks>
+    /// The preserved copy is named because it is the only artefact a repair can work on, and an operator
+    /// who is told the configuration is gone but not where the old one went has been told half of it. A
+    /// copy that could not be written is stated as such rather than elided, which is the disclosure staying
+    /// negative.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file that failed to read back.</param>
+    /// <param name="preservedCopyPath">Where the damaged file was copied, or <see langword="null"/> when the copy failed.</param>
+    internal static void UnreadableConfigurationFound(ILogger logger, string configurationFilePath, string? preservedCopyPath)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        if (preservedCopyPath is null)
+        {
+            logger.LogError(
+                "[SSO Audit] {ConfigurationFile} could not be read, and NO copy of it was kept. Default settings are being served, the server is about to overwrite the file with them, and every SSO sign-in is refused with 503 until a configuration holding at least one provider is saved or imported, or the stored file is restored and the server started again - a save that carries no provider does not end it, and a server serving defaults usually has none to save. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, and on a server that was in SSO-only mode the accounts it repointed have none either, so the only certain way in is the break-glass administrator. If nobody can sign in at all, move the unreadable configuration file out of the way and delete the marker file beside it - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - then restart: SSO then answers as it did before this check existed. Keep any timestamped copies lying beside the configuration file rather than deleting them: they are from an earlier fault, or from an earlier boot of this one whose record was lost, and one of them may hold more than this server now has.",
+                configurationFilePath?.ReplaceLineEndings(string.Empty));
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] {ConfigurationFile} could not be read. It was copied to {PreservedCopy} before the server overwrites it. Default settings are being served - no provider, no account link, no stored secret - and every SSO sign-in is refused with 503 until a configuration holding at least one provider is saved or imported, or the stored file is restored and the server started again. A save that carries no provider does not end it, and a server serving defaults usually has none to save. This plugin does not touch Jellyfin password sign-in - but an account it provisioned has none, and on a server that was in SSO-only mode the accounts it repointed have none either, so the only certain way in is the break-glass administrator. If nobody can sign in at all, move the unreadable configuration file out of the way and delete the marker file beside it - the one whose name is the configuration file plus .unreadable, with no timestamp on the end - then restart: SSO then answers as it did before this check existed. Do not delete it, nor any other timestamped copy beside the configuration file: the one named above is what was kept this time, and any others are from earlier boots or earlier faults and may hold more than it does.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty),
+            preservedCopyPath?.ReplaceLineEndings(string.Empty));
+    }
+
+    /// <summary>
+    /// Records that the damaged configuration could not be copied aside (#1543). Its own line rather than a
+    /// clause in the one above, because the two failures are different sizes: the configuration being
+    /// unreadable is recoverable from a backup, and the evidence being gone is not.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="preservedCopyPath">The copy that was attempted.</param>
+    /// <param name="error">Why the copy failed.</param>
+    internal static void UnreadableConfigurationNotPreserved(ILogger logger, string preservedCopyPath, Exception error)
+        => logger.LogError(
+            error,
+            // IT SAYS WHAT FAILED AND NOT WHAT REMAINS. It used to end "no copy of it will remain", which
+            // was true while a failed copy was the whole answer - and stopped being true once a boot that
+            // cannot write one may still fall back to a copy an earlier boot took. The line that follows
+            // this one states what remains, in both directions, and it is the only line in a position to
+            // know; two Error lines contradicting each other during an outage is worse than one saying
+            // less.
+            "[SSO Audit] The unreadable configuration could not be copied to {PreservedCopy}. The line after this one says what copy, if any, remains.",
+            preservedCopyPath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records that the readability check could not read the stored configuration at all - the file was
+    /// locked or the volume errored - so it decided nothing (#1543). Warning rather than Error: the
+    /// configuration may well be fine and the host's own read a moment later may succeed. What it costs
+    /// is the check, not the server.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file that could not be read.</param>
+    /// <param name="error">Why it could not be read.</param>
+    internal static void UnreadableConfigurationCheckSkipped(ILogger logger, string configurationFilePath, Exception error)
+        => logger.LogWarning(
+            error,
+            "[SSO Audit] {ConfigurationFile} could not be opened for the startup readability check, so it was not judged. If the server can read it, nothing is wrong; if it cannot, it will serve default settings without this warning saying so.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records that a previous start found the configuration unreadable and nobody has supplied one since
+    /// (#1543). The file reads back now - the server replaced it with a default - and that is exactly why
+    /// the marker is believed over it.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file now holding defaults.</param>
+    /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when the marker records no copy or the copy it records is no longer there.</param>
+    internal static void UnreadableConfigurationStillUnrepaired(ILogger logger, string configurationFilePath, string? preservedCopyPath)
+        => logger.LogError(
+            "[SSO Audit] {ConfigurationFile} was unreadable at an earlier start and no configuration has been supplied since, so this server is still serving default settings and still refusing every SSO sign-in. The copy kept for this incident: {PreservedCopy}. Save or import a configuration holding at least one provider to clear this; if no administrator can sign in at all, move the unreadable configuration file out of the way, delete the marker file beside it - the configuration file plus .unreadable, with no timestamp - and restart. Do not delete the copy named above, nor any other timestamped copy beside the configuration file: the one named is this incident's, and an earlier one may hold more than it does.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty),
+            preservedCopyPath?.ReplaceLineEndings(string.Empty) ?? "none recorded, or the recorded one is no longer beside the configuration");
+
+    /// <summary>
+    /// Records that the configuration came back on disk while the marker still stood (#1543) - somebody
+    /// restored the backup over the file, or copied one in - so the refusal ends without anything having
+    /// been written through this plugin.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configurationFilePath">The configuration file that now holds providers again.</param>
+    internal static void UnreadableConfigurationRepairedOnDisk(ILogger logger, string configurationFilePath)
+        => logger.LogWarning(
+            "[SSO Audit] {ConfigurationFile} holds a configuration again, so this server stops serving defaults and accepts SSO sign-in. The preserved copy of the unreadable file is left where it is.",
+            configurationFilePath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records that the marker keeping the state across a restart could not be written (#1543). It costs
+    /// the state its survival across a restart and nothing else, which is why it is reported rather than
+    /// thrown out of a plugin constructor.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="markerPath">The marker that could not be written.</param>
+    /// <param name="error">Why it could not be written.</param>
+    internal static void UnreadableConfigurationMarkerNotWritten(ILogger logger, string markerPath, Exception error)
+        => logger.LogError(
+            error,
+            "[SSO Audit] The marker {MarkerPath} could not be written. This server is serving default settings and refusing SSO now, but a restart will forget that and answer as though no provider were configured.",
+            markerPath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records that the marker could not be removed after an administrator supplied a configuration
+    /// (#1543), so the refusal would come back on the next restart although the server is repaired.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="markerPath">The marker that could not be removed.</param>
+    /// <param name="error">Why it could not be removed.</param>
+    internal static void UnreadableConfigurationMarkerNotCleared(ILogger logger, string markerPath, Exception error)
+        => logger.LogError(
+            error,
+            "[SSO Audit] The marker {MarkerPath} could not be removed. SSO is accepted again now, but a restart would refuse it once more; delete that file by hand.",
+            markerPath?.ReplaceLineEndings(string.Empty));
+
+    /// <summary>
+    /// Records a configuration arriving while defaults were being served, which is what ends the refusal
+    /// (#1543). It is an audit line rather than a debug one because it is the moment SSO sign-in becomes
+    /// possible again on a server that was refusing it.
+    /// </summary>
+    /// <remarks>
+    /// IT NAMES WHAT LANDED AND NOT WHO LANDED IT. The state is ended by a persisted configuration holding
+    /// a provider, whichever door the write came through, and this line has no access to the caller's
+    /// identity - so a sentence crediting an administrator would be an assertion nothing here established,
+    /// on a security surface. The write itself is audited by the endpoint that made it.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    internal static void UnreadableConfigurationCleared(ILogger logger)
+        => logger.LogWarning(
+            "[SSO Audit] A configuration holding at least one provider was persisted; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
 }

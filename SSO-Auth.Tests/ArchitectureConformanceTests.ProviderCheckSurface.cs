@@ -116,11 +116,30 @@ public partial class ArchitectureConformanceTests
         var js = ConfigJs();
         var html = ConfigPageHtml();
 
-        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result" })
+        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result", "sso-unreadable-config" })
         {
             Assert.Contains("\"#" + id + "\"", js, StringComparison.Ordinal);
             Assert.Contains("id=\"" + id + "\"", html, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void TheServeDefaultsBanner_ReadsTheMemberTheReportDeclares()
+    {
+        // #1543. This one member is why the banner appears at all, and BOTH of its consumers fail quiet: the
+        // page tests it with === true, and the fetch around it swallows a failure by hiding the notice. So a
+        // rename on the server takes the banner off every page silently and forever, on the one state the
+        // banner exists to announce - a server serving nobody's configuration. Nothing else pins it: the
+        // rule above walks ProviderCheckResult's members and this member is on the DOCUMENT.
+        // THE SERIALIZED NAME, not the C# one. A rule asserting that the property is among the type's
+        // properties is a tautology - nameof renames with it - and it would leave the case that actually
+        // takes the banner off every page: a [JsonPropertyName] on the member, which changes what reaches
+        // the browser while every C# name stays as it was. Both consumers of it fail quiet, so the banner
+        // would simply never appear again on the one state it exists to announce.
+        var wire = JsonSerializer.Serialize(new ProviderCheckDocument { ConfigurationUnreadable = true });
+
+        Assert.Contains("\"" + nameof(ProviderCheckDocument.ConfigurationUnreadable) + "\"", wire, StringComparison.Ordinal);
+        Assert.Contains("report." + nameof(ProviderCheckDocument.ConfigurationUnreadable), ConfigJs(), StringComparison.Ordinal);
     }
 
     [Fact]

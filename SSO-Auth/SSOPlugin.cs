@@ -35,6 +35,14 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private readonly Lazy<SecretStore> _secrets;
 
+    // Volatile because it is written during construction and on the repair path, and read from request
+    // threads: it makes each read see the last write rather than a value the reader cached. What it does
+    // NOT do is order this field against the static Instance a request thread reaches it through - that
+    // would be a property of the write to Instance, not of this one. Nothing rests on it: Instance is
+    // assigned at the end of the constructor, and the HTTP pipeline serves nothing before the plugin has
+    // loaded.
+    private volatile bool _servingDefaultConfiguration;
+
     /// <summary>
     /// Initializes static members of the <see cref="SSOPlugin"/> class.
     /// </summary>
@@ -57,10 +65,38 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public SSOPlugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<SSOPlugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
+        // The logger first, because everything below reports through it.
+        _logger = logger;
+
+        // #1543, and it is FIRST on purpose. The host loads the configuration lazily and, when that load
+        // throws, hands out defaults and WRITES THEM OVER THE FILE - so the only moment the damaged bytes
+        // still exist is before anything reads Configuration. Nothing above this line touches that
+        // property, and the screen reads the file itself rather than through the base class, so it cannot
+        // trigger the load it exists to get ahead of. ConfigurationFilePath is composed from the
+        // application paths and reads no configuration.
+        // Wrapped, to the standard the declarative loader below sets and for its reason: anything that
+        // escapes a plugin constructor fails the plugin load and takes every SSO login on the server
+        // offline. The realistic trigger is the same cause as the damage - a full disk truncates the
+        // configuration AND breaks the file log sink, so the Error line this screen writes throws out of
+        // the logger - and the answer to that must not be a plugin that never loads and a 500 on every
+        // route. A screen that could not run leaves the server where it stood before it existed.
+        try
+        {
+            ServingDefaultConfiguration = UnreadableConfiguration.Preserve(ConfigurationFilePath, xmlSerializer, logger, DateTime.UtcNow).IsUnreadable;
+        }
+#pragma warning disable CA1031, RCS1075 // a failed screen must never be the reason the plugin does not load
+        catch (Exception)
+#pragma warning restore CA1031, RCS1075
+        {
+            // Deliberately silent, and it has to be: the one failure that reaches here is a logger that
+            // throws, so reporting it is the thing that just failed. What it costs is this check; the
+            // server behaves as it did before the check existed.
+            ServingDefaultConfiguration = false;
+        }
+
         // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
         // config path and loads the configuration lazily on first access, so nothing calls back into
         // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
-        _logger = logger;
         ConfigStore = new ProviderConfigStore(() => Configuration, PersistBase, logger);
 
         // Lazy with the default thread-safe mode: the SecretStore (and thus the data-encryption key) is
@@ -111,6 +147,36 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the store that owns every configuration read and write (#318).
     /// </summary>
     internal ProviderConfigStore ConfigStore { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the stored configuration could not be read at start, so what is
+    /// being served is a default one and not the one this server had (#1543).
+    /// </summary>
+    /// <remarks>
+    /// While it is true every SSO sign-in route refuses with 503 rather than failing as no matching
+    /// provider, because a default configuration holds no provider and the two are not the same fact for
+    /// the operator reading the log. ONE RULE ENDS IT, whichever door the write came through: a persisted
+    /// configuration that holds at least one provider. A save of the whole configuration from the settings
+    /// page is not a special case of that and used to be - which meant an administrator toggling single
+    /// logout, on a server holding nothing, cleared the refusal and deleted the marker, and the log said a
+    /// configuration had been supplied. It survives a restart, because by the next start the host has
+    /// replaced the damaged file with a readable default and the screen alone would report a healthy
+    /// server that is serving nobody's settings.
+    /// <para>
+    /// T-D1 ON THIS SURFACE IS THE MARKER FILE, NOT LOCAL SIGN-IN, and the difference matters. This plugin
+    /// does not touch Jellyfin password sign-in - but an account it PROVISIONED has no usable password by
+    /// construction, so on a server whose administrators all arrived through SSO there is no local door to
+    /// fall back to, and a refusal that survives restarts would leave nobody able to administer anything.
+    /// What keeps that from being a lockout is that the state lives in a file an operator can delete:
+    /// remove the marker beside the configuration, restart, and SSO answers exactly as it did before this
+    /// check existed. Every log line that announces the refusal says so.
+    /// </para>
+    /// </remarks>
+    internal bool ServingDefaultConfiguration
+    {
+        get => _servingDefaultConfiguration;
+        private set => _servingDefaultConfiguration = value;
+    }
 
     /// <summary>
     /// Gets the store that encrypts the plugin's at-rest secrets - the OpenID client secret and the SAML
@@ -165,6 +231,32 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="configuration">The configuration to persist.</param>
     public override void UpdateConfiguration(BasePluginConfiguration configuration) => ConfigStore.Save(configuration);
 
+    /// <summary>
+    /// Ends the serve-defaults state an unreadable configuration put this server into (#1543), and
+    /// removes the marker so the next start agrees.
+    /// </summary>
+    /// <remarks>
+    /// Reached from ONE place, which is the point: the persist bridge below, once the write has actually
+    /// landed and only when what landed holds a provider. Every door an administrator has - a provider
+    /// saved on the page, a whole-configuration save that carries one, an imported document, a declarative
+    /// source - ends there, so none of them needs a rule of its own. A SIGN-IN write cannot reach it,
+    /// because every SSO sign-in route answers 503 while this stands - but a logout can, since logout is
+    /// deliberately not gated and persists through the same bridge. That only matters on the boot where
+    /// this state coexists with a live configuration holding providers, and there the clear is correct:
+    /// the configuration really is good.
+    /// </remarks>
+    internal void ConfigurationSuppliedByAdministrator()
+    {
+        if (!ServingDefaultConfiguration)
+        {
+            return;
+        }
+
+        ServingDefaultConfiguration = false;
+        UnreadableConfiguration.ClearMarker(ConfigurationFilePath, _logger);
+        SsoAudit.UnreadableConfigurationCleared(_logger);
+    }
+
     // The store's only road to disk: persistence stays with the plugin base class, and this named
     // bridge hands base.UpdateConfiguration to the store so a store save cannot re-enter the
     // overridden pipeline above. Every road to disk - the config-page Save and every Mutate (provider
@@ -173,6 +265,25 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // on-disk representation is owned by the persistence boundary, and that is where a secret becomes an
     // ssoenc: envelope. ProtectAll is idempotent (an already-encrypted or empty value is left unchanged),
     // so re-persisting is a no-op and a legacy plaintext value is rewritten encrypted on its next save.
+    // The one choke point every configuration write goes through - the store's Mutate and its Save both
+    // end here - which is why the serve-defaults state is cleared here rather than at each door (#1543).
+    // The doors are not all the same shape: the settings page saves a provider through MutateConfiguration
+    // and never enters the UpdateConfiguration override, and a declarative source applies its document the
+    // same way, so a rule written at the override alone left a server that had done exactly what the
+    // banner told it to do refusing every SSO sign-in for good.
+    //
+    // What counts is DERIVED rather than declared: a persisted configuration holding at least one provider
+    // is a configuration somebody supplied, whichever door it came through, and there is no second rule
+    // beside it. A SIGN-IN write cannot satisfy it, and the reason is the 503 on every sign-in route
+    // rather than the configuration being empty - it can hold providers while this state stands, on the
+    // boot where a restore rewrote the file under the screen's own read. A logout is not gated and does
+    // persist through here; on that one boot it clears the state, which is the right answer, because the
+    // configuration it just wrote is the operator's own. A whole-configuration save from the settings page was one until #1543's fifth review:
+    // every unrelated toggle on that page - single logout, the login buttons, a provisioning profile - is
+    // a whole-configuration save, and on a server serving defaults it carries no provider, so the refusal
+    // and the marker were being cleared by a change that repaired nothing. A server that genuinely holds
+    // no provider has no SSO sign-in to refuse; what it loses by staying marked is a banner it can end by
+    // saving a provider, importing one, or removing the marker, which is what the banner says.
     private void PersistBase(BasePluginConfiguration configuration)
     {
         if (configuration is not PluginConfiguration incoming)
@@ -217,6 +328,38 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // operator-facing consequence is stated where an operator reads it, in docs/SERVER-MIGRATION.md:
         // copy SSO-Auth.xml before a migration step and check it after a failed one, before restarting.
         SaveConfiguration(incoming);
+
+        // AFTER the write and not before it (#1543). A persist that throws - the full disk this whole
+        // area is about - must leave the server on the state it is actually in: still serving defaults,
+        // still refusing. Clearing first would have answered logins with "no matching provider" for the
+        // rest of the process on a server whose configuration never reached the disk.
+        //
+        // AND IT MAY NOT THROW, for the reason the ConfigurationChanged notification below is wrapped for:
+        // the write above is already durable, and the store rolls the live configuration back on any
+        // exception out of this delegate. An unwrapped line here would revert the live configuration away
+        // from a file that HAS the change - and what it does is delete a file and write a log line, on a
+        // server whose defining symptom is a disk that fails writes and a log sink that fails with it.
+        // NULL-TOLERANT ON BOTH MAPS, and the condition is INSIDE the try rather than beside it. Every
+        // other reader of these two on this path already tolerates a null - a legacy store, a posted
+        // document naming one of them as null - and this was the one that did not, in the one place where
+        // throwing costs the most: after the write has landed, where the store's rollback would revert the
+        // live configuration away from a file that HAS the change.
+        try
+        {
+            if (ServingDefaultConfiguration && (incoming.OidConfigs?.Count > 0 || incoming.SamlConfigs?.Count > 0))
+            {
+                ConfigurationSuppliedByAdministrator();
+            }
+        }
+#pragma warning disable CA1031, RCS1075 // nothing on the repair path may unwind a write that has landed
+        catch (Exception)
+#pragma warning restore CA1031, RCS1075
+        {
+            // Silent for the same reason the constructor's screen is: the one failure that reaches here is
+            // the logger itself, so reporting it is the thing that just failed. Where the clear did run,
+            // the state is already false and the running server accepts sign-in; the marker is what may be
+            // left behind, and the next start reads a configuration holding a provider and removes it.
+        }
 
         // Then the live object, in place rather than by reference: every reader in this plugin holds the
         // object Configuration returns, and Jellyfin core hands it out on GET /Plugins/{id}/Configuration

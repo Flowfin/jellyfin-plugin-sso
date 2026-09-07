@@ -117,6 +117,87 @@ public partial class ArchitectureConformanceTests
         "i18n", // SSOViewsController: anonymous read-only UI-string catalog (#913), in-memory, no I/O, no login path
     };
 
+    // The SSO SIGN-IN routes, and only those: the two challenges, the two callbacks and the two
+    // authenticate legs. Each must refuse with 503 while the stored configuration could not be read
+    // (#1543), because a default configuration holds no provider and every one of them would otherwise
+    // answer that the provider is unknown - a true sentence about the wrong thing, which sends an operator
+    // hunting a deleted provider instead of a damaged file.
+    //
+    // What is NOT here is the boundary of the decision rather than an oversight. Logout must keep working
+    // (ending a session is safe with no configuration and is what a stranded user needs), the SP metadata
+    // and the admin doors must keep answering (they are how an administrator diagnoses and repairs this),
+    // and local Jellyfin sign-in is not this plugin's at all - which is what leaves a way in to repair,
+    // T-D1 on this surface.
+    private static readonly string[] SignInRoutes =
+    {
+        "OID/p/{provider}", "OID/start/{provider}",
+        "OID/r/{provider}", "OID/redirect/{provider}",
+        "OID/Auth/{provider}",
+        "SAML/p/{provider}", "SAML/start/{provider}", "SAML/post/{provider}",
+        "SAML/Auth/{provider}",
+    };
+
+    [Fact]
+    public void EverySignInRoute_RefusesWhileTheStoredConfigurationCouldNotBeRead()
+    {
+        // #1543. The per-route behaviour is pinned by SSOControllerServingDefaultsTests; this pins that the
+        // gate is PRESENT on every route the list names. On its own that is only as complete as the list,
+        // which is what EverySignInAction_IsInTheSignInRouteList below is for - it derives the surface from
+        // the source instead, so a seventh sign-in action cannot ship by being left out of a literal.
+        var actions = ControllerActionBlocks();
+        var missing = new List<string>();
+        foreach (var route in SignInRoutes)
+        {
+            var block = actions.FirstOrDefault(a => a.Routes.Contains(route, StringComparer.Ordinal));
+            Assert.True(block.Routes is not null, $"SignInRoutes lists '{route}', but no controller action declares that route - a route was renamed; update the list (#1543).");
+            // The CALL and never the declaration. An action's body runs to the next [Http...] attribute,
+            // so the last action in a file absorbs the private helpers below it - and "RefuseWhileServingDefaults()"
+            // occurs verbatim in the helper's own signature. Matching that would let the gate be deleted
+            // from a sign-in action that happened to be last in the file, with this rule still green. The
+            // pattern below cannot appear in a declaration, which is the same choice the rate-limit rule
+            // beside it makes.
+            if (!block.Body.Contains("RefuseWhileServingDefaults() is { }", StringComparison.Ordinal))
+            {
+                missing.Add(route);
+            }
+        }
+
+        Assert.True(
+            missing.Count == 0,
+            "These sign-in endpoints must call RefuseWhileServingDefaults() and do not, so they would answer 'no matching provider' on a server whose configuration could not be read: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void EverySignInAction_IsInTheSignInRouteList()
+    {
+        // The completeness half (#1543). The surface is DERIVED: a controller action that drives one of the
+        // flow services' sign-in legs is a sign-in action, whatever it is called, so an eighth one added
+        // later fails here rather than shipping unlisted - which is the miss the list alone cannot catch.
+        // It also fails on a stale entry, so the list cannot drift the other way.
+        var signInLeg = new Regex(@"_(?:oidc|saml)\.(?:Challenge|Callback|Authenticate)(?:Async)?\(");
+        var derived = ControllerActionBlocks()
+            .Where(action => signInLeg.IsMatch(action.Body))
+            .SelectMany(action => action.Routes)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            derived.Count >= 6,
+            $"The sign-in walk found only {derived.Count} routes; it has stopped seeing the flow-service calls and this rule would now pass over a surface too small to mean anything (#1543).");
+
+        var listed = SignInRoutes.ToHashSet(StringComparer.Ordinal);
+        var unlisted = derived.Where(route => !listed.Contains(route)).ToList();
+        Assert.True(
+            unlisted.Count == 0,
+            "These routes drive a sign-in leg but are not in SignInRoutes, so nothing checks they refuse while the stored configuration could not be read: " + string.Join(", ", unlisted));
+
+        var derivedSet = derived.ToHashSet(StringComparer.Ordinal);
+        var stale = SignInRoutes.Where(route => !derivedSet.Contains(route)).ToList();
+        Assert.True(
+            stale.Count == 0,
+            "These routes are listed as sign-in routes but no longer drive a sign-in leg - remove them: " + string.Join(", ", stale));
+    }
+
     [Fact]
     public void EveryMustThrottleEndpoint_CallsTheRateLimitGate()
     {

@@ -1,0 +1,335 @@
+// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
+// SPDX-License-Identifier: GPL-3.0-only
+
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.SSO_Auth;
+using Jellyfin.Plugin.SSO_Auth.Api.Localization;
+using Jellyfin.Plugin.SSO_Auth.Api.Session;
+using Jellyfin.Plugin.SSO_Auth.Config;
+using Microsoft.AspNetCore.Mvc;
+using NSubstitute;
+using Xunit;
+
+namespace Jellyfin.Plugin.SSO_Auth.Tests;
+
+/// <summary>
+/// What the SSO sign-in surface answers while the stored configuration could not be read (#1543). A
+/// default configuration holds no provider, so without this the flows would each answer that the provider
+/// is unknown - a true sentence about the wrong thing, which sends an operator hunting a deleted provider
+/// instead of a damaged file. Every sign-in route says 503 and points at the log instead, and the state is
+/// cleared by an administrator supplying a configuration and by nothing else.
+/// </summary>
+[Collection("SSOController")]
+public class SSOControllerServingDefaultsTests
+{
+    [Fact]
+    public async Task OidChallenge_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.OidChallenge("keycloak");
+
+        AssertUnavailable(result);
+    }
+
+    [Fact]
+    public async Task OidCallback_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.OidCallback("keycloak", "state");
+
+        AssertUnavailable(result);
+    }
+
+    [Fact]
+    public async Task OidAuth_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.OidAuth("keycloak", new AuthResponse());
+
+        Assert.Equal(503, Assert.IsAssignableFrom<ObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public void SamlChallenge_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = harness.Controller.SamlChallenge("adfs");
+
+        AssertUnavailable(result);
+    }
+
+    [Fact]
+    public async Task SamlCallback_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.SamlCallback("adfs");
+
+        AssertUnavailable(result);
+    }
+
+    [Fact]
+    public async Task SamlAuth_WhileServingDefaults_Is503()
+    {
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.SamlAuth("adfs", new AuthResponse());
+
+        Assert.Equal(503, Assert.IsAssignableFrom<ObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public async Task AReadableConfiguration_LeavesTheSignInSurfaceAlone()
+    {
+        // The falsifier: the same call on a plugin whose configuration read back is refused for its own
+        // reasons - an unknown provider - and never with the 503 this state answers.
+        var harness = new SsoControllerHarness();
+
+        var result = await harness.Controller.OidChallenge("keycloak");
+
+        AssertNotUnavailable(result);
+    }
+
+    [Fact]
+    public async Task AnAdministratorSavingAConfiguration_EndsTheRefusal()
+    {
+        // The way out, and the reason local Jellyfin sign-in is deliberately untouched: an administrator
+        // has to be able to get in to make this call. What ends it is what the save CARRIES - a
+        // configuration holding a provider - and not which door it came through.
+        var harness = ServingDefaults();
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+
+        SSOPlugin.Instance.UpdateConfiguration(Restored());
+
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+        var result = await harness.Controller.OidChallenge("keycloak");
+        AssertNotUnavailable(result);
+    }
+
+    [Fact]
+    public void AnUnrelatedSettingSavedOnThePage_DoesNotEndTheRefusal()
+    {
+        // ONE RULE FOR EVERY DOOR, and this is the falsifier for it. The whole-configuration save used to
+        // clear unconditionally, and every unrelated toggle on the settings page - single logout, the login
+        // buttons, a provisioning profile - is a whole-configuration save that on this server carries no
+        // provider. So an administrator changing something else made the banner vanish, deleted the marker
+        // that keeps the diagnosis across a restart, and got the log line saying a configuration had been
+        // supplied, while the server still held nothing. AnEmptyImport_DoesNotEndTheRefusal, below,
+        // already refuses exactly this shape at the import door; the two doors agree.
+        var harness = ServingDefaults();
+
+        SSOPlugin.Instance.UpdateConfiguration(new PluginConfiguration { EnableSingleLogout = true });
+
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AnAdministratorImportingAConfiguration_EndsTheRefusal()
+    {
+        var harness = ServingDefaults();
+
+        var imported = harness.Controller.ImportConfig(new ConfigExportDocument
+        {
+            FormatVersion = ConfigExport.FormatVersion,
+            Configuration = Restored(),
+        });
+
+        Assert.IsType<NoContentResult>(imported);
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AnEmptyImport_DoesNotEndTheRefusal()
+    {
+        // What ends it is a configuration ARRIVING, not a request being accepted. A document that merges
+        // nothing leaves the server on the same defaults it was refusing for, and flipping the answer from
+        // an accurate 503 to "no matching provider" would hand the operator back the confusion this
+        // exists to end.
+        var harness = ServingDefaults();
+
+        var imported = harness.Controller.ImportConfig(new ConfigExportDocument
+        {
+            FormatVersion = ConfigExport.FormatVersion,
+            Configuration = new PluginConfiguration(),
+        });
+
+        Assert.IsType<NoContentResult>(imported);
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AnAdministratorSavingAProviderOnTheSettingsPage_EndsTheRefusal()
+    {
+        // THE DOCUMENTED RECOVERY, and it does not go through the plugin-configuration door: the settings
+        // page saves a provider through MutateConfiguration, which never enters UpdateConfiguration. A rule
+        // written at that override alone left a server that had done exactly what the banner told it to do
+        // refusing every SSO sign-in for good.
+        var harness = ServingDefaults();
+
+        harness.Controller.OidAdd("keycloak", new OidConfig { OidEndpoint = "https://idp.example", OidClientId = "client" });
+
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void AConfigurationArrivingFromADeclarativeSource_EndsTheRefusal()
+    {
+        // The deployment style that can repair itself without a person: a mounted document or a set of
+        // environment variables is applied through the same MutateConfiguration the page save uses. A
+        // server whose operator declared its providers must not come up holding exactly those providers
+        // and refusing every sign-in until somebody clicks something.
+        //
+        // WHAT THIS PINS IS THE PERSIST, NOT THE LOADER'S DECISION TO PERSIST. The declarative loader
+        // returns without writing when the document it holds already equals the live configuration, so on
+        // the one boot where a HEALTHY declarative server is judged damaged - a restore rewriting the file
+        // under the screen's own read - there is nothing to apply and nothing clears until a restart or an
+        // administrator's save. That is stated rather than covered: this test drives the write.
+        var harness = ServingDefaults();
+
+        SSOPlugin.Instance.MutateConfiguration(configuration => configuration.OidConfigs["declared"] = new OidConfig());
+
+        Assert.False(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void ASaveWhoseWriteFails_DoesNotEndTheRefusal()
+    {
+        // The falsifier for the ordering. The full disk this whole area is about is exactly the case where
+        // a save does not reach the file, and a server that answered logins with "no matching provider" for
+        // the rest of the process on the strength of a write that never landed would be reporting a repair
+        // that did not happen.
+        var harness = ServingDefaults();
+
+        // The lazy load first, so what fails below is the SAVE and not the host writing its own defaults.
+        // Without this the write throws before the persist bridge is ever reached and the assertion holds
+        // for a reason that has nothing to do with the ordering under examination.
+        _ = SSOPlugin.Instance.Configuration;
+        harness.Xml.When(x => x.SerializeToFile(Arg.Any<object>(), Arg.Any<string>())).Do(_ => throw new IOException("no space left on device"));
+
+        Assert.Throws<IOException>(() => harness.Controller.OidAdd("keycloak", new OidConfig()));
+
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    private static PluginConfiguration Restored()
+    {
+        var configuration = new PluginConfiguration();
+        configuration.OidConfigs["keycloak"] = new OidConfig();
+        return configuration;
+    }
+
+    [Fact]
+    public void ARejectedImport_LeavesTheRefusalStanding()
+    {
+        // Only a configuration that actually landed ends the state. A document the import refuses changed
+        // nothing, so the server is still serving defaults and must still say so.
+        var harness = ServingDefaults();
+
+        // The document CARRIES a provider, which is what makes this a falsifier rather than a restatement
+        // of the empty-import test above: accept it and the state would end, so the assertion below fails
+        // for the reason the comment gives instead of holding whatever the import does.
+        var imported = harness.Controller.ImportConfig(new ConfigExportDocument
+        {
+            FormatVersion = ConfigExport.FormatVersion + 99,
+            Configuration = Restored(),
+        });
+
+        Assert.IsType<BadRequestObjectResult>(imported);
+        Assert.True(SSOPlugin.Instance.ServingDefaultConfiguration);
+    }
+
+    [Fact]
+    public void TheConfigurationCheck_ReportsTheState()
+    {
+        // The page reads it from here, and this is the report whose empty provider list would otherwise
+        // read as "nothing configured" on a server whose providers are on disk in a file it refused.
+        var harness = ServingDefaults();
+
+        var report = Assert.IsType<ProviderCheckDocument>(Assert.IsType<OkObjectResult>(harness.Controller.CheckProviders().Result).Value);
+
+        Assert.True(report.ConfigurationUnreadable);
+    }
+
+    [Fact]
+    public void TheConfigurationCheck_OnAHealthyServer_ReportsNothing()
+    {
+        // The falsifier: one thing changes - the stored configuration reads back - and the same report says
+        // so, which is what stops the banner from being permanently on.
+        var harness = new SsoControllerHarness();
+
+        var report = Assert.IsType<ProviderCheckDocument>(Assert.IsType<OkObjectResult>(harness.Controller.CheckProviders().Result).Value);
+
+        Assert.False(report.ConfigurationUnreadable);
+    }
+
+    [Fact]
+    public async Task TheRefusalBody_SendsNobodyToTheLogForARosterOfAccounts()
+    {
+        // The body used to end "the server log says which accounts have one", and no line writes that or
+        // could. The two lines this incident produces name a CATEGORY - an account this plugin provisioned
+        // has no password, one it repointed in SSO-only mode has none either, so the only certain way in is
+        // the break-glass administrator - and enumerate no account; the plugin's refusal surfaces are
+        // deliberately non-enumerating everywhere else, so satisfying the sentence would have meant adding
+        // the roster it advertised. A stranded administrator was therefore sent to the log to look for a
+        // list nothing writes, during a total SSO outage.
+        //
+        // DISCLOSED AS A LITERAL GUARD: it refuses this sentence coming back, not every sentence that
+        // would send a reader after a list. Nothing here can derive that.
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.OidAuth("keycloak", new AuthResponse());
+
+        var body = Assert.IsType<string>(Assert.IsAssignableFrom<ObjectResult>(result).Value);
+        Assert.Contains("could not be read", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("which accounts", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("accounts have one", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TheRefusalBody_IsStillTranslated()
+    {
+        // WHAT EDITING THE CONSTANT NEARLY COST. The browser error page does not localize by key: it
+        // reverse-maps the ENGLISH TEXT against the catalogue's values, so the catalogue entry is live
+        // even though no code names it, and a body edited out from under that entry silently stops being
+        // translated. It happened here - the entry was removed as unreferenced while the constant was
+        // corrected - and this is the surface where it costs the most: the one refusal that carries the
+        // recovery instruction, read by a stranded operator during a total SSO outage, on a page whose
+        // every other label is already in their language. This pins the two together in the direction
+        // that fails: change either and it reddens.
+        var harness = ServingDefaults();
+
+        var body = Assert.IsType<string>(Assert.IsAssignableFrom<ObjectResult>(await harness.Controller.OidAuth("keycloak", new AuthResponse())).Value);
+
+        Assert.True(SsoLocalizer.IsLocalizableEnglish(body));
+        Assert.NotEqual(body, SsoLocalizer.LocalizeEnglish(body, "de"));
+    }
+
+    private static SsoControllerHarness ServingDefaults() => new(unreadableConfiguration: true);
+
+    private static void AssertUnavailable(ActionResult result) => Assert.Equal(503, Status(result));
+
+    private static void AssertNotUnavailable(ActionResult result) => Assert.NotEqual(503, Status(result));
+
+    // A refusal on the sign-in surface arrives either as the plain result or as the restyled error page a
+    // browser-navigated route wraps it in, and the two are different result types. The status is the same
+    // fact in both, so it is what these read.
+    private static int Status(ActionResult result) => StatusOrNull(result) ?? throw new InvalidOperationException($"A sign-in result carried no status at all: {result.GetType().Name}");
+
+    private static int? StatusOrNull(ActionResult result) => result switch
+    {
+        ObjectResult objectResult => objectResult.StatusCode,
+        ContentResult contentResult => contentResult.StatusCode,
+        StatusCodeResult statusCodeResult => statusCodeResult.StatusCode,
+
+        // Never null. A null would make Assert.NotEqual(503, …) pass for any result shape this does not
+        // know, which is a falsifier that cannot fail - the negative assertions below would then hold for
+        // a redirect, an empty result, or anything else a refactor produced.
+        _ => throw new InvalidOperationException($"Unhandled result type in a sign-in assertion: {result.GetType().Name}"),
+    };
+}

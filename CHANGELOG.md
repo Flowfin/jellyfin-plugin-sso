@@ -36,6 +36,76 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   act and every refusal are audited, and so is the case the check cannot cover: if
   something changes while the run is in flight, an administrator left without a
   way in is named in the log the moment it happens.
+- **An unreadable `SSO-Auth.xml` is kept, announced, and refused rather than
+  quietly replaced (#1543).** Jellyfin's plugin base class answers a
+  configuration it cannot deserialize by building a default one and writing it
+  back over the file — so a write truncated by a full disk, a filesystem
+  corruption, an interrupted restore or a hand edit cost you every provider,
+  every account link and every stored secret, AND the only artefact a repair
+  could have worked on, in the same act. The plugin now spends the window it has
+  before that: it checks the stored file itself, in its own constructor, before
+  anything reads the configuration, and when it does not read back it copies it
+  aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — once per incident, so a
+  server that keeps failing to start on the same damaged file does not write one
+  full copy of it per boot into the directory it needs writable. A boot on which
+  the file itself has changed is a new incident and is copied again, which is what
+  happens when the server's own attempt to write its defaults also fails. A copy
+  counts as kept only when a file beside the configuration actually holds those
+  bytes, so one that was emptied, edited in place or replaced does not stop the
+  next boot taking another. That comparison is streamed rather than loaded, so a
+  damaged file of any size is still compared, and its lengths are checked first,
+  so a copy that no longer matches is ruled out even when its contents cannot be
+  reached; only a file whose length still matches and which cannot be opened at
+  all leaves the question open, and there the record stands. A copy name an
+  earlier fault already occupies is
+  walked past rather than surrendered to, instead of costing the copy; and a log
+  sink that fails along with the disk that caused the damage costs the
+  announcement and never the refusal. The marker beside it records which damaged
+  file the incident is about and which copy was kept for it, and it inherits
+  nothing from the incident before it, so a second, unrelated damage months later
+  is copied in its own right rather than skipped because a marker happened to be
+  lying there — and the log names that copy rather than an older one. An Error line in the log says what
+  happened and where the copy went; the configuration page says the same until a
+  configuration arrives. While the server is in that state every SSO sign-in
+  answers 503 and points at the log, instead of reporting that the provider is
+  unknown — which is what a default configuration would have made every flow say,
+  sending you to look for a deleted provider instead of a damaged file.
+
+  The refusal ends when a configuration comes back, and there are two ways for
+  that to happen. Restoring the file on disk is one: a stored configuration that
+  reads back and holds a provider ends the state at the next start, with nothing
+  written through the plugin at all, because restoring a backup over the file is
+  not a write it ever sees. The other is a persist, and there the rule is one
+  condition whichever door the write came through: a configuration holding at
+  least one provider is persisted — a provider saved on
+  the settings page, an imported document, or one a declarative source supplies.
+  Saving an unrelated setting does not end it and does not remove the marker, and
+  on a server in this state the page holds no providers, so every save made from
+  it that is not a provider save is an unrelated one. It
+  survives a restart, because by the next start the server has already replaced
+  the damaged file with a readable default and would otherwise decide it was
+  healthy while serving nobody's settings. This plugin does not touch Jellyfin
+  password sign-in — but an account it provisioned has no usable password, so on
+  a server whose administrators all arrived through SSO there is no local door to
+  fall back to: the state lives in a marker file beside the configuration, so
+  moving the unreadable file out of the way, deleting that marker and restarting
+  puts SSO back exactly where it was before this check existed. Deleting the
+  marker on its own is not enough while the file is still unreadable — the next
+  start finds the same damage and marks it again. Every log line that announces
+  the refusal says both halves, and so does the marker file itself.
+
+  A file that could not be READ at all — locked by a scanner, a backup agent or a
+  sync client at exactly the moment plugins load — is not treated as damage and
+  changes nothing, including on the boot where a marker from an earlier incident
+  still stands, which is the boot a restore-and-restart ends on: the server's own
+  read a moment later may well succeed, and refusing on it would take SSO offline
+  on a server whose configuration is perfectly good. A restore that rewrites the
+  file _while_ it is being read is a different case and is judged damage, because
+  nothing in the bytes separates a torn read from real corruption; that costs one
+  boot of refusal, and the next start reads the finished file and clears the
+  marker itself. Nothing here makes the write atomic either: the destructive act
+  is on the load side and is the host's, so a write-side repair would not have
+  reached it.
 
 - **A starting policy can seed the home screen (#1101).** The provisioning
   template gains a **Home screen sections** list: the sections of the web

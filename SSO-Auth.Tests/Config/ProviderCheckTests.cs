@@ -48,7 +48,7 @@ public class ProviderCheckTests
         // The first acceptance clause. "Exactly" is the load-bearing word: a check that flagged the complete
         // provider too would be as useless as one that flagged neither, because an administrator learns to
         // ignore a list that is always half red.
-        var report = ProviderCheck.Build(TwoProviders());
+        var report = ProviderCheck.Build(TwoProviders(), configurationUnreadable: false);
 
         Assert.Equal(new[] { "complete", "half-filled" }, report.Providers.Select(r => r.Provider));
         Assert.True(Row(report, "complete").Ready);
@@ -64,7 +64,7 @@ public class ProviderCheckTests
     {
         // The second clause, and the state of every fresh installation. An exception here would make the
         // action look broken on the one page an administrator opens before they have configured anything.
-        var report = ProviderCheck.Build(new PluginConfiguration());
+        var report = ProviderCheck.Build(new PluginConfiguration(), configurationUnreadable: false);
 
         Assert.Empty(report.Providers);
     }
@@ -88,7 +88,7 @@ public class ProviderCheckTests
         };
         var before = JsonSerializer.Serialize(ConfigExport.Build(config));
 
-        ProviderCheck.Build(config);
+        ProviderCheck.Build(config, configurationUnreadable: false);
 
         Assert.Equal(before, JsonSerializer.Serialize(ConfigExport.Build(config)));
     }
@@ -110,7 +110,7 @@ public class ProviderCheckTests
         var expected = Assert.Throws<ArgumentException>(
             () => ProviderConfigValidator.ValidateBaseUrlOverride("OpenID", "kc", "not-a-url"));
 
-        var row = Row(ProviderCheck.Build(config), "kc");
+        var row = Row(ProviderCheck.Build(config, configurationUnreadable: false), "kc");
         Assert.False(row.Ready);
 
         // Byte-identical, tail and all. Trimming the message here - the "(Parameter 'baseUrlOverride')" the
@@ -134,7 +134,7 @@ public class ProviderCheckTests
             SamlCertificate = SamlTestFactory.Create().CertificateBase64,
         };
 
-        var row = Row(ProviderCheck.Build(config), "parked");
+        var row = Row(ProviderCheck.Build(config, configurationUnreadable: false), "parked");
 
         Assert.True(row.Ready);
         Assert.False(row.Enabled);
@@ -153,7 +153,7 @@ public class ProviderCheckTests
             SamlClientId = "sp-1",
         };
 
-        var row = Row(ProviderCheck.Build(config), "adfs");
+        var row = Row(ProviderCheck.Build(config, configurationUnreadable: false), "adfs");
 
         Assert.False(row.Ready);
         Assert.Equal(new[] { "SamlCertificate" }, row.MissingFields);
@@ -179,7 +179,7 @@ public class ProviderCheckTests
             OidClientId = "client-2",
         };
 
-        var report = ProviderCheck.Build(config);
+        var report = ProviderCheck.Build(config, configurationUnreadable: false);
 
         Assert.False(Row(report, "kc").Ready);
         Assert.Contains("no-such-profile", Row(report, "kc").Problem!, StringComparison.Ordinal);
