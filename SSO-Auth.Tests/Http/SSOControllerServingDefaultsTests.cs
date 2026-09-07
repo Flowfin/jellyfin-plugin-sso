@@ -5,6 +5,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
+using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
@@ -288,6 +289,25 @@ public class SSOControllerServingDefaultsTests
         Assert.Contains("could not be read", body, StringComparison.Ordinal);
         Assert.DoesNotContain("which accounts", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("accounts have one", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TheRefusalBody_IsStillTranslated()
+    {
+        // WHAT EDITING THE CONSTANT NEARLY COST. The browser error page does not localize by key: it
+        // reverse-maps the ENGLISH TEXT against the catalogue's values, so the catalogue entry is live
+        // even though no code names it, and a body edited out from under that entry silently stops being
+        // translated. It happened here - the entry was removed as unreferenced while the constant was
+        // corrected - and this is the surface where it costs the most: the one refusal that carries the
+        // recovery instruction, read by a stranded operator during a total SSO outage, on a page whose
+        // every other label is already in their language. This pins the two together in the direction
+        // that fails: change either and it reddens.
+        var harness = ServingDefaults();
+
+        var body = Assert.IsType<string>(Assert.IsAssignableFrom<ObjectResult>(await harness.Controller.OidAuth("keycloak", new AuthResponse())).Value);
+
+        Assert.True(SsoLocalizer.IsLocalizableEnglish(body));
+        Assert.NotEqual(body, SsoLocalizer.LocalizeEnglish(body, "de"));
     }
 
     private static SsoControllerHarness ServingDefaults() => new(unreadableConfiguration: true);

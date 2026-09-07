@@ -181,6 +181,11 @@ internal static class UnreadableConfiguration
         var incident = IncidentOf(configurationFilePath);
         var carried = ReadMarker(configurationFilePath);
 
+        // Read once for the whole boot: the record's check below and the directory walk beneath Copy ask
+        // the same question of the same bytes, and reading them twice is also two chances to disagree
+        // about a file something else is rewriting.
+        var damagedBytes = ReadAllBytesOrNull(configurationFilePath);
+
         var sameIncident = incident is not null
             && carried?.Incident is { } previous
             && string.Equals(previous, incident, StringComparison.Ordinal);
@@ -200,9 +205,21 @@ internal static class UnreadableConfiguration
         // bytes here, which is the test AlreadyCopied makes one call deeper - and it is asked HERE rather
         // than left to that scan because reading one named file needs no directory listing, so the bound
         // survives a directory this plugin may write but may not enumerate.
-        var preserved = sameIncident && carried?.Kept is { } kept && SameBytes(configurationFilePath, kept)
+        //
+        // AND A COMPARISON THAT COULD NOT BE MADE DECIDES NOTHING, which is the rule Restored.Judged
+        // already states one level up and which the first form of this gate did not apply. Collapsing
+        // "the recorded copy does not hold the damage" and "the damage could not be read at all" into one
+        // false answer took the bound off entirely for a file no managed array can hold - past two
+        // gigabytes, or merely past the largest block a small host can allocate - because File.Copy
+        // streams where File.ReadAllBytes does not: three boots wrote three full copies where one had
+        // been written before, onto the volume whose exhaustion is this feature's own premise. Worse, the
+        // marker was then rewritten with an empty copy line, so the next boot told the operator that
+        // nothing had been kept while the copies sat beside the configuration. An unreadable file falls
+        // back to the record, which is what the parent did for every file.
+        var preserved = sameIncident && carried?.Kept is { } kept
+                && (damagedBytes is null || HoldsTheSameBytes(damagedBytes, kept))
             ? kept
-            : Copy(configurationFilePath, nowUtc, logger);
+            : Copy(configurationFilePath, damagedBytes, nowUtc, logger);
         Mark(configurationFilePath, incident, preserved, logger);
         Announce(() => SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved));
         return new UnreadableConfigurationState(true, preserved);
@@ -286,9 +303,9 @@ internal static class UnreadableConfiguration
     // second one would be the same file under another name. That answer needs no marker, cannot be wrong
     // about a NEW incident - different bytes, different answer - and costs one read of a file that is
     // small enough for the plugin to deserialize.
-    private static string? Copy(string configurationFilePath, DateTime nowUtc, ILogger logger)
+    private static string? Copy(string configurationFilePath, byte[]? damagedBytes, DateTime nowUtc, ILogger logger)
     {
-        if (AlreadyCopied(configurationFilePath) is { } existing)
+        if (AlreadyCopied(configurationFilePath, damagedBytes) is { } existing)
         {
             return existing;
         }
@@ -334,11 +351,9 @@ internal static class UnreadableConfiguration
         return name;
     }
 
-    // Whether the file at candidate holds exactly the bytes of the damaged configuration. One name, asked
-    // by both the marker's recorded copy and the directory walk, so "already kept" means one thing here.
-    private static bool SameBytes(string configurationFilePath, string candidate)
-        => ReadAllBytesOrNull(configurationFilePath) is { } damaged && HoldsTheSameBytes(damaged, candidate);
-
+    // Whether the file at candidate holds exactly the damaged configuration's bytes. One name, asked by
+    // both the marker's recorded copy and the directory walk, so "already kept" means one thing here.
+    //
     // Not being able to answer - the candidate locked, gone, or larger than an array - is answered as
     // "no", which costs a copy and never the evidence. A LINK IS NOT A COPY: FileInfo.Length and
     // File.ReadAllBytes both follow one, so a link left beside the configuration and pointing back at it
@@ -453,8 +468,13 @@ internal static class UnreadableConfiguration
     // first, because it settles almost every pair without a read, and the read that follows is of a file
     // this plugin was about to hand to an XML deserializer. Not being able to look is answered as "no
     // copy", which costs one more copy and never the evidence.
-    private static string? AlreadyCopied(string configurationFilePath)
+    private static string? AlreadyCopied(string configurationFilePath, byte[]? damagedBytes)
     {
+        if (damagedBytes is null)
+        {
+            return null;
+        }
+
         string[] candidates;
         try
         {
@@ -473,13 +493,6 @@ internal static class UnreadableConfiguration
             return null;
         }
 
-        // Read ONCE for the whole walk rather than once per candidate, which is also what stops a
-        // concurrent rewrite being compared against a length taken at a different instant.
-        if (candidates.Length == 0 || ReadAllBytesOrNull(configurationFilePath) is not { } damaged)
-        {
-            return null;
-        }
-
         foreach (var candidate in candidates)
         {
             // PER CANDIDATE, AND THAT IS THE WHOLE OF THE BOUND. One try around the entire walk abandoned
@@ -490,7 +503,7 @@ internal static class UnreadableConfiguration
             // copy" for the whole directory, and every later boot wrote another full copy of the
             // configuration into the folder the whole server needs writable. That is the unbounded loop
             // this method was added to stop, reachable again through one extra fault.
-            if (HoldsTheSameBytes(damaged, candidate))
+            if (HoldsTheSameBytes(damagedBytes, candidate))
             {
                 return candidate;
             }

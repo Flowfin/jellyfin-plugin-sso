@@ -155,6 +155,40 @@ public class UnreadableConfigurationTests
     }
 
     [Fact]
+    public void ARepeatBootWhoseBytesCannotBeRead_KeepsTheRecordedCopyRatherThanLosingIt()
+    {
+        // A COMPARISON THAT COULD NOT BE MADE DECIDES NOTHING, which is the rule the undecidable-read arm
+        // already states one level up. Verifying the recorded copy against the damaged bytes is right;
+        // collapsing "the copy does not hold the damage" and "the damage could not be READ" into one false
+        // answer is not, and it took the bound off entirely for a file no managed array can hold - past two
+        // gigabytes, or past the largest block a small host can allocate - because File.Copy streams where
+        // File.ReadAllBytes does not. Three boots wrote three full copies where one had been written
+        // before, onto the volume whose exhaustion is this feature's own premise, and the marker was then
+        // rewritten with an empty copy line, so the next boot told the operator nothing had been kept while
+        // the copies sat beside the configuration.
+        //
+        // A share-denying handle produces the same pair here - the serializer still reports damage about
+        // the CONTENT, and the whole-file array read fails - without a two-gigabyte fixture.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+
+        using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            for (var boot = 0; boot < 3; boot++)
+            {
+                var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, boot, DateTimeKind.Utc));
+
+                Assert.True(state.IsUnreadable);
+                Assert.Equal(first.PreservedCopyPath, state.PreservedCopyPath);
+            }
+        }
+
+        Assert.Single(Copies(path));
+        Assert.Contains(first.PreservedCopyPath!, File.ReadAllText(path + UnreadableConfiguration.MarkerSuffix), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ACandidateCopyThatCannotBeRead_DoesNotAbandonTheWalk()
     {
         // THE BOUND IS PER CANDIDATE, NOT PER WALK. One try around the whole scan answered "no copy" for
