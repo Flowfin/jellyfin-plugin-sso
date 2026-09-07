@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
@@ -21,6 +22,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Common.Extensions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -82,6 +84,10 @@ internal sealed class SamlLoginService
     // manual-link redeem; the controller keeps the caller-authz guard and the one-time-use consume around it.
     private readonly CanonicalLinkService _canonicalLinks;
 
+    // The role-mapping denial notification (#1142), published as Jellyfin's own authentication-failed
+    // event so a configured webhook destination receives a denial the host never raises one for.
+    private readonly SsoLoginEvents _loginEvents;
+
     // The dedicated inbound-assertion validator (#496): parse + signature/time/audience/recipient/algorithm
     // validation, the one-time replay consume, the non-empty-NameID guard, and the sole SAML
     // FromValidatedSaml construction site. Constructed per request with this service, but it owns the
@@ -96,14 +102,17 @@ internal sealed class SamlLoginService
     /// </summary>
     /// <param name="loginCompletion">The shared post-validation login completion pipeline.</param>
     /// <param name="canonicalLinks">The account-linking workflow used by the SAML manual-link redeem.</param>
+    /// <param name="loginEvents">Publishes the role-mapping denial on Jellyfin's event bus (#1142).</param>
     /// <param name="logger">The logger, also passed to the constructed assertion validator.</param>
     internal SamlLoginService(
         LoginCompletionService loginCompletion,
         CanonicalLinkService canonicalLinks,
+        SsoLoginEvents loginEvents,
         ILogger logger)
     {
         _loginCompletion = loginCompletion ?? throw new ArgumentNullException(nameof(loginCompletion));
         _canonicalLinks = canonicalLinks ?? throw new ArgumentNullException(nameof(canonicalLinks));
+        _loginEvents = loginEvents ?? throw new ArgumentNullException(nameof(loginEvents));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _validator = new SamlAssertionValidator(logger);
     }
@@ -253,6 +262,11 @@ internal sealed class SamlLoginService
             {
                 SsoAudit.AccountDeprovisioned(_logger, "SAML", provider);
             }
+
+            // The same notification the OpenID denial publishes (#1142): Jellyfin raises its own
+            // authentication-failed event only from the session mint, and this path returns before it, so
+            // without this publish a SAML role denial reaches no destination. Provider and fixed reason only.
+            await _loginEvents.PublishRoleDeniedAsync(provider, request.HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
         }

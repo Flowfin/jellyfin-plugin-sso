@@ -6,7 +6,11 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using System.Linq;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Controller.Events;
+using MediaBrowser.Controller.Events.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using Xunit;
@@ -68,6 +72,53 @@ public class SSOControllerSamlPostTests
         var result = await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse());
 
         Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
+    }
+
+
+    [Fact]
+    public async Task SamlPost_RoleNotAllowed_PublishesTheHostDenialNamingTheProviderAndReason()
+    {
+        // #1142 on the SAML leg, the mirror of the OpenID case: the role-refused login publishes Jellyfin's
+        // own authentication-failed event, which is the only event type a configured webhook destination can
+        // receive. The provider and a fixed reason ride in the client and device fields; nothing about the
+        // person travels - the NameID this branch has in hand is exactly what must not leave the machine.
+        var fixture = SamlTestFactory.Create(nameId: "alice", role: "jellyfin-users");
+        var harness = new SsoControllerHarness(c => c.SamlConfigs["adfs"] = new SamlConfig
+        {
+            Enabled = true,
+            SamlCertificate = fixture.CertificateBase64,
+            DoNotValidateAudience = true,
+            Roles = new[] { "only-admins" },
+        });
+
+        var result = await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse());
+
+        Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
+        var published = Assert.IsType<AuthenticationRequestEventArgs>(
+            harness.EventManager.ReceivedCalls()
+                .Single(c => string.Equals(c.GetMethodInfo().Name, "PublishAsync", StringComparison.Ordinal))
+                .GetArguments()[0]);
+        Assert.Equal("SSO/adfs", published.App);
+        Assert.Equal(SsoLoginEvents.RoleDeniedReason, published.DeviceName);
+        Assert.Equal(string.Empty, published.Username);
+        Assert.DoesNotContain("alice", published.DeviceName + published.App + published.Username, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SamlPost_SignedByAnotherCertificate_PublishesNoDenial()
+    {
+        // The one-change neighbour: a rejection that is NOT the role gate publishes nothing. Without this the
+        // suite could not tell a publish bound to the allow-list from one bound to any 4xx the callback gives.
+        var fixture = SamlTestFactory.Create();
+        var harness = new SsoControllerHarness(c => c.SamlConfigs["adfs"] = new SamlConfig
+        {
+            Enabled = true,
+            SamlCertificate = SamlFixture.ForeignCertificateBase64(),
+        });
+
+        _ = await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse());
+
+        await harness.EventManager.DidNotReceive().PublishAsync(Arg.Any<AuthenticationRequestEventArgs>());
     }
 
     [Fact]

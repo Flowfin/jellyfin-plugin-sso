@@ -11,10 +11,12 @@ using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
@@ -142,7 +144,7 @@ public class OidcLoginServiceTests
         var sessionMinter = new SessionMinter(harness.UserManager, avatarService, sessionManager, logger);
         var ssoOnly = new SsoOnlyLoginService(harness.UserManager, SSOPlugin.Instance.ConfigStore, logger);
         var loginCompletion = new LoginCompletionService(canonicalLinks, sessionMinter, ssoOnly, SSOPlugin.Instance.ConfigStore, sessionManager, logger);
-        var service = new OidcLoginService(loginCompletion, canonicalLinks, Substitute.For<IHttpClientFactory>(), Substitute.For<ILoggerFactory>(), logger);
+        var service = new OidcLoginService(loginCompletion, canonicalLinks, new SsoLoginEvents(Substitute.For<IEventManager>(), logger), Substitute.For<IHttpClientFactory>(), Substitute.For<ILoggerFactory>(), logger);
 
         var context = new DefaultHttpContext();
         context.Request.Scheme = "https";
