@@ -52,9 +52,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   happens when the server's own attempt to write its defaults also fails. A copy
   counts as kept only when a file beside the configuration actually holds those
   bytes, so one that was emptied, edited in place or replaced does not stop the
-  next boot taking another — and where the damaged file cannot be read at all
-  the record is believed instead, because a comparison that could not be made is
-  not a reason to copy again; a copy name an earlier fault already occupies is
+  next boot taking another. That comparison is streamed rather than loaded, so a
+  damaged file of any size is still compared, and its lengths are checked first,
+  so a copy that no longer matches is ruled out even when its contents cannot be
+  reached; only a file whose length still matches and which cannot be opened at
+  all leaves the question open, and there the record stands. A copy name an
+  earlier fault already occupies is
   walked past rather than surrendered to, instead of costing the copy; and a log
   sink that fails along with the disk that caused the damage costs the
   announcement and never the refusal. The marker beside it records which damaged

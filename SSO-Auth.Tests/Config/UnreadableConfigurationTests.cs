@@ -158,17 +158,16 @@ public class UnreadableConfigurationTests
     public void ARepeatBootWhoseBytesCannotBeRead_KeepsTheRecordedCopyRatherThanLosingIt()
     {
         // A COMPARISON THAT COULD NOT BE MADE DECIDES NOTHING, which is the rule the undecidable-read arm
-        // already states one level up. Verifying the recorded copy against the damaged bytes is right;
-        // collapsing "the copy does not hold the damage" and "the damage could not be READ" into one false
-        // answer is not, and it took the bound off entirely for a file no managed array can hold - past two
-        // gigabytes, or past the largest block a small host can allocate - because File.Copy streams where
-        // File.ReadAllBytes does not. Three boots wrote three full copies where one had been written
-        // before, onto the volume whose exhaustion is this feature's own premise, and the marker was then
-        // rewritten with an empty copy line, so the next boot told the operator nothing had been kept while
-        // the copies sat beside the configuration.
+        // already states one level up. Verifying the recorded copy is right; answering "not the same" when
+        // the files could not be compared AT ALL is not, and what it costs is the record: no second copy is
+        // possible on that fault either, so rewriting the marker with an empty copy line only erases the
+        // pointer to the copy that already exists, and the next boot tells an operator nothing was kept
+        // while it sits beside the configuration.
         //
-        // A share-denying handle produces the same pair here - the serializer still reports damage about
-        // the CONTENT, and the whole-file array read fails - without a two-gigabyte fixture.
+        // WHAT MAKES THIS UNDECIDABLE AND NOT MERELY UNREAD is that the lengths still match; a length that
+        // differs is refused on its own, which the test below pins. A share-denying handle produces the
+        // pair here - the serializer reports damage about the CONTENT while neither file can be opened for
+        // the compare.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
         var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         Assert.NotNull(first.PreservedCopyPath);
@@ -184,8 +183,34 @@ public class UnreadableConfigurationTests
             }
         }
 
-        Assert.Single(Copies(path));
+        // The marker still points at the copy, which is the half that was being erased. The copy COUNT is
+        // deliberately not asserted here: the same handle that stops the compare stops File.Copy, so it
+        // could not move in this fixture and asserting it would prove nothing.
         Assert.Contains(first.PreservedCopyPath!, File.ReadAllText(path + UnreadableConfiguration.MarkerSuffix), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARecordedCopyOfADifferentLength_IsRefusedEvenWhenTheDamageCannotBeRead()
+    {
+        // THE LENGTH DECIDES ON ITS OWN, and that is what keeps a decided "no" available on the boot the
+        // bytes are unreachable. Believing the record whenever the comparison could not be made is
+        // File.Exists again - the predicate the verification was added to replace - and the two shapes it
+        // exists to catch both change the length: a copy emptied by the same full disk, and a copy an
+        // operator opened and saved a repaired document over. A stat answers that without opening either
+        // file, so the answer here is the truthful "no copy was kept" rather than a false one naming a
+        // file that no longer holds the damage.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+        File.WriteAllText(first.PreservedCopyPath!, string.Empty);
+
+        using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.True(state.IsUnreadable);
+            Assert.Null(state.PreservedCopyPath);
+        }
     }
 
     [Fact]

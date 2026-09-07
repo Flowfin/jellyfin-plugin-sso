@@ -104,6 +104,10 @@ internal static class UnreadableConfiguration
     // clock that does not advance, which is a fault of its own rather than a directory to fill.
     private const int CopyNameLimit = 100;
 
+    // How much of each file one compare step holds at a time. Small on purpose: the point of streaming
+    // the comparison is that nothing here is bounded by what the host can allocate in one block.
+    private const int CompareBufferBytes = 64 * 1024;
+
     /// <summary>
     /// Screens the stored configuration before anything reads it, keeps the evidence when it cannot be
     /// read, and answers whether this server is about to serve defaults.
@@ -181,11 +185,6 @@ internal static class UnreadableConfiguration
         var incident = IncidentOf(configurationFilePath);
         var carried = ReadMarker(configurationFilePath);
 
-        // Read once for the whole boot: the record's check below and the directory walk beneath Copy ask
-        // the same question of the same bytes, and reading them twice is also two chances to disagree
-        // about a file something else is rewriting.
-        var damagedBytes = ReadAllBytesOrNull(configurationFilePath);
-
         var sameIncident = incident is not null
             && carried?.Incident is { } previous
             && string.Equals(previous, incident, StringComparison.Ordinal);
@@ -207,19 +206,18 @@ internal static class UnreadableConfiguration
         // survives a directory this plugin may write but may not enumerate.
         //
         // AND A COMPARISON THAT COULD NOT BE MADE DECIDES NOTHING, which is the rule Restored.Judged
-        // already states one level up and which the first form of this gate did not apply. Collapsing
-        // "the recorded copy does not hold the damage" and "the damage could not be read at all" into one
-        // false answer took the bound off entirely for a file no managed array can hold - past two
-        // gigabytes, or merely past the largest block a small host can allocate - because File.Copy
-        // streams where File.ReadAllBytes does not: three boots wrote three full copies where one had
-        // been written before, onto the volume whose exhaustion is this feature's own premise. Worse, the
-        // marker was then rewritten with an empty copy line, so the next boot told the operator that
-        // nothing had been kept while the copies sat beside the configuration. An unreadable file falls
-        // back to the record, which is what the parent did for every file.
-        var preserved = sameIncident && carried?.Kept is { } kept
-                && (damagedBytes is null || HoldsTheSameBytes(damagedBytes, kept))
+        // already states one level up. The first form of this gate did not apply it and answered "not the
+        // same" for both, which threw a good record away on the one boot it could not check; the form
+        // after that applied it by believing the record whenever the bytes were unreachable, which is
+        // File.Exists again and is what the verification was added to replace. Neither is needed: the
+        // lengths decide on their own without a read, so an emptied or rewritten copy is REFUTED even
+        // when its contents are unreachable, and only a file whose length still matches and whose bytes
+        // cannot be reached at all lands on "could not tell" - where the record is the better answer,
+        // because a copy cannot be written on that fault either and rewriting the marker would erase the
+        // only pointer to the copy that already exists.
+        var preserved = sameIncident && carried?.Kept is { } kept && SameBytes(configurationFilePath, kept) is not false
             ? kept
-            : Copy(configurationFilePath, damagedBytes, nowUtc, logger);
+            : Copy(configurationFilePath, nowUtc, logger);
         Mark(configurationFilePath, incident, preserved, logger);
         Announce(() => SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved));
         return new UnreadableConfigurationState(true, preserved);
@@ -303,9 +301,9 @@ internal static class UnreadableConfiguration
     // second one would be the same file under another name. That answer needs no marker, cannot be wrong
     // about a NEW incident - different bytes, different answer - and costs one read of a file that is
     // small enough for the plugin to deserialize.
-    private static string? Copy(string configurationFilePath, byte[]? damagedBytes, DateTime nowUtc, ILogger logger)
+    private static string? Copy(string configurationFilePath, DateTime nowUtc, ILogger logger)
     {
-        if (AlreadyCopied(configurationFilePath, damagedBytes) is { } existing)
+        if (AlreadyCopied(configurationFilePath) is { } existing)
         {
             return existing;
         }
@@ -354,35 +352,49 @@ internal static class UnreadableConfiguration
     // Whether the file at candidate holds exactly the damaged configuration's bytes. One name, asked by
     // both the marker's recorded copy and the directory walk, so "already kept" means one thing here.
     //
-    // Not being able to answer - the candidate locked, gone, or larger than an array - is answered as
-    // "no", which costs a copy and never the evidence. A LINK IS NOT A COPY: FileInfo.Length and
-    // File.ReadAllBytes both follow one, so a link left beside the configuration and pointing back at it
-    // would compare equal to the damage, suppress the copy, and then resolve to the defaults the host
-    // writes a moment later.
-    private static bool HoldsTheSameBytes(byte[] damaged, string candidate)
+    // THREE ANSWERS, for the reason the read of the configuration itself has three: null is a comparison
+    // that could not be MADE, which is not a comparison that came back "different", and answering the
+    // second for the first is what let a stale record be believed and a good one be thrown away.
+    //
+    // STREAMED, NEVER MATERIALISED. Reading each file into one array capped this at the largest managed
+    // array - two gigabytes, or merely the largest contiguous block a small host can allocate - while
+    // File.Copy streams, so on a damaged file past that ceiling the copy succeeded and the comparison
+    // could not be made at all: every boot wrote another full copy onto the volume whose exhaustion is
+    // this feature's own premise. A chunked compare has no ceiling and allocates two small buffers.
+    //
+    // The LENGTHS ARE COMPARED FIRST AND DECIDE ON THEIR OWN, which is what keeps a decided "no" available
+    // when the bytes are unreachable: a copy emptied by the same full disk, or one an operator opened and
+    // saved a repaired document over, differs in length, and a length is a stat rather than a read. A LINK
+    // IS NOT A COPY: a stream follows one, so a link named like a copy and pointing back at the
+    // configuration compares equal to the damage, suppresses the copy, and then resolves to the defaults
+    // the host writes a moment later.
+    private static bool? SameBytes(string configurationFilePath, string candidate)
     {
         try
         {
             var kept = new FileInfo(candidate);
-            return kept.LinkTarget is null
-                && kept.Length == damaged.LongLength
-                && File.ReadAllBytes(candidate).AsSpan().SequenceEqual(damaged);
-        }
-#pragma warning disable CA1031 // a comparison that cannot be made is answered as "not the same", which costs a copy
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return false;
-        }
-    }
+            if (kept.LinkTarget is not null || kept.Length != new FileInfo(configurationFilePath).Length)
+            {
+                return false;
+            }
 
-    private static byte[]? ReadAllBytesOrNull(string path)
-    {
-        try
-        {
-            return File.ReadAllBytes(path);
+            using var damaged = File.OpenRead(configurationFilePath);
+            using var copy = File.OpenRead(candidate);
+            var fromDamaged = new byte[CompareBufferBytes];
+            var fromCopy = new byte[CompareBufferBytes];
+            int read;
+            while ((read = damaged.ReadAtLeast(fromDamaged, CompareBufferBytes, throwOnEndOfStream: false)) > 0)
+            {
+                copy.ReadExactly(fromCopy.AsSpan(0, read));
+                if (!fromDamaged.AsSpan(0, read).SequenceEqual(fromCopy.AsSpan(0, read)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
-#pragma warning disable CA1031 // bytes that cannot be read decide nothing here; the caller answers "not the same"
+#pragma warning disable CA1031 // a comparison that could not be made answers neither "same" nor "different"
         catch (Exception)
 #pragma warning restore CA1031
         {
@@ -468,13 +480,8 @@ internal static class UnreadableConfiguration
     // first, because it settles almost every pair without a read, and the read that follows is of a file
     // this plugin was about to hand to an XML deserializer. Not being able to look is answered as "no
     // copy", which costs one more copy and never the evidence.
-    private static string? AlreadyCopied(string configurationFilePath, byte[]? damagedBytes)
+    private static string? AlreadyCopied(string configurationFilePath)
     {
-        if (damagedBytes is null)
-        {
-            return null;
-        }
-
         string[] candidates;
         try
         {
@@ -503,7 +510,7 @@ internal static class UnreadableConfiguration
             // copy" for the whole directory, and every later boot wrote another full copy of the
             // configuration into the folder the whole server needs writable. That is the unbounded loop
             // this method was added to stop, reachable again through one extra fault.
-            if (HoldsTheSameBytes(damagedBytes, candidate))
+            if (SameBytes(configurationFilePath, candidate) == true)
             {
                 return candidate;
             }
