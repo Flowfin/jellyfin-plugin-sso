@@ -35,6 +35,23 @@ public class SsoLoginEventsTests
     }
 
     [Fact]
+    public async Task PublishUnresolvedUsernameDenied_CarriesItsOwnReason()
+    {
+        // The two refusals that share the OpenID denial arm must be distinguishable at the destination: one
+        // is a provider policy decision, the other a missing claim or scope, and they ask an operator for
+        // different things.
+        var bus = Substitute.For<IEventManager>();
+        var events = new SsoLoginEvents(bus, new CapturingLogger());
+
+        await events.PublishUnresolvedUsernameDeniedAsync("keycloak", "203.0.113.9");
+
+        var published = SinglePublished(bus);
+        Assert.Equal(SsoLoginEvents.UnresolvedUsernameReason, published.DeviceName);
+        Assert.NotEqual(SsoLoginEvents.RoleDeniedReason, SsoLoginEvents.UnresolvedUsernameReason);
+        Assert.Equal(string.Empty, published.Username);
+    }
+
+    [Fact]
     public async Task PublishRoleDenied_NamesNobody()
     {
         // T-I1, applied harder than to the audit trail because this payload LEAVES the machine: the OpenID

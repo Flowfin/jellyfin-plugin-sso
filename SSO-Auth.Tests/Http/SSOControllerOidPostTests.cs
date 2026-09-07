@@ -362,6 +362,27 @@ public class SSOControllerOidPostTests
     }
 
     [Fact]
+    public async Task OidPost_DeniedWithNoUsernameResolved_PublishesThatReasonRatherThanRoleMapping()
+    {
+        // The OpenID denial arm carries two refusals and the notification must not label one as the other.
+        // Here the id_token resolves NO username (blank preferred_username, no sub to fall back to), so the
+        // login is refused for an unresolved identity while the allow-list was never the thing that failed -
+        // an operator told "role mapping" would go looking at the provider's role assignment for a scope
+        // that was simply not granted.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1", idToken: fixture.IdToken(subject: null, username: "  "));
+
+        var result = await harness.Controller.OidCallback("kc", "state-1");
+
+        Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
+        var published = Assert.IsType<AuthenticationRequestEventArgs>(
+            harness.EventManager.ReceivedCalls()
+                .Single(c => string.Equals(c.GetMethodInfo().Name, "PublishAsync", StringComparison.Ordinal))
+                .GetArguments()[0]);
+        Assert.Equal(SsoLoginEvents.UnresolvedUsernameReason, published.DeviceName);
+    }
+
+    [Fact]
     public async Task OidPost_ValidCallback_PublishesNoDenial()
     {
         // The one-change neighbour of the test above: the same fixture with an allow-list the id_token DOES

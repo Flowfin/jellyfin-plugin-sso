@@ -21,13 +21,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   `AuthenticationFailure` with no change on that side. The event is the server's
   own type on purpose - the webhook plugin consumes twenty closed Jellyfin types
   and no open one, so an event type this plugin declared would reach nobody. The
-  payload names the provider and a fixed reason and **nothing about the person**:
+  payload names the provider and a fixed reason and **nothing that names the
+  person**:
   no username, no subject, no claim value, the same rule the audit trail is
   written under and applied harder because this payload leaves the machine. It
   also means the entry Jellyfin writes to its own activity log for that refusal
   carries no name, only the time and the client address. A notification never
   decides a login: a bus that throws is swallowed and logged, and the denial
-  answers exactly as before.
+  answers exactly as before. The OpenID refusal has two causes - no matching
+  role, or no username resolved at all - and they are reported apart, so an
+  operator is never sent to the provider's role assignment for a scope that was
+  simply not granted.
 - **A way back from a link import that restored the wrong document (#1519).**
   `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
   canonical link one provider holds. It exists because the link import merges -

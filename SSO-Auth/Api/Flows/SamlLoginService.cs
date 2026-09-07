@@ -84,14 +84,14 @@ internal sealed class SamlLoginService
     // manual-link redeem; the controller keeps the caller-authz guard and the one-time-use consume around it.
     private readonly CanonicalLinkService _canonicalLinks;
 
-    // The dedicated inbound-assertion validator (#496): parse + signature/time/audience/recipient/algorithm
-    // validation, the one-time replay consume, the non-empty-NameID guard, and the sole SAML
-    // FromValidatedSaml construction site. Constructed per request with this service, but it owns the
-    // process-wide replay cache as a static, so replay state survives the two-step post-then-authenticate legs.
     // The role-mapping denial notification (#1142), published as Jellyfin's own authentication-failed
     // event so a configured webhook destination receives a denial the host never raises one for.
     private readonly SsoLoginEvents _loginEvents;
 
+    // The dedicated inbound-assertion validator (#496): parse + signature/time/audience/recipient/algorithm
+    // validation, the one-time replay consume, the non-empty-NameID guard, and the sole SAML
+    // FromValidatedSaml construction site. Constructed per request with this service, but it owns the
+    // process-wide replay cache as a static, so replay state survives the two-step post-then-authenticate legs.
     private readonly SamlAssertionValidator _validator;
 
     private readonly ILogger _logger;

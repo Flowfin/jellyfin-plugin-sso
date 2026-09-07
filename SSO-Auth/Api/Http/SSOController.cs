@@ -137,7 +137,7 @@ public class SSOController : ControllerBase
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface, the store a templated home-screen layout is seeded into (#1101).</param>
-    /// <param name="eventManager">Instance of the <see cref="IEventManager"/> interface, the bus the role-mapping denial is published on (#1142).</param>
+    /// <param name="eventManager">Instance of the <see cref="IEventManager"/> interface, the bus the role-mapping denial is published on (#1142). Optional: a host line that does not register one leaves the login path untouched rather than failing every SSO endpoint at controller activation.</param>
     public SSOController(
         ILogger<SSOController> logger,
         ILoggerFactory loggerFactory,
@@ -149,7 +149,7 @@ public class SSOController : ControllerBase
         IHttpClientFactory httpClientFactory,
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
-        IEventManager eventManager)
+        IEventManager? eventManager = null)
     {
         _userManager = userManager;
         _authContext = authContext;

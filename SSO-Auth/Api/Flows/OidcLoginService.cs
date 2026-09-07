@@ -457,11 +457,19 @@ internal sealed class OidcLoginService
                 SsoAudit.AccountDeprovisioned(_logger, "OpenID", provider);
             }
 
-            // Tell the operator's notification destination that a login was refused by role mapping (#1142).
-            // Jellyfin raises its own authentication-failed event only from the session mint, on the arm where
-            // no user resolved, and this path returns before the mint - so without this publish the denial
-            // reaches nobody. The payload names the provider and a fixed reason and nothing about the person.
-            await _loginEvents.PublishRoleDeniedAsync(provider, request.HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
+            // Tell the operator's notification destination that this login was refused (#1142). Jellyfin
+            // raises its own authentication-failed event only from the session mint, on the arm where no user
+            // resolved, and this path returns before the mint - so without this publish the denial reaches
+            // nobody. The payload names the provider and a fixed reason and nothing that names the person.
+            //
+            // This arm carries TWO refusals - the log line above says so - and they are reported apart. A
+            // blank username is the only thing that turns an otherwise valid login invalid at the end of
+            // OidcAuthorizeStateBuilder.Build, so a denial that DID resolve a username can only have come
+            // from the role gate; one label for both would state a cause the code cannot substantiate.
+            var remoteEndPoint = request.HttpContext.GetNormalizedRemoteIP().ToString();
+            await (string.IsNullOrWhiteSpace(derived.Username)
+                ? _loginEvents.PublishUnresolvedUsernameDeniedAsync(provider, remoteEndPoint)
+                : _loginEvents.PublishRoleDeniedAsync(provider, remoteEndPoint)).ConfigureAwait(false);
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
         }

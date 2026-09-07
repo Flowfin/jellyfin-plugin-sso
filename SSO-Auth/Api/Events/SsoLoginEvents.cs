@@ -26,10 +26,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Events;
 /// arrive at a configured destination as <c>AuthenticationFailure</c> with no change on that side.
 /// </para>
 /// <para>
-/// The payload carries the provider and a fixed reason and NOTHING about the person: no username, no
-/// subject, no claim value. That is the same T-I1 rule the audit trail is written under, applied harder
-/// because a webhook payload leaves the machine. The reason is a constant on this class rather than a
-/// parameter, so a caller structurally cannot put request- or provider-derived text into the field.
+/// The payload carries the provider, a fixed reason and the client address, and nothing that names the
+/// person: no username, no subject, no claim value. That is the same T-I1 rule the audit trail is written
+/// under, applied harder because a webhook payload leaves the machine; the address is the one field kept,
+/// because it is what Jellyfin already sends for a password failure and it is what makes the notification
+/// actionable. Each reason is a constant on this class and a call site picks a METHOD rather than passing
+/// text, so a caller structurally cannot put request- or provider-derived text into the field.
 /// </para>
 /// <para>
 /// A denial's response must not depend on a notification, so every failure here is swallowed and logged.
@@ -50,6 +52,14 @@ internal sealed class SsoLoginEvents
     /// a parameter: the closed vocabulary the issue asks for, held by construction rather than by discipline.
     /// </summary>
     internal const string RoleDeniedReason = "role-mapping-denied";
+
+    /// <summary>
+    /// The fixed reason for the other refusal that shares the OpenID denial arm: the login resolved no
+    /// username to create or adopt an account under. Reported apart from the role denial because the two
+    /// ask an operator for different things - one is a provider policy decision, the other a claim or scope
+    /// that is missing - and one label for both would state a cause the code cannot substantiate.
+    /// </summary>
+    internal const string UnresolvedUsernameReason = "no-username-resolved";
 
     /// <summary>
     /// The device id every SSO-raised event carries. Fixed, because a denial mints no session and so has no
@@ -77,7 +87,19 @@ internal sealed class SsoLoginEvents
     /// <param name="provider">The configured provider name the login was attempted against; it rides in the client field behind <see cref="ClientPrefix"/>.</param>
     /// <param name="remoteEndPoint">The normalized client address (#177), or <see langword="null"/> where the call site has none.</param>
     /// <returns>A task that completes once every consumer has been offered the event.</returns>
-    internal async Task PublishRoleDeniedAsync(string? provider, string? remoteEndPoint)
+    internal Task PublishRoleDeniedAsync(string? provider, string? remoteEndPoint)
+        => PublishDeniedAsync(RoleDeniedReason, provider, remoteEndPoint);
+
+    /// <summary>
+    /// Publishes the host's authentication-failed event for a login that resolved no username.
+    /// </summary>
+    /// <param name="provider">The configured provider name the login was attempted against.</param>
+    /// <param name="remoteEndPoint">The normalized client address (#177), or <see langword="null"/> where the call site has none.</param>
+    /// <returns>A task that completes once every consumer has been offered the event.</returns>
+    internal Task PublishUnresolvedUsernameDeniedAsync(string? provider, string? remoteEndPoint)
+        => PublishDeniedAsync(UnresolvedUsernameReason, provider, remoteEndPoint);
+
+    private async Task PublishDeniedAsync(string reason, string? provider, string? remoteEndPoint)
     {
         if (_events is null)
         {
@@ -96,7 +118,7 @@ internal sealed class SsoLoginEvents
                 App = ClientPrefix + provider,
                 AppVersion = SSOPlugin.Instance?.Version?.ToString() ?? string.Empty,
                 DeviceId = EventDeviceId,
-                DeviceName = RoleDeniedReason,
+                DeviceName = reason,
                 RemoteEndPoint = remoteEndPoint ?? string.Empty,
             };
 
@@ -106,7 +128,7 @@ internal sealed class SsoLoginEvents
         {
             // Never let a notification decide a login's answer. The denial has already been settled by the
             // policy above this call; this only reports it.
-            _logger.LogWarning(ex, "Could not publish the SSO role-denied event for provider {Provider}.", provider?.ReplaceLineEndings(string.Empty));
+            _logger.LogWarning(ex, "Could not publish the SSO denial event ({Reason}) for provider {Provider}.", reason, provider?.ReplaceLineEndings(string.Empty));
         }
     }
 }
