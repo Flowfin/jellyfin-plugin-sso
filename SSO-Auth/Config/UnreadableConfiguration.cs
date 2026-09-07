@@ -254,6 +254,10 @@ internal static class UnreadableConfiguration
         // saved a repair over - must never be named as this damage, whether or not a new copy could be
         // written.
         var recordedCopy = sameIncident ? carried?.Kept : null;
+        // "No record at all" is answered as Different, which is right for both readings below - nothing is
+        // reused and nothing is fallen back to - and it is a fifth state wearing a fourth name. An arm
+        // added later that says something ABOUT a refuted record would fire on boots that never had one;
+        // give it its own member then rather than reading this one.
         var verdict = recordedCopy is null ? Comparison.Different : Compare(configurationFilePath, recordedCopy);
         var preserved = verdict is Comparison.Same or Comparison.DamageUnreadable
             ? recordedCopy
@@ -392,9 +396,10 @@ internal static class UnreadableConfiguration
     // Whether the file at candidate holds exactly the damaged configuration's bytes. One name, asked by
     // both the marker's recorded copy and the directory walk, so "already kept" means one thing here.
     //
-    // THREE ANSWERS, for the reason the read of the configuration itself has three: null is a comparison
-    // that could not be MADE, which is not a comparison that came back "different", and answering the
-    // second for the first is what let a stale record be believed and a good one be thrown away.
+    // FOUR ANSWERS, and the reason each of them exists is on the Comparison members themselves. The two
+    // ways of not knowing are separate answers rather than one, because a comparison that could not be
+    // MADE is not one that came back "different" - and WHICH file could not be read decides what the
+    // caller may do about it.
     //
     // STREAMED, NEVER MATERIALISED. Reading each file into one array capped this at the largest managed
     // array - two gigabytes, or merely the largest contiguous block a small host can allocate - while
@@ -414,9 +419,11 @@ internal static class UnreadableConfiguration
         // defect rather than caution. Undecidable is worth having only because no copy can be written on
         // the fault that produced it - which is true when the DAMAGED file is what cannot be read, and
         // false when the candidate is: an ACL a restore left behind, a bad block under the copy, the
-        // backup agent a restore just woke. There the damage is readable, a copy is writable, and it is
-        // the one boot on which the bytes still exist - so a candidate that cannot be looked at is not a
-        // copy to rely on, and saying so takes another.
+        // backup agent a restore just woke. There the damage is readable, a copy CAN be attempted, and it
+        // is the one boot on which the bytes still exist - so a candidate that cannot be looked at is not
+        // a copy to rest on, and saying so takes another. What it is still good for is the caller's
+        // business rather than this method's: an attempt that then fails leaves a record naming that
+        // candidate as the best thing left to print, which is the last resort Preserve reaches for.
         var damagedSide = false;
         try
         {

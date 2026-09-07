@@ -877,7 +877,13 @@ internal static class SsoAudit
     internal static void UnreadableConfigurationNotPreserved(ILogger logger, string preservedCopyPath, Exception error)
         => logger.LogError(
             error,
-            "[SSO Audit] The unreadable configuration could not be copied to {PreservedCopy}. The damaged file is about to be overwritten with defaults and no copy of it will remain.",
+            // IT SAYS WHAT FAILED AND NOT WHAT REMAINS. It used to end "no copy of it will remain", which
+            // was true while a failed copy was the whole answer - and stopped being true once a boot that
+            // cannot write one may still fall back to a copy an earlier boot took. The line that follows
+            // this one states what remains, in both directions, and it is the only line in a position to
+            // know; two Error lines contradicting each other during an outage is worse than one saying
+            // less.
+            "[SSO Audit] The unreadable configuration could not be copied to {PreservedCopy}. The line after this one says what copy, if any, remains.",
             preservedCopyPath?.ReplaceLineEndings(string.Empty));
 
     /// <summary>

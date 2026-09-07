@@ -256,14 +256,23 @@ public class UnreadableConfigurationTests
         // A directory where this boot's copy would go, so File.Copy cannot write it.
         Directory.CreateDirectory(path + UnreadableConfiguration.CopySuffix + "20261201-000000Z");
 
+        var log = new CapturingLogger();
         using (File.Open(first.PreservedCopyPath!, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
+            var second = UnreadableConfiguration.Preserve(path, damaged, log, new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
 
             Assert.True(second.IsUnreadable);
             Assert.Equal(first.PreservedCopyPath, second.PreservedCopyPath);
             Assert.Contains(first.PreservedCopyPath!, File.ReadAllText(path + UnreadableConfiguration.MarkerSuffix), StringComparison.Ordinal);
         }
+
+        // AND THE TWO ERROR LINES MUST NOT CONTRADICT EACH OTHER. The copy that failed used to end "no
+        // copy of it will remain", which was true while a failed copy was the whole answer and stopped
+        // being true the moment a boot that cannot write one may still fall back to an earlier copy. An
+        // operator reading an outage would have met that sentence immediately above one naming the file
+        // and saying not to delete it.
+        Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains("no copy of it will remain", StringComparison.Ordinal));
+        Assert.Contains(log.Entries, entry => entry.Message.Contains("It was copied to", StringComparison.Ordinal));
     }
 
     [Fact]
