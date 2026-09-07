@@ -11,8 +11,8 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
-- **A login refused by role mapping now reaches a notification destination
-  (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
+- **A login refused by the provider's role allow-list now reaches a
+  notification destination (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
   single sign-on turned somebody away: Jellyfin raises its own
   authentication-failed notification only from the session mint, on the arm where
   no user resolved, and an SSO login the role allow-list refuses returns before
@@ -27,11 +27,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   written under and applied harder because this payload leaves the machine. It
   also means the entry Jellyfin writes to its own activity log for that refusal
   carries no name, only the time and the client address. A notification never
-  decides a login: a bus that throws is swallowed and logged, and the denial
-  answers exactly as before. The OpenID refusal has two causes - no matching
-  role, or no username resolved at all - and they are reported apart, so an
-  operator is never sent to the provider's role assignment for a scope that was
-  simply not granted.
+  decides a login: a bus that throws or stalls is logged and left behind, and the
+  denial
+  answers exactly as before, and it does not wait: the notification is given a
+  short budget and a destination that has stopped answering is left behind rather
+  than holding a refusal that was already decided. The OpenID refusal has two
+  causes - no matching role, or no username resolved at all - and they are
+  reported apart, so an operator is never sent to the provider's role assignment
+  for a scope that was simply not granted. Every other refusal still notifies
+  nobody: a missing `sub`, a step-up requirement, an expired authentication, a
+  malformed SAML response. Those are separate moments and this change does not
+  claim them.
 - **A way back from a link import that restored the wrong document (#1519).**
   `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
   canonical link one provider holds. It exists because the link import merges -

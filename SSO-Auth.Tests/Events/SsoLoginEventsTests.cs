@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api.Events;
@@ -92,6 +93,36 @@ public class SsoLoginEventsTests
         await events.PublishRoleDeniedAsync("keycloak", "203.0.113.9");
 
         Assert.Contains(log.Entries, e => e.Message.Contains("Could not publish", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PublishRoleDenied_WhenTheBusNeverReturns_GivesUpWithinItsBudget()
+    {
+        // The case a catch cannot reach. The webhook consumer makes an outbound HTTP call to an
+        // operator-configured destination on a client the host gives no timeout, and PublishAsync awaits
+        // every consumer in turn - so a black-holed destination would hold a refusal that was already
+        // decided. The budget is what keeps the 401 prompt; without it this test never returns.
+        var log = new CapturingLogger();
+        var bus = Substitute.For<IEventManager>();
+        var neverCompletes = new TaskCompletionSource();
+        bus.PublishAsync(Arg.Any<AuthenticationRequestEventArgs>()).Returns(neverCompletes.Task);
+        var events = new SsoLoginEvents(bus, log, TimeSpan.FromMilliseconds(50));
+
+        var clock = Stopwatch.StartNew();
+        await events.PublishRoleDeniedAsync("keycloak", "203.0.113.9");
+        clock.Stop();
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"the publish held the refusal for {clock.Elapsed}");
+        Assert.Contains(log.Entries, e => e.Message.Contains("Could not publish", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheProductionBudgetIsShortEnoughToReadAsASlowPageRatherThanAHungOne()
+    {
+        // The number the call sites actually run with, pinned so it cannot drift upward unnoticed: this is a
+        // notification about a login that is refused either way, and nothing is lost by giving up early.
+        Assert.True(SsoLoginEvents.PublishBudget <= TimeSpan.FromSeconds(5), $"the budget is {SsoLoginEvents.PublishBudget}");
+        Assert.True(SsoLoginEvents.PublishBudget > TimeSpan.Zero);
     }
 
     private static AuthenticationRequestEventArgs SinglePublished(IEventManager bus)

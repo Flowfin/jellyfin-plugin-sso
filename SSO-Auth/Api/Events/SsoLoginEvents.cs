@@ -34,9 +34,21 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Events;
 /// text, so a caller structurally cannot put request- or provider-derived text into the field.
 /// </para>
 /// <para>
-/// A denial's response must not depend on a notification, so every failure here is swallowed and logged.
-/// Jellyfin's own <c>EventManager</c> already catches each consumer's exception; the guard below covers the
-/// publish itself, and it is what keeps a broken destination from turning a 401 into a 500.
+/// A denial's response must not depend on a notification, so every failure here is swallowed and logged
+/// and the wait is BOUNDED. Jellyfin's own <c>EventManager</c> already catches each consumer's exception,
+/// so the catch below is for the publish itself - but a consumer that neither returns nor throws is the
+/// case a catch cannot reach: the webhook plugin's consumer makes an outbound HTTP call to a destination
+/// an operator configured, on a client the host gives no timeout, and <c>PublishAsync</c> awaits every
+/// consumer in turn with no cancellation anywhere in its signature. Unbounded, a black-holed destination
+/// would hold a refusal that was already decided for as long as that socket takes to give up. So the wait
+/// is capped at <see cref="PublishBudget"/> and the cap is the thing that keeps the 401 prompt; the
+/// publish itself is left running, because abandoning the wait is all that is needed and the event has no
+/// cancellation to hand it.
+/// </para>
+/// <para>
+/// The budget is deliberately short. This is a notification about a login that is being refused either
+/// way, so nothing is lost by giving up on a destination that is not answering promptly, and a delivery
+/// that needs longer than this is one the operator wants to fix rather than one the login should wait for.
 /// </para>
 /// </remarks>
 internal sealed class SsoLoginEvents
@@ -67,18 +79,29 @@ internal sealed class SsoLoginEvents
     /// </summary>
     internal const string EventDeviceId = "sso-auth";
 
+    /// <summary>
+    /// The longest a login refusal may wait for its own notification to be delivered. Chosen rather than
+    /// derived: long enough for the ordinary case, where the destination is a relay on the operator's own
+    /// network answering in milliseconds, and short enough that a destination which has stopped answering
+    /// adds a delay a person reads as a slow page rather than as a hung one.
+    /// </summary>
+    internal static readonly TimeSpan PublishBudget = TimeSpan.FromSeconds(3);
+
     private readonly IEventManager? _events;
     private readonly ILogger _logger;
+    private readonly TimeSpan _budget;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SsoLoginEvents"/> class.
     /// </summary>
     /// <param name="events">Jellyfin's event bus, or <see langword="null"/> where the host supplied none - in which case nothing is published and no login path changes.</param>
     /// <param name="logger">The logger that records a publish that could not be made.</param>
-    internal SsoLoginEvents(IEventManager? events, ILogger logger)
+    /// <param name="budget">How long a refusal may wait for its notification; defaults to <see cref="PublishBudget"/>. A parameter only so a test can prove the bound bites without spending the production budget on it.</param>
+    internal SsoLoginEvents(IEventManager? events, ILogger logger, TimeSpan? budget = null)
     {
         _events = events;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _budget = budget ?? PublishBudget;
     }
 
     /// <summary>
@@ -122,13 +145,17 @@ internal sealed class SsoLoginEvents
                 RemoteEndPoint = remoteEndPoint ?? string.Empty,
             };
 
-            await _events.PublishAsync(new AuthenticationRequestEventArgs(request)).ConfigureAwait(false);
+            // WaitAsync abandons the WAIT rather than the work: a consumer that is still talking to a
+            // stalled destination keeps going on its own, and the refusal answers. Nothing is left unobserved
+            // by that - Jellyfin's EventManager catches every consumer exception inside the task it returns,
+            // so the abandoned task cannot fault.
+            await _events.PublishAsync(new AuthenticationRequestEventArgs(request)).WaitAsync(_budget).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // Never let a notification decide a login's answer. The denial has already been settled by the
             // policy above this call; this only reports it.
-            _logger.LogWarning(ex, "Could not publish the SSO denial event ({Reason}) for provider {Provider}.", reason, provider?.ReplaceLineEndings(string.Empty));
+            _logger.LogWarning(ex, "Could not publish the SSO denial event ({Reason}) for provider {Provider} within {Budget}. The login was refused regardless.", reason, provider?.ReplaceLineEndings(string.Empty), _budget);
         }
     }
 }
