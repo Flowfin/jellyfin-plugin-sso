@@ -1,0 +1,301 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-FileCopyrightText: 2026 iderex
+ *
+ * Stage 0 of the 4.4 surface (#1526).
+ *
+ * TWO PARTS, AND THE SECOND ONE IS NOT THE PLUGIN. Everything under LAYOUT is
+ * new: the dashboard has no class for a two-column plugin page, a right rail, an
+ * accordion body or a wizard step, so those are styled here and are meant to
+ * survive into the build. Everything under STAND-IN paints what the dashboard
+ * paints for itself and is switched on only when the mock is opened straight
+ * from the tree, where no dashboard stylesheet is loaded. Nothing is styled
+ * twice: inside the dashboard the stand-in is off and the emby-* classes on the
+ * markup do the work.
+ */
+
+/* ---------------------------------------------------------------- LAYOUT -- */
+
+.sso-mock-shell {
+  max-width: none;
+  padding: 0 1.5em 4em;
+}
+
+.sso-mock-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 -1.5em 1.5em;
+  padding: 0 1.5em;
+}
+
+.sso-mock-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22em;
+  gap: 2em;
+  align-items: start;
+}
+
+@media (max-width: 62em) {
+  .sso-mock-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sso-mock-rail {
+    position: static;
+  }
+}
+
+.sso-mock-rail {
+  position: sticky;
+  top: 4.5em;
+  display: grid;
+  gap: 1em;
+}
+
+.sso-mock-card {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 0.3em;
+  padding: 1em 1.2em;
+}
+
+.sso-mock-card h3,
+.sso-mock-card h4 {
+  margin: 0 0 0.6em;
+}
+
+.sso-mock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18em, 1fr));
+  gap: 1em;
+}
+
+.sso-mock-accordion {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 0.3em;
+  margin-bottom: 0.6em;
+  overflow: hidden;
+}
+
+.sso-mock-accordion > summary {
+  cursor: pointer;
+  padding: 0.8em 1.1em;
+  font-weight: 600;
+  list-style: none;
+}
+
+.sso-mock-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sso-mock-accordion > summary::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 1.2em;
+}
+
+.sso-mock-accordion[open] > summary::before {
+  content: "\25BE";
+}
+
+.sso-mock-accordion .sso-mock-body {
+  padding: 0.4em 1.1em 1.1em;
+}
+
+.sso-mock-fold-note {
+  font-size: 0.9em;
+  opacity: 0.8;
+  margin: 0 0 0.8em;
+}
+
+.sso-mock-field {
+  margin: 0 0 1.1em;
+}
+
+.sso-mock-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.2em;
+}
+
+.sso-mock-field .sso-mock-id {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.82em;
+  font-weight: 400;
+  opacity: 0.7;
+  margin-left: 0.5em;
+}
+
+.sso-mock-field .sso-mock-help {
+  font-size: 0.9em;
+  opacity: 0.8;
+  margin-top: 0.2em;
+}
+
+.sso-mock-field input[type="text"],
+.sso-mock-field input[type="password"],
+.sso-mock-field input[type="number"],
+.sso-mock-field select,
+.sso-mock-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5em 0.6em;
+}
+
+.sso-mock-field textarea {
+  min-height: 4.5em;
+}
+
+.sso-mock-field.sso-mock-checkbox label {
+  font-weight: 400;
+  display: flex;
+  gap: 0.6em;
+  align-items: flex-start;
+}
+
+.sso-mock-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-bottom: 1.2em;
+}
+
+.sso-mock-step {
+  padding: 0.3em 0.8em;
+  border-radius: 1em;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  font-size: 0.9em;
+}
+
+.sso-mock-step[aria-current="step"] {
+  border-color: currentColor;
+  font-weight: 600;
+}
+
+.sso-mock-step[data-done="yes"] {
+  opacity: 0.6;
+}
+
+.sso-mock-check {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sso-mock-check li {
+  display: flex;
+  gap: 0.6em;
+  padding: 0.25em 0;
+}
+
+.sso-mock-check li::before {
+  content: "\25CB";
+  width: 1em;
+}
+
+.sso-mock-check li[data-state="ok"]::before {
+  content: "\2713";
+}
+
+.sso-mock-check li[data-state="bad"]::before {
+  content: "\2715";
+}
+
+.sso-mock-badge {
+  display: inline-block;
+  padding: 0.1em 0.6em;
+  border-radius: 1em;
+  border: 1px solid currentColor;
+  font-size: 0.85em;
+  margin-right: 0.4em;
+}
+
+.sso-mock-note {
+  font-size: 0.9em;
+  opacity: 0.85;
+  border-left: 3px solid rgba(127, 127, 127, 0.5);
+  padding: 0.2em 0 0.2em 0.9em;
+  margin: 1em 0;
+}
+
+.sso-mock-hidden {
+  display: none;
+}
+
+/* -------------------------------------------------------------- STAND-IN -- */
+/* Only in force when the mock is opened from the tree, where the dashboard's
+ * own stylesheet is absent. mock.js sets this class when window.ApiClient is
+ * missing, so inside the dashboard none of it applies. */
+
+body.sso-mock-standalone {
+  background: #101010;
+  color: #e8e8e8;
+  font-family:
+    "Noto Sans",
+    "Open Sans",
+    -apple-system,
+    system-ui,
+    sans-serif;
+  margin: 0;
+  line-height: 1.45;
+}
+
+body.sso-mock-standalone .sso-mock-tabs {
+  background: #101010;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+body.sso-mock-standalone .emby-tabs-slider {
+  display: flex;
+  gap: 0.4em;
+  padding: 0.6em 0;
+}
+
+body.sso-mock-standalone .emby-tab-button {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  padding: 0.5em 1em;
+  border-bottom: 2px solid transparent;
+  text-transform: uppercase;
+  font-size: 0.9em;
+  letter-spacing: 0.04em;
+}
+
+body.sso-mock-standalone .emby-tab-button[aria-current="page"] {
+  color: #00a4dc;
+  border-bottom-color: #00a4dc;
+}
+
+body.sso-mock-standalone .sectionTitle {
+  font-weight: 400;
+  margin: 0.8em 0 0.4em;
+}
+
+body.sso-mock-standalone .fieldDescription {
+  opacity: 0.75;
+  font-size: 0.9em;
+}
+
+body.sso-mock-standalone input,
+body.sso-mock-standalone select,
+body.sso-mock-standalone textarea {
+  background: #292929;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.2em;
+  font: inherit;
+}
+
+body.sso-mock-standalone .emby-button {
+  background: #00a4dc;
+  color: #fff;
+  border: 0;
+  border-radius: 0.2em;
+  padding: 0.6em 1.2em;
+  font: inherit;
+  cursor: pointer;
+}
+
+body.sso-mock-standalone .button-alt {
+  background: #303030;
+  color: #e8e8e8;
+}

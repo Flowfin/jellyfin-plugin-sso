@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO mock - Server</title>
+    <link rel="stylesheet" href="mock.css" />
+  </head>
+  <body data-mock-page="server.html">
+    <div
+      id="ssoMockServer"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+    >
+      <div class="content-primary sso-mock-shell">
+        <div class="sso-mock-tabs"></div>
+
+        <h2 class="sectionTitle">Server</h2>
+        <p class="fieldDescription" data-mock-count></p>
+
+        <div class="sso-mock-columns">
+          <div class="sso-mock-main">
+            <div class="sso-mock-card">
+              <h3>SSO-only sign-in</h3>
+              <p class="fieldDescription">
+                Off. Turning it on takes local passwords away from everyone
+                except the break-glass administrator, and it runs the last-admin
+                guard before it does anything.
+              </p>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                >
+                  Turn SSO-only on
+                </button>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Set the break-glass administrator
+                </button>
+              </p>
+              <p class="sso-mock-note">
+                This is not part of saving the page, and it is not on this tab
+                because it is a setting - it is here because it is the switch an
+                administrator comes to this tab for. Saving the configuration
+                never changes the SSO-only state.
+              </p>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Login buttons</h3>
+              <div data-mock-fields="Server/Login buttons"></div>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Single logout</h3>
+              <div data-mock-fields="Server/Single logout"></div>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Export and import</h3>
+              <p class="fieldDescription">
+                The configuration document, redacted on the way out: it carries
+                no secret and no signing key, so every secret is re-entered
+                after an import.
+              </p>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Export configuration
+                </button>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Import configuration
+                </button>
+              </p>
+              <div data-mock-fields="Server/Export and import"></div>
+            </div>
+
+            <p>
+              <button type="button" is="emby-button" class="raised emby-button">
+                Save this tab
+              </button>
+              <span class="fieldDescription"
+                >One save per tab, and it reaches what is on this tab.</span
+              >
+            </p>
+          </div>
+
+          <aside class="sso-mock-rail">
+            <div class="sso-mock-card">
+              <h4>Base URL</h4>
+              <p class="fieldDescription">
+                The server answers the redirect and ACS URLs the wizard shows.
+                Where it is behind a proxy that rewrites them, the per-provider
+                overrides on the Advanced fold are what corrects it.
+              </p>
+            </div>
+            <div class="sso-mock-card">
+              <h4>Help</h4>
+              <p class="fieldDescription" data-mock-help-rail>
+                Focus a field, or hover one, and its help appears here.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <p class="sso-mock-note">
+          A mock. Every control is disabled and nothing is saved.
+        </p>
+      </div>
+    </div>
+
+    <script src="fields.js"></script>
+    <script src="mock.js"></script>
+  </body>
+</html>

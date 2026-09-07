@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO mock - Overview</title>
+    <link rel="stylesheet" href="mock.css" />
+  </head>
+  <body data-mock-page="overview.html">
+    <div
+      id="ssoMockOverview"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+    >
+      <div class="content-primary sso-mock-shell">
+        <div class="sso-mock-tabs"></div>
+
+        <h2 class="sectionTitle">Single Sign-On</h2>
+        <p class="fieldDescription" data-mock-count></p>
+
+        <div class="sso-mock-columns">
+          <div class="sso-mock-main">
+            <div class="sso-mock-card">
+              <h3>Does single sign-on work</h3>
+              <p>
+                <span class="sso-mock-badge">2 providers enabled</span>
+                <span class="sso-mock-badge">1 not yet tested</span>
+                <span class="sso-mock-badge">SSO-only off</span>
+              </p>
+              <p class="fieldDescription">
+                One line rather than three badges on three rows. Every figure
+                here is read from the server, which is why no field of the
+                current page moves onto this tab.
+              </p>
+            </div>
+
+            <h3 class="sectionTitle">Providers</h3>
+            <div class="sso-mock-grid">
+              <div class="sso-mock-card">
+                <h4>keycloak <span class="sso-mock-badge">OpenID</span></h4>
+                <ul class="sso-mock-check">
+                  <li data-state="ok">Enabled</li>
+                  <li data-state="ok">Test Connection passed 4 minutes ago</li>
+                  <li data-state="ok">Last sign-in 11 minutes ago</li>
+                </ul>
+                <p>
+                  <a href="providers.html">Open</a>
+                </p>
+              </div>
+              <div class="sso-mock-card">
+                <h4>entra <span class="sso-mock-badge">SAML</span></h4>
+                <ul class="sso-mock-check">
+                  <li data-state="ok">Enabled</li>
+                  <li data-state="bad">Never tested</li>
+                  <li>No sign-in yet</li>
+                </ul>
+                <p>
+                  <a href="providers.html">Open</a>
+                </p>
+              </div>
+              <div class="sso-mock-card">
+                <h4>okta <span class="sso-mock-badge">OpenID</span></h4>
+                <ul class="sso-mock-check">
+                  <li data-state="bad">Disabled</li>
+                  <li data-state="ok">Test Connection passed 2 days ago</li>
+                  <li>No sign-in yet</li>
+                </ul>
+                <p>
+                  <a href="providers.html">Open</a>
+                </p>
+              </div>
+            </div>
+
+            <div class="sso-mock-card" style="margin-top: 1.5em">
+              <h3>What to do next</h3>
+              <ul class="sso-mock-check">
+                <li data-state="bad">
+                  <span
+                    ><strong>entra</strong> has never passed Test Connection. A
+                    provider that has not been tested is enabled on the login
+                    page anyway.</span
+                  >
+                </li>
+                <li>
+                  <span
+                    ><strong>okta</strong> is configured and disabled. Enable
+                    it, or delete it so the list says what the server actually
+                    serves.</span
+                  >
+                </li>
+                <li>
+                  <span
+                    >One provider has an insecure option on. Open it to see
+                    which one.</span
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <aside class="sso-mock-rail">
+            <div class="sso-mock-card">
+              <h4>SSO-only</h4>
+              <p class="fieldDescription">
+                Off. Local Jellyfin passwords still work. Turning it on is on
+                the Server tab and runs the last-admin guard.
+              </p>
+            </div>
+            <div class="sso-mock-card">
+              <h4>Restart</h4>
+              <p class="fieldDescription">
+                The first line of the page today says a restart is required.
+                Whether that is still true is read before it is repeated here -
+                #1525, point 9.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <p class="sso-mock-note">
+          A mock. Nothing on this page talks to a server, every control is
+          disabled, and the figures are invented so the shape can be judged.
+        </p>
+      </div>
+    </div>
+
+    <script src="fields.js"></script>
+    <script src="mock.js"></script>
+  </body>
+</html>

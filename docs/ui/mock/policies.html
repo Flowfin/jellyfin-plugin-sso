@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO mock - Policies</title>
+    <link rel="stylesheet" href="mock.css" />
+  </head>
+  <body data-mock-page="policies.html">
+    <div
+      id="ssoMockPolicies"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+    >
+      <div class="content-primary sso-mock-shell">
+        <div class="sso-mock-tabs"></div>
+
+        <h2 class="sectionTitle">Policies</h2>
+        <p class="fieldDescription" data-mock-count></p>
+
+        <div class="sso-mock-columns">
+          <div class="sso-mock-main">
+            <div class="sso-mock-card">
+              <h3>The starting policy, once</h3>
+              <p class="fieldDescription">
+                The same form stands three times on the page today: here, and
+                again inside each of the two provider editors. It stands once on
+                this tab, and a provider either names a profile or overrides it
+                inline.
+              </p>
+              <div data-mock-fields="Policies/Profile editor"></div>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                >
+                  Save this profile
+                </button>
+              </p>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Who uses this profile</h3>
+              <p class="fieldDescription">
+                A profile with no user is a profile nobody is maintaining, so
+                the tab says which providers point at it.
+              </p>
+              <ul class="sso-mock-check">
+                <li data-state="ok"><span>keycloak - Starting policy</span></li>
+                <li data-state="ok"><span>entra - Starting policy</span></li>
+                <li data-state="bad">
+                  <span
+                    >okta overrides it inline, so this profile does not reach
+                    it</span
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <aside class="sso-mock-rail">
+            <div class="sso-mock-card">
+              <h4>What a profile does not carry</h4>
+              <p class="fieldDescription">
+                It is the policy an account STARTS with. Changing it later does
+                not reach accounts that already exist, which is the sentence the
+                page has to say where the profile is edited rather than in a
+                note further down.
+              </p>
+            </div>
+            <div class="sso-mock-card">
+              <h4>Help</h4>
+              <p class="fieldDescription" data-mock-help-rail>
+                Focus a field, or hover one, and its help appears here.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <p class="sso-mock-note">
+          A mock. Every control is disabled and nothing is saved.
+        </p>
+      </div>
+    </div>
+
+    <script src="fields.js"></script>
+    <script src="mock.js"></script>
+  </body>
+</html>
