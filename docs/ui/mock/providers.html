@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO mock - Providers</title>
+    <link rel="stylesheet" href="mock.css" />
+  </head>
+  <body data-mock-page="providers.html">
+    <div
+      id="ssoMockProviders"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+    >
+      <div class="content-primary sso-mock-shell">
+        <div class="sso-mock-tabs"></div>
+
+        <h2 class="sectionTitle">Providers</h2>
+        <p class="fieldDescription" data-mock-count></p>
+
+        <div class="sso-mock-columns">
+          <div class="sso-mock-main">
+            <div class="sso-mock-card">
+              <h3>Provider list</h3>
+              <p class="fieldDescription">
+                One list for both protocols, where the page today keeps two.
+                Selecting a row opens the editor below.
+              </p>
+              <div data-mock-fields="Providers/Provider list"></div>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                  data-mock-wizard-open
+                >
+                  Add provider
+                </button>
+              </p>
+            </div>
+
+            <div class="sso-mock-card sso-mock-hidden" data-mock-wizard>
+              <h3>Add a provider</h3>
+              <div class="sso-mock-steps">
+                <span class="sso-mock-step">1 Protocol and template</span>
+                <span class="sso-mock-step">2 The fields it needs</span>
+                <span class="sso-mock-step"
+                  >3 The URL to paste at the provider</span
+                >
+                <span class="sso-mock-step">4 Test Connection</span>
+                <span class="sso-mock-step">5 Enable and save</span>
+              </div>
+
+              <div data-mock-step-panel>
+                <p class="fieldDescription">
+                  The template decides which of the fields in step 2 are asked
+                  for at all, which is why it comes first.
+                </p>
+                <div data-mock-fields="Providers/Wizard step 1"></div>
+              </div>
+
+              <div data-mock-step-panel class="sso-mock-hidden">
+                <p class="fieldDescription">
+                  Only what a provider cannot work without. Everything else
+                  stays in the editor, where it has a default that already
+                  works.
+                </p>
+                <p class="sso-mock-note">
+                  The wizard shows the required subset of Basics rather than a
+                  second copy of it: these are the same controls this page lists
+                  under Basics below, and FIELDS.md gives each of them one row.
+                </p>
+              </div>
+
+              <div data-mock-step-panel class="sso-mock-hidden">
+                <p class="fieldDescription">
+                  The redirect URI for OpenID, the ACS URL for SAML. The server
+                  knows both; the wizard shows the value with a copy button
+                  instead of asking an administrator to build it.
+                </p>
+                <p>
+                  <code
+                    >https://jellyfin.example.com/sso/OID/redirect/keycloak</code
+                  >
+                  <button
+                    type="button"
+                    is="emby-button"
+                    class="raised button-alt emby-button"
+                  >
+                    Copy
+                  </button>
+                </p>
+              </div>
+
+              <div data-mock-step-panel class="sso-mock-hidden">
+                <p class="fieldDescription">
+                  The same Test Connection the editor has today, run before the
+                  provider is ever enabled rather than after.
+                </p>
+                <ul class="sso-mock-check">
+                  <li data-state="ok">Discovery document read</li>
+                  <li data-state="ok">Token endpoint answers</li>
+                  <li data-state="bad">Client secret rejected</li>
+                </ul>
+              </div>
+
+              <div data-mock-step-panel class="sso-mock-hidden">
+                <p class="fieldDescription">
+                  Enable is the last step and not the first, so a provider
+                  cannot reach the login page before it has been tested.
+                </p>
+              </div>
+
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                  data-mock-step-move="-1"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                  data-mock-step-move="1"
+                >
+                  Next
+                </button>
+              </p>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>keycloak</h3>
+              <p>
+                <label
+                  >Protocol
+                  <select data-mock-protocol>
+                    <option value="OpenID">OpenID Connect</option>
+                    <option value="SAML">SAML 2.0</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                  data-mock-openall
+                  data-open="no"
+                >
+                  Open every section
+                </button>
+              </p>
+              <p class="fieldDescription">
+                The protocol picker is a property of the mock, not of the
+                surface: a real editor opens the provider it was given. It is
+                here so one screen shows both sets of controls in their new
+                homes.
+              </p>
+
+              <details class="sso-mock-accordion" open>
+                <summary>Basics</summary>
+                <div
+                  class="sso-mock-body"
+                  data-mock-fields="Providers/Basics"
+                ></div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Login button</summary>
+                <div
+                  class="sso-mock-body"
+                  data-mock-fields="Providers/Login button"
+                ></div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Accounts and roles</summary>
+                <div
+                  class="sso-mock-body"
+                  data-mock-fields="Providers/Accounts and roles"
+                ></div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Starting policy</summary>
+                <div class="sso-mock-body">
+                  <p class="sso-mock-fold-note">
+                    A profile or inline values, never both. Picking a profile
+                    disables the inline fields rather than hiding them, so it is
+                    visible what the profile decides.
+                  </p>
+                  <div data-mock-fields="Providers/Starting policy"></div>
+                </div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Libraries and Live TV</summary>
+                <div
+                  class="sso-mock-body"
+                  data-mock-fields="Providers/Libraries and Live TV"
+                ></div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Advanced</summary>
+                <div class="sso-mock-body">
+                  <p class="sso-mock-fold-note">
+                    Options with a working default. Everything the old
+                    Compatibility and overrides block held, plus the hardening
+                    switches the page marks neither sensitive nor insecure.
+                  </p>
+                  <div data-mock-fields="Providers/Advanced"></div>
+                </div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Sensitive</summary>
+                <div class="sso-mock-body">
+                  <p class="sso-mock-fold-note">
+                    Hides: who ends up with an account on this server. These
+                    change adoption and provisioning rather than switching a
+                    defence off.
+                  </p>
+                  <div data-mock-fields="Providers/Sensitive"></div>
+                </div>
+              </details>
+
+              <details class="sso-mock-accordion">
+                <summary>Insecure</summary>
+                <div class="sso-mock-body">
+                  <p class="sso-mock-fold-note">
+                    Hides: switches that turn a protocol defence off. Each is
+                    audited when it is on, and an enabled one is shown on the
+                    provider's card on Overview.
+                  </p>
+                  <div data-mock-fields="Providers/Insecure"></div>
+                </div>
+              </details>
+
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                >
+                  Save this provider
+                </button>
+                <span class="fieldDescription"
+                  >One save, and it reaches this provider only.</span
+                >
+              </p>
+            </div>
+          </div>
+
+          <aside class="sso-mock-rail">
+            <div class="sso-mock-card">
+              <h4>Ready to use</h4>
+              <ul class="sso-mock-check">
+                <li data-state="ok">Endpoint and client id set</li>
+                <li data-state="ok">Client secret stored</li>
+                <li data-state="ok">Redirect URI registered at the provider</li>
+                <li data-state="bad">
+                  Test Connection not run since the last change
+                </li>
+                <li>Enabled</li>
+              </ul>
+            </div>
+            <div class="sso-mock-card">
+              <h4>Help</h4>
+              <p class="fieldDescription" data-mock-help-rail>
+                Focus a field, or hover one, and its help appears here instead
+                of on the form.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <p class="sso-mock-note">
+          A mock. Every control is disabled and nothing is saved.
+        </p>
+      </div>
+    </div>
+
+    <script src="fields.js"></script>
+    <script src="mock.js"></script>
+  </body>
+</html>

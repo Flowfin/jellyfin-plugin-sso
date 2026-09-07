@@ -473,6 +473,13 @@ docs/*
 !docs/ACCOUNT-MANAGEMENT-API.md
 !docs/THREAT-MODEL-TRUSTED-HEADER.md
 !docs/SERVER-MIGRATION.md
+
+# The stage-0 UI mock is a public artefact: it is walked in a browser and
+# reviewed on #1526, and the field table beside it is what proves no control of
+# the configuration page is lost in the 4.4 rebuild. docs/* excludes the
+# directory itself, and a ! rule cannot re-include a file whose parent is
+# excluded, so the directory is re-included first.
+!docs/ui
 StrykerOutput/
 
 # The e2e stacks unpack the plugin drops and let Jellyfin write its state under these

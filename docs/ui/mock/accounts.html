@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SSO mock - Accounts</title>
+    <link rel="stylesheet" href="mock.css" />
+  </head>
+  <body data-mock-page="accounts.html">
+    <div
+      id="ssoMockAccounts"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+    >
+      <div class="content-primary sso-mock-shell">
+        <div class="sso-mock-tabs"></div>
+
+        <h2 class="sectionTitle">Accounts</h2>
+        <p class="fieldDescription" data-mock-count></p>
+
+        <div class="sso-mock-columns">
+          <div class="sso-mock-main">
+            <div class="sso-mock-card">
+              <h3>Pending approval</h3>
+              <p class="fieldDescription">
+                Accounts a provider created with provisioning set to start them
+                disabled. They exist and cannot sign in until somebody says yes.
+              </p>
+              <ul class="sso-mock-check">
+                <li>
+                  <span
+                    ><strong>a.schneider</strong> - keycloak - 2 hours ago</span
+                  >
+                </li>
+                <li>
+                  <span><strong>t.wolf</strong> - keycloak - yesterday</span>
+                </li>
+              </ul>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised emby-button"
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Delete
+                </button>
+              </p>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Linked accounts</h3>
+              <p class="fieldDescription">
+                One row per link rather than one block per provider, so an
+                account with two links reads as one account.
+              </p>
+              <ul class="sso-mock-check">
+                <li data-state="ok">
+                  <span
+                    ><strong>nils</strong> - keycloak - last sign-in 11 minutes
+                    ago</span
+                  >
+                </li>
+                <li data-state="ok">
+                  <span><strong>nils</strong> - entra - never signed in</span>
+                </li>
+                <li data-state="ok">
+                  <span
+                    ><strong>gast</strong> - keycloak - last sign-in 3 days
+                    ago</span
+                  >
+                </li>
+              </ul>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Unlink
+                </button>
+                <span class="fieldDescription"
+                  >Unlinking asks first, and says what the account can still do
+                  afterwards.</span
+                >
+              </p>
+            </div>
+
+            <div class="sso-mock-card">
+              <h3>Export and import</h3>
+              <p class="fieldDescription">
+                The account-link backup, which is the pair of files a migration
+                carries. It sits here rather than on Server because it is about
+                these rows.
+              </p>
+              <p>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Export account links
+                </button>
+                <button
+                  type="button"
+                  is="emby-button"
+                  class="raised button-alt emby-button"
+                >
+                  Import account links
+                </button>
+              </p>
+              <div data-mock-fields="Accounts/Export and import"></div>
+            </div>
+          </div>
+
+          <aside class="sso-mock-rail">
+            <div class="sso-mock-card">
+              <h4>Revocation</h4>
+              <p class="fieldDescription">
+                Unlinking every link of one provider is one action here, and it
+                is the answer to a restore that stamped the wrong issuer - the
+                case #1518 is open about.
+              </p>
+            </div>
+            <div class="sso-mock-card">
+              <h4>Help</h4>
+              <p class="fieldDescription" data-mock-help-rail>
+                Focus a field, or hover one, and its help appears here.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <p class="sso-mock-note">
+          A mock. Every control is disabled and nothing is saved.
+        </p>
+      </div>
+    </div>
+
+    <script src="fields.js"></script>
+    <script src="mock.js"></script>
+  </body>
+</html>
