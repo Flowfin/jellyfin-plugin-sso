@@ -370,35 +370,59 @@ internal static class UnreadableConfiguration
     // the host writes a moment later.
     private static bool? SameBytes(string configurationFilePath, string candidate)
     {
+        // WHICH SIDE FAILED IS THE WHOLE OF THE THIRD ANSWER, and answering null for both sides was a
+        // defect rather than caution. Undecidable is worth having only because no copy can be written on
+        // the fault that produced it - which is true when the DAMAGED file is what cannot be read, and
+        // false when the candidate is: an ACL a restore left behind, a bad block under the copy, the
+        // backup agent a restore just woke. There the damage is readable, a copy is writable, and it is
+        // the one boot on which the bytes still exist - so a candidate that cannot be looked at is not a
+        // copy to rely on, and saying so takes another.
+        var damagedSide = false;
         try
         {
             var kept = new FileInfo(candidate);
-            if (kept.LinkTarget is not null || kept.Length != new FileInfo(configurationFilePath).Length)
+            if (kept.LinkTarget is not null)
             {
                 return false;
             }
 
+            damagedSide = true;
+            var damagedLength = new FileInfo(configurationFilePath).Length;
+            damagedSide = false;
+            if (kept.Length != damagedLength)
+            {
+                return false;
+            }
+
+            damagedSide = true;
             using var damaged = File.OpenRead(configurationFilePath);
+            damagedSide = false;
             using var copy = File.OpenRead(candidate);
+
             var fromDamaged = new byte[CompareBufferBytes];
             var fromCopy = new byte[CompareBufferBytes];
-            int read;
-            while ((read = damaged.ReadAtLeast(fromDamaged, CompareBufferBytes, throwOnEndOfStream: false)) > 0)
+            while (true)
             {
+                damagedSide = true;
+                var read = damaged.ReadAtLeast(fromDamaged, CompareBufferBytes, throwOnEndOfStream: false);
+                damagedSide = false;
+                if (read == 0)
+                {
+                    return true;
+                }
+
                 copy.ReadExactly(fromCopy.AsSpan(0, read));
                 if (!fromDamaged.AsSpan(0, read).SequenceEqual(fromCopy.AsSpan(0, read)))
                 {
                     return false;
                 }
             }
-
-            return true;
         }
-#pragma warning disable CA1031 // a comparison that could not be made answers neither "same" nor "different"
+#pragma warning disable CA1031 // a damaged file that cannot be read answers neither "same" nor "different"; a candidate that cannot be read answers "not a copy to rely on"
         catch (Exception)
 #pragma warning restore CA1031
         {
-            return null;
+            return damagedSide ? null : false;
         }
     }
 

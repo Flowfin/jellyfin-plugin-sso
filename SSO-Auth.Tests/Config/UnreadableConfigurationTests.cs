@@ -164,10 +164,11 @@ public class UnreadableConfigurationTests
         // pointer to the copy that already exists, and the next boot tells an operator nothing was kept
         // while it sits beside the configuration.
         //
-        // WHAT MAKES THIS UNDECIDABLE AND NOT MERELY UNREAD is that the lengths still match; a length that
-        // differs is refused on its own, which the test below pins. A share-denying handle produces the
-        // pair here - the serializer reports damage about the CONTENT while neither file can be opened for
-        // the compare.
+        // WHAT MAKES THIS UNDECIDABLE AND NOT MERELY UNREAD is that the lengths still match and it is the
+        // DAMAGED file that cannot be opened; a length that differs is refused on its own, and a candidate
+        // that is what cannot be opened is refused too, which the two tests below pin. A share-denying
+        // handle on the configuration produces the pair here: the serializer reports damage about the
+        // CONTENT while the file itself cannot be opened for the compare.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
         var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         Assert.NotNull(first.PreservedCopyPath);
@@ -210,6 +211,30 @@ public class UnreadableConfigurationTests
 
             Assert.True(state.IsUnreadable);
             Assert.Null(state.PreservedCopyPath);
+        }
+    }
+
+    [Fact]
+    public void ARecordedCopyThatCannotBeReadWhileTheDamageCan_IsTakenAgain()
+    {
+        // THE OTHER SIDE OF UNDECIDABLE, and the falsifier for the test above. There the DAMAGED file is
+        // what cannot be opened, and believing the record costs nothing because no copy could have been
+        // written either. Here the damage is readable and only the recorded copy is not - an ACL a restore
+        // left behind, a bad block under the copy, the backup agent a restore just woke - so a copy IS
+        // writable, and this is the one boot on which the bytes still exist before the host writes its
+        // defaults over them. Treating the two the same left an unreadable file named as the copy that was
+        // kept, with nothing behind it.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+
+        using (File.Open(first.PreservedCopyPath!, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20261201-000000Z", second.PreservedCopyPath);
+            Assert.Equal("<PluginConfig", File.ReadAllText(second.PreservedCopyPath!));
+            Assert.Equal(2, Copies(path).Length);
         }
     }
 
