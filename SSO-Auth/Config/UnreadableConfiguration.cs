@@ -99,6 +99,11 @@ internal static class UnreadableConfiguration
     private const string IncidentPrefix = "Damaged-file: ";
     private const string CopyPrefix = "Kept-copy: ";
 
+    // How many taken copy names one boot walks past before it gives up and lets File.Copy refuse. It is a
+    // bound rather than a capacity: a boot needs a free name at most once, and reaching this many means a
+    // clock that does not advance, which is a fault of its own rather than a directory to fill.
+    private const int CopyNameLimit = 100;
+
     /// <summary>
     /// Screens the stored configuration before anything reads it, keeps the evidence when it cannot be
     /// read, and answers whether this server is about to serve defaults.
@@ -185,11 +190,21 @@ internal static class UnreadableConfiguration
         // that is already "kept" is never taken again - it suppresses the retry on the next boot, so a new
         // incident whose first copy attempt failed is NEVER preserved. That is the evidence this whole
         // screen exists for, lost to a bookkeeping convenience.
-        var preserved = sameIncident && carried?.Kept is { } kept
+        //
+        // THE RECORD MAY NOT OUTRANK THE BYTES, and until the twelfth review of this branch it did. `Kept`
+        // proves the recorded copy still EXISTS and nothing else, and existence is the wrong question: a
+        // copy an operator opened and saved over - the repair loop the log itself invites - still exists
+        // and no longer holds the damage, and a copy emptied by the same volume that produced the damage
+        // still exists too. On that boot the copy was reused, no second one was taken, and the line an
+        // operator reads said the bytes had been kept. So the record's answer is verified against the
+        // bytes here, which is the test AlreadyCopied makes one call deeper - and it is asked HERE rather
+        // than left to that scan because reading one named file needs no directory listing, so the bound
+        // survives a directory this plugin may write but may not enumerate.
+        var preserved = sameIncident && carried?.Kept is { } kept && SameBytes(configurationFilePath, kept)
             ? kept
             : Copy(configurationFilePath, nowUtc, logger);
         Mark(configurationFilePath, incident, preserved, logger);
-        SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved);
+        Announce(() => SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved));
         return new UnreadableConfigurationState(true, preserved);
     }
 
@@ -215,7 +230,7 @@ internal static class UnreadableConfiguration
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            SsoAudit.UnreadableConfigurationMarkerNotCleared(logger, configurationFilePath + MarkerSuffix, ex);
+            Announce(() => SsoAudit.UnreadableConfigurationMarkerNotCleared(logger, configurationFilePath + MarkerSuffix, ex));
         }
     }
 
@@ -239,7 +254,7 @@ internal static class UnreadableConfiguration
         if (holdsAProvider)
         {
             ClearMarker(configurationFilePath, logger);
-            SsoAudit.UnreadableConfigurationRepairedOnDisk(logger, configurationFilePath);
+            Announce(() => SsoAudit.UnreadableConfigurationRepairedOnDisk(logger, configurationFilePath));
             return default;
         }
 
@@ -253,7 +268,7 @@ internal static class UnreadableConfiguration
         // look at it, which the log invites - and the line says exactly that rather than picking one of
         // them, because nothing here can tell them apart.
         var preserved = ReadMarker(configurationFilePath)?.Kept;
-        SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved);
+        Announce(() => SsoAudit.UnreadableConfigurationStillUnrepaired(logger, configurationFilePath, preserved));
         return new UnreadableConfigurationState(true, preserved);
     }
 
@@ -278,7 +293,7 @@ internal static class UnreadableConfiguration
             return existing;
         }
 
-        var copy = configurationFilePath + CopySuffix + nowUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "Z";
+        var copy = FreeCopyName(configurationFilePath, nowUtc);
         try
         {
             File.Copy(configurationFilePath, copy, overwrite: false);
@@ -288,8 +303,98 @@ internal static class UnreadableConfiguration
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            SsoAudit.UnreadableConfigurationNotPreserved(logger, copy, ex);
+            Announce(() => SsoAudit.UnreadableConfigurationNotPreserved(logger, copy, ex));
             return null;
+        }
+    }
+
+    // The first copy name beside the configuration that nothing occupies.
+    //
+    // AN OCCUPIED NAME IS A DIFFERENT INCIDENT'S FILE, AND ABANDONING THE COPY FOR IT LOST THE EVIDENCE.
+    // AlreadyCopied has already said that nothing beside the configuration holds these bytes, so a name
+    // this second happens to collide with belongs to another fault - a host that repeats a wall-clock
+    // second across boots because it has no persisted clock, a snapshot restored again and again, a second
+    // instance on the same volume. The old code composed one name, met `overwrite: false`, and returned
+    // null: the host then wrote defaults over the configuration and no later boot reached this arm again,
+    // because by then the file reads back. So the name is disambiguated rather than the copy dropped, and
+    // nothing existing is ever overwritten, which is the rule that made the collision possible.
+    //
+    // The walk is bounded, and the bound fails towards the rule rather than around it: after CopyNameLimit
+    // taken names the stamped name is handed back as it stands, File.Copy refuses it, and the failure is
+    // reported as a copy that could not be written.
+    private static string FreeCopyName(string configurationFilePath, DateTime nowUtc)
+    {
+        var stem = configurationFilePath + CopySuffix + nowUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "Z";
+        var name = stem;
+        for (var attempt = 1; attempt <= CopyNameLimit && File.Exists(name); attempt++)
+        {
+            name = string.Create(CultureInfo.InvariantCulture, $"{stem}.{attempt}");
+        }
+
+        return name;
+    }
+
+    // Whether the file at candidate holds exactly the bytes of the damaged configuration. One name, asked
+    // by both the marker's recorded copy and the directory walk, so "already kept" means one thing here.
+    private static bool SameBytes(string configurationFilePath, string candidate)
+        => ReadAllBytesOrNull(configurationFilePath) is { } damaged && HoldsTheSameBytes(damaged, candidate);
+
+    // Not being able to answer - the candidate locked, gone, or larger than an array - is answered as
+    // "no", which costs a copy and never the evidence. A LINK IS NOT A COPY: FileInfo.Length and
+    // File.ReadAllBytes both follow one, so a link left beside the configuration and pointing back at it
+    // would compare equal to the damage, suppress the copy, and then resolve to the defaults the host
+    // writes a moment later.
+    private static bool HoldsTheSameBytes(byte[] damaged, string candidate)
+    {
+        try
+        {
+            var kept = new FileInfo(candidate);
+            return kept.LinkTarget is null
+                && kept.Length == damaged.LongLength
+                && File.ReadAllBytes(candidate).AsSpan().SequenceEqual(damaged);
+        }
+#pragma warning disable CA1031 // a comparison that cannot be made is answered as "not the same", which costs a copy
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return false;
+        }
+    }
+
+    private static byte[]? ReadAllBytesOrNull(string path)
+    {
+        try
+        {
+            return File.ReadAllBytes(path);
+        }
+#pragma warning disable CA1031 // bytes that cannot be read decide nothing here; the caller answers "not the same"
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return null;
+        }
+    }
+
+    // Says a thing, and never at the cost of the decision that produced it.
+    //
+    // EVERY AUDIT CALL IN THIS FILE RUNS IN A PLUGIN CONSTRUCTOR, after the screen has already decided,
+    // copied and marked. The one failure that reaches one is a logger that throws, which is the same full
+    // disk that damaged the configuration taking the file sink down with it - the trigger the constructor's
+    // own comment names. Letting it escape hands that constructor's catch a screen that DID run, and its
+    // answer there is "not unreadable": a decided, already-marked refusal becomes a server that accepts
+    // every SSO sign-in and answers "no matching provider" for the life of the process, while the marker
+    // on disk says the opposite and the next boot refuses again. That is a fail-OPEN on a control whose
+    // whole posture is fail-closed, so the announcement is contained where it is made.
+    private static void Announce(Action say)
+    {
+        try
+        {
+            say();
+        }
+#pragma warning disable CA1031, RCS1075 // an announcement that cannot be made costs the line and never the decision
+        catch (Exception)
+#pragma warning restore CA1031, RCS1075
+        {
         }
     }
 
@@ -350,6 +455,7 @@ internal static class UnreadableConfiguration
     // copy", which costs one more copy and never the evidence.
     private static string? AlreadyCopied(string configurationFilePath)
     {
+        string[] candidates;
         try
         {
             var directory = Path.GetDirectoryName(configurationFilePath);
@@ -358,24 +464,39 @@ internal static class UnreadableConfiguration
                 return null;
             }
 
-            var damaged = new FileInfo(configurationFilePath);
-            foreach (var candidate in Directory.GetFiles(directory, Path.GetFileName(configurationFilePath) + CopySuffix + "*"))
-            {
-                if (new FileInfo(candidate).Length == damaged.Length
-                    && File.ReadAllBytes(candidate).AsSpan().SequenceEqual(File.ReadAllBytes(configurationFilePath)))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
+            candidates = Directory.GetFiles(directory, Path.GetFileName(configurationFilePath) + CopySuffix + "*");
         }
-#pragma warning disable CA1031 // not being able to look is the same answer as there being no copy, which costs one copy
+#pragma warning disable CA1031 // not being able to look at all is the same answer as there being no copy, which costs one copy
         catch (Exception)
 #pragma warning restore CA1031
         {
             return null;
         }
+
+        // Read ONCE for the whole walk rather than once per candidate, which is also what stops a
+        // concurrent rewrite being compared against a length taken at a different instant.
+        if (candidates.Length == 0 || ReadAllBytesOrNull(configurationFilePath) is not { } damaged)
+        {
+            return null;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            // PER CANDIDATE, AND THAT IS THE WHOLE OF THE BOUND. One try around the entire walk abandoned
+            // every candidate after the first that could not be read, and the candidate guaranteed to
+            // reach the read is this incident's OWN copy, because a genuine copy has the damaged file's
+            // length by construction. So a single further fault - an ACL a restore left behind, a bad
+            // block on the disk that caused the damage, an agent holding the file open - answered "no
+            // copy" for the whole directory, and every later boot wrote another full copy of the
+            // configuration into the folder the whole server needs writable. That is the unbounded loop
+            // this method was added to stop, reachable again through one extra fault.
+            if (HoldsTheSameBytes(damaged, candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     // Writes the marker that outlives the process. A marker that cannot be written costs the state its
@@ -396,7 +517,7 @@ internal static class UnreadableConfiguration
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            SsoAudit.UnreadableConfigurationMarkerNotWritten(logger, configurationFilePath + MarkerSuffix, ex);
+            Announce(() => SsoAudit.UnreadableConfigurationMarkerNotWritten(logger, configurationFilePath + MarkerSuffix, ex));
         }
     }
 
@@ -464,7 +585,7 @@ internal static class UnreadableConfiguration
             {
                 if (cause is IOException or UnauthorizedAccessException)
                 {
-                    SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex);
+                    Announce(() => SsoAudit.UnreadableConfigurationCheckSkipped(logger, configurationFilePath, ex));
                     return Restored.Unknown;
                 }
             }

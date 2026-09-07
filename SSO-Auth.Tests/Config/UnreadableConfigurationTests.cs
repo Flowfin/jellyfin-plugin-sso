@@ -101,6 +101,126 @@ public class UnreadableConfigurationTests
 
         Assert.True(state.IsUnreadable);
         Assert.Equal("first boot", File.ReadAllText(path + ".unreadable-20260906-010203Z"));
+
+        // AND THIS INCIDENT'S BYTES ARE STILL KEPT, which is the half this test did not assert until the
+        // twelfth review. Never overwriting is one rule and abandoning the copy is another: the old code
+        // composed one name, met it taken, and returned "no copy kept" - after which the host wrote its
+        // defaults over the file and no later boot reached this arm again, because by then the file reads
+        // back. The name is walked past instead.
+        Assert.NotNull(state.PreservedCopyPath);
+        Assert.Equal("second boot", File.ReadAllText(state.PreservedCopyPath!));
+    }
+
+    [Fact]
+    public void ACopyNameTakenByAnotherIncident_IsDisambiguatedRatherThanAbandoned()
+    {
+        // The falsifier for the pair of assertions above, on the state that produces them: a host whose
+        // wall clock repeats a second across boots - no RTC, a read-only rootfs, a snapshot restored again
+        // and again - or two instances sharing one plugin-configuration directory. AlreadyCopied has
+        // already said no file there holds THESE bytes, so the occupant is a different fault's file, and
+        // the answer is another name rather than no copy at all.
+        var (path, serializer) = Stored("<SecondDamage", readable: false);
+        var at = new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc);
+        File.WriteAllText(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z", "<FirstDamage");
+
+        var state = UnreadableConfiguration.Preserve(path, serializer, Logger(), at);
+
+        Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z.1", state.PreservedCopyPath);
+        Assert.Equal("<SecondDamage", File.ReadAllText(state.PreservedCopyPath!));
+        Assert.Equal("<FirstDamage", File.ReadAllText(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z"));
+    }
+
+    [Fact]
+    public void AnAlteredRecordedCopy_IsTakenAgainRatherThanCountedAsKept()
+    {
+        // THE RECORD MAY NOT OUTRANK THE BYTES. The marker's Kept only proved the recorded copy still
+        // EXISTS, and existence is the wrong question: the log invites an operator to work on the
+        // timestamped copy, so the natural repair loop - open it, fix the truncated XML, save it back -
+        // leaves a file that exists and no longer holds the damage. The same disk that truncated the
+        // configuration can empty it too. On that boot the copy was reused, no second one was taken, and
+        // the Error line said the bytes had been kept; then the host wrote defaults over the file and the
+        // only artefact a repair could work on was gone. This is the sibling of
+        // ARecordedCopyThatIsGone_IsTakenAgainRatherThanCountedAsKept with one verb changed.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+
+        File.WriteAllText(first.PreservedCopyPath!, string.Empty);
+
+        var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 4, 5, 6, DateTimeKind.Utc));
+
+        Assert.True(second.IsUnreadable);
+        Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-040506Z", second.PreservedCopyPath);
+        Assert.Equal("<PluginConfig", File.ReadAllText(second.PreservedCopyPath!));
+    }
+
+    [Fact]
+    public void ACandidateCopyThatCannotBeRead_DoesNotAbandonTheWalk()
+    {
+        // THE BOUND IS PER CANDIDATE, NOT PER WALK. One try around the whole scan answered "no copy" for
+        // the entire directory as soon as any candidate could not be read - and the candidate guaranteed
+        // to be read is this incident's own copy, because a genuine copy has the damaged file's length by
+        // construction. So one further fault, of the kind this module names everywhere else - an ACL a
+        // restore left behind, a bad block on the disk that caused the damage, an agent holding the file -
+        // took the bound off entirely and every later boot wrote another full copy of the configuration
+        // into the directory the whole server needs writable.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+
+        // A second candidate of exactly the damaged file's length that cannot be read, and the marker gone
+        // so the recorded-copy shortcut cannot answer instead of the walk.
+        var unreadableCandidate = path + UnreadableConfiguration.CopySuffix + "20260101-000000Z";
+        File.WriteAllText(unreadableCandidate, "<PluginConfig");
+        UnreadableConfiguration.ClearMarker(path, Logger());
+
+        using (File.Open(unreadableCandidate, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            for (var boot = 0; boot < 4; boot++)
+            {
+                var state = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, boot, DateTimeKind.Utc));
+
+                Assert.True(state.IsUnreadable);
+                Assert.Equal(path + UnreadableConfiguration.CopySuffix + "20260906-010203Z", state.PreservedCopyPath);
+                UnreadableConfiguration.ClearMarker(path, Logger());
+            }
+        }
+
+        Assert.Equal(2, Copies(path).Length);
+    }
+
+    [Fact]
+    public void APluginWhoseLogSinkThrows_StillRefuses()
+    {
+        // THE ANNOUNCEMENT MAY NOT UNDO THE DECISION. The trigger the constructor's own comment names is a
+        // full disk that truncates the configuration AND takes the file log sink with it, so the Error
+        // line this screen writes throws. The screen had already decided, copied and marked by then; an
+        // exception escaping it reached the constructor's catch, whose answer is "not unreadable", and a
+        // decided refusal became a server accepting every SSO sign-in and answering "no matching provider"
+        // for the life of the process - while the marker on disk said the opposite and the next boot
+        // refused again. Fail-open on a control whose whole posture is fail-closed.
+        var root = Path.Combine(Path.GetTempPath(), "sso-unreadable-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "SSO-Auth.xml");
+        File.WriteAllText(path, "<PluginConfig");
+
+        var appPaths = Substitute.For<IApplicationPaths>();
+        appPaths.PluginConfigurationsPath.Returns(root);
+        appPaths.PluginsPath.Returns(Path.Combine(root, "plugins"));
+
+        var serializer = Substitute.For<IXmlSerializer>();
+        serializer.DeserializeFromFile(Arg.Any<Type>(), Arg.Any<string>()).Returns(_ => throw new InvalidOperationException("truncated"));
+
+        var logger = Substitute.For<ILogger<SSOPlugin>>();
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+        logger
+            .When(l => l.Log(Arg.Any<LogLevel>(), Arg.Any<EventId>(), Arg.Any<Arg.AnyType>(), Arg.Any<Exception?>(), Arg.Any<Func<Arg.AnyType, Exception?, string>>()))
+            .Do(_ => throw new IOException("no space left on device"));
+
+        var plugin = new SSOPlugin(appPaths, serializer, logger);
+
+        Assert.True(plugin.ServingDefaultConfiguration);
+        Assert.True(File.Exists(path + UnreadableConfiguration.MarkerSuffix));
+        Assert.Equal("<PluginConfig", File.ReadAllText(Assert.Single(Copies(path))));
     }
 
     [Fact]
@@ -443,10 +563,13 @@ public class UnreadableConfigurationTests
         UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         UnreadableConfiguration.ClearMarker(path, Logger());
 
-        // A second incident whose copy cannot be written: the name it would take is already occupied, and
-        // the copy is never made over an existing file.
+        // A second incident whose copy cannot be written. A DIRECTORY at the name, which File.Copy cannot
+        // write over on any platform - and NOT a file at the name, which is a different thing entirely and
+        // is what this fixture used to do: a taken name is now walked past rather than surrendered to, so
+        // occupying it with a file no longer stops the copy and this test would have been proving that a
+        // written copy is reported as none.
         File.WriteAllText(path, "<DifferentDamage");
-        File.WriteAllText(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z", "in the way");
+        Directory.CreateDirectory(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z");
         var incident = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
 
         Assert.True(incident.IsUnreadable);
@@ -498,8 +621,11 @@ public class UnreadableConfigurationTests
         // Repaired, and the marker delete failed, so it stands over what follows.
         File.WriteAllText(path, "<DifferentDamage");
 
-        // The first attempt of the new incident cannot write its copy: that name is already taken.
-        File.WriteAllText(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z", "in the way");
+        // The first attempt of the new incident cannot write its copy: a directory stands where it would
+        // go, which File.Copy cannot write over. A FILE at that name is not this case - a taken name is
+        // walked past now, not surrendered to - and using one here would have pinned a copy that was
+        // written as a copy that failed.
+        Directory.CreateDirectory(path + UnreadableConfiguration.CopySuffix + "20261201-040506Z");
         var firstAttempt = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 4, 5, 6, DateTimeKind.Utc));
 
         Assert.True(firstAttempt.IsUnreadable);

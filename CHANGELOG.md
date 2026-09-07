@@ -49,7 +49,13 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   server that keeps failing to start on the same damaged file does not write one
   full copy of it per boot into the directory it needs writable. A boot on which
   the file itself has changed is a new incident and is copied again, which is what
-  happens when the server's own attempt to write its defaults also fails. The marker beside it records which damaged
+  happens when the server's own attempt to write its defaults also fails. A copy
+  counts as kept only when a file beside the configuration actually holds those
+  bytes, so one that was emptied, edited in place or replaced does not stop the
+  next boot taking another; a copy name an earlier fault already occupies is
+  walked past rather than surrendered to, instead of costing the copy; and a log
+  sink that fails along with the disk that caused the damage costs the
+  announcement and never the refusal. The marker beside it records which damaged
   file the incident is about and which copy was kept for it, and it inherits
   nothing from the incident before it, so a second, unrelated damage months later
   is copied in its own right rather than skipped because a marker happened to be

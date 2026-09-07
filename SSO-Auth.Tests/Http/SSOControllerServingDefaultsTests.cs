@@ -267,6 +267,29 @@ public class SSOControllerServingDefaultsTests
         Assert.False(report.ConfigurationUnreadable);
     }
 
+    [Fact]
+    public async Task TheRefusalBody_SendsNobodyToTheLogForARosterOfAccounts()
+    {
+        // The body used to end "the server log says which accounts have one", and no line writes that or
+        // could. The two lines this incident produces name a CATEGORY - an account this plugin provisioned
+        // has no password, one it repointed in SSO-only mode has none either, so the only certain way in is
+        // the break-glass administrator - and enumerate no account; the plugin's refusal surfaces are
+        // deliberately non-enumerating everywhere else, so satisfying the sentence would have meant adding
+        // the roster it advertised. A stranded administrator was therefore sent to the log to look for a
+        // list nothing writes, during a total SSO outage.
+        //
+        // DISCLOSED AS A LITERAL GUARD: it refuses this sentence coming back, not every sentence that
+        // would send a reader after a list. Nothing here can derive that.
+        var harness = ServingDefaults();
+
+        var result = await harness.Controller.OidAuth("keycloak", new AuthResponse());
+
+        var body = Assert.IsType<string>(Assert.IsAssignableFrom<ObjectResult>(result).Value);
+        Assert.Contains("could not be read", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("which accounts", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("accounts have one", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static SsoControllerHarness ServingDefaults() => new(unreadableConfiguration: true);
 
     private static void AssertUnavailable(ActionResult result) => Assert.Equal(503, Status(result));
