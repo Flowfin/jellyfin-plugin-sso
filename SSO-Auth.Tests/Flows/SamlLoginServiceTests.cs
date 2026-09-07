@@ -8,10 +8,12 @@ using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
@@ -164,7 +166,7 @@ public class SamlLoginServiceTests
         var sessionMinter = new SessionMinter(harness.UserManager, avatarService, sessionManager, logger);
         var ssoOnly = new SsoOnlyLoginService(harness.UserManager, SSOPlugin.Instance.ConfigStore, logger);
         var loginCompletion = new LoginCompletionService(canonicalLinks, sessionMinter, ssoOnly, SSOPlugin.Instance.ConfigStore, sessionManager, logger);
-        var service = new SamlLoginService(loginCompletion, canonicalLinks, logger);
+        var service = new SamlLoginService(loginCompletion, canonicalLinks, new SsoLoginEvents(Substitute.For<IEventManager>(), logger), logger);
 
         var context = new DefaultHttpContext();
         context.Request.Scheme = "https";

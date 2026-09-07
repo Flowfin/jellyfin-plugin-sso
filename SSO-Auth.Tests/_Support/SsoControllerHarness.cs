@@ -13,6 +13,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Providers;
@@ -48,6 +49,12 @@ internal sealed class SsoControllerHarness
     public IUserManager UserManager { get; }
 
     public ISessionManager SessionManager { get; }
+
+    /// <summary>
+    /// Gets the substituted event bus the controller hands both login flows (#1142), so a test can assert
+    /// what a role-mapping denial published - and, on every other path, that it published nothing.
+    /// </summary>
+    public IEventManager EventManager { get; }
 
     public IAuthorizationContext AuthContext { get; }
 
@@ -114,6 +121,7 @@ internal sealed class SsoControllerHarness
 
         UserManager = Substitute.For<IUserManager>();
         SessionManager = Substitute.For<ISessionManager>();
+        EventManager = Substitute.For<IEventManager>();
         AuthContext = Substitute.For<IAuthorizationContext>();
 
         // With no responder the factory returns null (an unreachable network - the controller's discovery
@@ -137,7 +145,8 @@ internal sealed class SsoControllerHarness
             Substitute.For<IProviderManager>(),
             httpClientFactory,
             Substitute.For<IServerConfigurationManager>(),
-            new FakeDisplayPreferencesManager())
+            new FakeDisplayPreferencesManager(),
+            EventManager)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

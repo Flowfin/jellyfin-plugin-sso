@@ -15,6 +15,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
@@ -30,6 +31,7 @@ using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Providers;
@@ -135,6 +137,7 @@ public class SSOController : ControllerBase
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface, the store a templated home-screen layout is seeded into (#1101).</param>
+    /// <param name="eventManager">Instance of the <see cref="IEventManager"/> interface, the bus the role-mapping denial is published on (#1142).</param>
     public SSOController(
         ILogger<SSOController> logger,
         ILoggerFactory loggerFactory,
@@ -145,7 +148,8 @@ public class SSOController : ControllerBase
         IProviderManager providerManager,
         IHttpClientFactory httpClientFactory,
         IServerConfigurationManager serverConfigurationManager,
-        IDisplayPreferencesManager displayPreferencesManager)
+        IDisplayPreferencesManager displayPreferencesManager,
+        IEventManager eventManager)
     {
         _userManager = userManager;
         _authContext = authContext;
@@ -158,8 +162,12 @@ public class SSOController : ControllerBase
         var avatarService = new AvatarService(userManager, providerManager, serverConfigurationManager, logger, SsoHttp.UserAgent);
         var sessionMinter = new SessionMinter(userManager, avatarService, sessionManager, logger);
         _loginCompletion = new LoginCompletionService(_canonicalLinks, sessionMinter, _ssoOnly, SSOPlugin.Instance.ConfigStore, sessionManager, logger);
-        _oidc = new Flows.OidcLoginService(_loginCompletion, _canonicalLinks, httpClientFactory, loggerFactory, logger);
-        _saml = new Flows.SamlLoginService(_loginCompletion, _canonicalLinks, logger);
+        // One publisher for both flows (#1142). Jellyfin supplies the event bus through DI; the flows take
+        // it rather than the controller publishing for them, because only the flow knows that the refusal was
+        // the role allow-list rather than one of the other denials that share the uniform 401.
+        var loginEvents = new SsoLoginEvents(eventManager, logger);
+        _oidc = new Flows.OidcLoginService(_loginCompletion, _canonicalLinks, loginEvents, httpClientFactory, loggerFactory, logger);
+        _saml = new Flows.SamlLoginService(_loginCompletion, _canonicalLinks, loginEvents, logger);
         _logger.LogInformation("SSO Controller initialized");
     }
 

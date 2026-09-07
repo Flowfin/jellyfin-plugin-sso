@@ -11,6 +11,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A login refused by role mapping now reaches a notification destination
+  (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
+  single sign-on turned somebody away: Jellyfin raises its own
+  authentication-failed notification only from the session mint, on the arm where
+  no user resolved, and an SSO login the role allow-list refuses returns before
+  the mint. Both protocols now publish Jellyfin's own authentication-failed event
+  at that refusal, so a configured destination receives it as
+  `AuthenticationFailure` with no change on that side. The event is the server's
+  own type on purpose - the webhook plugin consumes twenty closed Jellyfin types
+  and no open one, so an event type this plugin declared would reach nobody. The
+  payload names the provider and a fixed reason and **nothing about the person**:
+  no username, no subject, no claim value, the same rule the audit trail is
+  written under and applied harder because this payload leaves the machine. It
+  also means the entry Jellyfin writes to its own activity log for that refusal
+  carries no name, only the time and the client address. A notification never
+  decides a login: a bus that throws is swallowed and logged, and the denial
+  answers exactly as before.
 - **A way back from a link import that restored the wrong document (#1519).**
   `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
   canonical link one provider holds. It exists because the link import merges -

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -16,8 +17,11 @@ using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Controller.Events;
+using MediaBrowser.Controller.Events.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
@@ -328,6 +332,46 @@ public class SSOControllerOidPostTests
         Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
         Assert.False(user.HasPermission(PermissionKind.IsDisabled)); // untouched by default
         await harness.UserManager.DidNotReceive().UpdateUserAsync(Arg.Any<User>());
+    }
+
+
+    [Fact]
+    public async Task OidPost_RoleDenied_PublishesTheHostDenialNamingTheProviderAndReason()
+    {
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        // #1142: a login the role allow-list refuses reaches no notification destination today. Jellyfin
+        // raises its own authentication-failed event only from the session mint, on the arm where no user
+        // resolved, and this path returns before the mint - so the plugin publishes the host type here. The
+        // event is the HOST's because jellyfin-plugin-webhook consumes twenty closed Jellyfin types and no
+        // open one, so a type this plugin declares would reach no consumer at all.
+        var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1", tuneProvider: p =>
+        {
+            p.Roles = new[] { "only-admins" };
+        });
+
+        var result = await harness.Controller.OidCallback("kc", "state-1");
+
+        Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
+        var published = Assert.IsType<AuthenticationRequestEventArgs>(
+            harness.EventManager.ReceivedCalls()
+                .Single(c => string.Equals(c.GetMethodInfo().Name, "PublishAsync", StringComparison.Ordinal))
+                .GetArguments()[0]);
+        Assert.Equal("SSO/kc", published.App);
+        Assert.Equal(SsoLoginEvents.RoleDeniedReason, published.DeviceName);
+        Assert.Equal(string.Empty, published.Username); // the payload leaves the machine and names nobody
+    }
+
+    [Fact]
+    public async Task OidPost_ValidCallback_PublishesNoDenial()
+    {
+        // The one-change neighbour of the test above: the same fixture with an allow-list the id_token DOES
+        // satisfy must publish nothing, so the publish is bound to the refusal rather than to the callback.
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        var harness = ArrangeCallback(fixture, query: "?code=test-code&state=state-1");
+
+        _ = await harness.Controller.OidCallback("kc", "state-1");
+
+        await harness.EventManager.DidNotReceive().PublishAsync(Arg.Any<AuthenticationRequestEventArgs>());
     }
 
     [Fact]

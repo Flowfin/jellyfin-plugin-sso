@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
+using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Jellyfin.Plugin.SSO_Auth.Api.Metrics;
@@ -20,6 +21,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
+using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Providers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -92,6 +94,10 @@ internal sealed class OidcLoginService
     // manual-link redeem; the controller keeps the authz guards and the HTTP mapping around it (#318).
     private readonly CanonicalLinkService _canonicalLinks;
 
+    // The one SSO login moment Jellyfin's own event bus can carry (#1142): the role-mapping denial,
+    // published as the host's authentication-failed event so a configured webhook destination receives it.
+    private readonly SsoLoginEvents _loginEvents;
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -103,18 +109,21 @@ internal sealed class OidcLoginService
     /// </summary>
     /// <param name="loginCompletion">The shared post-validation login completion pipeline.</param>
     /// <param name="canonicalLinks">The account-linking workflow used by the OID manual-link redeem.</param>
+    /// <param name="loginEvents">Publishes the role-mapping denial on Jellyfin's event bus (#1142).</param>
     /// <param name="httpClientFactory">The factory for the token-endpoint client.</param>
     /// <param name="loggerFactory">The factory for the underlying OIDC client's logger.</param>
     /// <param name="logger">The service logger.</param>
     internal OidcLoginService(
         LoginCompletionService loginCompletion,
         CanonicalLinkService canonicalLinks,
+        SsoLoginEvents loginEvents,
         IHttpClientFactory httpClientFactory,
         ILoggerFactory loggerFactory,
         ILogger logger)
     {
         _loginCompletion = loginCompletion ?? throw new ArgumentNullException(nameof(loginCompletion));
         _canonicalLinks = canonicalLinks ?? throw new ArgumentNullException(nameof(canonicalLinks));
+        _loginEvents = loginEvents ?? throw new ArgumentNullException(nameof(loginEvents));
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -447,6 +456,12 @@ internal sealed class OidcLoginService
             {
                 SsoAudit.AccountDeprovisioned(_logger, "OpenID", provider);
             }
+
+            // Tell the operator's notification destination that a login was refused by role mapping (#1142).
+            // Jellyfin raises its own authentication-failed event only from the session mint, on the arm where
+            // no user resolved, and this path returns before the mint - so without this publish the denial
+            // reaches nobody. The payload names the provider and a fixed reason and nothing about the person.
+            await _loginEvents.PublishRoleDeniedAsync(provider, request.HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
         }
