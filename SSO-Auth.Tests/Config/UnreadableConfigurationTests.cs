@@ -239,6 +239,34 @@ public class UnreadableConfigurationTests
     }
 
     [Fact]
+    public void ARecordedCopyThatCannotBeRead_KeepsItsRecordWhenNoNewCopyCanBeWritten()
+    {
+        // THE PREMISE IS ABOUT WHAT CAN BE ATTEMPTED, NOT ABOUT WHAT SUCCEEDS. A candidate that cannot be
+        // read means the damage is readable and a copy is writable, so one is taken - and on the full disk
+        // this feature is named after, the attempt fails. Handing that failure on to the marker erased the
+        // only pointer to a copy that still exists, still belongs to this incident and still has the
+        // damaged file's length, on the boot after which the host overwrites the configuration; every later
+        // boot then told the operator that no copy had been kept while it lay beside the file. The record
+        // is the last resort HERE and only here: a decided "different" - the test above - must still not be
+        // named as this damage.
+        var (path, damaged) = Stored("<PluginConfig", readable: false);
+        var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
+        Assert.NotNull(first.PreservedCopyPath);
+
+        // A directory where this boot's copy would go, so File.Copy cannot write it.
+        Directory.CreateDirectory(path + UnreadableConfiguration.CopySuffix + "20261201-000000Z");
+
+        using (File.Open(first.PreservedCopyPath!, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var second = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.True(second.IsUnreadable);
+            Assert.Equal(first.PreservedCopyPath, second.PreservedCopyPath);
+            Assert.Contains(first.PreservedCopyPath!, File.ReadAllText(path + UnreadableConfiguration.MarkerSuffix), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void ACandidateCopyThatCannotBeRead_DoesNotAbandonTheWalk()
     {
         // THE BOUND IS PER CANDIDATE, NOT PER WALK. One try around the whole scan answered "no copy" for

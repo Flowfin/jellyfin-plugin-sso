@@ -11,6 +11,33 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
 /// <summary>
+/// What one comparison of the damaged configuration against a candidate copy came back with (#1543).
+/// Four answers rather than two, because the two ways of not knowing are answered differently and
+/// collapsing any pair of these has cost this module a defect each time.
+/// </summary>
+internal enum Comparison
+{
+    /// <summary>The candidate holds exactly the damaged file's bytes.</summary>
+    Same,
+
+    /// <summary>It does not: a different length, different bytes, or a link rather than a copy.</summary>
+    Different,
+
+    /// <summary>
+    /// It could not be told, because the DAMAGED file could not be read. No copy could have been written
+    /// on that fault either, so nothing is gained by trying and a standing record is worth keeping.
+    /// </summary>
+    DamageUnreadable,
+
+    /// <summary>
+    /// It could not be told, because the CANDIDATE could not be read. The damage is readable and a copy
+    /// can be attempted - but only attempted, so a record already naming this candidate is the last
+    /// resort if that attempt fails.
+    /// </summary>
+    CandidateUnreadable,
+}
+
+/// <summary>
 /// What one read of the stored file said (#1543): whether it came back at all, and whether what came
 /// back is a configuration somebody put there rather than the empty default the host writes.
 /// </summary>
@@ -215,9 +242,22 @@ internal static class UnreadableConfiguration
         // cannot be reached at all lands on "could not tell" - where the record is the better answer,
         // because a copy cannot be written on that fault either and rewriting the marker would erase the
         // only pointer to the copy that already exists.
-        var preserved = sameIncident && carried?.Kept is { } kept && SameBytes(configurationFilePath, kept) is not false
-            ? kept
-            : Copy(configurationFilePath, nowUtc, logger);
+        //
+        // FOUR ANSWERS, AND EACH OF THE LAST TWO IS THE ONE THE OTHER GETS WRONG. Undecidable-because-the-
+        // DAMAGE-cannot-be-read means no copy could be written either, so the record is believed and
+        // nothing is attempted. Undecidable-because-the-CANDIDATE-cannot-be-read means the damage is
+        // readable and a copy is writable, so one is taken - but that premise is about what CAN be
+        // attempted, not about what succeeds, and on the full disk this feature is named after the attempt
+        // fails. Handing that null on to the marker erased the only pointer to a copy that still exists,
+        // still belongs to this incident and still has the damaged file's length. So the record stands as
+        // the last resort there, and ONLY there: a decided "different" - an emptied copy, one an operator
+        // saved a repair over - must never be named as this damage, whether or not a new copy could be
+        // written.
+        var recordedCopy = sameIncident ? carried?.Kept : null;
+        var verdict = recordedCopy is null ? Comparison.Different : Compare(configurationFilePath, recordedCopy);
+        var preserved = verdict is Comparison.Same or Comparison.DamageUnreadable
+            ? recordedCopy
+            : Copy(configurationFilePath, nowUtc, logger) ?? (verdict is Comparison.CandidateUnreadable ? recordedCopy : null);
         Mark(configurationFilePath, incident, preserved, logger);
         Announce(() => SsoAudit.UnreadableConfigurationFound(logger, configurationFilePath, preserved));
         return new UnreadableConfigurationState(true, preserved);
@@ -368,7 +408,7 @@ internal static class UnreadableConfiguration
     // IS NOT A COPY: a stream follows one, so a link named like a copy and pointing back at the
     // configuration compares equal to the damage, suppresses the copy, and then resolves to the defaults
     // the host writes a moment later.
-    private static bool? SameBytes(string configurationFilePath, string candidate)
+    private static Comparison Compare(string configurationFilePath, string candidate)
     {
         // WHICH SIDE FAILED IS THE WHOLE OF THE THIRD ANSWER, and answering null for both sides was a
         // defect rather than caution. Undecidable is worth having only because no copy can be written on
@@ -383,7 +423,7 @@ internal static class UnreadableConfiguration
             var kept = new FileInfo(candidate);
             if (kept.LinkTarget is not null)
             {
-                return false;
+                return Comparison.Different;
             }
 
             damagedSide = true;
@@ -391,7 +431,7 @@ internal static class UnreadableConfiguration
             damagedSide = false;
             if (kept.Length != damagedLength)
             {
-                return false;
+                return Comparison.Different;
             }
 
             damagedSide = true;
@@ -408,21 +448,21 @@ internal static class UnreadableConfiguration
                 damagedSide = false;
                 if (read == 0)
                 {
-                    return true;
+                    return Comparison.Same;
                 }
 
                 copy.ReadExactly(fromCopy.AsSpan(0, read));
                 if (!fromDamaged.AsSpan(0, read).SequenceEqual(fromCopy.AsSpan(0, read)))
                 {
-                    return false;
+                    return Comparison.Different;
                 }
             }
         }
-#pragma warning disable CA1031 // a damaged file that cannot be read answers neither "same" nor "different"; a candidate that cannot be read answers "not a copy to rely on"
+#pragma warning disable CA1031 // which file could not be read is the answer; neither failure is a decision about the bytes
         catch (Exception)
 #pragma warning restore CA1031
         {
-            return damagedSide ? null : false;
+            return damagedSide ? Comparison.DamageUnreadable : Comparison.CandidateUnreadable;
         }
     }
 
@@ -534,7 +574,7 @@ internal static class UnreadableConfiguration
             // copy" for the whole directory, and every later boot wrote another full copy of the
             // configuration into the folder the whole server needs writable. That is the unbounded loop
             // this method was added to stop, reachable again through one extra fault.
-            if (SameBytes(configurationFilePath, candidate) == true)
+            if (Compare(configurationFilePath, candidate) is Comparison.Same)
             {
                 return candidate;
             }
