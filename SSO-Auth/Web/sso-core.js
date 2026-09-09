@@ -221,17 +221,85 @@ const ssoConfigurationPage = {
   // per configuration load and held as a promise, so an editor opened before the answer arrives still waits
   // for it instead of rendering an editable form over a managed provider.
   //
-  // ADVISORY ONLY, and that is the reason the failure arm below gives up rather than defending. The guard is
-  // on the server: a save to a managed provider keeps the stored value and is audited whether or not this
-  // page ever learned the provider was managed. So a report that does not arrive leaves the page exactly as
-  // it behaved before this existed, which costs a confusing edit; treating an unreachable report as "assume
-  // everything is managed" would instead lock an administrator out of forms the server would have accepted.
+  // ADVISORY ONLY. The guard is on the server: a save to a managed provider keeps the stored value and is
+  // audited whether or not this page ever learned the provider was managed. That is why an unreachable
+  // report is never read as "assume everything is managed" - that answer would lock an administrator out of
+  // every form the server would have accepted, on a page whose own report is the thing that is broken.
+  //
+  // A FAILED READ NO LONGER EMPTIES THE SET (#1589). It used to, and the emptying was the fail-open
+  // direction of the same reasoning: a 500, an expired dashboard session or a restart turned every provider
+  // a file owns into an ordinary editable form, an administrator edited it, pressed Save and was told
+  // "Settings saved." while the server kept the stored value and logged an ignored write. #1576 made that
+  // reachable on every return to a settings tab rather than once per page construction. So the last set that
+  // WAS read survives a failure, which is the only answer that is neither an invention nor a lockout: it
+  // freezes exactly what the server last said it owns and nothing else.
+  //
+  // What survives no failure is a set that was never read, and that residual is carried rather than hidden:
+  // `managedReportUnread` says the read failed, and BOTH arms of the editor then say so - an unfrozen form
+  // stops looking identical to a provider nothing owns, and a frozen one stops claiming a certainty the
+  // page has just admitted it does not have.
+  //
+  // The other cost of keeping the set is stated rather than left to be discovered: a provider REMOVED at
+  // the file source while the report is unreadable stays frozen until a read succeeds. That direction
+  // refuses a save the server would have accepted, which is one dashboard reload away from repaired and is
+  // the side of the trade this page is allowed to be wrong on.
   managedProviders: {
     OidConfigs: [],
     SamlConfigs: [],
     ProvisioningProfiles: [],
   },
   managedProvidersLoaded: null,
+  // Whether the last managed-set read to SETTLE failed. Read by the two editors to tell "nothing owns this"
+  // apart from "this page could not find out", which are the same empty form without it.
+  //
+  // Settled rather than most recently STARTED, and the difference is deliberate. Two reads can be in flight
+  // at once - the refresh on a tab show and a save's reload - and the flag follows whichever answers last.
+  // So a rejection followed by a success clears it, which is correct: a set that was read is a set that was
+  // read. A success followed by a rejection sets it over a fresh set, which over-warns and clears itself on
+  // the next successful read. Neither ordering unfreezes anything, because the freeze is decided by the set
+  // and never by this flag.
+  managedReportUnread: false,
+  // The sentence an unfrozen editor carries while the report is unread, in ONE place because both editors
+  // say the same thing for the same reason. It states the residual rather than softening it: the form is
+  // editable, the page does not know whether anything owns it, and the server is still the party that
+  // decides - a save it refuses keeps the stored value and is recorded.
+  //
+  // WHY IT NAMES TWO ROUTES AND NOT "REOPEN THIS TAB". Measured: `refreshOnShow` returns early while any
+  // editor region is open, so returning to the Providers tab with the frozen editor in front of you issues
+  // no read at all - the shortest instruction would have been the one that does nothing in the state it is
+  // printed in. Closing the editor and coming back, visiting another SSO tab, and reloading the dashboard
+  // all re-read; the note names the two an administrator can act on without knowing the code.
+  //
+  // Suppressed on a form with no name - the blank add-new editor - at the call sites. Nothing owns a
+  // provider that does not exist yet, so the sentence there would be noise in a live region on every tab
+  // that has one.
+  unreadReportNote: () =>
+    tr(
+      "config.managed_report_unread_note",
+      "Which providers and profiles a configuration file sets could not be read, so this form is editable without confirming that nothing sets it. Close any open editor and return to this tab, or reload the dashboard, to try again. If a configuration file does set it, a save made here would keep the stored value and leave a record in the log.",
+    ),
+  // What a FROZEN editor adds while the report is unread, and what the four refusals that block a rename,
+  // a delete or a profile save add for the same reason. The freeze then rests on the last answer the server
+  // gave rather than on a current one, and a message that went on asserting "this is set by a configuration
+  // file" would state a certainty this page has just recorded that it does not have. It is appended at the
+  // blocking messages as well as at the advisory notes, because a refusal is where that certainty costs
+  // something: it sends an administrator to a source that may no longer define what they are being refused.
+  // Empty while the report reads fine, so every one of those messages is unchanged in the ordinary case.
+  // The note an editor carries when it is NOT frozen, in one function so both editors and the proof ask the
+  // same question. Empty on a form with no name - the blank add-new editor - because nothing can own a
+  // provider that does not exist yet, and a live region repeating that on every tab would be noise.
+  unreadNoteFor: (name) =>
+    name && ssoConfigurationPage.managedReportUnread
+      ? ssoConfigurationPage.unreadReportNote()
+      : "",
+  staleReportSuffix: () =>
+    ssoConfigurationPage.managedReportUnread
+      ? " " +
+        tr(
+          "config.managed_report_stale_suffix",
+          "This is the last answer the server gave: the most recent attempt to re-read it failed, so it may be out of date. Close any open editor and return to this tab, or reload the dashboard, to try again.",
+        )
+      : "",
   loadManagedProviders: () => {
     ssoConfigurationPage.managedProvidersLoaded = ApiClient.getJSON(
       ApiClient.getUrl("sso/Config/Managed"),
@@ -250,13 +318,12 @@ const ssoConfigurationPage = {
             ? report.ProvisioningProfiles
             : [],
         };
+        ssoConfigurationPage.managedReportUnread = false;
       },
       () => {
-        ssoConfigurationPage.managedProviders = {
-          OidConfigs: [],
-          SamlConfigs: [],
-          ProvisioningProfiles: [],
-        };
+        // The set is deliberately left alone. See the note above: replacing it with an empty one is the
+        // fail-open #1589 is about, and replacing it with "everything" is the lockout.
+        ssoConfigurationPage.managedReportUnread = true;
       },
     );
     return ssoConfigurationPage.managedProvidersLoaded;
@@ -332,14 +399,14 @@ const ssoConfigurationPage = {
 
       const note = page.querySelector("#profile-managed-note");
       if (note) {
-        // Set as text only (#221). The text is fixed and carries no profile value.
+        // Set as text only (#221). Both texts are fixed and carry no profile value.
         note.textContent = managed
           ? tr(
               "config.managed_profile_note",
               "This profile is defined by a configuration file or by environment variables, so it cannot be edited, renamed or deleted here. Change it at that source and restart Jellyfin. A save made here would keep the stored value and leave a record in the log.",
-            )
-          : "";
-        note.hidden = !managed;
+            ) + ssoConfigurationPage.staleReportSuffix()
+          : ssoConfigurationPage.unreadNoteFor(name);
+        note.hidden = note.textContent === "";
       }
     });
   },
@@ -404,15 +471,15 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.updateSaveAvailability(page);
 
       if (note) {
-        // textContent, never innerHTML (#221). The text is fixed and carries no provider value, so nothing
+        // textContent, never innerHTML (#221). Both texts are fixed and carry no provider value, so nothing
         // from the configuration reaches the DOM here at all.
         note.textContent = managed
           ? tr(
               "config.managed_by_file_note",
               "This provider is set by a configuration file or by environment variables, so it cannot be edited here. Change it at that source and restart Jellyfin. A save made here would keep the stored value and leave a record in the log.",
-            )
-          : "";
-        note.hidden = !managed;
+            ) + ssoConfigurationPage.staleReportSuffix()
+          : ssoConfigurationPage.unreadNoteFor(provider_name);
+        note.hidden = note.textContent === "";
       }
     });
   },
@@ -2048,7 +2115,8 @@ const ssoConfigurationPage = {
     if (ssoConfigurationPage.isManagedProfile(from)) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        `"${from}" cannot be renamed here: it is defined by a configuration file or by environment variables, and the server would restore it under this name after the save, leaving an unmanaged copy under the new one. Rename it at that source and restart Jellyfin.`,
+        `"${from}" cannot be renamed here: it is defined by a configuration file or by environment variables, and the server would restore it under this name after the save, leaving an unmanaged copy under the new one. Rename it at that source and restart Jellyfin.` +
+          ssoConfigurationPage.staleReportSuffix(),
       );
       return;
     }
@@ -2102,7 +2170,8 @@ const ssoConfigurationPage = {
         if (frozen.length > 0) {
           ssoConfigurationPage.provisioningProfileStatus(
             page,
-            `"${from}" cannot be renamed: it is named by ${frozen.map((reference) => reference.label).join("; ")}, which a configuration file or environment variables decide. That name would be restored after the save and would then point at a profile this configuration no longer defines, which makes every later save fail. Rename it at that source, or leave this profile's name as it is.`,
+            `"${from}" cannot be renamed: it is named by ${frozen.map((reference) => reference.label).join("; ")}, which a configuration file or environment variables decide. That name would be restored after the save and would then point at a profile this configuration no longer defines, which makes every later save fail. Rename it at that source, or leave this profile's name as it is.` +
+              ssoConfigurationPage.staleReportSuffix(),
           );
           return;
         }
@@ -2138,7 +2207,8 @@ const ssoConfigurationPage = {
     if (ssoConfigurationPage.isManagedProfile(name)) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        `"${name}" cannot be deleted here: it is defined by a configuration file or by environment variables, and the server would put it back after the save. Remove it at that source and restart Jellyfin.`,
+        `"${name}" cannot be deleted here: it is defined by a configuration file or by environment variables, and the server would put it back after the save. Remove it at that source and restart Jellyfin.` +
+          ssoConfigurationPage.staleReportSuffix(),
       );
       return;
     }
@@ -2193,7 +2263,8 @@ const ssoConfigurationPage = {
     if (ssoConfigurationPage.isManagedProfile(name)) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        `"${name}" cannot be saved here: it is defined by a configuration file or by environment variables, and the server would keep the stored value and record the ignored write. Change it at that source and restart Jellyfin.`,
+        `"${name}" cannot be saved here: it is defined by a configuration file or by environment variables, and the server would keep the stored value and record the ignored write. Change it at that source and restart Jellyfin.` +
+          ssoConfigurationPage.staleReportSuffix(),
       );
       return;
     }

@@ -845,6 +845,140 @@ async function main() {
     }
   }
 
+  // ---- The managed set survives a failed read (#1589) ----
+  //
+  // WHAT THIS ARM CAN AND CANNOT SAY, and the bound is the same one this file's header states. It judges
+  // the DATA the freeze is decided from and not the freeze itself: the stub has no tree, so
+  // `applyManagedState` - which walks a form's own children - cannot run here at all, and the note this
+  // change paints is outside every arm in this file. What IS reachable is the failure arm of
+  // `loadManagedProviders` and the two predicates the editors ask, and that is where #1589's defect sat: a
+  // rejected read emptied the set, every provider a configuration file owns answered `false`, and the
+  // editor rendered an ordinary editable form over a value the server would refuse to change.
+  {
+    const originalClient = globalThis.ApiClient;
+    const originalSet = core.managedProviders;
+    const originalUnread = core.managedReportUnread;
+    let rejecting = false;
+    globalThis.ApiClient = {
+      getUrl: (url) => url,
+      getJSON: () =>
+        rejecting
+          ? Promise.reject(new Error("sso/Config/Managed answered 500"))
+          : Promise.resolve({
+              OidConfigs: ["file-owned"],
+              SamlConfigs: [],
+              ProvisioningProfiles: ["file-profile"],
+            }),
+    };
+
+    // The report arrives once, which is the state a transient failure then has to survive.
+    await core.loadManagedProviders();
+    if (!core.isManagedProvider("oid", "file-owned")) {
+      refuse(
+        "managed-report-failure",
+        "a served report did not mark the provider it names as managed, so this arm would prove nothing",
+      );
+    }
+
+    rejecting = true;
+    await core.loadManagedProviders();
+    if (!core.isManagedProvider("oid", "file-owned")) {
+      refuse(
+        "managed-report-failure",
+        "a failed read unfroze a provider a configuration file owns",
+      );
+    }
+    if (!core.isManagedProfile("file-profile")) {
+      refuse(
+        "managed-report-failure",
+        "a failed read unfroze a profile a configuration file defines",
+      );
+    }
+    if (!core.managedReportUnread) {
+      refuse(
+        "managed-report-failure",
+        "a failed read left the page claiming it knows what is managed",
+      );
+    }
+    // The freeze that survives now rests on the last answer rather than a current one, and the note the
+    // FROZEN editor paints has to say so. The note itself is out of reach here - the stub has no tree - so
+    // what is judged is the sentence the two editors append, which is where that qualifier lives.
+    if (core.staleReportSuffix() === "") {
+      refuse(
+        "managed-report-failure",
+        "a frozen editor said nothing about the read that failed underneath it",
+      );
+    }
+
+    // The same qualifier has to reach the messages that REFUSE an act, which is where a wrong certainty
+    // costs something: they send an administrator to a source that may no longer define what they are
+    // being refused. Driven through the shipped refusal rather than by reading the string, so the arm
+    // reddens when the append is dropped from the call site.
+    {
+      const profilePage = policiesPageFixture();
+      const selector = profilePage.querySelector("#selectProvisioningProfile");
+      selector.value = "file-profile";
+      const said = [];
+      const realStatus = core.provisioningProfileStatus;
+      core.provisioningProfileStatus = (_page, message) => said.push(message);
+      core.deleteProvisioningProfile(profilePage);
+      core.provisioningProfileStatus = realStatus;
+      if (said.length !== 1) {
+        refuse(
+          "managed-report-failure",
+          "the delete of a managed profile said something other than one thing, so this arm proves nothing",
+        );
+      } else if (!said[0].endsWith(core.staleReportSuffix())) {
+        refuse(
+          "managed-report-failure",
+          "a refusal sent an administrator to a configuration file without saying the report was unread",
+        );
+      }
+    }
+
+    // And the unfrozen note is a decision about a name, so both directions are asked: a loaded editor
+    // says the report failed, a blank add-new form says nothing at all.
+    if (core.unreadNoteFor("some-provider") === "") {
+      refuse(
+        "managed-report-failure",
+        "an unfrozen editor looked identical to a provider nothing owns",
+      );
+    }
+    if (core.unreadNoteFor("") !== "") {
+      refuse(
+        "managed-report-failure",
+        "the blank add-new form warned about ownership of a provider that does not exist yet",
+      );
+    }
+
+    // And the flag comes back off, so one transient failure does not leave every editor after it carrying
+    // a warning about a report that is now being read fine.
+    rejecting = false;
+    await core.loadManagedProviders();
+    if (core.managedReportUnread) {
+      refuse(
+        "managed-report-failure",
+        "a report that was read again went on being reported as unread",
+      );
+    }
+    if (core.staleReportSuffix() !== "") {
+      refuse(
+        "managed-report-failure",
+        "a frozen editor went on warning about a report that is being read fine",
+      );
+    }
+    if (core.unreadNoteFor("some-provider") !== "") {
+      refuse(
+        "managed-report-failure",
+        "an unfrozen editor went on warning about a report that is being read fine",
+      );
+    }
+
+    globalThis.ApiClient = originalClient;
+    core.managedProviders = originalSet;
+    core.managedReportUnread = originalUnread;
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(
@@ -854,7 +988,7 @@ async function main() {
   }
 
   console.log(
-    "unsaved state:     fifteen arms run against the shipped sso-core.js and the pages it serves",
+    "unsaved state:     sixteen arms run against the shipped sso-core.js and the pages it serves",
   );
   console.log(
     "  untouched        a page nobody typed into is clean, shows nothing, and its Save is open",
@@ -903,6 +1037,9 @@ async function main() {
   );
   console.log(
     "  refresh-ordinary a save, delete or import still replaces the page whatever state it is in",
+  );
+  console.log(
+    "  managed-report-failure a failed managed-set read keeps the last set it read and says it failed",
   );
 }
 
