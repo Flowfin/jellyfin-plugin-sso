@@ -44,23 +44,91 @@ jobs:
     permissions:
       security-events: write # upload the SARIF into the code-scanning tab
       contents: read # checkout the workflows to scan
-    env:
-      ZIZMOR_VERSION: "1.26.1"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # WHY THIS IS READ RATHER THAN RESTATED. A version written in the workflow
+      # AND in the requirements input is a version no routine updater can finish
+      # moving: nothing writes a workflow `env:` value, so a version-update pull
+      # request moves the requirements files and leaves the third place behind.
+      # Reading it keeps the assert below doing the same work against the pair
+      # that can actually drift, the input against its GENERATED closure.
+      #
+      # It runs after the checkout because it reads a file out of the tree.
+      - name: Read the pinned zizmor version from its requirements input
+        run: |
+          set -euo pipefail
+          v=$(sed -n "s/^zizmor==//p" requirements/zizmor.in | head -1)
+          if [ -z "${v}" ]; then
+            echo "::error::requirements/zizmor.in names no zizmor pin"
+            exit 1
+          fi
+          echo "ZIZMOR_VERSION=${v}" >> "${GITHUB_ENV}"
+          echo "zizmor ${v} is the pinned version, read from requirements/zizmor.in"
+
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # PIN THE RESOLVER ITSELF. Left floating, a changed or compromised uv
+          # release silently changes how the closure below is resolved and
+          # installed, in a job whose whole point is that the install is pinned.
+          # uv is the thing that verifies the hashes, so an unpinned uv is an
+          # unpinned verifier.
+          version: "0.11.32"
+
+      - name: Install zizmor from the hash-pinned closure
+        # --require-hashes: every distribution is verified against the digest
+        # committed in requirements/zizmor.txt, and uv refuses the install when a
+        # requirement in the file carries no hash. --no-build: install from
+        # prebuilt wheels only, never executing a source-dist build script.
+        #
+        # This replaces `uvx --no-build "zizmor@${ZIZMOR_VERSION}"`, which resolved
+        # the tool from the index at run time: what got installed was whatever the
+        # index served that minute, and nothing in the tree recorded it. The
+        # closure moves that decision into the repository, where a change to it is
+        # a reviewable diff.
+        #
+        # The venv lives outside the workspace so the audit below cannot pick up
+        # the tool's own files as targets.
+        #
+        # A bare `run:` is `bash -e` without pipefail; set it explicitly so a
+        # failure anywhere in this block fails the step.
+        run: |
+          set -euo pipefail
+          uv venv "${RUNNER_TEMP}/zizmor-venv"
+          uv pip install --python "${RUNNER_TEMP}/zizmor-venv/bin/python" \
+            --no-build --require-hashes -r requirements/zizmor.txt
+
+      - name: Assert the installed auditor is the pinned one
+        # ZIZMOR_VERSION was READ out of requirements/zizmor.in above, so what this
+        # compares is the installed tool against the INPUT, and the pair that can
+        # drift is the input against its generated closure: the .txt is written by
+        # `uv pip compile` and a hand edit to it is exactly what this catches.
+        # `zizmor --version` prints "zizmor <version>"; the field is cut rather
+        # than the whole line matched, so a future banner change does not red the
+        # gate for the wrong reason.
+        run: |
+          set -euo pipefail
+          installed=$("${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version | awk '{print $NF}')
+          if [ "${installed}" != "${ZIZMOR_VERSION}" ]; then
+            echo "::error::the pinned closure installs zizmor ${installed}, not ${ZIZMOR_VERSION}"
+            exit 1
+          fi
+          echo "zizmor ${installed} installed from the hash-pinned closure."
 
       - name: Audit workflows (SARIF for code scanning)
-        # --no-build: install zizmor from its prebuilt wheel only, never executing a
-        # source-dist build script. --strict-collection: fail closed if any workflow
-        # fails to parse, so a malformed/tampered file cannot slip past the audit.
-        # --format=sarif always exits 0; the gate step below is what fails the build.
-        run: uvx --no-build "zizmor@${ZIZMOR_VERSION}" --strict-collection --min-severity=low --format=sarif . > results.sarif
+        # The binary comes from the hash-pinned closure installed above, not from
+        # the index at run time. --strict-collection: fail closed if any workflow
+        # fails to parse, so a malformed or tampered file cannot slip past the
+        # audit. --format=sarif always exits 0; the gate step below is what fails
+        # the build, so pipefail here is what turns a broken redirect into a
+        # failure rather than an empty SARIF.
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --strict-collection --min-severity=low --format=sarif . > results.sarif
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -79,6 +147,8 @@ jobs:
           category: zizmor
 
       - name: Fail on actionable findings
-        run: uvx --no-build "zizmor@${ZIZMOR_VERSION}" --strict-collection --min-severity=low --format=plain .
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --strict-collection --min-severity=low --format=plain .
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
