@@ -89,7 +89,8 @@ public class SsoMetricsCallSiteTests
             new OidcClientOptions { Authority = Authority },
             "kc",
             factory,
-            new CapturingLogger());
+            new CapturingLogger(),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Equal(1, Counter(SsoMetrics.ProviderFetchErrorTotal, "stage", nameof(ProviderFetchStage.Discovery)));

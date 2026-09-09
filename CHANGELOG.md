@@ -673,6 +673,31 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A discovery read whose caller has gone away now ends with the caller
+  (#1558).** The hardened OpenID discovery read took no cancellation token, so
+  nothing a caller could do abandoned it: the only bound was the per-request
+  fetch timeout, and the library makes a second request for the JWKS the
+  document names, so a challenge whose browser had already left held its
+  outbound connection for up to two of those. The read now takes the caller's
+  lifetime and hands it to every request it makes, and the login challenge and
+  the admin Test-connection probe pass their request lifetime down. A read the
+  caller abandoned is neither logged as a fail-closed read nor counted against
+  the provider, because it is neither; it answers a fixed 400 that nobody
+  reads, deliberately not an exception, because the server's own middleware
+  logs every escaped exception at Error and a closed tab must not become one.
+  A read the caller is still waiting on that hits the timeout is unchanged: it
+  fails closed, is logged, and counts, exactly as before.
+
+  **The back-channel logout deliberately does NOT pass its request lifetime
+  down**, and the review of this change is where that was decided. The request
+  there is the identity provider's POST, and the party whose outcome depends on
+  the read is the user the provider ordered signed out. A provider whose
+  outbound socket timeout is shorter than the discovery read - Keycloak's
+  default is five seconds - would abort the POST, and a read ended by that
+  abort would turn an ordered termination into a silent no-op, the shape #1183
+  closed. So that read runs to its own budget whether or not the provider is
+  still listening, and a test pins it.
+
 - **A declarative document that could not be written still locked its providers
   against the settings page (#1534).** A provider document mounted as a file or
   set through the environment freezes the providers it names, so the settings

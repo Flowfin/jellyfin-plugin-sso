@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api;
@@ -205,7 +206,20 @@ internal sealed class OidcLoginService
             return secretError;
         }
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+        OidcDiscoveryResult discovery;
+        try
+        {
+            discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses, request.HttpContext.RequestAborted).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (request.HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            // The browser left before discovery answered (#1558). Not a refusal and not a provider failure,
+            // so no warning and no fetch-error count - and not an exception either: the host's exception
+            // middleware catches every throw, logs it at Error and answers 500, so propagating would turn a
+            // closed tab into an Error entry that names nothing. A fixed 400 to a socket nobody reads instead.
+            return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
+        }
+
         if (!discovery.Available)
         {
             // Fail closed (#450): the discovery document the login itself needs could not be read, so there
@@ -782,6 +796,14 @@ internal sealed class OidcLoginService
     /// </summary>
     private async Task<OidcDiscoveryResult> ReadDiscoveryForLogoutAsync(OidcClientOptions options, string provider, OidConfig config)
     {
+        // DELIBERATELY NO CALLER TOKEN (#1558). The request whose lifetime this read runs under is the
+        // provider's POST, and the party whose outcome depends on the read is the user whose session the
+        // provider ordered terminated. A provider whose outbound socket timeout is shorter than this read
+        // - Keycloak's default is five seconds against a ten-second fetch - would abort the POST, and a read
+        // ended by that abort turns an ordered termination into a silent no-op, which is exactly what #1183
+        // closed and what the docstring above says an attacker on the server-to-provider path could produce
+        // on purpose. So this read runs to its own budget whether or not the provider is still listening,
+        // and the review of #1558 is where wiring the request lifetime in here was refused.
         for (var attempt = 1; ; attempt++)
         {
             var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, _httpClientFactory, _logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);

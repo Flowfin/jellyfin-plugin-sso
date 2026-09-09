@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -43,8 +44,9 @@ internal static class ProviderConnectionTester
     /// <param name="provider">The provider name, for the reader's fail-closed warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the hardened discovery fetch is built over.</param>
     /// <param name="logger">The logger the reader logs its fail-closed warning to (never a secret).</param>
+    /// <param name="cancellationToken">The admin request's own lifetime, passed down to the discovery read (#1558).</param>
     /// <returns>The probe result, safe to return to an administrator.</returns>
-    internal static async Task<ProviderTestResult> TestOidcAsync(OidConfig config, string provider, IHttpClientFactory httpClientFactory, ILogger logger)
+    internal static async Task<ProviderTestResult> TestOidcAsync(OidConfig config, string provider, IHttpClientFactory httpClientFactory, ILogger logger, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(config.OidEndpoint))
         {
@@ -64,7 +66,7 @@ internal static class ProviderConnectionTester
 
         // The probe uses the provider's own transport tier, so "Test connection" reports what the login will
         // actually do - an opted-in provider on the admin's LAN must not fail here and then succeed at login.
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses, cancellationToken).ConfigureAwait(false);
         if (!discovery.Available)
         {
             // The reader already logged the fail-closed warning (with the library error, never a secret).
