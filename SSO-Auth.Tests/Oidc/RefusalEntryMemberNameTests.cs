@@ -70,6 +70,36 @@ public class RefusalEntryMemberNameTests
         Assert.DoesNotContain("[truncated]", entry, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AMemberNameCarryingAForgedRecord_CannotPlantTheMarkerInTheEntry()
+    {
+        // Kills: deleting the bracket substitution on the filtered name (#1557). The three filter classes
+        // above let an opening bracket through, and the tree-wide sanitizer rule cannot see this value because
+        // it deliberately carries no line-ending strip - so this row is the only thing that pins it. The name
+        // is reachable from an anonymous challenge: the screen reads whatever document the provider serves.
+        const string Forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
+
+        var entry = await RefusalEntryFor(Forged);
+
+        Assert.Contains(NameLeadIn + " \"(SSO Audit] Login succeeded: root", entry, StringComparison.Ordinal);
+        Assert.DoesNotContain("[SSO Audit] ", entry, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ATruncatedMemberName_StillCarriesTheScreensOwnMarkerWhole()
+    {
+        // The one-change neighbour of the row above: substituting the bracket AFTER the truncation marker is
+        // joined would rewrite the screen's own "[truncated]" into "(truncated]", and the overlong-name row
+        // would go red for the wrong reason. The marker is joined after the substitution, so both survive.
+        var name = new string('[', 8192);
+
+        var entry = await RefusalEntryFor(name);
+
+        Assert.Contains("[truncated]\"", entry, StringComparison.Ordinal);
+        Assert.DoesNotContain("[SSO Audit] ", entry, StringComparison.Ordinal);
+        Assert.DoesNotContain("[[", entry, StringComparison.Ordinal);
+    }
+
     [Theory]
     // The two ReplaceLineEndings passes through, which is why this class exists at all.
     [InlineData("\\u0000")]

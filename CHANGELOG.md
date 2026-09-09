@@ -813,6 +813,57 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An identity-provider- or request-supplied value can no longer plant an
+  audit record in ANY line this plugin writes (#1557).** #1555 closed the
+  forgery inside the audit emitter's own entries and said plainly what it did
+  not reach: ordinary plugin log lines elsewhere still carried
+  identity-provider text under the line-ending strip alone, so the audit
+  marker was still plantable through them and an unanchored search over the
+  log file still reported logins that never happened. One of those
+  lines is reachable without any credential: the OpenID callback endpoint is
+  unauthenticated by design, and the `error_description` it logs on a refused
+  redirect is whatever the visitor put in the URL. Three more take an identity
+  provider or a user allowed to edit their own profile: the notice written when
+  a presented username carries a character the host drops (the bracket is one
+  of them, so the attacker's name reaches it by construction), the refusal of an
+  unusable `picture` claim, and the SAML role denial that prints the raw NameID
+  and the role strings. Every logging call in the plugin that carries a foreign
+  value now substitutes the value's opening square bracket with a round one
+  beside the line-ending strip, exactly as the audit emitter already did, and
+  the conformance rule that guarded the emitter now reads every logging call in
+  the tree, so a line added later cannot arrive with the older sanitizer alone.
+  Each of the four sites above is driven by a forging payload in the suite.
+
+  The review of this change found two more routes the rule cannot see, and
+  both are closed here with their own payload tests. The refusal written when a
+  discovery document names a member twice printed that member's name through
+  a control-character filter that let the bracket through; the name is
+  substituted the same way now, with the screen's own truncation marker joined
+  afterwards so it stays whole. And the avatar fetch handed its exception to
+  the log, which renders on the lines that follow the message and quotes the
+  remote host's HTTP reason phrase verbatim - a host the picture claim chose.
+  That entry now carries the exception type and its sanitized message inline
+  and no exception object, at the cost of the stack trace for a best-effort
+  fetch.
+
+  **What this does NOT cover, stated plainly.** The rule reaches a value the
+  code has already marked foreign with the line-ending strip; a foreign value
+  that reaches a log line by another route is caught by review and by a payload
+  test, as the two above were, not by the rule. A value logged with no
+  sanitizer at all is not this rule's subject and never was; that is CodeQL's
+  log-forging query, which is why both sanitizers stay written out at the
+  logging call. The substitution is byte-exact: a fullwidth bracket is not the
+  marker's byte and is left alone, so a tool that normalises text before
+  matching is outside what this can promise. What an operator's own tooling
+  does with the log file is still that tooling's business. Anchoring a search
+  at the start of a line was sound before this and remains the sound way to
+  read the trail.
+
+  **If you parse plugin log lines, read this.** A foreign value that legitimately
+  carries an opening square bracket - a provider name, a role, a relay state, a
+  rejected avatar URL - now prints a round one in every plugin line, not only in
+  audit entries. Filesystem paths this server composed for itself are unchanged.
+
 - **The account-link import no longer stores an issuer the provider could not
   have issued (#1518).** The import wrote the OpenID issuer an operator's backup
   file named and compared it to nothing. The one guard beside it fires only when
@@ -867,14 +918,15 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   value, and a conformance rule fails the build if a future entry arrives
   without it.
 
-  **What this does NOT cover, stated plainly.** The property is the audit
-  emitter's, not the log file's. Ordinary plugin log lines elsewhere - the
-  OpenID callback error, the username-sanitization notice, the rejected avatar
-  URL, the SAML denial - still carry identity-provider text under the
-  line-ending strip alone, so the marker is still plantable through them and an
-  unanchored search over the whole log is still not sound. That is tracked as
-  #1557 and is not fixed here. Anchoring a search at the start of a line is,
-  and was already made sound for the first field by #1551.
+  **What this entry does NOT cover, stated plainly.** The property this change
+  delivered is the audit emitter's, not the log file's. Ordinary plugin log
+  lines elsewhere - the OpenID callback error, the username-sanitization
+  notice, the rejected avatar URL, the SAML denial - still carried
+  identity-provider text under the line-ending strip alone after it, so the
+  marker was still plantable through them and an unanchored search over the
+  whole log was still not sound. That was #1557, which is its own entry above
+  in this release and not part of this one. Anchoring a search at the start of
+  a line is, and was already made sound for the first field by #1551.
 
   **If you parse this trail, read this.** A name legitimately containing an
   opening square bracket now prints a round one instead, as a name containing a

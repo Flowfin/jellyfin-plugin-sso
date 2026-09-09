@@ -168,6 +168,24 @@ public class AvatarServiceTests
     }
 
     [Fact]
+    public async Task TrySetAsync_PictureClaimCarryingAForgedRecord_CannotPlantTheMarkerInTheRefusal()
+    {
+        // #1557: the refusal names the rejected value, and it is reached precisely because the value is NOT
+        // a usable URL - so an identity provider (or a user allowed to edit their own picture claim) needs
+        // no parseable address to land a whole audit record on this line. The value still prints, because
+        // an operator debugging a missing avatar needs to see what was refused; the record marker does not.
+        var (service, providers, users, log) = Build();
+        const string forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
+
+        await service.TrySetAsync(TestUsers.Named("alice"), forged);
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        var refusal = Assert.Single(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("disallowed URL", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task StoreAsync_SaveFails_LeavesThePreviousAvatarUntouched()
     {
         // The #377 regression: a transient save failure must not downgrade the user from a working
@@ -204,6 +222,30 @@ public class AvatarServiceTests
         Assert.True(user.ProfileImage.LastModified > DateTime.UtcNow.AddMinutes(-1)); // cache-busting refresh
         await users.DidNotReceive().ClearProfileImageAsync(Arg.Any<User>());
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+    }
+
+    [Fact]
+    public async Task TrySetAsync_AvatarHostAnsweringWithAForgedReasonPhrase_CannotPlantTheMarkerThroughTheException()
+    {
+        // #1557: a non-success status makes EnsureSuccessStatusCode throw an HttpRequestException whose message
+        // quotes the remote server's reason phrase verbatim, and the host is whatever the picture claim named.
+        // Handing that exception object to the sink renders it on the lines that FOLLOW the message, which put
+        // a provider-chosen value at the start of a physical line. The entry now carries the type and the
+        // sanitized message inline and no exception object at all, so nothing is rendered after it.
+        using var response = new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            ReasonPhrase = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).",
+        };
+        var (service, providers, _, log) = Build(response);
+
+        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        var failure = Assert.Single(log.Records, r => r.Message.Contains("Failed to fetch or save", StringComparison.Ordinal));
+        Assert.Null(failure.Exception);
+        Assert.Contains("HttpRequestException", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("(SSO Audit] Login succeeded: root", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Records, r => r.Message.Contains("[SSO Audit] ", StringComparison.Ordinal) || (r.Exception?.ToString().Contains("[SSO Audit] ", StringComparison.Ordinal) ?? false));
     }
 
     [Fact]

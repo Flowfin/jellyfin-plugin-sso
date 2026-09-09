@@ -35,11 +35,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 /// the line: the unreadable-configuration lines tell an operator which file to move out of the way,
 /// and a data directory whose name carries a bracket would be named as a path that does not exist,
 /// in the one line written for a total lockout. They keep the line-ending strip and nothing more.
-/// WHAT THIS DOES NOT REACH IS EVERY OTHER LOG LINE THE PLUGIN WRITES. The property is this
-/// emitter's, not the log file's: ordinary plugin lines elsewhere carry identity-provider values
-/// under the line-ending strip alone, so the marker text is still plantable through them and an
-/// unanchored search over the whole file is still not sound. That is #1557, and no sentence here or
-/// in the changelog may be read as claiming otherwise.
+/// THE SAME PAIR IS CARRIED BY EVERY OTHER LOG LINE THE PLUGIN WRITES (#1557). The property was this
+/// emitter's alone until then: ordinary plugin lines elsewhere carried identity-provider values under
+/// the line-ending strip alone, so the marker text was still plantable through them and an unanchored
+/// search over the whole file was not sound. Every logging call in the plugin now carries both, and the
+/// conformance rule that reads this file reads all of them. What the pair still does not reach is a
+/// value logged with no sanitizer at all, which is CodeQL's question rather than this one.
 /// Each call is guarded by <see cref="ILogger.IsEnabled(LogLevel)"/> so the inline sanitizers are
 /// not evaluated when the level is disabled (net10 CA1873, #566); both stay spelled out at the
 /// logging call, never handed down from a helper, so CodeQL's log-forging taint tracking still

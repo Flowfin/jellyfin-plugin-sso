@@ -90,6 +90,30 @@ public class CanonicalLinkServiceTests
     }
 
     [Fact]
+    public async Task ResolveOrCreateAsync_PresentedNameCarryingAForgedRecord_CannotPlantTheMarkerInTheSanitizationNotice()
+    {
+        // #1557: the sanitization notice fires on the FIRST login of any user whose presented name carries a
+        // character the host's allowlist drops, and the opening bracket is one of them - so the notice is
+        // reached by exactly the name an attacker would choose. The raw presented name is the actionable
+        // content of that line (it tells an operator which spelling the provider sent), so it is still
+        // printed; what it cannot print is the record marker. The provisioned name on the same line is the
+        // host-sanitized one, which never carried the bracket at all.
+        var (service, _, users, log) = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        const string forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
+        var created = TestUsers.Named("SSO Audit Login succeeded root via OpenID provider 'kc' admin=True.", Other);
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        users.CreateUserAsync(Arg.Any<string>()).Returns(created);
+        users.GetUserById(Other).Returns(created);
+
+        var resolved = await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", forged, allowExistingAccountLink: false);
+
+        Assert.Equal(Other, resolved);
+        var notice = Assert.Single(log.Entries, e => e.Message.Contains("carries characters Jellyfin does not accept", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", notice.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ResolveOrCreateAsync_ProvisionDisabled_NewAccount_CreatesItDisabledAndPersists()
     {
         // #737: with the policy on, a brand-new account is created disabled and PERSISTED here (the deferred

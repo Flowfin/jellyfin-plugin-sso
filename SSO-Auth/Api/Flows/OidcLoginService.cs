@@ -215,7 +215,7 @@ internal sealed class OidcLoginService
             // discovery, PrepareLoginAsync could not build the authorize redirect either.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization server's discovery document could not be read.", provider?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization server's discovery document could not be read.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login: the authorization server's discovery document could not be read.");
@@ -232,7 +232,7 @@ internal sealed class OidcLoginService
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("OpenID login refused for provider {Provider}: RequirePkce is set but the authorization server does not advertise PKCE (S256).", provider?.ReplaceLineEndings(string.Empty));
+                    _logger.LogWarning("OpenID login refused for provider {Provider}: RequirePkce is set but the authorization server does not advertise PKCE (S256).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
 
                 return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.PkceNotSupported));
@@ -262,7 +262,7 @@ internal sealed class OidcLoginService
             // the user-facing error page. Sanitized against log forging. Fail-closed is unchanged (400).
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty), state.Error?.ReplaceLineEndings(string.Empty), state.ErrorDescription?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
@@ -298,7 +298,7 @@ internal sealed class OidcLoginService
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("OpenID authorize state refused for provider {Provider}: a CSPRNG-token collision (effectively impossible) or the store is at capacity (warning throttled).", provider?.ReplaceLineEndings(string.Empty));
+                    _logger.LogWarning("OpenID authorize state refused for provider {Provider}: a CSPRNG-token collision (effectively impossible) or the store is at capacity (warning throttled).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
             }
 
@@ -364,7 +364,7 @@ internal sealed class OidcLoginService
             // fail-closed is unchanged (400, no session minted).
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization-response processing failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty), result.Error?.ReplaceLineEndings(string.Empty), result.ErrorDescription?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization-response processing failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             // #1139: the code exchange is the other server-to-provider fetch, and it is counted apart from
@@ -388,7 +388,7 @@ internal sealed class OidcLoginService
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login denied for provider {Provider}: the authorization-response issuer was absent-but-required or matched neither the discovery issuer nor the id_token issuer (RFC 9207 mix-up check).", provider?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login denied for provider {Provider}: the authorization-response issuer was absent-but-required or matched neither the discovery issuer nor the id_token issuer (RFC 9207 mix-up check).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.SsoResponseInvalid));
@@ -426,7 +426,7 @@ internal sealed class OidcLoginService
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login denied for provider {Provider}: the id_token carried no 'sub' claim to key the account link on.", provider?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login denied for provider {Provider}: the id_token carried no 'sub' claim to key the account link on.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
@@ -441,8 +441,8 @@ internal sealed class OidcLoginService
             {
                 _logger.LogWarning(
                     "OpenID login denied for {Username}: no role matched the allow-list, or the login resolved no username. Claims: {@Claims}. Roles expected (any one of): {@ExpectedClaims}",
-                    derived.Username?.ReplaceLineEndings(string.Empty),
-                    result.User.Claims.Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty), Value = o.Value?.ReplaceLineEndings(string.Empty) }),
+                    derived.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    result.User.Claims.Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty).Replace('[', '('), Value = o.Value?.ReplaceLineEndings(string.Empty).Replace('[', '(') }),
                     config.Roles);
             }
 
@@ -490,7 +490,7 @@ internal sealed class OidcLoginService
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("OpenID login denied for provider {Provider}: RequireAcr is set but the id_token's acr claim was absent or outside the configured acr_values allow-list.", provider?.ReplaceLineEndings(string.Empty));
+                    _logger.LogWarning("OpenID login denied for provider {Provider}: RequireAcr is set but the id_token's acr claim was absent or outside the configured acr_values allow-list.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
 
                 return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AcrNotSatisfied));
@@ -512,7 +512,7 @@ internal sealed class OidcLoginService
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("OpenID login denied for provider {Provider}: max_age is configured but the id_token's auth_time was absent or older than the allowed window (the user authenticated too long ago).", provider?.ReplaceLineEndings(string.Empty));
+                    _logger.LogWarning("OpenID login denied for provider {Provider}: max_age is configured but the id_token's auth_time was absent or older than the allowed window (the user authenticated too long ago).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
 
                 return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AuthTooOld));
@@ -581,7 +581,7 @@ internal sealed class OidcLoginService
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login denied for provider {Provider}: RequireVerifiedEmailForLogin is set but the login did not carry email_verified == true (absent, false, or unparseable).", provider?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID login denied for provider {Provider}: RequireVerifiedEmailForLogin is set but the login did not carry email_verified == true (absent, false, or unparseable).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.EmailNotVerified));
@@ -691,7 +691,7 @@ internal sealed class OidcLoginService
             built = default!;
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("OpenID login refused for provider {Provider}: the stored client secret could not be decrypted ({Reason}); the at-rest key file is missing or corrupt.", provider?.ReplaceLineEndings(string.Empty), ex.Message?.ReplaceLineEndings(string.Empty));
+                _logger.LogError("OpenID login refused for provider {Provider}: the stored client secret could not be decrypted ({Reason}); the at-rest key file is missing or corrupt.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not process login; the OpenID client secret could not be decrypted.");
@@ -734,7 +734,7 @@ internal sealed class OidcLoginService
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID back-channel logout refused for provider {Provider}: the configured endpoint is not a usable URL.", provider?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("OpenID back-channel logout refused for provider {Provider}: the configured endpoint is not a usable URL.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return new OidcLogoutTokenValidator.Result(false, null, null, OidcLogoutTokenValidator.RejectReason.ProviderUnreachable);

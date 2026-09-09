@@ -141,7 +141,7 @@ internal sealed class AvatarService
 
         if (!AvatarUrlValidator.IsAllowedUrl(avatarUrl, out var avatarUri))
         {
-            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatarUrl.ReplaceLineEndings(string.Empty));
+            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatarUrl.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -203,7 +203,7 @@ internal sealed class AvatarService
                 // Log the rejected type sanitized inline at the log call (mediaType is server-controlled),
                 // and keep the thrown/caught exception message generic so no untrusted text reaches the
                 // logged exception - mirrors the disallowed-URL warning above.
-                _logger.LogWarning("Refusing avatar with disallowed content type: {MediaType}", (mediaType ?? "(none)").ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("Refusing avatar with disallowed content type: {MediaType}", (mediaType ?? "(none)").ReplaceLineEndings(string.Empty).Replace('[', '('));
                 throw new InvalidOperationException("Avatar content type is not an allowed raster image.");
             }
 
@@ -220,7 +220,16 @@ internal sealed class AvatarService
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Failed to fetch or save the SSO avatar.");
+            // The exception TYPE and its message, inline, rather than the exception object (#1557). A sink renders
+            // a handed-over exception on the lines that FOLLOW the message, and HttpRequestException quotes the
+            // remote server's reason phrase verbatim - a host the identity provider's picture claim chose. That
+            // put a provider-authored value at the start of a physical line, which is the one place an anchored
+            // search of the audit trail trusts. The message still names what failed; the stack trace is the
+            // price, and for a best-effort avatar fetch it is one an operator never needed.
+            _logger.LogError(
+                "Failed to fetch or save the SSO avatar ({ExceptionType}): {Reason}",
+                e.GetType().Name,
+                e.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
     }
 
@@ -264,7 +273,7 @@ internal sealed class AvatarService
             _logger.LogWarning(
                 "Timed out after {TimeoutSeconds}s waiting for another login to finish storing the SSO avatar for user: {Username}; skipping this store.",
                 _storeLockAcquireTimeout.TotalSeconds,
-                user.Username?.ReplaceLineEndings(string.Empty));
+                user.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -291,7 +300,7 @@ internal sealed class AvatarService
         {
             _logger.LogWarning(
                 "Refusing to store the SSO avatar: username is not a safe path component: {Username}",
-                user.Username?.ReplaceLineEndings(string.Empty));
+                user.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
