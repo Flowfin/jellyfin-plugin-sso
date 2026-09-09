@@ -814,26 +814,42 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 ### Security
 
 - **An identity-provider-supplied value can no longer forge a second audit
-  record inside one line (#1555).** Every foreign value in the SSO audit trail
-  was already stripped of line endings, so none of them could SPLIT an entry -
-  and nothing bounded a value inside the sentence it landed in, so a presented
-  username could close the sentence and write a whole second, plausible record
-  on the same physical line. An unanchored search of the trail, or a SIEM rule
-  matching the substring, then reports a login that never happened, under any
-  name the attacker chooses; the value is attacker-supplied wherever the
-  identity provider lets a person edit their own `preferred_username`, which is
-  most of them. Every foreign value now also has the opening square bracket
-  removed at the logging call, which is enough because the `[SSO Audit] ` prefix
-  a trail is filtered on can begin no other way. The repair is on the emitter
-  rather than on the login line, so it covers every entry carrying a foreign
-  value.
+  record inside an audit line (#1555).** Every foreign value the SSO audit
+  trail prints was already stripped of line endings, so none of them could
+  SPLIT an entry - and nothing bounded a value inside the sentence it landed
+  in, so a presented username could close the sentence and write a whole
+  second, plausible record on the same physical line. An unanchored search of
+  the log, or a SIEM rule matching the substring, then reports a login that
+  never happened, under any name the attacker chooses; the value is
+  attacker-supplied wherever the identity provider lets a person edit their own
+  `preferred_username`, which is most of them. Every foreign value the emitter
+  prints now also has its opening square bracket replaced by a round one at the
+  logging call, which is enough because the `[SSO Audit] ` prefix a trail is
+  filtered on can begin no other way. The repair is on the emitter rather than
+  on the login line, so it covers every audit entry that carries a foreign
+  value, and a conformance rule fails the build if a future entry arrives
+  without it.
+
+  **What this does NOT cover, stated plainly.** The property is the audit
+  emitter's, not the log file's. Ordinary plugin log lines elsewhere - the
+  OpenID callback error, the username-sanitization notice, the rejected avatar
+  URL, the SAML denial - still carry identity-provider text under the
+  line-ending strip alone, so the marker is still plantable through them and an
+  unanchored search over the whole log is still not sound. That is tracked as
+  #1557 and is not fixed here. Anchoring a search at the start of a line is,
+  and was already made sound for the first field by #1551.
 
   **If you parse this trail, read this.** A name legitimately containing an
-  opening square bracket now prints without it, exactly as a name containing a
-  line ending already printed without that. Structured sinks are unchanged in
-  shape - the fields were separate template parameters before and still are -
-  and the value they receive is the stripped one, the same value the rendered
-  line shows.
+  opening square bracket now prints a round one instead, as a name containing a
+  line ending already printed without it. The substitution is deliberately not
+  a deletion: deleting would make two different names print alike, and the
+  login line's presented-name clause - which fires only when the two names
+  differ - would then go silent for a difference the provider chose. Structured
+  sinks are unchanged in shape: the fields were separate template parameters
+  before and still are, and the value they receive is the substituted one, the
+  same value the rendered line shows. Filesystem paths this server composed for
+  itself are not foreign values and are printed exactly, because the
+  unreadable-configuration lines exist to name a file an operator has to find.
 
 - **An account the plugin creates is now stored with the password and the login
   routing it is given (#1440).** Both were written onto the account object the
