@@ -126,8 +126,8 @@ jobs:
           # THE SERVER TAG IS PINNED TO THE VERSION THE PLUGIN COMPILES AGAINST, for the reason the
           # canonical compose file gives at its own image line: .NET will not bind an assembly
           # reference DOWN, so a server older than the referenced Jellyfin assemblies refuses to load
-          # the plugin. SSO-Auth.csproj pins 12.0.0-rc2 for net10.0, so the tag here is 12.0-rc2 and
-          # deliberately not the newest 12.0 image; moving one without the other reintroduces exactly
+          # the plugin. SSO-Auth.csproj pins 12.0.0 for net10.0, so the tag here is 12.0 and
+          # deliberately follows that pin; moving one without the other reintroduces exactly
           # the mismatch that pin exists to prevent.
           #
           #     git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
@@ -137,7 +137,7 @@ jobs:
           # than a failure, because the alternative is a typo in a caller silently publishing behind a
           # matrix that never ran.
           if [ "${INPUT_GENERATION:-}" = "jf12" ]; then
-            target=net10.0; metadata=build-jf12.yaml; image=12.0-rc2; needs_net10=yes
+            target=net10.0; metadata=build-jf12.yaml; image=12.0; needs_net10=yes
           else
             target=net9.0; metadata=build.yaml; image=10.11.11; needs_net10=no
           fi

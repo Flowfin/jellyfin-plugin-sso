@@ -255,13 +255,15 @@ chmod -R 0777 test/e2e/jellyfin
 
 # 3. Boot the same stack against a 12.0 server. Every compose file in this directory takes the tag
 #    from this variable and defaults to the 10.11 server when it is unset, so nothing above changes.
-JELLYFIN_IMAGE_TAG=12.0-rc2 docker compose -f test/e2e/docker-compose.yml up \
+JELLYFIN_IMAGE_TAG=12.0 docker compose -f test/e2e/docker-compose.yml up \
   --abort-on-container-exit --exit-code-from harness
 ```
 
-The tag is **12.0-rc2 rather than the newest 12.0 image**, because it has to match the Jellyfin
-version the plugin compiles against - .NET will not bind an assembly reference down, so a server
-older than the referenced assemblies refuses to load the plugin. The pin lives in one place:
+The tag is **whatever the plugin compiles against, not whatever is newest**, because .NET will not
+bind an assembly reference down: a server older than the referenced assemblies refuses to load the
+plugin. Since 12.0 went GA on 2026-09-07 the two coincide, and that is a coincidence rather than a
+rule - the day a 12.1 image appears this tag stays at 12.0 until the pin moves. The pin lives in one
+place:
 
 ```sh
 git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
