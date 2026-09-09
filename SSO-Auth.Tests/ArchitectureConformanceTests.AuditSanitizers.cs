@@ -35,6 +35,19 @@ public partial class ArchitectureConformanceTests
         "sourcePath",
     };
 
+    // The SENTENCES this plugin composed, which are stripped and NOT substituted for a reason of the same
+    // shape as the list above: a substitution applied to a whole composed message rewrites the plugin's own
+    // words alongside the foreign ones (#1566). The link-import refusal carries the importer's entry
+    // description, the configured-issuer refusal with its own truncation marker, and the validator's list of
+    // the characters a provider name may not contain - and that list opens with the very bracket a
+    // substitution here would take out of it. Each is only correct because the FOREIGN parts are substituted
+    // where they enter the sentence, which is what makes the receiver name worth reading rather than a
+    // dispensation: LinkImport.Describe, OidcConfiguredIssuer.Echo and the validator's echoes.
+    private static readonly string[] AuditComposedSentences =
+    {
+        "composedRefusal",
+    };
+
     private const string LineEndingSanitizer = "ReplaceLineEndings(string.Empty)";
     private const string RecordMarkerSanitizer = "Replace('[', '(')";
 
@@ -150,7 +163,8 @@ public partial class ArchitectureConformanceTests
                 {
                     strips++;
                     var receiver = text[Math.Max(0, start - 40)..start];
-                    var exempt = AuditValuesPrintedExactly.Any(value => IsWholeReceiver(receiver, value));
+                    var exempt = AuditValuesPrintedExactly.Any(value => IsWholeReceiver(receiver, value))
+                        || AuditComposedSentences.Any(value => IsWholeReceiver(receiver, value));
                     var substituted = string.CompareOrdinal(text, end, "." + RecordMarkerSanitizer, 0, RecordMarkerSanitizer.Length + 1) == 0;
 
                     if (exempt == substituted)

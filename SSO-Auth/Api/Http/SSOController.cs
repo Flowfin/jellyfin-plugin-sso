@@ -1910,7 +1910,15 @@ public class SSOController : ControllerBase
             // importer builds its refusals under.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                // STRIPPED AND NOT SUBSTITUTED, and the answer below does the same (#1566). This message is
+                // one the PLUGIN composed: it carries the importer's own entry description, the configured-
+                // issuer refusal with its own truncation marker, and the validator's list of the characters a
+                // provider name may not contain - and that list opens with the very bracket a substitution
+                // here would take out of it. The foreign parts inside it are substituted where they enter it,
+                // in LinkImport.Describe, in OidcConfiguredIssuer.Echo and in the validator's echoes, so
+                // nothing an identity provider or a posted file supplies reaches this line un-neutralised.
+                var composedRefusal = ex.Message;
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", composedRefusal?.ReplaceLineEndings(string.Empty));
             }
 
             return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));

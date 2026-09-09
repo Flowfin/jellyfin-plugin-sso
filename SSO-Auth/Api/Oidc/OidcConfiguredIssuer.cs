@@ -109,8 +109,12 @@ internal static class OidcConfiguredIssuer
         return $"the entry's issuer '{Echo(issuer)}' is not what this provider is configured to issue ('{Echo(authority)}'), so every login on the restored link would be refused for a mismatch; remove the Issuer field from these entries to restore the links unbound and let the first login bind them, or fix the provider before importing - do NOT change OidEndpoint after a restore, which clears the link table";
     }
 
+    // Record-marker substituted as well as bounded (#1566), and BEFORE the marker is joined on, the same
+    // order the discovery reader uses for the same reason: the marker is the plugin's own and opens with the
+    // bracket being removed. Substituting here rather than over the composed refusal is what lets that
+    // refusal reach the log without the plugin's own text being rewritten with it.
     private static string Echo(string value) =>
         value.Length > MaxEchoedIssuerChars
-            ? string.Concat(value.AsSpan(0, MaxEchoedIssuerChars), TruncationMarker)
-            : value;
+            ? string.Concat(value.Replace('[', '(').AsSpan(0, MaxEchoedIssuerChars), TruncationMarker)
+            : value.Replace('[', '(');
 }

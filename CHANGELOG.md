@@ -673,6 +673,31 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The record-marker substitution no longer rewrites the plugin's own words,
+  and reaches a line it had missed (#1566).** The substitution #1557 added is
+  right about identity-provider values and was wrong about the sentences this
+  plugin composes: applied to a whole composed message it rewrote the plugin's
+  text alongside the foreign parts. The link-import refusal is the one that
+  showed it. That message carries the configured-issuer refusal with its own
+  `[truncated]` marker and the validator's list of the characters a provider
+  name may not contain - a list that OPENS with the very bracket the
+  substitution removes - so the log said `(truncated]` and named a shorter list
+  of forbidden characters while the `400` body for the same refusal said neither.
+  **The log and the answer now agree**, because the substitution moved to where
+  the foreign parts enter that sentence: the importer's entry description, the
+  configured-issuer echo and the validator's echoes. Nothing an identity
+  provider or a posted file supplies reaches that line un-neutralised, and the
+  conformance rule names the composed sentence rather than leaving its absence
+  to be noticed.
+
+  The second half is a line that carried NEITHER sanitizer: the one reporting
+  the configured default login provider, written at every SSO login of an
+  SSO-only account. That value arrives from the provider configuration, which a
+  configuration import or a mounted declarative document writes, so it could
+  both split an entry and plant a record - and the rule that holds this property
+  elsewhere cannot see it, because that rule keys on the line-ending strip. It
+  carries both now, with a row that reddens if either is removed.
+
 - **A declarative document that could not be written still locked its providers
   against the settings page (#1534).** A provider document mounted as a file or
   set through the environment freezes the providers it names, so the settings
