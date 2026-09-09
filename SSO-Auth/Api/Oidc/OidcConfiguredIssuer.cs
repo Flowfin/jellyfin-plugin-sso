@@ -25,13 +25,19 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// a link whose every future login is refused for a mismatch.
 /// </para>
 /// <para>
-/// The escape hatch is honoured rather than overridden. <c>DoNotValidateIssuerName</c> exists for providers
-/// whose issuer legitimately differs from their discovery location - templated and multi-tenant setups - and
-/// it relaxes the issuer match on the login path and in the id_token parameters alike. Where it is on, the
-/// configuration states no expectation, so there is nothing here to compare against and the entry is
-/// accepted exactly as it was before. That is a disclosed hole and not an oversight: an operator who turned
-/// the issuer-name check off has turned it off everywhere, and refusing here would lock those providers out
-/// of the import with no value they could offer to satisfy it.
+/// Under <c>DoNotValidateIssuerName</c> the answer is YES for every value, and that is an entailment rather
+/// than a relaxation. The toggle sets <c>ValidateIssuer</c> to false in the id_token parameters
+/// (<c>OidcSignatureKeys.BuildValidationParameters</c>), so a login on that provider accepts a JWKS-signed
+/// token carrying ANY <c>iss</c> and can therefore stamp any issuer at all. A check asking whether a login
+/// could stamp this value has exactly one honest answer there, and it is not a hole this type is choosing
+/// to leave open.
+/// </para>
+/// <para>
+/// WHAT THAT DOES NOT MAKE SAFE, and the operator documentation says it in the same breath: the binding
+/// comparison itself is unconditional. <c>CanonicalLinkService.ClassifyIssuer</c> never reads the toggle, so
+/// a stored issuer that a later id_token does not match refuses that link forever on such a provider too.
+/// Turning the toggle on to get past this refusal converts a loud one into a silent permanent lockout AND
+/// switches issuer validation off on the login path, which is why no page here offers it as a way through.
 /// </para>
 /// </remarks>
 internal static class OidcConfiguredIssuer
@@ -72,11 +78,26 @@ internal static class OidcConfiguredIssuer
         {
             options = OidcDiscoveryOptions.Build(config);
 
+            var policy = options.Policy.Discovery;
+
             // ParseUrl is the normalisation the discovery read applies before validating - it strips a
             // /.well-known/openid-configuration suffix and the trailing slash - and its result is what the
             // library assigns to Policy.Authority. Running it here means an endpoint written either way
-            // expects the same issuer, instead of this check disagreeing with the login over a slash.
-            authority = DiscoveryEndpoint.ParseUrl(options.Authority).Authority;
+            // expects the same issuer, instead of this check disagreeing with the login over a slash. The
+            // discovery path travels with it because the login derives it the same way: nothing configures a
+            // custom path today, and passing it makes the claim above structural rather than incidental.
+            authority = DiscoveryEndpoint.ParseUrl(options.Authority, policy.DiscoveryDocumentPath).Authority;
+
+            // The strategy call is INSIDE this try on purpose. ParseUrl can hand back an authority that is not
+            // a URL - an endpoint of the shape "http://a.well-known/openid-configuration" yields "http://" -
+            // and a strategy that parses its arguments throws on that. A refusal that turns into a 500 out of
+            // MutateConfiguration would answer "cannot tell" with a crash instead of with no.
+            if (!policy.ValidateIssuerName
+                || (policy.AuthorityValidationStrategy is { } strategy
+                    && strategy.IsIssuerNameValid(issuer, authority).Success))
+            {
+                return null;
+            }
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or InvalidOperationException)
         {
@@ -85,13 +106,7 @@ internal static class OidcConfiguredIssuer
             return $"the OpenID endpoint configured for this provider is not a usable URL, so nothing says what it issues; the entry offers '{Echo(issuer)}'";
         }
 
-        var policy = options.Policy.Discovery;
-        if (!policy.ValidateIssuerName || policy.AuthorityValidationStrategy.IsIssuerNameValid(issuer, authority).Success)
-        {
-            return null;
-        }
-
-        return $"the entry's issuer '{Echo(issuer)}' is not what this provider is configured to issue ('{Echo(authority)}'), so every login on the restored link would be refused for a mismatch; re-point the provider or re-key the link deliberately";
+        return $"the entry's issuer '{Echo(issuer)}' is not what this provider is configured to issue ('{Echo(authority)}'), so every login on the restored link would be refused for a mismatch; remove the Issuer field from these entries to restore the links unbound and let the first login bind them, or fix the provider before importing - do NOT change OidEndpoint after a restore, which clears the link table";
     }
 
     private static string Echo(string value) =>

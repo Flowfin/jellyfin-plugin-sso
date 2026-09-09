@@ -807,10 +807,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   instead of guessing. The check runs the same two library rules a login runs -
   the id_token is validated against the discovery issuer, and the discovery
   issuer against the configured authority - rather than a second copy of them, so
-  a trailing slash is tolerated exactly as discovery tolerates it. A provider
-  carrying `DoNotValidateIssuerName` states no expectation its configuration
-  could be read for, so it is accepted as before; that hole is deliberate and
-  pinned by a test rather than left to be rediscovered.
+  a trailing slash is tolerated exactly as discovery tolerates it. A refused
+  import now also leaves a line in the server log, which only a successful one
+  did before.
+
+  **If this refuses your migration, read this before working around it.** The
+  way through is to remove the `Issuer` field from the offending entries: the
+  links restore unbound and the first login binds each one to whatever the
+  provider issues now. That is weaker than a carried binding for the window
+  before that first login, so do it deliberately. Do NOT change `OidEndpoint`
+  afterwards to make a stale issuer fit - changing it clears that provider's
+  whole link table by design, deleting what you just restored. And do NOT switch
+  `DoNotValidateIssuerName` on to get past the check: it is skipped for such a
+  provider, because with issuer-name validation off a login there accepts any
+  issuer and so could have stamped the value, but the binding comparison at
+  login never reads that toggle - a stale issuer still refuses every restored
+  link, permanently and silently, and issuer validation is now off for everyone
+  on that provider. It turns a loud refusal into the outcome the refusal exists
+  to prevent.
 
 - **An account the plugin creates is now stored with the password and the login
   routing it is given (#1440).** Both were written onto the account object the

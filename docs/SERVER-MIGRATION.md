@@ -167,11 +167,11 @@ claims to apply.
 
 ## The failure modes an operator actually hits
 
-All three produce `400`, restore nothing, and name the offending entries by
-their index in the file that was posted rather than by canonical name. The full
-refusal table, with a code line beside each row, is
+Each of them produces `400`, restores nothing, and names the offending entries
+by their index in the file that was posted rather than by canonical name. The
+full refusal table, with a code line beside each row, is
 [What is refused, and why](ACCOUNT-MANAGEMENT-API.md#what-is-refused-and-why);
-these are the three a migration runs into.
+these are the ones a migration runs into.
 
 - **A renamed user.** The entry names a username no account on this instance
   holds: `no Jellyfin account is named ... on this instance`. Rename the account
@@ -195,20 +195,47 @@ these are the three a migration runs into.
   first, then re-import.
 - **An issuer this provider could not have issued.** The entry names an OpenID
   issuer that is not what the provider on this instance is configured to issue:
-  `the entry's issuer '<from the file>' is not what this provider is configured
-to issue ('<from the configuration>'), so every login on the restored link
-would be refused for a mismatch; re-point the provider or re-key the link
-deliberately`. This is the refusal to expect when the identity provider moved
-  at the same time as the server - `http://idp.lan` became
+  `the entry's issuer ... is not what this provider is configured to issue
+(...), so every login on the restored link would be refused for a mismatch`,
+  followed by what to do. This is the refusal to expect when the identity
+  provider moved at the same time as the server - `http://idp.lan` became
   `https://idp.example.com` - and step 2 configured the provider as it is now
   while the file still names the old issuer. Stored instead of refused, that
   binding would be terminal rather than degrading: every login on every restored
   link is refused for a mismatch, permanently, and the page would have said the
-  links were restored. Both issuers are named so the choice is yours to make:
-  re-point the provider at what it actually issues, or re-key the links
-  deliberately. A provider carrying `DoNotValidateIssuerName` states no
-  expectation and is not checked here, because its issuer is not derivable from
-  its configuration by design.
+  links were restored.
+
+  **The way through, and the two that look like ways through and are not.**
+  Remove the `Issuer` field from the offending entries. The links then restore
+  UNBOUND, and the first login on each binds it to whatever the provider issues
+  now - which is the same trust-on-first-use a preprovisioned link takes, and it
+  is weaker than a carried binding: for the window before that first login, a
+  link is bound to nobody, so a provider swapped underneath the server can claim
+  it. Do this deliberately, and prefer fixing the provider first if the
+  mismatch is a mistake rather than a move.
+
+  Do NOT change `OidEndpoint` after a restore to make a stale issuer fit.
+  Changing that field clears the whole link table, the issuer bindings, the
+  deadlines and the last-login stamps for that provider - the belt that stops a
+  repointed provider inheriting another one's links - so it would delete exactly
+  what you just restored. Fix the endpoint BEFORE importing, or not at all.
+
+  Do NOT switch `DoNotValidateIssuerName` on to get past this. The check is
+  skipped for such a provider, because with issuer-name validation off a login
+  there accepts any issuer and so could have stamped the value - but the binding
+  comparison at login never reads that toggle, so a stale issuer still refuses
+  every restored link, permanently and silently. It also turns off issuer
+  validation on the login path for everybody on that provider. It converts a
+  loud refusal into the outcome this refusal exists to prevent.
+
+- **A provider whose OpenID endpoint is not a usable URL.** The entry names a
+  provider whose `OidEndpoint` is missing or not an absolute `http`/`https` URL:
+  `the OpenID endpoint configured for this provider is not a usable URL, so
+nothing says what it issues`. A half-filled provider persists fine - the save
+  gate has no required-field check - so a decommissioned or never-finished
+  provider can sit in the configuration and refuse a document that names it, and
+  the refusal is whole-document, so the other providers' links do not restore
+  either. Finish or remove that provider, or drop its entries from the file.
 
 An import that succeeds ANSWERS with the total and the per-provider counts, and
 audits the same numbers with no canonical name in the line
@@ -267,8 +294,12 @@ endpoint was not. One configured call answering every username removed it.
 ## Rolling back
 
 A refused import leaves nothing to undo. Both resolve the whole document before
-they write, and the walk confirmed it in both directions: after each of the four
-refusals the target's own link export was identical to what it held before.
+they write, and the walk confirmed it in both directions: after each of the
+refusals it covered, the target's own link export was identical to what it held
+before. The two refusals added since that walk (#1518) share the same code path
+
+- they append to the refusal list and the whole document throws before a single
+  write - and were not part of it.
 
 After a SUCCESSFUL one there is less of a way back than this page used to claim,
 and the difference matters most on the mistake an operator actually makes -

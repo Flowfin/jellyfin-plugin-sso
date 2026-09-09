@@ -99,6 +99,13 @@ internal static class LinkImport
         // two won, silently, and a restore would be non-deterministic in exactly the case that matters.
         var claimed = new Dictionary<(string Protocol, string Provider, string CanonicalName), Guid>();
 
+        // The issuer verdict depends on the PROVIDER and the value, and on nothing else about the entry, so
+        // it is computed once per distinct pair. This whole walk runs inside the configuration store's
+        // exclusive lock, which every login also takes to read, and a document restoring one provider carries
+        // one issuer for thousands of entries - so recomputing the policy and the authority per entry would
+        // multiply a hold time this repository publishes a measurement for, to buy an answer it already has.
+        var issuerVerdicts = new Dictionary<(ProviderConfigBase Config, string Issuer), string?>();
+
         for (var index = 0; index < document.Links.Count; index++)
         {
             var entry = document.Links[index];
@@ -182,7 +189,7 @@ internal static class LinkImport
             // carries is kept rather than given up, which is what the decision of 2026-09-09 chose.
             if (!string.IsNullOrWhiteSpace(entry.Issuer)
                 && config is OidConfig oidConfig
-                && OidcConfiguredIssuer.Refuse(oidConfig, entry.Issuer) is { } unissuable)
+                && IssuerRefusal(issuerVerdicts, oidConfig, entry.Issuer!) is { } unissuable)
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, unissuable));
                 continue;
@@ -203,6 +210,23 @@ internal static class LinkImport
         }
 
         return resolved;
+    }
+
+    // The verdict for one (provider, issuer) pair, computed once. The dictionary is per Apply call and never
+    // outlives it, so a provider edited between two imports is never answered from a stale entry.
+    private static string? IssuerRefusal(
+        Dictionary<(ProviderConfigBase Config, string Issuer), string?> verdicts,
+        OidConfig config,
+        string issuer)
+    {
+        var key = ((ProviderConfigBase)config, issuer);
+        if (!verdicts.TryGetValue(key, out var verdict))
+        {
+            verdict = OidcConfiguredIssuer.Refuse(config, issuer);
+            verdicts[key] = verdict;
+        }
+
+        return verdict;
     }
 
     private static List<LinkImportCount> Write(List<ResolvedLink> resolved)
