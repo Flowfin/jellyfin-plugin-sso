@@ -11,7 +11,8 @@ name: Nightly betas
 # published the same code every night with a rising build number while the work sat unreleased.
 #
 # So the JF12 ref is the DEVELOPMENT branch and the JF10.11 ref is `main`. If the development branch
-# is ever renamed, this line is the one that has to follow it, and nothing else here does.
+# is ever renamed, this line is the one that has to follow it, and nothing else here does. It was
+# renamed from `4.4` to `5.0` on 2026-09-09 and this line followed one merge too late (#1592).
 #
 # Each dispatched workflow has its own gate job that skips the build unless its ref has advanced since
 # that lineage's last beta, so an unchanged day mints nothing.
@@ -57,4 +58,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref 4.4
+        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref 5.0
