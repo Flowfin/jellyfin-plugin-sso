@@ -46,13 +46,19 @@ public class LinkImportTests
     private const string AlreadyBoundToAnotherIssuer =
         "this instance already binds that link to a different issuer; unlink it first";
 
+    // What the target's OpenID provider is configured to issue (#1518), as the caller reads it off the
+    // discovery document before the import runs. Every row that restores an issuer-carrying link hands
+    // this in, and the rows below that pin the refusals hand in a deliberately different fact.
+    private static readonly Dictionary<string, LinkImportIssuerFact> TargetIssuers =
+        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read("https://idp.example.test") };
+
     [Fact]
     public void ExportOnOneServer_ImportsOntoAnother_ReboundToTheTargetsOwnIds()
     {
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        var restored = LinkImport.Apply(target, document, TargetDirectory);
+        var restored = LinkImport.Apply(target, document, TargetDirectory, TargetIssuers);
 
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(TargetBob, target.OidConfigs["idp"].CanonicalLinks["sub-bob"]);
@@ -78,7 +84,7 @@ public class LinkImportTests
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, document, TargetDirectory);
+        LinkImport.Apply(target, document, TargetDirectory, TargetIssuers);
 
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -89,7 +95,7 @@ public class LinkImportTests
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, document, TargetDirectory);
+        LinkImport.Apply(target, document, TargetDirectory, TargetIssuers);
 
         Assert.False(target.OidConfigs["idp"].CanonicalLinkIssuers.ContainsKey("sub-bob"));
     }
@@ -101,7 +107,7 @@ public class LinkImportTests
         // conjure a map for a protocol that does not use it.
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, Document(Entry("SAML", "adfs", "nameid-alice", "alice", "https://forged.example.test")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("SAML", "adfs", "nameid-alice", "alice", "https://forged.example.test")), TargetDirectory, TargetIssuers);
 
         Assert.Equal(TargetAlice, target.SamlConfigs["adfs"].CanonicalLinks["nameid-alice"]);
         Assert.IsNotType<OidConfig>(target.SamlConfigs["adfs"]);
@@ -114,7 +120,7 @@ public class LinkImportTests
         var document = Document(Entry("OpenID", "idp", "sub-alice", "alice"));
         document.FormatVersion = LinkExport.FormatVersion + 1;
 
-        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(target, document, TargetDirectory));
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(target, document, TargetDirectory, TargetIssuers));
 
         Assert.Contains("Unsupported link export format version", refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -126,7 +132,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice")), TargetDirectory, TargetIssuers));
 
         Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -141,7 +147,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "adfs", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "adfs", "sub-alice", "alice")), TargetDirectory, TargetIssuers));
 
         AssertNoLinksWereWritten(target);
     }
@@ -154,7 +160,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory, TargetIssuers));
 
         Assert.Contains(NoSuchAccount, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -170,7 +176,7 @@ public class LinkImportTests
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetMallory;
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, TargetIssuers));
 
         Assert.Contains(AlreadyLinkedElsewhere, refusal.Message, StringComparison.Ordinal);
         Assert.Equal(TargetMallory, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
@@ -189,10 +195,138 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://forged.example.test")),
-            TargetDirectory));
+            TargetDirectory,
+            TargetIssuers));
 
         Assert.Contains(AlreadyBoundToAnotherIssuer, refusal.Message, StringComparison.Ordinal);
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+    }
+
+    [Fact]
+    public void AnIssuerTheProviderDoesNotIssue_IsRefusedAtImport_NamingBothIssuers()
+    {
+        // #1518, and the scenario is an ordinary migration rather than an attack: the server is rebuilt and
+        // the identity provider is put behind TLS or a new hostname at the same time, so the backup taken
+        // months earlier names the old issuer. Nothing on a rebuilt target contradicts it - it holds no
+        // links and no bindings - so every rule that compares the file against this instance passes it, and
+        // before this guard the stale issuer was stored verbatim. That is terminal rather than degrading:
+        // ClassifyIssuer returns Mismatch and refuses EVERY login for that link, for every user in the
+        // file, at once, with no path back through a login.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "http://idp.lan")),
+            TargetDirectory,
+            IssuesInstead("https://idp.example.com")));
+
+        // BOTH issuers are named, which is what makes the refusal actionable rather than merely correct:
+        // the operator decides in the open between re-pointing the provider and re-keying the links.
+        Assert.Contains("http://idp.lan", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("https://idp.example.com", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AnIssuerThatCouldNotBeReadAtAll_IsRefusedRatherThanWrittenUnverified()
+    {
+        // Fail closed on the OTHER side of the same guard. An unreadable discovery document means nothing
+        // compared the file's issuer to anything, which is the exact state this issue is named after - so
+        // it gets the same answer as a mismatch, and the message says which of the two happened rather than
+        // leaving an operator to guess whether the provider moved or the network did.
+        var target = TargetConfiguration();
+        var unreadable = new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal)
+        {
+            ["idp"] = LinkImportIssuerFact.Failed("the discovery document could not be reached"),
+        };
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory,
+            unreadable));
+
+        Assert.Contains("could not be read to compare it against", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("the discovery document could not be reached", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AnIssuerNoFactWasSuppliedFor_IsRefusedRatherThanWrittenUnverified()
+    {
+        // The near-miss the other two cannot catch: a caller that simply did not look anything up. An empty
+        // fact set has to refuse for the same reason a failed read does - an issuer nothing compared is an
+        // issuer nothing validated - because a guard that treated "no fact" as "carry on" would be off by
+        // default on the one path that has no other check.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory,
+            new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal)));
+
+        Assert.Contains("nothing was read for this provider to compare it against", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AnEntryWithNoIssuer_NeedsNoFactAndStillRestores()
+    {
+        // The availability half, and it is the reason the check keys off the entry rather than the
+        // provider. A document written before the issuer binding existed carries no issuer to validate, so
+        // it restores with an empty fact set - which is what a caller hands in when the identity provider
+        // is unreachable. A guard that demanded a fact per PROVIDER would have made every such restore wait
+        // for an identity provider it does not need.
+        var target = TargetConfiguration();
+
+        var restored = LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice")),
+            TargetDirectory,
+            new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal));
+
+        Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
+        Assert.Empty(target.OidConfigs["idp"].CanonicalLinkIssuers);
+        Assert.Equal(1, restored.Single().Links);
+    }
+
+    [Fact]
+    public void ASamlEntryCarryingAnIssuer_NeedsNoFact()
+    {
+        // SAML has no issuer binding at all, so demanding a fact for one would refuse a restore over a
+        // field the protocol never stores. The issuer on such an entry is dropped at the write, as it was
+        // before; what this row pins is that the new guard does not turn that drop into a refusal.
+        var target = TargetConfiguration();
+
+        var restored = LinkImport.Apply(
+            target,
+            Document(Entry("SAML", "adfs", "nameid-alice", "alice", "https://forged.example.test")),
+            TargetDirectory,
+            new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal));
+
+        Assert.Equal(TargetAlice, target.SamlConfigs["adfs"].CanonicalLinks["nameid-alice"]);
+        Assert.Equal(1, restored.Single().Links);
+    }
+
+    [Fact]
+    public void AProviderThisInstanceDoesNotHold_IsRefusedForTheProvider_NotForItsIssuer()
+    {
+        // Which refusal an operator reads decides where they look next. An entry naming a provider that is
+        // not configured here has a real problem - the provider - and a discovery story about it would send
+        // the operator to the network instead. The provider rule fires first and the issuer guard is never
+        // reached, which this row pins by supplying a fact set that would refuse it on the issuer.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory,
+            IssuesInstead("https://somewhere.else.test")));
+
+        Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("configured to issue", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
     }
 
     [Fact]
@@ -204,7 +338,7 @@ public class LinkImportTests
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetAlice;
         target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"] = "https://idp.example.test";
 
-        LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, TargetIssuers);
 
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -218,7 +352,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetAlice;
 
-        var restored = LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory);
+        var restored = LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, TargetIssuers);
 
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(1, restored.Single().Links);
@@ -234,7 +368,8 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice"), Entry("OpenID", "idp", "sub-alice", "bob")),
-            TargetDirectory));
+            TargetDirectory,
+            TargetIssuers));
 
         Assert.Contains("maps this identity to two different accounts", refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -254,7 +389,8 @@ public class LinkImportTests
                 Entry("OpenID", "idp", "sub-alice", "alice"),
                 Entry("SAML", "adfs", "nameid-alice", "alice"),
                 Entry("OpenID", "idp", "sub-bob", "nobody")),
-            TargetDirectory));
+            TargetDirectory,
+            TargetIssuers));
 
         AssertNoLinksWereWritten(target);
     }
@@ -268,7 +404,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory, TargetIssuers));
 
         Assert.Contains("entry #0 (OpenID/idp)", refusal.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("sub-alice", refusal.Message, StringComparison.Ordinal);
@@ -280,7 +416,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "   ", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "   ", "alice")), TargetDirectory, TargetIssuers));
 
         AssertNoLinksWereWritten(target);
     }
@@ -295,7 +431,7 @@ public class LinkImportTests
         target.OidConfigs["broken"] = null!;
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "broken", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "broken", "sub-alice", "alice")), TargetDirectory, TargetIssuers));
 
         Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
     }
@@ -307,7 +443,7 @@ public class LinkImportTests
         // what tells an operator who applied the wrong file that nothing came back.
         var target = TargetConfiguration();
 
-        var restored = LinkImport.Apply(target, Document(), TargetDirectory);
+        var restored = LinkImport.Apply(target, Document(), TargetDirectory, TargetIssuers);
 
         Assert.Empty(restored);
         AssertNoLinksWereWritten(target);
@@ -321,11 +457,11 @@ public class LinkImportTests
         // accepting a different casing here would restore links onto a provider no login resolves.
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, Document(Entry("openid", "idp", "sub-alice", "alice")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("openid", "idp", "sub-alice", "alice")), TargetDirectory, TargetIssuers);
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "IDP", "sub-bob", "bob")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "IDP", "sub-bob", "bob")), TargetDirectory, TargetIssuers));
     }
 
     // --- helpers ---
@@ -387,6 +523,12 @@ public class LinkImportTests
 
     private static string? SourceDirectory(Guid userId) =>
         userId == SourceAlice ? "alice" : userId == SourceBob ? "bob" : null;
+
+    // A fact set naming a DIFFERENT issuer than the document carries: the migration this issue is about,
+    // where the identity provider moved to a new hostname or behind TLS while the backup still names the
+    // old one.
+    private static Dictionary<string, LinkImportIssuerFact> IssuesInstead(string issuer) =>
+        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read(issuer) };
 
     private static Guid? TargetDirectory(string username) => username switch
     {

@@ -60,16 +60,26 @@ internal static class LinkImport
     /// Resolves a Jellyfin username to the id this instance holds for it, or null when no such account
     /// exists. The controller supplies one backed by <c>IUserManager</c>.
     /// </param>
+    /// <param name="configuredIssuers">
+    /// What each OpenID provider named in the document is configured to issue, keyed by provider name
+    /// (#1518). An entry carrying an issuer is restorable only when the fact for its provider names an
+    /// issuer equal to it; a fact naming a failed read, and a provider absent from the map, both refuse the
+    /// entry. The caller reads these from the discovery documents before taking the configuration lock.
+    /// Entries carrying no issuer never consult it, so a document written before the issuer binding existed
+    /// restores with the identity provider unreachable.
+    /// </param>
     /// <returns>How many links each provider got back, for the audit line. Empty when the document carried none.</returns>
-    /// <exception cref="ArgumentException">The document version is unsupported, or an entry names a protocol, provider, canonical name or username this instance cannot restore, or the document contradicts itself or the stored link table.</exception>
+    /// <exception cref="ArgumentException">The document version is unsupported, or an entry names a protocol, provider, canonical name or username this instance cannot restore, or the document contradicts itself, the stored link table, or what the provider is configured to issue.</exception>
     internal static IReadOnlyList<LinkImportCount> Apply(
         PluginConfiguration live,
         LinkExportDocument document,
-        Func<string, Guid?> resolveUserId)
+        Func<string, Guid?> resolveUserId,
+        IReadOnlyDictionary<string, LinkImportIssuerFact> configuredIssuers)
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(resolveUserId);
+        ArgumentNullException.ThrowIfNull(configuredIssuers);
 
         if (document.FormatVersion != LinkExport.FormatVersion)
         {
@@ -81,14 +91,15 @@ internal static class LinkImport
         // below are about entries that cannot be restored; a document with no entries contradicts nothing
         // and leaves nothing half-done, and the count the caller audits says plainly that zero links came
         // back - which an operator who applied the wrong file reads immediately.
-        var resolved = Resolve(live, document, resolveUserId);
+        var resolved = Resolve(live, document, resolveUserId, configuredIssuers);
         return Write(resolved);
     }
 
     private static List<ResolvedLink> Resolve(
         PluginConfiguration live,
         LinkExportDocument document,
-        Func<string, Guid?> resolveUserId)
+        Func<string, Guid?> resolveUserId,
+        IReadOnlyDictionary<string, LinkImportIssuerFact> configuredIssuers)
     {
         var refusals = new List<string>();
         var resolved = new List<ResolvedLink>();
@@ -166,6 +177,43 @@ internal static class LinkImport
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already binds that link to a different issuer; unlink it first"));
                 continue;
+            }
+
+            // #1518. THE GUARD THIS HELPER GAINED, and it is the one the rules above cannot stand in for:
+            // every one of them compares the file against something this instance ALREADY HOLDS, and a
+            // rebuilt migration target holds nothing. On that server - the one the export exists for - the
+            // file's issuer was written verbatim with nothing comparing it to anything, and a stored issuer
+            // that does not match what the provider actually issues is terminal rather than degrading:
+            // CanonicalLinkService classifies it Mismatch and refuses EVERY login for that link, with no
+            // path back through a login. So the comparison is made here, against what the provider is
+            // configured to issue, at the one moment an operator is still standing at the machine.
+            //
+            // FAIL CLOSED IN BOTH DIRECTIONS. A mismatch is refused, and so is an issuer that could not be
+            // compared at all - an unreadable discovery document, or a provider the caller looked nothing up
+            // for. Writing an unverified issuer IS the defect, so "could not check" and "checked and it is
+            // wrong" get the same answer, and the message says which of the two happened. An entry carrying
+            // no issuer reaches none of this, so a document from before the binding existed still restores
+            // with the identity provider down.
+            if (config is OidConfig && !string.IsNullOrWhiteSpace(entry.Issuer))
+            {
+                var fact = configuredIssuers.TryGetValue(entry.Provider!, out var known) ? known : default;
+                if (!string.IsNullOrWhiteSpace(fact.Unreadable))
+                {
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', and what this provider issues could not be read to compare it against: {fact.Unreadable}"));
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(fact.Issuer))
+                {
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', and nothing was read for this provider to compare it against"));
+                    continue;
+                }
+
+                if (!string.Equals(fact.Issuer, entry.Issuer, StringComparison.Ordinal))
+                {
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', but this provider is configured to issue '{fact.Issuer}'; re-point the provider, or re-key the links deliberately, before importing"));
+                    continue;
+                }
             }
 
             claimed[key] = userId;

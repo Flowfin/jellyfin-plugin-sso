@@ -193,6 +193,24 @@ these are the three a migration runs into.
   Both refusals exist so a backup file cannot silently remap an
   identity-provider subject onto another account. Unlink the existing link
   first, then re-import.
+- **An issuer the provider does not issue.** The entry names an OpenID issuer,
+  and the provider's own discovery document declares a different one:
+  `the file binds that link to issuer '<file>', but this provider is configured to issue '<configured>'; re-point the provider, or re-key the links deliberately, before importing`.
+  **This is the refusal to expect if you moved the identity provider in the same
+  maintenance window** - `http://idp.lan` to `https://idp.example.com`, say. It
+  is not a problem with the file: the links in it are bound to the address the
+  provider used to answer on, and restoring them against the new address would
+  refuse every one of those users at login, permanently, with nothing on this
+  page to say why. Decide in the open: point the provider back at the address
+  the file names, or re-key the links deliberately by importing a file with the
+  issuers removed and letting the first login take the binding.
+- **An issuer that could not be checked.** The import reads what each OpenID
+  provider issues before it writes anything, so an identity provider that is
+  unreachable at that moment refuses the entries that carry an issuer:
+  `the file binds that link to issuer '<file>', and what this provider issues could not be read to compare it against: <cause>`.
+  Retry when the provider answers. Entries carrying **no** issuer need no such
+  read, so a document exported before this plugin bound links to issuers, and
+  every SAML entry, restores with the identity provider down.
 
 An import that succeeds ANSWERS with the total and the per-provider counts, and
 audits the same numbers with no canonical name in the line

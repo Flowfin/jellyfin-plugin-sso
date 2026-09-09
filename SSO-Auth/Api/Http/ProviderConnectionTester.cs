@@ -93,6 +93,56 @@ internal static class ProviderConnectionTester
     }
 
     /// <summary>
+    /// Reads what one stored OpenID provider is configured to issue, for the link import's issuer check
+    /// (#1518). Same discovery read as the probe above and under the same hardened policy, reduced to the
+    /// single fact the importer compares against - so the value a restore is judged by and the value a
+    /// login is judged by come from the one document, and a later change to the discovery posture cannot
+    /// leave this on a weaker one.
+    /// </summary>
+    /// <remarks>
+    /// Every failure arm returns a FACT rather than throwing, and every one of them is a refusal at the
+    /// importer: there is no arm here that answers "carry on unchecked", because an unchecked issuer
+    /// written into a link table is the whole of what #1518 is about.
+    /// </remarks>
+    /// <param name="config">The stored OpenID provider configuration.</param>
+    /// <param name="provider">The provider name, for the reader's fail-closed warning only.</param>
+    /// <param name="httpClientFactory">The shared HTTP client factory the hardened discovery fetch is built over.</param>
+    /// <param name="logger">The logger the reader logs its fail-closed warning to (never a secret).</param>
+    /// <returns>The issuer, or the reason it could not be read.</returns>
+    internal static async Task<LinkImportIssuerFact> ReadConfiguredIssuerAsync(OidConfig config, string provider, IHttpClientFactory httpClientFactory, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(config?.OidEndpoint))
+        {
+            return LinkImportIssuerFact.Failed("no OpenID endpoint is configured for it");
+        }
+
+        OidcClientOptions options;
+        try
+        {
+            options = OidcDiscoveryOptions.Build(config);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            return LinkImportIssuerFact.Failed("its configured OpenID Endpoint is not a valid absolute URL");
+        }
+
+        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+        if (!discovery.Available)
+        {
+            return LinkImportIssuerFact.Failed(CauseOf(discovery.Refusal));
+        }
+
+        // A document that declares no issuer is a read that succeeded and produced nothing to compare
+        // against, which is not the same as a read that failed and is reported as its own cause. The
+        // importer refuses on both, and an operator who sees this one looks at the identity provider's
+        // metadata rather than at the network.
+        var issuer = discovery.ProviderInformation?.IssuerName;
+        return string.IsNullOrWhiteSpace(issuer)
+            ? LinkImportIssuerFact.Failed("its discovery document declares no issuer")
+            : LinkImportIssuerFact.Read(issuer!);
+    }
+
+    /// <summary>
     /// Probes a stored SAML provider: parses the configured PUBLIC signing certificate and reports its
     /// non-secret facts (subject, issuer, validity window, SHA-256 thumbprint). No network call - there is
     /// no metadata-URL field - and never the service-provider signing key. A non-parsing certificate returns

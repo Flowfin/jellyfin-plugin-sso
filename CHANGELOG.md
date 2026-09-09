@@ -568,6 +568,33 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The link import now checks the issuer a backup file names against what the
+  provider actually issues, and refuses a mismatch (#1518).** `LinkImport` wrote
+  the issuer an operator's backup file carried and nothing compared it to
+  anything. The only guard beside it fires when the TARGET already holds a
+  binding for that canonical name, and **a rebuilt migration target holds none**
+  - which is the server the export exists for. An operator who moves the server
+    and puts the identity provider behind TLS or a new hostname in the same window
+    imported links carrying the old issuer, the import succeeded, the count said
+    the links were restored, and then **every restored user was refused at login,
+    at once, permanently**: a stored issuer that does not match what the provider
+    issues is classified `Mismatch` and there is no path back through a login, the
+    trust-on-first-use arm applying only to an ABSENT binding. Recovery needed a
+    per-name unlink for each of N links.
+
+  The import now reads each named OpenID provider's discovery document before it
+  writes anything - once per provider, outside the configuration lock, under the
+  login's own hardened discovery policy - and refuses an entry whose issuer the
+  provider does not issue, **naming both issuers**: the one in the file and the
+  one the provider is configured to issue, so the operator decides in the open
+  between re-pointing the provider and re-keying the links. It fails closed on
+  the other side too: an issuer that could not be compared at all, because the
+  discovery document was unreadable, is refused rather than stored unverified,
+  since writing an unvalidated issuer is the defect itself. Entries carrying no
+  issuer read nothing, so a document exported before links were bound to issuers
+  - and every SAML entry - still restores with the identity provider down. The
+    refusal is whole-document as every other one is: nothing is written.
+
 - **The login audit line now names the Jellyfin account, and the
   provider-presented name beside it where the two differ (#1551).** The
   `[SSO Audit] Login succeeded` line carried the username the identity provider

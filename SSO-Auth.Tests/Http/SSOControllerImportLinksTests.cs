@@ -4,6 +4,9 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Extensions.Json;
@@ -131,6 +134,121 @@ public class SSOControllerImportLinksTests
         Assert.Equal(0, result.Restored);
         Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinks);
     }
+
+    [Fact]
+    public async Task AnIssuerTheProviderDoesNotIssue_IsRefused_NamingBothIssuers()
+    {
+        // #1518 end to end, at the surface an operator actually uses. The importer's own rules are pinned in
+        // LinkImportTests; what this row pins is that the endpoint READS what the provider issues before it
+        // decides - a check that exists but is never wired reaches nobody. The server here is configured for
+        // the provider as it is TODAY, and the backup names the address it had before the migration.
+        var fixture = new OidcTokenFixture(MovedTo, "jf");
+        using (fixture)
+        {
+            var harness = HarnessServing(fixture);
+
+            var answer = await harness.Controller.ImportLinks(OneStaleIssuer()).ConfigureAwait(true);
+
+            var refusal = Assert.IsType<BadRequestObjectResult>(answer);
+            var message = Assert.IsType<string>(refusal.Value);
+            Assert.Contains(WasAt, message, StringComparison.Ordinal);
+            Assert.Contains(MovedTo, message, StringComparison.Ordinal);
+            Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinks);
+            Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinkIssuers);
+        }
+    }
+
+    [Fact]
+    public async Task AnIssuerTheProviderDoesIssue_IsRestoredWithItsBinding()
+    {
+        // The other half, and the one that decides whether the guard is usable rather than merely safe: the
+        // ordinary restore - the file and the provider agree - still works, and the binding still travels
+        // with the link. A guard that refused this would have made every migration worse than the bug.
+        var fixture = new OidcTokenFixture(WasAt, "jf");
+        using (fixture)
+        {
+            var harness = HarnessServing(fixture);
+
+            var result = Restore(await harness.Controller.ImportLinks(OneStaleIssuer()).ConfigureAwait(true));
+
+            Assert.Equal(1, result.Restored);
+            Assert.Equal(TargetAlice, harness.Configuration.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
+            Assert.Equal(WasAt, harness.Configuration.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+        }
+    }
+
+    [Fact]
+    public async Task AnIssuerCarryingEntry_WithTheProviderUnreachable_IsRefusedRatherThanStoredUnverified()
+    {
+        // Fail closed when the check cannot be made. With no responder the harness's client factory hands
+        // back nothing, so discovery fails exactly as an unreachable identity provider would. Storing the
+        // file's issuer anyway is the defect this issue is named after, so the answer is a refusal that
+        // says the comparison could not be made - not a success that looks like every other one.
+        var harness = Harness();
+
+        var answer = await harness.Controller.ImportLinks(OneStaleIssuer()).ConfigureAwait(true);
+
+        var refusal = Assert.IsType<BadRequestObjectResult>(answer);
+        Assert.Contains("could not be read to compare it against", Assert.IsType<string>(refusal.Value), StringComparison.Ordinal);
+        Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinks);
+    }
+
+    [Fact]
+    public async Task ADocumentCarryingNoIssuer_ReadsNothingAndStillRestores()
+    {
+        // The availability half at the endpoint. TwoLinks() carries no issuer, and this harness has no
+        // responder, so a restore that had to reach the identity provider first would fail here. It does
+        // not: a document from before the binding existed, or one exported from a SAML-only server, is
+        // restorable with the identity provider down.
+        var harness = Harness();
+
+        var result = Restore(await harness.Controller.ImportLinks(TwoLinks()).ConfigureAwait(true));
+
+        Assert.Equal(2, result.Restored);
+    }
+
+    // The two addresses of one identity provider across an ordinary migration: the backup names the first,
+    // the server is configured for the second.
+    private const string WasAt = "https://idp-import-was.example.test";
+    private const string MovedTo = "https://idp-import-now.example.test";
+
+    private static LinkExportDocument OneStaleIssuer() => new()
+    {
+        FormatVersion = LinkExport.FormatVersion,
+        Links = new Collection<LinkExportEntry>
+        {
+            new() { Protocol = LinkExport.OpenIdProtocol, Provider = "idp", CanonicalName = "sub-alice", Username = "alice", Issuer = WasAt },
+        },
+    };
+
+    private static SsoControllerHarness HarnessServing(OidcTokenFixture fixture)
+    {
+        var harness = new SsoControllerHarness(
+            configuration =>
+            {
+                configuration.OidConfigs["idp"] = new OidConfig { Enabled = true, OidEndpoint = fixture.Issuer };
+                configuration.SamlConfigs["adfs"] = new SamlConfig { Enabled = true };
+            },
+            httpResponder: request =>
+            {
+                var url = request.RequestUri!.AbsoluteUri;
+                if (url == fixture.DiscoveryUrl)
+                {
+                    return Json(fixture.Discovery());
+                }
+
+                return url == fixture.JwksUrl ? Json(fixture.Jwks()) : new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+        harness.UserManager.GetUserByName("alice").Returns(TestUsers.Named("alice", TargetAlice));
+        harness.UserManager.GetUserByName("bob").Returns(TestUsers.Named("bob", TargetBob));
+        return harness;
+    }
+
+    private static HttpResponseMessage Json(string body) => new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent(body, Encoding.UTF8, "application/json"),
+    };
 
     private static LinkImportResultDocument Restore(ActionResult answer) =>
         Assert.IsType<LinkImportResultDocument>(Assert.IsType<OkObjectResult>(answer).Value);

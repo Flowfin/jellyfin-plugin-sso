@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using Jellyfin.Extensions.Json;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -38,6 +39,11 @@ public class LinkExportDocumentJsonTests
     private static readonly Guid SourceBob = Guid.Parse("b0b00000-0000-0000-0000-000000000002");
     private static readonly Guid TargetBob = Guid.Parse("7a19e700-0000-0000-0000-00000000000b");
 
+    // These rows are about the JSON boundary rather than the issuer guard (#1518), and the documents they
+    // post carry no issuer, so no fact is needed and an empty set is the honest input rather than a stub.
+    private static readonly Dictionary<string, LinkImportIssuerFact> NoIssuers =
+        new(StringComparer.Ordinal);
+
     /// <summary>
     /// The whole migration in one property: export on the source, send it as JSON exactly as the endpoint
     /// receives it, and restore on the target. Deleting the creation-handling attribute on
@@ -54,7 +60,7 @@ public class LinkExportDocumentJsonTests
         Assert.Single(received!.Links);
 
         var target = Target();
-        LinkImport.Apply(target, received, username => username == "bob" ? TargetBob : null);
+        LinkImport.Apply(target, received, username => username == "bob" ? TargetBob : null, NoIssuers);
 
         Assert.Equal(TargetBob, target.OidConfigs["idp"].CanonicalLinks["sub-bob"]);
     }
@@ -73,7 +79,7 @@ public class LinkExportDocumentJsonTests
 
         var received = JsonSerializer.Deserialize<LinkExportDocument>(Json, JsonDefaults.Options);
 
-        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(Target(), received!, _ => null));
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(Target(), received!, _ => null, NoIssuers));
         Assert.Contains("no Jellyfin account is named 'nobody' on this instance", refusal.Message, StringComparison.Ordinal);
     }
 

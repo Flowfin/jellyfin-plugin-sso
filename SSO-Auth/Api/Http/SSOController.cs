@@ -1889,13 +1889,20 @@ public class SSOController : ControllerBase
             .Distinct(StringComparer.Ordinal)
             .ToDictionary(username => username, username => _userManager.GetUserByName(username)?.Id, StringComparer.Ordinal);
 
+        // What each OpenID provider named by an issuer-carrying entry is configured to issue (#1518), read
+        // BEFORE the lock for the same reason the user directory is: this is a network round trip per
+        // provider, and holding the global configuration lock across one blocks every login for its
+        // duration. Only providers whose entries actually carry an issuer are read, so a document written
+        // before the binding existed costs no fetch and still restores with the identity provider down.
+        var configuredIssuers = await ReadConfiguredIssuersAsync(document).ConfigureAwait(false);
+
         IReadOnlyList<LinkImportCount> restored;
         try
         {
             // Validate-then-write lives in the Config helper; the mutation persists only if it returns
             // without throwing, so a rejected document leaves the stored link table untouched.
             restored = SSOPlugin.Instance.MutateConfiguration(
-                configuration => LinkImport.Apply(configuration, document, username => directory.GetValueOrDefault(username)));
+                configuration => LinkImport.Apply(configuration, document, username => directory.GetValueOrDefault(username), configuredIssuers));
         }
         catch (ArgumentException ex)
         {
@@ -1918,6 +1925,39 @@ public class SSOController : ControllerBase
         // the settings page, and that is what let #1517 - an import that silently restored nothing - stand
         // from 4.3.0-beta.43 until it was found by reading the code rather than by anybody using it.
         return Ok(result);
+    }
+
+    // The issuer side of the import's pre-lock snapshot (#1518). One discovery read per DISTINCT OpenID
+    // provider that an issuer-carrying entry names, so a thousand-link document costs one fetch per
+    // provider rather than one per link.
+    //
+    // A PROVIDER THIS INSTANCE DOES NOT HOLD IS LEFT OUT RATHER THAN GIVEN A FAILED FACT, and the
+    // difference is what an operator reads. The importer already refuses such an entry under its own rule -
+    // no provider of that name is configured for that protocol - and that sentence names the real problem;
+    // a discovery failure recorded here would replace it with a network story about a provider that does
+    // not exist. Its own rule fires first, so the absent fact is never reached for that entry.
+    private async Task<Dictionary<string, LinkImportIssuerFact>> ReadConfiguredIssuersAsync(LinkExportDocument document)
+    {
+        var configuration = SSOPlugin.Instance.Configuration;
+        var facts = new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal);
+
+        var providers = document.Links
+            .Where(entry => entry is not null
+                && !string.IsNullOrWhiteSpace(entry.Issuer)
+                && !string.IsNullOrWhiteSpace(entry.Provider)
+                && string.Equals(entry.Protocol, LinkExport.OpenIdProtocol, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.Provider!)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (var provider in providers)
+        {
+            if (configuration.OidConfigs.TryGetValue(provider, out var config) && config is not null)
+            {
+                facts[provider] = await ProviderConnectionTester.ReadConfiguredIssuerAsync(config, provider, _httpClientFactory, _logger).ConfigureAwait(false);
+            }
+        }
+
+        return facts;
     }
 
     /// <summary>
