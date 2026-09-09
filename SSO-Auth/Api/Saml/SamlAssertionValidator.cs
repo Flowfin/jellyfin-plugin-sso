@@ -175,7 +175,7 @@ internal sealed class SamlAssertionValidator
             // (a helper-boundary sanitizer is not recognized by CodeQL).
             _logger.LogWarning(
                 "SAML assertion replay cache refused a new assertion for provider {Provider}: the cache is at capacity (warning throttled). This indicates extreme login volume or an identity provider replaying signed assertions.",
-                provider?.ReplaceLineEndings(string.Empty));
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         return consumed;
@@ -304,7 +304,7 @@ internal sealed class SamlAssertionValidator
             // prevent log forging (a helper-boundary sanitizer is not recognized by CodeQL).
             _logger.LogWarning(
                 "SAML response validation failed (signature algorithm: {Algorithm}). SHA-1 is rejected; if that is the identity provider's algorithm, reconfigure it to sign with RSA/ECDSA-SHA-256 or stronger.",
-                samlResponse.GetSignatureAlgorithm()?.ReplaceLineEndings(string.Empty));
+                samlResponse.GetSignatureAlgorithm()?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return false;
         }
 

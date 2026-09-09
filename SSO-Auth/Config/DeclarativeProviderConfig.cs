@@ -557,7 +557,7 @@ internal static class DeclarativeProviderConfig
             logger.LogError(
                 "The declarative SSO configuration at {SourcePath} was rejected and nothing was changed: {Reason}",
                 sourcePath.ReplaceLineEndings(string.Empty),
-                reason.ReplaceLineEndings(string.Empty));
+                reason.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         return DeclarativeLoadOutcome.Rejected;

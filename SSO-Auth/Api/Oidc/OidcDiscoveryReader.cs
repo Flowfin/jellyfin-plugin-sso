@@ -139,14 +139,16 @@ internal static class OidcDiscoveryReader
                 // plugin's string. It quotes the URL the library was connecting to, which on the JWKS leg
                 // the provider chose, so an unbounded entry lets one anonymous challenge write as much log
                 // as the response cap allows. The truncation is inline for the same reason the strip is -
-                // moving either into a helper takes the sanitizer out of the call the analyzer reads.
+                // moving either into a helper takes the sanitizer out of the call the analyzer reads. The
+                // sanitizers run on the foreign text BEFORE the truncation marker is joined to it: the marker
+                // is this reader's own, and it opens with the bracket the substitution exists to remove (#1557).
                 var error = discovery.Error ?? string.Empty;
                 logger.LogWarning(
                     "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
-                    provider?.ReplaceLineEndings(string.Empty),
-                    (error.Length > MaxLoggedProviderErrorChars
-                        ? string.Concat(error.AsSpan(0, MaxLoggedProviderErrorChars), ErrorTruncationMarker)
-                        : error).ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    string.Concat(
+                        error[..Math.Min(error.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                        error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
 
                 // The screen's own record of what it refused, never a re-reading of the library's error
                 // text, so the reason the admin probe reports (#1064) cannot drift from the reason logged
@@ -201,7 +203,7 @@ internal static class OidcDiscoveryReader
             logger.LogWarning(
                 e,
                 "Could not read the OpenID discovery document for provider {Provider}; the login fails closed rather than proceeding on unverified discovery facts.",
-                provider?.ReplaceLineEndings(string.Empty));
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
 
             // #1139: the catch-all arm is the fetch-error counter, because it is where every unreadable
             // document ends up - a network failure, a timeout, a body that will not parse.
