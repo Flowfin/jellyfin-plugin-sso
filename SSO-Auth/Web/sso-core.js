@@ -16,6 +16,11 @@ function tr(key, englishDefault, params) {
 // this module's bookkeeping and not a fact about the page.
 const pageBaselines = new WeakMap();
 
+// Settles a promise without deciding anything about it. Used where a load has to WAIT for a request
+// whose failure it deliberately does not act on - the checklist fills the baseline waits for, and the
+// configuration read of a refresh, which leaves the page showing what it last read.
+const noop = () => {};
+
 // The Jellyfin account routing that a revoke restores (#1121). The Unregister endpoint PERSISTS
 // whatever the caller sends here onto the account, so a wrong string does not fail the request: it routes
 // that account to core's InvalidAuthenticationProvider, which refuses every password, and nothing on this
@@ -448,7 +453,16 @@ const ssoConfigurationPage = {
   // this function does not have to learn the new arrangement. What it must never become is a load that
   // SKIPS a section the page does have - so each test names the exact control the branch below writes
   // to, not a container that could survive the control being dropped.
-  loadConfiguration: (page) => {
+  //
+  // `options.refreshing` marks the ONE caller that is re-running this against a page an administrator is
+  // already looking at - the return to a tab, #1576 - and it changes two things and nothing else. The
+  // library checklists are not repopulated, because only `loadProvider` ticks them and nothing here would
+  // put the ticks back; and the write is re-gated on the page still being replaceable, because the
+  // decision to refresh was taken before this fetch went out. Every other caller is a save, a delete or
+  // an import that has just changed the stored configuration and is reading it back, and those replace
+  // the page unconditionally as they always have.
+  loadConfiguration: (page, options) => {
+    const refreshing = Boolean(options && options.refreshing);
     // Refreshed with the configuration itself: a provider that stopped being declaratively managed between
     // two loads must not keep a frozen form, and one that started being managed must not keep an open one.
     ssoConfigurationPage.loadManagedProviders();
@@ -456,67 +470,117 @@ const ssoConfigurationPage = {
     // re-asked rather than left standing from the load that found it. It is on every page, because the
     // statement it makes - that the settings in front of you are not this server's - is true of all five.
     ssoConfigurationPage.showUnreadableConfigurationNotice(page);
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
-        // The two provider workspaces (Providers). Both or neither: they are one tab.
-        if (page.querySelector("#selectProvider")) {
-          ssoConfigurationPage.populateProviders(page, config.OidConfigs);
-          // Refresh the SAML workspace from the same configuration load (#725), so a SAML save/delete/import
-          // reloads its provider list exactly as the OpenID one does.
-          ssoConfigurationPage.populateSamlProviders(
-            page,
-            config.SamlConfigs || {},
-          );
-        }
-        // The GLOBAL login-page buttons opt-in (#722) rides the same configuration load. It is a root
-        // PluginConfiguration flag, not a provider field, so it has the Server page's save path (saveServerSettings)
-        // and no sso-* marker class. On the Server tab since #1527.
-        const manage_buttons = page.querySelector("#ManageLoginPageButtons");
-        if (manage_buttons) {
-          manage_buttons.checked = Boolean(config.ManageLoginPageButtons);
-          // What this switch was FILLED with, so the save can tell a switch the administrator moved from
-          // one they never touched (#1572). See saveServerSettings for why that distinction is the whole
-          // difference between one Save and one lost update.
-          manage_buttons.dataset.ssoLoaded = String(manage_buttons.checked);
-        }
 
-        // The GLOBAL Single Logout opt-in (#727) rides the same configuration load. Like
-        // ManageLoginPageButtons it is a root PluginConfiguration flag, not a provider field, so it has its
-        // own save path (saveServerSettings, together with the flag above) and no sso-* marker class.
-        const single_logout = page.querySelector("#EnableSingleLogout");
-        if (single_logout) {
-          single_logout.checked = Boolean(config.EnableSingleLogout);
-          single_logout.dataset.ssoLoaded = String(single_logout.checked);
-        }
+    // NOT ON A REFRESH, and this is the guard that keeps a returning tab from costing users their
+    // libraries (#1576). populateFolders rebuilds the checklist from Library/MediaFolders with nothing
+    // ticked; loadProvider is what ticks it, and a refresh does not run loadProvider. Skipping it is
+    // safe because both checklists live inside an editor, a refresh only happens with every editor
+    // closed, and opening one runs loadProvider - which is where the ticks come from either way. What
+    // it costs is a media library added while the dashboard has been left open on this tab: the
+    // checklist is the one this load put there, until the next save, import or reload of the page.
+    //
+    // Issued BEFORE the configuration request rather than after it, because the baseline below waits on
+    // all three and the order they go out in is the order they tend to come back in.
+    const folderFills = [];
+    if (!refreshing) {
+      const folder_container = page.querySelector("#EnabledFolders");
+      if (folder_container) {
+        folderFills.push(
+          ssoConfigurationPage.populateFolders(folder_container),
+        );
+      }
 
-        // The GLOBAL provisioning profile set (#1105) rides the same configuration load, for the
-        // reason the two flags above do: it is a root PluginConfiguration member with its own save
-        // path. Doing it here means every existing save, delete and import route refreshes the
-        // editor and both provider-form selectors without knowing that they exist. Since #1527 the
-        // editor is on Policies and the two provider-form selectors are on Providers, so this runs on
-        // both tabs and fills whichever half is there.
-        ssoConfigurationPage.populateProvisioningProfiles(page, config);
-
-        // The Overview tab reads the same configuration rather than a second endpoint, so what it says
-        // about a provider and what the editor shows for it cannot come apart.
-        ssoConfigurationPage.renderOverviewFrom(page, config);
-
-        // What the page now shows IS the stored configuration, so it is clean (#1572). This is the one
-        // place that has to say so, because every save, delete and import path ends here - and it is
-        // what re-runs the Save gate against the values that were just filled in.
-        ssoConfigurationPage.markPageClean(page);
-      },
-    );
-
-    const folder_container = page.querySelector("#EnabledFolders");
-    if (folder_container) {
-      ssoConfigurationPage.populateFolders(folder_container);
+      // The SAML editor has its own available-folders checklist; populate it too (#725).
+      const saml_folder_container = page.querySelector("#saml-EnabledFolders");
+      if (saml_folder_container) {
+        folderFills.push(
+          ssoConfigurationPage.populateFolders(saml_folder_container),
+        );
+      }
     }
 
-    // The SAML editor has its own available-folders checklist; populate it too (#725).
-    const saml_folder_container = page.querySelector("#saml-EnabledFolders");
-    if (saml_folder_container) {
-      ssoConfigurationPage.populateFolders(saml_folder_container);
+    const load = ApiClient.getPluginConfiguration(
+      ssoConfigurationPage.pluginUniqueId,
+    ).then((config) => {
+      // THE SECOND ASKING, and the whole answer to the check-then-act the review refused (#1576). The
+      // refresh decided to run before this request went out; an administrator can open an editor or
+      // type into a control while it is in flight, and every line below writes a control. So the
+      // question is put again HERE, at the last moment before the first write, and a refresh that has
+      // been overtaken does nothing at all rather than overwriting what arrived.
+      if (refreshing && !ssoConfigurationPage.mayReplacePageContents(page)) {
+        return;
+      }
+      // The two provider workspaces (Providers). Both or neither: they are one tab.
+      if (page.querySelector("#selectProvider")) {
+        ssoConfigurationPage.populateProviders(page, config.OidConfigs);
+        // Refresh the SAML workspace from the same configuration load (#725), so a SAML save/delete/import
+        // reloads its provider list exactly as the OpenID one does.
+        ssoConfigurationPage.populateSamlProviders(
+          page,
+          config.SamlConfigs || {},
+        );
+      }
+      // The GLOBAL login-page buttons opt-in (#722) rides the same configuration load. It is a root
+      // PluginConfiguration flag, not a provider field, so it has the Server page's save path (saveServerSettings)
+      // and no sso-* marker class. On the Server tab since #1527.
+      const manage_buttons = page.querySelector("#ManageLoginPageButtons");
+      if (manage_buttons) {
+        manage_buttons.checked = Boolean(config.ManageLoginPageButtons);
+        // What this switch was FILLED with, so the save can tell a switch the administrator moved from
+        // one they never touched (#1572). See saveServerSettings for why that distinction is the whole
+        // difference between one Save and one lost update.
+        manage_buttons.dataset.ssoLoaded = String(manage_buttons.checked);
+      }
+
+      // The GLOBAL Single Logout opt-in (#727) rides the same configuration load. Like
+      // ManageLoginPageButtons it is a root PluginConfiguration flag, not a provider field, so it has its
+      // own save path (saveServerSettings, together with the flag above) and no sso-* marker class.
+      const single_logout = page.querySelector("#EnableSingleLogout");
+      if (single_logout) {
+        single_logout.checked = Boolean(config.EnableSingleLogout);
+        single_logout.dataset.ssoLoaded = String(single_logout.checked);
+      }
+
+      // The GLOBAL provisioning profile set (#1105) rides the same configuration load, for the
+      // reason the two flags above do: it is a root PluginConfiguration member with its own save
+      // path. Doing it here means every existing save, delete and import route refreshes the
+      // editor and both provider-form selectors without knowing that they exist. Since #1527 the
+      // editor is on Policies and the two provider-form selectors are on Providers, so this runs on
+      // both tabs and fills whichever half is there.
+      ssoConfigurationPage.populateProvisioningProfiles(page, config);
+
+      // The Overview tab reads the same configuration rather than a second endpoint, so what it says
+      // about a provider and what the editor shows for it cannot come apart.
+      ssoConfigurationPage.renderOverviewFrom(page, config);
+
+      // The Save gate is re-run against the values just filled in. The BASELINE is taken below rather
+      // than here, because this is one of the load's three requests and not the whole of it.
+      ssoConfigurationPage.updateSaveAvailability(page);
+
+      // THE BASELINE COVERS THE WHOLE LOAD, AND TAKING IT HERE ALONE WAS A DEFECT THE REVIEW
+      // REPRODUCED AGAINST THE SHIPPED FILE (#1576). A load is three requests: the two checklists are
+      // filled by their own, and each appends one ID-LESS checkbox per media library that
+      // controlSignature counts. Whenever the configuration answered first, the baseline was taken
+      // before those controls existed and nothing corrected it, so the Providers page differed from
+      // its own baseline for the life of the view. Under #1572 that was invisible, because only a user
+      // event consulted the comparison. Under the refresh it decides everything: the tab would have
+      // refused to re-read for good, and would have asserted unsaved changes on a page nobody had
+      // touched - training away the one indicator that says a real edit is about to be lost.
+      //
+      // A rejected checklist read settles here too, so a failed fill cannot leave the page with no
+      // baseline at all - which pageDiffersFromBaseline reads as edited, and which would refuse every
+      // refresh from then on. What that read leaves behind is a checklist with no rows, and what a
+      // save then writes for it is its own defect on a different path; it is #1587 rather than this.
+      return Promise.all(folderFills.map((fill) => fill.then(noop, noop))).then(
+        () => ssoConfigurationPage.markPageClean(page),
+      );
+    });
+
+    // A refresh that could not read the configuration leaves the page showing what it last read, which
+    // is what a failed refresh should leave. Attached ONLY for the refresh: every other caller has just
+    // written something and is reading it back, and its failure is not this function's to swallow.
+    if (refreshing) {
+      load.then(noop, noop);
     }
   },
   populateProviders: (page, providers) => {
@@ -1012,6 +1076,13 @@ const ssoConfigurationPage = {
   // `checked` and everything else from `value`, and the id rides along so a control appearing or
   // disappearing - a permission row, a folder checklist filled from the server - is a difference rather
   // than something two lengths could cancel out.
+  //
+  // SEPARATED, AND THE EMPTY JOIN IT REPLACED WAS A COLLISION (#1576). The rows a page renders from a
+  // server list carry no id, so two of them contribute "=a" and "=b=c" where two others contribute
+  // "=a=b" and "=c" - the same string, a different page. Under #1572 that could only miss an edit; under
+  // the refresh, "the same signature" is the permission to REPLACE what is on the page, so a collision
+  // is a discarded edit rather than an unmarked one. A separator no value can contain removes the class
+  // for one character, which is cheaper than reasoning about which pairs are reachable.
   controlSignature: (page) =>
     ssoConfigurationPage
       .editableControls(page)
@@ -1023,7 +1094,7 @@ const ssoConfigurationPage = {
             ? String(element.checked)
             : String(element.value)),
       )
-      .join(""),
+      .join("\n"),
   isPageDirty: (page) => page.classList.contains("sso-page-dirty"),
   markPageDirty: (page) => {
     page.classList.add("sso-page-dirty");
@@ -1186,6 +1257,76 @@ const ssoConfigurationPage = {
     };
     page.addEventListener("input", observe, true);
     page.addEventListener("change", observe, true);
+  },
+  // ---- The refresh on return to a tab (#1576) ----
+  //
+  // WHAT WAS REFUSED AND WHY IT IS NOT THE DIRTY STATE'S FAULT. #1572 built the state so a clean tab
+  // could re-read the server on `viewshow`, and the review took the re-read out again: the danger was
+  // never in the state, it was in what `loadConfiguration` does when it runs a SECOND time, having been
+  // written to run once at construction while the editors are still hidden. Three ways, and each of the
+  // three has its own guard below rather than one guard credited with all of them.
+  //
+  // ONE. `loadConfiguration` re-populates both library checklists from `Library/MediaFolders` with
+  // nothing ticked, and it does not re-run `loadProvider`, which is what ticks them. A return to
+  // Providers with an editor open therefore emptied the checklist while the editor still showed its
+  // provider, and the next save serialises that checklist unconditionally and persists
+  // `EnabledFolders: []` - after which `SessionMinter` writes that empty set on every login while
+  // `EnableAllFolders` is off, and every user of that provider loses library access at their next
+  // sign-in. That is the worst outcome on this surface and it needed no race and no typing.
+  //
+  // TWO. Removing a permission row or a role-mapping row is a button click: `row.remove()`, no `input`,
+  // no `change`. So the tracking never runs and the page is never MARKED dirty, while holding a real
+  // edit that the Policies re-read would render straight back out of storage.
+  //
+  // THREE. The check was check-then-act: the dirty test ran first and the fill landed at the end of an
+  // asynchronous chain, so an edit made inside that window was overwritten and the page then reported
+  // itself clean.
+  //
+  // THE THREE GUARDS, IN THE ORDER THEY BITE.
+  //
+  //   - An OPEN EDITOR refuses the refresh outright, which is what answers ONE. Nothing is re-read while
+  //     an editor is on screen: not the checklists, not the hidden `#selectProvider` the save path reads
+  //     its target from - `populateProviders` clears that selector's options, and clearing them drops
+  //     its value - and not the profile selectors inside the two provider forms. An open editor is work
+  //     in progress, and the cost of refusing is staleness behind a panel the administrator is looking
+  //     through anyway.
+  //   - The decision reads `pageDiffersFromBaseline`, which recomputes the SIGNATURE from the live
+  //     controls, and NOT `isPageDirty`, which reads a class something has to have set. That is what
+  //     answers TWO without the tracking having to see a click: the signature carries each control's id,
+  //     so a row that is no longer in the page is a difference by construction. The marked state is
+  //     brought into line at the same moment, so the indicator says why the tab did not refresh.
+  //   - The same two questions are asked AGAIN inside the fill, immediately before anything is written,
+  //     which answers THREE: an edit made while the configuration was in flight leaves the fill with
+  //     nothing to do rather than being overwritten by it.
+  //
+  // WHAT THIS SETTLES ABOUT THE INDICATOR'S GRANULARITY, which #1576 asks for as its own condition. The
+  // indicator is page-wide and the Providers page carries two editors, so opening one still clears the
+  // other's state - unchanged, and it does not matter here: the refresh does not depend on the state
+  // being per-editor, because ANY open editor refuses it wholesale. The granularity question is about
+  // what the indicator promises, and it promises the same thing it did before this.
+  editorRegionIds: ["sso-editor", "saml-editor"],
+  anyEditorOpen: (page) =>
+    ssoConfigurationPage.editorRegionIds.some((id) => {
+      const region = page.querySelector("#" + id);
+      return region !== null && region.hidden !== true;
+    }),
+  // Whether the page may have its contents replaced by a fresh read. Asked twice per refresh, before the
+  // fetch and again before the write, because the answer can change in between.
+  mayReplacePageContents: (page) =>
+    !ssoConfigurationPage.anyEditorOpen(page) &&
+    !ssoConfigurationPage.pageDiffersFromBaseline(page),
+  refreshOnShow: (page) => {
+    if (ssoConfigurationPage.anyEditorOpen(page)) {
+      return;
+    }
+    if (ssoConfigurationPage.pageDiffersFromBaseline(page)) {
+      // The tab holds something the last read did not put there - possibly a removed row nothing
+      // dispatched an event for. Say so where it is read, which is the same notice an ordinary edit
+      // raises, and leave the page exactly as the administrator left it.
+      ssoConfigurationPage.markPageDirty(page);
+      return;
+    }
+    ssoConfigurationPage.loadConfiguration(page, { refreshing: true });
   },
   renderSaveStatus: (page, message, ok) => {
     const box = page.querySelector("#sso-save-status");
@@ -4977,27 +5118,23 @@ const ssoConfigurationPage = {
 // page in front of it actually has and skips the rest, so one load path serves five pages.
 
 /**
- * The calls every page with controls makes: the stylesheet, the configuration, the localized labels, and
- * the unsaved-changes tracking.
+ * The calls every page with controls makes: the stylesheet, the configuration, the localized labels, the
+ * unsaved-changes tracking, and the re-read on return to the tab.
  *
- * WHY THERE IS NO RE-READ ON `viewshow` HERE, WHICH #1572 SET OUT TO ADD. The dirty state was built so a
- * tab returned to could re-read the server when it held no unsaved edit. It was built, reviewed, and
- * taken out again, because the review showed the re-read destroys work the dirty state cannot see:
+ * THE RE-READ ON `viewshow` IS HERE NOW (#1576), AND IT IS THE LOAD PATH THAT CHANGED RATHER THAN THE
+ * DIRTY STATE. #1572 built the state for exactly this and the review refused the re-read, because
+ * `loadConfiguration` was written to run once at construction, while the editors are still hidden, and
+ * running it again emptied both library checklists, rendered a removed row back out of storage, and
+ * decided on a dirty test that ran before an asynchronous fill. Each of those three now has its own
+ * guard, and all three live at `refreshOnShow` and in `loadConfiguration`'s `refreshing` arm rather than
+ * being restated here.
  *
- *   - `loadConfiguration` re-populates both library checklists from the server with NOTHING ticked and
- *     does not re-run `loadProvider`, so a clean return to Providers with an editor open empties the
- *     ticks; the next save then persists an empty EnabledFolders and every user of that provider loses
- *     library access at their next sign-in.
- *   - Removing a permission row or a role-mapping row is a button click. It fires no `input` and no
- *     `change`, so the page stays clean while holding a real edit, and the Policies re-read renders the
- *     removed row straight back out of storage.
- *   - The dirty test happens before an asynchronous fill that lands after it, so an edit made inside
- *     that window is overwritten and the page then reports itself clean.
- *
- * None of the three is a defect in the dirty state; all three are what `loadConfiguration` does, which
- * was written to run once, at construction, while the editor is still hidden. Making it safe to run
- * again is its own piece of work and its own issue. What #1572 keeps is the state itself, the indicator
- * and the Save gate - and the fourth done-condition it was asked for is the one deliberately not met.
+ * THE LISTENER IS REGISTERED AFTER THE FIRST LOAD AND NOT INSTEAD OF IT, for the reason `initOverviewPage`
+ * measured: jellyfin-web constructs the controller inside `loadView`'s own chain and dispatches
+ * `viewshow` one microtask after that chain resolves, and this controller is reached through a dynamic
+ * import, so the first `viewshow` is always missed. The init call covers the show that has already
+ * happened; the listener covers every later show of the same cached view, when the controller does not
+ * run at all.
  *
  * @param {Element} view The page element Jellyfin hands the controller.
  */
@@ -5007,6 +5144,9 @@ function initSharedPage(view) {
   ssoConfigurationPage.localize(view);
   ssoConfigurationPage.bindUnsavedChangeTracking(view);
   ssoConfigurationPage.markPageClean(view);
+  view.addEventListener("viewshow", () =>
+    ssoConfigurationPage.refreshOnShow(view),
+  );
 }
 
 // One registration per template-control prefix that this page actually carries, derived from the
@@ -5053,15 +5193,11 @@ function bindTemplatePermissionAdders(view) {
  * not run at all. In the ordering where both fire, the page loads twice, which costs one read of a
  * read-only report and paints the same thing.
  *
- * WHY THE OTHER FOUR DO NOT DO THIS. Re-reading the configuration re-fills form controls, and those four
- * pages hold controls an administrator may have typed into and not yet saved, so a reload on every show
- * would silently discard an edit made before a glance at another tab. Overview has no control at all -
- * none of the page's 123 - so re-reading it can lose nothing. What that leaves is a Providers, Policies
- * or Server tab returned to after a change made elsewhere still showing the older list until it is
- * reloaded. #1572 tried to close that and was refused: re-reading a page with an open editor empties both
- * library checklists without refilling them, and renders a removed permission row back out of storage, so
- * the refresh needs the load path to be safe to run twice rather than the tab to be told to run it. That
- * is #1576, and this paragraph names it rather than a pull request a later reader cannot find.
+ * WHY THIS ONE READS UNCONDITIONALLY AND THE OTHER FOUR ASK FIRST. Re-reading the configuration re-fills
+ * form controls, and those four pages hold controls an administrator may have typed into and not yet
+ * saved. Overview has no control at all - none of the page's 123 - so re-reading it can lose nothing and
+ * it needs no guard. The other four go through `refreshOnShow`, which refuses while an editor is open or
+ * while the page holds anything the last read did not put there (#1576).
  */
 function initOverviewPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
@@ -5516,6 +5652,14 @@ function initAccountsPage(view) {
     });
 
   ssoConfigurationPage.loadLinkedAccounts(view);
+
+  // The roster is the one thing on this tab that a change made elsewhere - a revoke, a link import, a
+  // first sign-in - moves, and `loadConfiguration` does not fetch it (#1576). Unconditional, like
+  // Overview's read and for the same reason: it renders a read-only list and writes no control, so a
+  // re-read here can discard nothing. `refreshOnShow` still runs beside it from initSharedPage.
+  view.addEventListener("viewshow", () =>
+    ssoConfigurationPage.loadLinkedAccounts(view),
+  );
 }
 
 /** The Policies tab: the named provisioning-profile editor. */
