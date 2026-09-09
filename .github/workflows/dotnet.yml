@@ -57,6 +57,13 @@ jobs:
       # #1527 widened it and gated it here). Node is preinstalled on the runner and the tool has no
       # dependencies, so this adds no install.
       run: node tools/ui-mock-fields.js
+    - name: Unsaved-changes state of the settings pages
+      # The step above and every C# rule over these assets read their TEXT, so none of them can say what
+      # the unsaved-changes state DOES - and inverting its one condition is exactly how it fails: a page
+      # that reads clean while it holds an edit is re-read on the next tab return and the edit is gone
+      # (#1572). This runs the shipped sso-core.js against the shipped serverPage.html and refuses each
+      # arm by name. Same runtime and same absence of dependencies as the step above.
+      run: node tools/ui-unsaved-state.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

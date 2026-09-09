@@ -97,6 +97,21 @@
             hidden
           ></div>
 
+          <!--
+            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
+            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
+            carries no configuration value. It is above the columns rather than beside the save, because
+            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
+            at the moment of arrival rather than after scrolling past every field.
+          -->
+          <div
+            id="sso-unsaved"
+            class="fieldDescription sso-unsaved"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+
           <div class="sso-columns">
             <div class="sso-column-main">
               <!--
@@ -109,7 +124,7 @@
             guarded here either. ProvisioningProfiles is a root PluginConfiguration member, not a provider
             field, so this section sits OUTSIDE both provider forms and carries no flat sso-* marker: it
             is saved by its own handler (sso-core.js saveProvisioningProfile), which re-posts the whole
-            configuration with only the profile set changed, exactly as saveLoginButtons does.
+            configuration with only the profile set changed, exactly as saveServerSettings does.
 
             Delete and rename are the two acts that can break a provider from here, and both are checked
             against the live configuration BEFORE the PUT rather than left to the server's refusal: a

@@ -204,5 +204,12 @@
   "overview.next_none_configured": "Add a provider on the Providers tab to offer single sign-on.",
   "overview.next_nothing": "Every configured provider is complete and switched on. Whether each one answers is what Test Connection on the Providers tab reports.",
   "overview.sso_only_on": "SSO-only is ON: Jellyfin password sign-in is refused for the accounts this plugin manages.",
-  "overview.no_providers": "No provider is configured yet. Add one on the Providers tab."
+  "overview.no_providers": "No provider is configured yet. Add one on the Providers tab.",
+  "config.unsaved": "Unsaved changes in this editor. Save them before you open another provider or leave this page, or they are lost.",
+  "config.save_server": "Save server settings",
+  "config.server_settings_saved": "Both server settings saved.",
+  "config.server_settings_save_failed": "The server refused the saved configuration, so NEITHER switch was changed - the two ride one document and are written together or not at all. Reload the page to see what is stored, and try again.",
+  "config.server_settings_read_failed": "Could not read the stored configuration, so nothing was saved and neither switch was changed. Reload the page and try again.",
+  "config.provider_removed": "Provider removed.",
+  "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again."
 }

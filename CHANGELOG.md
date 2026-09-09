@@ -596,6 +596,40 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   and its Save rather than after them. Overview re-reads the server on every
   visit; the four pages that hold controls do not, because re-reading them would
   discard an edit made and not yet saved.
+- **One Save on the Server page, an unsaved-changes indicator, and the outcome
+  where the button is (#1572).** The Server page carried two Save buttons for
+  two server-wide switches, and each one re-read the whole configuration, set
+  its own flag and posted the result. They are now one Save that reads that
+  document once and posts it once, so there is no moment at which one switch is
+  stored and the other is not: a refusal leaves **both** exactly as they were
+  stored. It writes only the switches you actually moved, so pressing Save on a
+  page loaded ten minutes ago cannot silently undo a change somebody made in the
+  meantime to the switch you did not touch. Every page that holds a control now
+  tracks whether it has been edited and shows a line saying so, and each Save is
+  closed while a control the save needs is empty - the on-blur warnings that
+  mirror a server check go on warning and go on **not** blocking, because one of
+  those can be wrong about a value the server would have taken and an empty
+  required field cannot. The freeze on a provider or a profile a configuration
+  file owns is untouched: that freeze now records its own reason on the button
+  and the gate reads it, so the gate can never hand back a Save the freeze
+  closed. The thirteen modal alerts these pages raised for a save, a delete or a
+  failure are gone, and each outcome is written into the page instead - beside
+  the button that was pressed, in the sticky footer, rather than in the editor
+  header many screens above it, and announced to a screen reader.
+  `tools/ui-unsaved-state.js` runs the shipped page script against the shipped
+  pages in the `.NET` workflow and refuses each way that state can be wrong by
+  name.
+
+  **The tab that refreshes itself is deliberately not part of this**, and the
+  reason is worth stating: the review found that re-reading a page which holds
+  an open editor empties both library checklists and does not refill them, so
+  the next save would persist an empty Enabled Folders and every user of that
+  provider would lose library access at their next sign-in. Removing a
+  permission row is a click, which the edit tracking cannot see, so a re-read
+  would render the removed row straight back out of storage. Those are
+  properties of the load path rather than of the new state, and making it safe
+  to run twice is its own change.
+
 - **The login audit line now names the Jellyfin account, and the
   provider-presented name beside it where the two differ (#1551).** The
   `[SSO Audit] Login succeeded` line carried the username the identity provider

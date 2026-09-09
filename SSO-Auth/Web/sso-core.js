@@ -9,6 +9,13 @@ function tr(key, englishDefault, params) {
   return i18n ? i18n.t(key, params, englishDefault) : englishDefault;
 }
 
+// What the tracked controls of a page held the last time it was read (#1572), keyed on the page element.
+// The unsaved-changes state is the difference between this and what they hold now; markPageClean is the
+// only writer, and what that means is argued where it is defined. Weak, so a view the dashboard discards
+// takes its entry with it, and module-scope rather than an attribute because a 123-control signature is
+// this module's bookkeeping and not a fact about the page.
+const pageBaselines = new WeakMap();
+
 // The Jellyfin account routing that a revoke restores (#1121). The Unregister endpoint PERSISTS
 // whatever the caller sends here onto the account, so a wrong string does not fail the request: it routes
 // that account to core's InvalidAuthenticationProvider, which refuses every password, and nothing on this
@@ -305,8 +312,18 @@ const ssoConfigurationPage = {
       ].forEach((element) => {
         if (element) {
           element.disabled = managed;
+          // The freeze's own record of why (#1572). The Save gate reads it rather than remembering what
+          // it disabled: two owners writing one boolean cannot compose, and the direction that fails is
+          // the gate handing a frozen Save back. Written by the party that knows.
+          element.dataset.ssoManaged = managed ? "true" : "";
         }
       });
+
+      // The freeze runs as a microtask, so on the paths that call it after the gate - addProvider,
+      // addSamlProvider, a profile selected while the report was in flight - it writes `disabled`
+      // directly and clears whatever the gate had just decided. Re-asserting here is what makes the
+      // composition hold in BOTH orders rather than in the one that happened to be tested (#1572).
+      ssoConfigurationPage.updateSaveAvailability(page);
 
       const note = page.querySelector("#profile-managed-note");
       if (note) {
@@ -372,7 +389,14 @@ const ssoConfigurationPage = {
             return;
           }
           element.disabled = managed;
+          // The freeze's own record of why (#1572), read by the Save gate. See the same line in
+          // applyManagedProfileState for the reason it is written here rather than remembered there.
+          element.dataset.ssoManaged = managed ? "true" : "";
         });
+
+      // Same reason as applyManagedProfileState: this pass lands after the gate on the add paths and
+      // writes `disabled` directly, so the gate is re-asserted once the freeze has had its say.
+      ssoConfigurationPage.updateSaveAvailability(page);
 
       if (note) {
         // textContent, never innerHTML (#221). The text is fixed and carries no provider value, so nothing
@@ -445,19 +469,24 @@ const ssoConfigurationPage = {
           );
         }
         // The GLOBAL login-page buttons opt-in (#722) rides the same configuration load. It is a root
-        // PluginConfiguration flag, not a provider field, so it has its own save path (saveLoginButtons)
+        // PluginConfiguration flag, not a provider field, so it has the Server page's save path (saveServerSettings)
         // and no sso-* marker class. On the Server tab since #1527.
         const manage_buttons = page.querySelector("#ManageLoginPageButtons");
         if (manage_buttons) {
           manage_buttons.checked = Boolean(config.ManageLoginPageButtons);
+          // What this switch was FILLED with, so the save can tell a switch the administrator moved from
+          // one they never touched (#1572). See saveServerSettings for why that distinction is the whole
+          // difference between one Save and one lost update.
+          manage_buttons.dataset.ssoLoaded = String(manage_buttons.checked);
         }
 
         // The GLOBAL Single Logout opt-in (#727) rides the same configuration load. Like
         // ManageLoginPageButtons it is a root PluginConfiguration flag, not a provider field, so it has its
-        // own save path (saveSingleLogout) and no sso-* marker class.
+        // own save path (saveServerSettings, together with the flag above) and no sso-* marker class.
         const single_logout = page.querySelector("#EnableSingleLogout");
         if (single_logout) {
           single_logout.checked = Boolean(config.EnableSingleLogout);
+          single_logout.dataset.ssoLoaded = String(single_logout.checked);
         }
 
         // The GLOBAL provisioning profile set (#1105) rides the same configuration load, for the
@@ -471,6 +500,11 @@ const ssoConfigurationPage = {
         // The Overview tab reads the same configuration rather than a second endpoint, so what it says
         // about a provider and what the editor shows for it cannot come apart.
         ssoConfigurationPage.renderOverviewFrom(page, config);
+
+        // What the page now shows IS the stored configuration, so it is clean (#1572). This is the one
+        // place that has to say so, because every save, delete and import path ends here - and it is
+        // what re-runs the Save gate against the values that were just filled in.
+        ssoConfigurationPage.markPageClean(page);
       },
     );
 
@@ -577,9 +611,16 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetEditor(page);
     ssoConfigurationPage.clearValidationErrors(page);
     ssoConfigurationPage.renderSaveStatus(page, "");
+    // The page-level region still holds the outcome of the last delete, which was about a provider that
+    // is gone (#1572). Opening another one is a new act, so it starts with nothing asserted.
+    ssoConfigurationPage.renderPageStatus(page, "");
     ssoConfigurationPage.setEditorTitle(page, provider_name);
     ssoConfigurationPage.showEditor(page);
     ssoConfigurationPage.loadProvider(page, provider_name);
+    // Opening an editor is a read, not an edit: whatever the previous provider left behind is gone with
+    // resetEditor, and loadProvider marks the page clean again once its own fill lands (#1572). This call
+    // covers the window before that, so a Save is never live over a half-reset form.
+    ssoConfigurationPage.markPageClean(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
   },
   // Open a blank editor for a NEW provider. Every toggle is reset OFF (fail closed), the same security
@@ -590,6 +631,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetEditor(page);
     ssoConfigurationPage.clearValidationErrors(page);
     ssoConfigurationPage.renderSaveStatus(page, "");
+    ssoConfigurationPage.renderPageStatus(page, "");
     ssoConfigurationPage.setEditorTitle(
       page,
       tr("config.new_provider", "New provider"),
@@ -599,6 +641,9 @@ const ssoConfigurationPage = {
     // left frozen by a managed provider opened just before (#1104).
     ssoConfigurationPage.applyManagedState(page, "oid", "");
     ssoConfigurationPage.showEditor(page);
+    // A blank editor holds nothing anybody typed, so the page is clean and its Save is closed until the
+    // three required fields carry a value (#1572).
+    ssoConfigurationPage.markPageClean(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
     page.querySelector("#OidProviderName").focus();
   },
@@ -911,6 +956,236 @@ const ssoConfigurationPage = {
       return;
     }
     ssoConfigurationPage.setFieldError(page, "OidProviderName", "");
+  },
+  // ---- The unsaved-changes state (#1572) ----
+  //
+  // WHAT IT IS FOR, AND WHY THE THREE THINGS BELOW ARE ONE THING. The dashboard keeps three views alive
+  // and hands a cached one back rather than building it again, so a tab returned to has NOT re-run its
+  // controller and still shows whatever it last loaded. #1527 made Overview re-read on every show and
+  // left the other four alone deliberately, because re-reading them re-fills form controls and would
+  // silently discard an edit an administrator had made and not yet saved. Knowing whether the page is
+  // dirty is exactly what makes the safe re-read possible, and it is the same state the indicator needs
+  // and the same state the Save gate needs - so the three arrive together rather than this being built
+  // three times or the refresh being built on a guess.
+  //
+  // THE EVENT IS THE TRIGGER AND THE VALUES ARE THE AUTHORITY, AND THE FIRST DRAFT HAD IT THE OTHER WAY
+  // ROUND. That draft marked the page dirty on an `input` or `change` whose `isTrusted` was true, on the
+  // reasoning that this page's own fills write `.value` and `.checked` directly and fire nothing. The
+  // reasoning was about THIS file and the controls are the host's. Two of them dispatch their own
+  // synthetic events, which carry `isTrusted` false, and both were measured in jellyfin-web rather than
+  // supposed: `emby-checkbox` toggles `checked` and dispatches a bubbling `CustomEvent('change')` when
+  // the control is operated from the KEYBOARD, and `emby-select` dispatches `new Event('change', {
+  // bubbles: false })` when its value is set through the action sheet. Under the first draft a keyboard
+  // user could change every switch on the Server page, have the page go on reading as clean, and lose
+  // the lot to the re-read on the next return to the tab - the exact failure this state exists to stop,
+  // aimed at the people least able to work around it.
+  //
+  // So an event only asks the question, and what answers it is a comparison of the tracked controls
+  // against what the last fill left on them. That is correct whoever dispatched the event and whatever
+  // flag it carries: a fill that fires an event compares equal and stays clean, a person who changes a
+  // control compares different and is dirty, and a person who changes one back is clean again.
+  //
+  // THE LISTENER IS IN THE CAPTURE PHASE AND THAT IS LOAD-BEARING, not defensive. `emby-select`'s event
+  // sets `bubbles: false`, so a bubble-phase listener on the page never sees it at all. Measured in a
+  // browser rather than reasoned: a non-bubbling event dispatched on a descendant IS delivered to a
+  // capture-phase listener on an ancestor, and is NOT delivered to a bubble-phase one.
+  //
+  // WHAT IS DELIBERATELY NOT TRACKED. A file input is a transfer trigger rather than a setting: it is
+  // cleared to "" after every use and nothing saves it. The provider and profile selectors NAVIGATE -
+  // changing one refills the form from the stored configuration, so what it leaves behind is a fresh
+  // read and not an unsaved edit, and those reset the page to clean instead of dirtying it.
+  navigationControlIds: [
+    "selectProvider",
+    "saml-selectProvider",
+    "selectProvisioningProfile",
+  ],
+  // Every control on the page an administrator can edit and a Save on that page would commit. Accounts
+  // holds exactly one control, a hidden file input, so this is empty there and that page can never be
+  // dirty - which is why it re-reads on every show alongside Overview.
+  editableControls: (page) =>
+    [...page.querySelectorAll("input, select, textarea")].filter(
+      (element) =>
+        element.type !== "file" &&
+        ssoConfigurationPage.navigationControlIds.indexOf(element.id) === -1,
+    ),
+  // What the tracked controls hold right now, as one comparable string. A checkbox is read from
+  // `checked` and everything else from `value`, and the id rides along so a control appearing or
+  // disappearing - a permission row, a folder checklist filled from the server - is a difference rather
+  // than something two lengths could cancel out.
+  controlSignature: (page) =>
+    ssoConfigurationPage
+      .editableControls(page)
+      .map(
+        (element) =>
+          element.id +
+          "=" +
+          (element.type === "checkbox" || element.type === "radio"
+            ? String(element.checked)
+            : String(element.value)),
+      )
+      .join(""),
+  isPageDirty: (page) => page.classList.contains("sso-page-dirty"),
+  markPageDirty: (page) => {
+    page.classList.add("sso-page-dirty");
+    ssoConfigurationPage.renderUnsavedNotice(page);
+    ssoConfigurationPage.updateSaveAvailability(page);
+  },
+  // Back to clean, which is what every fill path and every successful save leaves behind, and the ONE
+  // place the baseline is taken: clean means "what is on the page is what the last read put there", so
+  // the two statements cannot come apart. It re-runs the Save gate too, because a fill changes the
+  // values that gate reads.
+  //
+  // The baseline is held in a module-scope map keyed on the view rather than on the element, because it
+  // is this module's bookkeeping and not a fact about the page - and because a 123-control signature is
+  // not something to put in an attribute. The map is weak, so a view the dashboard discards takes its
+  // entry with it.
+  markPageClean: (page) => {
+    pageBaselines.set(page, ssoConfigurationPage.controlSignature(page));
+    page.classList.remove("sso-page-dirty");
+    ssoConfigurationPage.renderUnsavedNotice(page);
+    ssoConfigurationPage.updateSaveAvailability(page);
+  },
+  // Whether the page now holds something other than what the last read left on it. A page whose baseline
+  // was never taken is treated as EDITED rather than clean: the only way to get there is a controller
+  // that did not finish wiring, and the safe answer to "may I replace what is on this page" is no.
+  pageDiffersFromBaseline: (page) => {
+    const baseline = pageBaselines.get(page);
+    return (
+      baseline === undefined ||
+      baseline !== ssoConfigurationPage.controlSignature(page)
+    );
+  },
+  // The indicator. It says what is true of this page and promises nothing about another one: opening a
+  // different provider in the editor still replaces what is in it, which is what it has always done and
+  // is not this change's to alter. textContent, never innerHTML (#221); the text carries no
+  // configuration value.
+  unsavedNoticeText: () =>
+    tr(
+      "config.unsaved",
+      "Unsaved changes in this editor. Save them before you open another provider or leave this page, or they are lost.",
+    ),
+  renderUnsavedNotice: (page) => {
+    const box = page.querySelector("#sso-unsaved");
+    if (!box) {
+      return;
+    }
+    const dirty = ssoConfigurationPage.isPageDirty(page);
+    // UNHIDE FIRST, THEN WRITE. `hidden` takes the element out of the accessibility tree, so text set
+    // while it is hidden changes a live region nothing is watching, and the unhide that follows is not
+    // itself a text change for the region to announce. Doing it in this order is what gives the
+    // announcement a chance; whether a particular screen reader takes it is not something this tree can
+    // measure, and nothing here claims it does.
+    if (dirty) {
+      box.hidden = false;
+      box.textContent = ssoConfigurationPage.unsavedNoticeText();
+      return;
+    }
+    box.textContent = "";
+    box.hidden = true;
+  },
+  // What each Save on a page needs before it can be pressed, DERIVED from the readiness specs rather
+  // than restated, so a required field added to an editor closes its Save without a second edit here. A
+  // gate whose region is hidden is skipped: the button is not reachable, and touching it would fight
+  // whoever hid it.
+  saveGates: () => [
+    {
+      button: "#SaveProvider",
+      region: "#sso-editor",
+      requiredIds: ssoConfigurationPage.readinessSpecs.oid.requiredIds,
+    },
+    {
+      button: "#saml-SaveProvider",
+      region: "#saml-editor",
+      requiredIds: ssoConfigurationPage.readinessSpecs.saml.requiredIds,
+    },
+    {
+      // The SELECTOR and not the name box: saveProvisioningProfile keys off `#selectProvisioningProfile`
+      // and the name box is the add/rename parameter, so gating on the name closed the Save when an
+      // administrator cleared the rename field and left it open when no profile was selected at all -
+      // both backwards.
+      button: "#SaveProvisioningProfile",
+      region: null,
+      requiredIds: ["selectProvisioningProfile"],
+    },
+    { button: "#SaveServerSettings", region: null, requiredIds: [] },
+  ],
+  // WHICH FAILURES CLOSE A SAVE, AND WHY NOT ALL OF THEM. #365 put the validators beside the fields as
+  // pre-emptive WARNINGS and argued they must never block, because a false positive would lock an
+  // administrator out of saving a value the server would have accepted. That argument is about the
+  // validators that GUESS - an endpoint shape, a base URL - and it still holds for them: they go on
+  // warning and go on not blocking. It does not reach an EMPTY REQUIRED FIELD, which the server refuses
+  // every time, so a Save left live for one is a Save that exists to fail. The emptiness is read from
+  // the VALUES rather than from the validators' output boxes, exactly as the readiness panel reads it,
+  // so typing into a blank field re-opens the Save on the keystroke instead of on the next blur.
+  saveGateEmpties: (page, gate) =>
+    gate.requiredIds.filter((id) => {
+      const field = page.querySelector("#" + id);
+      return field && !String(field.value || "").trim();
+    }),
+  // ONE WRITER, TWO DECLARED REASONS, AND WHY THE FIRST DRAFT OF THIS WAS A FAIL-OPEN.
+  //
+  // Two parties want this button disabled: this gate, while a required field is empty, and the
+  // declarative-source freeze (#1104), because a provider or a profile a configuration file owns may not
+  // be edited here. A boolean with two owners cannot compose, and the draft that tried to remember what
+  // it had disabled handed a frozen Save back: opening the Policies tab with no profile selected left the
+  // gate holding the button down, and selecting a MANAGED profile then filled the name, so the gate saw
+  // nothing left to block and released a Save the freeze had just closed - `applyManagedProfileState`
+  // runs before the fill's `markPageClean`, so its disable was the one being cleared.
+  //
+  // So the freeze records its own reason on the button and this reads it. The write is in one place and
+  // each reason is asserted by the party that knows it; a reason nobody wrote is nobody's, and the only
+  // other writers of `disabled` on these buttons are the two freeze functions, which now both mark.
+  setSaveBlocked: (button, blocked) => {
+    button.disabled = blocked || button.dataset.ssoManaged === "true";
+  },
+  updateSaveAvailability: (page) => {
+    ssoConfigurationPage.saveGates().forEach((gate) => {
+      const button = page.querySelector(gate.button);
+      if (!button) {
+        return;
+      }
+      const region = gate.region ? page.querySelector(gate.region) : null;
+      if (region && region.hidden) {
+        return;
+      }
+      ssoConfigurationPage.setSaveBlocked(
+        button,
+        ssoConfigurationPage.saveGateEmpties(page, gate).length > 0,
+      );
+    });
+  },
+  // One delegated listener per page rather than one per control, so a control the page renders later - a
+  // permission row, a folder checkbox - is tracked from the moment it exists. Capture phase for the two
+  // reasons written at the top of this section: a non-bubbling event reaches nothing else, and a handler
+  // that stops propagation on its own control would otherwise hide the edit from this.
+  bindUnsavedChangeTracking: (page) => {
+    const observe = (event) => {
+      if (!event.target) {
+        return;
+      }
+      if (
+        ssoConfigurationPage.navigationControlIds.indexOf(event.target.id) !==
+        -1
+      ) {
+        ssoConfigurationPage.markPageClean(page);
+        return;
+      }
+      if (
+        ssoConfigurationPage.editableControls(page).indexOf(event.target) === -1
+      ) {
+        return;
+      }
+      // The event only asks; the values answer. `isTrusted` is deliberately NOT read - two of the host's
+      // own controls dispatch synthetic events on real user input, and the reason is at the top of this
+      // section.
+      if (ssoConfigurationPage.pageDiffersFromBaseline(page)) {
+        ssoConfigurationPage.markPageDirty(page);
+      } else {
+        ssoConfigurationPage.markPageClean(page);
+      }
+    };
+    page.addEventListener("input", observe, true);
+    page.addEventListener("change", observe, true);
   },
   renderSaveStatus: (page, message, ok) => {
     const box = page.querySelector("#sso-save-status");
@@ -1271,7 +1546,7 @@ const ssoConfigurationPage = {
   //
   // ProvisioningProfiles is a root PluginConfiguration member - a named set of ProvisioningPolicyTemplate -
   // so every act here fetches the live configuration, changes only that member (and, on a rename, the
-  // references to it), and re-posts the whole document, exactly as saveLoginButtons does. Nothing here adds
+  // references to it), and re-posts the whole document, exactly as saveServerSettings does. Nothing here adds
   // a server route.
   //
   // Two of the four acts can break a provider, and both are checked against the live configuration BEFORE
@@ -1524,15 +1799,20 @@ const ssoConfigurationPage = {
     const name = page.querySelector("#selectProvisioningProfile").value;
     page.querySelector("#ProvisioningProfileName").value = name;
 
-    return ssoConfigurationPage
-      .fillProvisioningTemplate(
-        page,
-        "profile-",
-        (config.ProvisioningProfiles || {})[name] || null,
-        null,
-        [],
-      )
-      .then(() => ssoConfigurationPage.applyManagedProfileState(page, name));
+    return (
+      ssoConfigurationPage
+        .fillProvisioningTemplate(
+          page,
+          "profile-",
+          (config.ProvisioningProfiles || {})[name] || null,
+          null,
+          [],
+        )
+        .then(() => ssoConfigurationPage.applyManagedProfileState(page, name))
+        // The editor now holds the selected profile as it is stored, so the page is clean and the Save gate
+        // is re-run against the name that was just filled in (#1572).
+        .then(() => ssoConfigurationPage.markPageClean(page))
+    );
   },
   // The one write path of the four acts: re-post the whole configuration, then reload the page's view of it.
   // A rejected PUT is reported in this section's own status region rather than swallowed - the server can
@@ -2130,6 +2410,9 @@ const ssoConfigurationPage = {
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "oid");
+        // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
+        // against what was filled in rather than against what stood here before (#1572).
+        ssoConfigurationPage.markPageClean(page);
       },
     );
   },
@@ -2261,7 +2544,14 @@ const ssoConfigurationPage = {
             // The deleted provider is gone from the list; close its now-stale editor.
             ssoConfigurationPage.hideEditor(page);
 
-            Dashboard.alert("Provider removed");
+            // The PAGE region and not the editor's (#1572): the line above just hid the editor and the
+            // editor's status box lives inside it, so an outcome written there would be invisible. That
+            // is what an outcome needs now that it is no longer raised as a modal alert.
+            ssoConfigurationPage.renderPageStatus(
+              page,
+              tr("config.provider_removed", "Provider removed."),
+              true,
+            );
           },
           // Report a genuine save failure rather than swallowing it. The delete
           // re-posts the whole configuration, so the server can now reject it for
@@ -2269,85 +2559,139 @@ const ssoConfigurationPage = {
           // reserved-character name became "new" because it was removed from the
           // live config in the meantime (#336). Without this the PUT would reject
           // silently and the provider would appear undeleted with no explanation.
+          // The FAILED arm does not hide the editor, so its outcome goes in the editor's own region, beside
+          // the Delete button that was pressed - not in the page region, which is where the success arm
+          // speaks because the success arm has just closed that editor (#1572).
           function () {
-            Dashboard.alert({
-              title: "Delete failed",
-              message:
-                "Could not remove the provider. The saved configuration was rejected by the server; reload the page and try again.",
-            });
+            ssoConfigurationPage.renderSaveStatus(
+              page,
+              tr(
+                "config.provider_remove_failed",
+                "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
+              ),
+              false,
+            );
           },
         );
       },
     );
   },
-  // Save the GLOBAL login-page buttons opt-in (#722). ManageLoginPageButtons is a root
-  // PluginConfiguration flag, so this fetches the live configuration, changes ONLY this flag, and
-  // re-posts the whole document: the provider dictionaries and every other root setting ride along
-  // unchanged, exactly as the provider save/delete paths do. The server reacts to the saved
-  // configuration itself (LoginButtonManager listens for the configuration change), so no extra
-  // endpoint call is needed: on save the managed block is injected/refreshed, or, with the flag
-  // off, only the managed region is removed and the admin's own branding is preserved.
-  saveLoginButtons: (page) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
+  // ONE SAVE FOR THE SERVER PAGE (#1572), AND THE PARTIAL FAILURE IT DOES NOT HAVE.
+  //
+  // The two GLOBAL switches this page carries - ManageLoginPageButtons (#722) and EnableSingleLogout
+  // (#727) - each had their own button and their own handler, and each handler re-read the whole
+  // configuration, set its own flag and posted the result. One Save over two such handlers would be two
+  // writes with no transaction between them: a failure on the second leaves the first applied while the
+  // page shows a single outcome for a half-written pair, which is why #1527 refused to merge the buttons
+  // and left the write path to this issue.
+  //
+  // WHAT REMOVES THE HAZARD IS NOT A TRANSACTION, IT IS THERE BEING ONE WRITE. Both flags are members of
+  // the SAME root PluginConfiguration document, so this reads that document once, sets both flags on it,
+  // and posts it once. There is no moment at which one flag is stored and the other is not: the server
+  // writes the document whole or refuses it whole. A rejected PUT therefore leaves BOTH switches exactly
+  // as they were stored, which is what the failure message says, and the reload that follows a success
+  // is what re-reads the stored pair rather than trusting what was posted.
+  //
+  // What rides along unchanged is the rest of the document - the provider dictionaries, the provisioning
+  // profiles, every other root setting - exactly as the provider save and delete paths carry them, so a
+  // save here is not a way to lose a setting this page does not show. The server reacts to the saved
+  // configuration itself (LoginButtonManager listens for the configuration change), so no extra endpoint
+  // call is needed: on save the managed login block is injected or refreshed, or, with the flag off,
+  // only that managed region is removed and an administrator's own branding is preserved.
+  //
+  // The outcome is rendered INLINE in this page's own status region rather than raised as an alert
+  // (#1572): a modal that has to be dismissed says nothing a reader can come back to, and the failure
+  // sentence here is the one that has to survive being re-read.
+  saveServerSettings: (page) => {
+    ssoConfigurationPage.renderPageStatus(page, "");
+    return ApiClient.getPluginConfiguration(
+      ssoConfigurationPage.pluginUniqueId,
+    ).then(
       (config) => {
-        config.ManageLoginPageButtons = page.querySelector(
+        // ONLY WHAT THE ADMINISTRATOR MOVED, WHICH IS WHAT THE TWO OLD HANDLERS DID BY ACCIDENT OF BEING
+        // TWO. Each of them set its own flag on the freshly-read document and left the other alone, so a
+        // change made elsewhere between this page's load and its save survived. Writing both from the
+        // form takes that away: a second administrator who turns Single Logout on is silently undone by
+        // the first pressing Save over a page loaded before it - a security flag switched off by somebody
+        // who never touched it. So the merge keeps the property rather than the shape: a switch still
+        // showing what it was loaded with is not written at all, and the value the read returned stands.
+        ssoConfigurationPage.applyMovedSwitch(
+          page,
+          config,
           "#ManageLoginPageButtons",
-        ).checked;
+          "ManageLoginPageButtons",
+        );
+        ssoConfigurationPage.applyMovedSwitch(
+          page,
+          config,
+          "#EnableSingleLogout",
+          "EnableSingleLogout",
+        );
 
-        ApiClient.updatePluginConfiguration(
+        return ApiClient.updatePluginConfiguration(
           ssoConfigurationPage.pluginUniqueId,
           config,
         ).then(
-          function (result) {
+          (result) => {
             Dashboard.processPluginConfigurationUpdateResult(result);
             ssoConfigurationPage.loadConfiguration(page);
-            Dashboard.alert("Settings saved.");
+            ssoConfigurationPage.renderPageStatus(
+              page,
+              tr("config.server_settings_saved", "Both server settings saved."),
+              true,
+            );
           },
           // Report a genuine save failure rather than swallowing it: this PUT re-posts the whole
-          // configuration, so the server can reject it for a reason unrelated to this toggle (#336).
-          function () {
-            Dashboard.alert({
-              title: "Save failed",
-              message:
-                "Could not save the login-page button setting. The saved configuration was rejected by the server; reload the page and try again.",
-            });
-          },
+          // configuration, so the server can reject it for a reason neither switch caused (#336).
+          () =>
+            ssoConfigurationPage.renderPageStatus(
+              page,
+              tr(
+                "config.server_settings_save_failed",
+                "The server refused the saved configuration, so NEITHER switch was changed - the two ride one document and are written together or not at all. Reload the page to see what is stored, and try again.",
+              ),
+              false,
+            ),
         );
       },
+      // The read that precedes the write can fail on its own, and a page that says nothing after a
+      // pressed Save reads as a save that worked. Nothing was posted in this arm, so nothing changed.
+      () =>
+        ssoConfigurationPage.renderPageStatus(
+          page,
+          tr(
+            "config.server_settings_read_failed",
+            "Could not read the stored configuration, so nothing was saved and neither switch was changed. Reload the page and try again.",
+          ),
+          false,
+        ),
     );
   },
-  // Save the GLOBAL Single Logout opt-in (#727). EnableSingleLogout is a root PluginConfiguration flag, so
-  // this fetches the live configuration exactly like saveLoginButtons, changes ONLY this flag, and
-  // re-posts the whole document, so the provider dictionaries and every other root setting ride along
-  // unchanged. The per-provider post-logout redirect URL is saved with its provider, not here.
-  saveSingleLogout: (page) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
-        config.EnableSingleLogout = page.querySelector(
-          "#EnableSingleLogout",
-        ).checked;
-
-        ApiClient.updatePluginConfiguration(
-          ssoConfigurationPage.pluginUniqueId,
-          config,
-        ).then(
-          function (result) {
-            Dashboard.processPluginConfigurationUpdateResult(result);
-            ssoConfigurationPage.loadConfiguration(page);
-            Dashboard.alert("Settings saved.");
-          },
-          // Report a genuine save failure rather than swallowing it: this PUT re-posts the whole
-          // configuration, so the server can reject it for a reason unrelated to this toggle (#336).
-          function () {
-            Dashboard.alert({
-              title: "Save failed",
-              message:
-                "Could not save the Single Logout setting. The saved configuration was rejected by the server; reload the page and try again.",
-            });
-          },
-        );
-      },
-    );
+  // Writes one switch onto the document being saved, and ONLY where it differs from what the page was
+  // loaded with. A switch nobody moved leaves the read value in place, so this Save cannot carry a stale
+  // view of a flag its user never touched. A control the load never reached carries no loaded value, and
+  // is left alone for the same reason: nothing here knows what it means.
+  applyMovedSwitch: (page, config, selector, property) => {
+    const control = page.querySelector(selector);
+    if (!control || control.dataset.ssoLoaded === undefined) {
+      return;
+    }
+    if (String(control.checked) !== control.dataset.ssoLoaded) {
+      config[property] = control.checked;
+    }
+  },
+  // The Server page's own status region, the exact parallel of renderSaveStatus on Providers, so one
+  // page's outcome can never be written over another's.
+  renderPageStatus: (page, message, ok) => {
+    const box = page.querySelector("#sso-page-status");
+    if (!box) {
+      return;
+    }
+    box.textContent = message || "";
+    box.classList.remove("sso-status-ok", "sso-status-fail");
+    if (message) {
+      box.classList.add(ok ? "sso-status-ok" : "sso-status-fail");
+    }
   },
   saveProvider: (page, provider_name) => {
     return new Promise((resolve, reject) => {
@@ -2413,20 +2757,15 @@ const ssoConfigurationPage = {
             ssoConfigurationPage.loadProvider(page, provider_name);
 
             page.querySelector("#selectProvider").value = provider_name;
-            Dashboard.alert("Settings saved.");
+            // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
             resolve();
           },
           // Rejection handler attached directly to the save call, so it reports only a genuine save
           // failure and not an error thrown by the post-save UI work above. The server can refuse a
           // save for more than one reason (a malformed Base URL Override, #139; a provider name with
-          // URI-reserved or control characters, #336/#360), so the message names both checks instead of
-          // blaming one.
+          // URI-reserved or control characters, #336/#360), so the message the caller renders names both
+          // checks instead of blaming one.
           function () {
-            Dashboard.alert({
-              title: "Save failed",
-              message:
-                "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
-            });
             reject(new Error("Provider save failed"));
           },
         );
@@ -3601,9 +3940,13 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetSamlEditor(page);
     ssoConfigurationPage.clearSamlValidationErrors(page);
     ssoConfigurationPage.renderSamlSaveStatus(page, "");
+    ssoConfigurationPage.renderPageStatus(page, "");
     ssoConfigurationPage.setSamlEditorTitle(page, provider_name);
     ssoConfigurationPage.showSamlEditor(page);
     ssoConfigurationPage.loadSamlProvider(page, provider_name);
+    // The same reason openProvider states: opening an editor is a read, and loadSamlProvider says so
+    // again once its own fill lands (#1572).
+    ssoConfigurationPage.markPageClean(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
   },
   addSamlProvider: (page) => {
@@ -3611,6 +3954,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetSamlEditor(page);
     ssoConfigurationPage.clearSamlValidationErrors(page);
     ssoConfigurationPage.renderSamlSaveStatus(page, "");
+    ssoConfigurationPage.renderPageStatus(page, "");
     ssoConfigurationPage.setSamlEditorTitle(
       page,
       tr("config.new_provider", "New provider"),
@@ -3619,6 +3963,9 @@ const ssoConfigurationPage = {
     // Restores a form left frozen by a managed provider opened just before (#1104); a new one is never managed.
     ssoConfigurationPage.applyManagedState(page, "saml", "");
     ssoConfigurationPage.showSamlEditor(page);
+    // A blank editor holds nothing anybody typed (#1572); its Save stays closed until the four required
+    // fields carry a value.
+    ssoConfigurationPage.markPageClean(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
     page.querySelector("#saml-provider-name").focus();
   },
@@ -3838,6 +4185,9 @@ const ssoConfigurationPage = {
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "saml");
+        // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
+        // against what was filled in rather than against what stood here before (#1572).
+        ssoConfigurationPage.markPageClean(page);
       },
     );
   },
@@ -4182,14 +4532,25 @@ const ssoConfigurationPage = {
             Dashboard.processPluginConfigurationUpdateResult(result);
             ssoConfigurationPage.loadConfiguration(page);
             ssoConfigurationPage.hideSamlEditor(page);
-            Dashboard.alert("Provider removed");
+            // The page region, for the reason the OpenID delete states: the editor this outcome belongs
+            // to has just been closed (#1572).
+            ssoConfigurationPage.renderPageStatus(
+              page,
+              tr("config.provider_removed", "Provider removed."),
+              true,
+            );
           },
+          // The editor is still open on this arm; the outcome belongs beside the button. Same reason as the
+          // OpenID delete above.
           function () {
-            Dashboard.alert({
-              title: "Delete failed",
-              message:
-                "Could not remove the provider. The saved configuration was rejected by the server; reload the page and try again.",
-            });
+            ssoConfigurationPage.renderSamlSaveStatus(
+              page,
+              tr(
+                "config.provider_remove_failed",
+                "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
+              ),
+              false,
+            );
           },
         );
       },
@@ -4261,15 +4622,10 @@ const ssoConfigurationPage = {
             ssoConfigurationPage.loadSamlProvider(page, provider_name);
 
             page.querySelector("#saml-selectProvider").value = provider_name;
-            Dashboard.alert("Settings saved.");
+            // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
             resolve();
           },
           function () {
-            Dashboard.alert({
-              title: "Save failed",
-              message:
-                "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
-            });
             reject(new Error("Provider save failed"));
           },
         );
@@ -4587,11 +4943,37 @@ const ssoConfigurationPage = {
 // The three calls every page makes are the prelude below. loadConfiguration fills whatever sections the
 // page in front of it actually has and skips the rest, so one load path serves five pages.
 
-/** The three calls every page makes: the stylesheet, the configuration, and the localized labels. */
+/**
+ * The calls every page with controls makes: the stylesheet, the configuration, the localized labels, and
+ * the unsaved-changes tracking.
+ *
+ * WHY THERE IS NO RE-READ ON `viewshow` HERE, WHICH #1572 SET OUT TO ADD. The dirty state was built so a
+ * tab returned to could re-read the server when it held no unsaved edit. It was built, reviewed, and
+ * taken out again, because the review showed the re-read destroys work the dirty state cannot see:
+ *
+ *   - `loadConfiguration` re-populates both library checklists from the server with NOTHING ticked and
+ *     does not re-run `loadProvider`, so a clean return to Providers with an editor open empties the
+ *     ticks; the next save then persists an empty EnabledFolders and every user of that provider loses
+ *     library access at their next sign-in.
+ *   - Removing a permission row or a role-mapping row is a button click. It fires no `input` and no
+ *     `change`, so the page stays clean while holding a real edit, and the Policies re-read renders the
+ *     removed row straight back out of storage.
+ *   - The dirty test happens before an asynchronous fill that lands after it, so an edit made inside
+ *     that window is overwritten and the page then reports itself clean.
+ *
+ * None of the three is a defect in the dirty state; all three are what `loadConfiguration` does, which
+ * was written to run once, at construction, while the editor is still hidden. Making it safe to run
+ * again is its own piece of work and its own issue. What #1572 keeps is the state itself, the indicator
+ * and the Save gate - and the fourth done-condition it was asked for is the one deliberately not met.
+ *
+ * @param {Element} view The page element Jellyfin hands the controller.
+ */
 function initSharedPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
   ssoConfigurationPage.loadConfiguration(view);
   ssoConfigurationPage.localize(view);
+  ssoConfigurationPage.bindUnsavedChangeTracking(view);
+  ssoConfigurationPage.markPageClean(view);
 }
 
 // One registration per template-control prefix that this page actually carries, derived from the
@@ -4643,7 +5025,10 @@ function bindTemplatePermissionAdders(view) {
  * would silently discard an edit made before a glance at another tab. Overview has no control at all -
  * none of the page's 123 - so re-reading it can lose nothing. What that leaves is a Providers, Policies
  * or Server tab returned to after a change made elsewhere still showing the older list until it is
- * reloaded, which is stated on the pull request rather than left to be discovered.
+ * reloaded. #1572 tried to close that and was refused: re-reading a page with an open editor empties both
+ * library checklists without refilling them, and renders a removed permission row back out of storage, so
+ * the refresh needs the load path to be safe to run twice rather than the tab to be told to run it. That
+ * is #1576, and this paragraph names it rather than a pull request a later reader cannot find.
  */
 function initOverviewPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
@@ -4685,8 +5070,10 @@ function initProvidersPage(view) {
   view.querySelector("#SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#OidProviderName").value;
 
-    // The save alerts the admin on failure via Dashboard.alert; also surface the outcome inline in the
-    // editor header. Handling the rejection here keeps a failed save from becoming an unhandled promise
+    // The outcome is rendered in the editor's own status region and nowhere else (#1572). It used to be
+    // said twice, inline and in a modal alert, and the inline half then had to point at the modal for the
+    // reason - so a reader who dismissed the alert was left with a failure and no cause. The whole
+    // sentence is here now. Handling the rejection keeps a failed save from becoming an unhandled promise
     // rejection (the rejection still exists so callers can distinguish failure from success).
     ssoConfigurationPage.saveProvider(view, target_provider).then(
       () => {
@@ -4696,7 +5083,7 @@ function initProvidersPage(view) {
       () =>
         ssoConfigurationPage.renderSaveStatus(
           view,
-          "Save failed. See the details in the alert.",
+          "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
           false,
         ),
     );
@@ -4850,10 +5237,13 @@ function initProvidersPage(view) {
         );
         ssoConfigurationPage.setSamlEditorTitle(view, target_provider);
       },
+      // The whole reason, inline, rather than a pointer at a modal the reader has already dismissed
+      // (#1572). The server refuses a save for more than one reason, so the sentence names both checks
+      // instead of blaming one.
       () =>
         ssoConfigurationPage.renderSamlSaveStatus(
           view,
-          "Save failed. See the details in the alert.",
+          "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
           false,
         ),
     );
@@ -5130,17 +5520,14 @@ function initPoliciesPage(view) {
 function initServerPage(view) {
   initSharedPage(view);
 
-  view.querySelector("#SaveLoginButtons").addEventListener("click", (e) => {
-    ssoConfigurationPage.saveLoginButtons(view);
+  // One Save for both switches (#1572). Two buttons became one because the two flags are members of one
+  // document and are written by one PUT; what that removes is written at saveServerSettings.
+  view.querySelector("#SaveServerSettings").addEventListener("click", (e) => {
+    ssoConfigurationPage.saveServerSettings(view);
     e.preventDefault();
     return false;
   });
 
-  view.querySelector("#SaveSingleLogout").addEventListener("click", (e) => {
-    ssoConfigurationPage.saveSingleLogout(view);
-    e.preventDefault();
-    return false;
-  });
   view.querySelector("#ExportConfig").addEventListener("click", (e) => {
     ssoConfigurationPage.exportConfig(view);
     e.preventDefault();
