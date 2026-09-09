@@ -5015,7 +5015,10 @@ function bindTemplatePermissionAdders(view) {
  * would silently discard an edit made before a glance at another tab. Overview has no control at all -
  * none of the page's 123 - so re-reading it can lose nothing. What that leaves is a Providers, Policies
  * or Server tab returned to after a change made elsewhere still showing the older list until it is
- * reloaded, which is stated on the pull request rather than left to be discovered.
+ * reloaded. #1572 tried to close that and was refused: re-reading a page with an open editor empties both
+ * library checklists without refilling them, and renders a removed permission row back out of storage, so
+ * the refresh needs the load path to be safe to run twice rather than the tab to be told to run it. That
+ * is #1576, and this paragraph names it rather than a pull request a later reader cannot find.
  */
 function initOverviewPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
