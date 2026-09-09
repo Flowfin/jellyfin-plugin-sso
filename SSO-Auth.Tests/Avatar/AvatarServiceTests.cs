@@ -225,6 +225,30 @@ public class AvatarServiceTests
     }
 
     [Fact]
+    public async Task TrySetAsync_AvatarHostAnsweringWithAForgedReasonPhrase_CannotPlantTheMarkerThroughTheException()
+    {
+        // #1557: a non-success status makes EnsureSuccessStatusCode throw an HttpRequestException whose message
+        // quotes the remote server's reason phrase verbatim, and the host is whatever the picture claim named.
+        // Handing that exception object to the sink renders it on the lines that FOLLOW the message, which put
+        // a provider-chosen value at the start of a physical line. The entry now carries the type and the
+        // sanitized message inline and no exception object at all, so nothing is rendered after it.
+        using var response = new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            ReasonPhrase = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).",
+        };
+        var (service, providers, _, log) = Build(response);
+
+        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        var failure = Assert.Single(log.Records, r => r.Message.Contains("Failed to fetch or save", StringComparison.Ordinal));
+        Assert.Null(failure.Exception);
+        Assert.Contains("HttpRequestException", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("(SSO Audit] Login succeeded: root", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Records, r => r.Message.Contains("[SSO Audit] ", StringComparison.Ordinal) || (r.Exception?.ToString().Contains("[SSO Audit] ", StringComparison.Ordinal) ?? false));
+    }
+
+    [Fact]
     public async Task StoreAsync_ChangedPath_ClearsTheOldImageOnlyAfterTheWrite()
     {
         // A changed content type moves the stored path: the old record+file are dropped only once

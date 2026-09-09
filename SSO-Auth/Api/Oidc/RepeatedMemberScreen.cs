@@ -180,6 +180,10 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     //     the rest of the entry as it is displayed - forging by rearranging rather than by inserting.
     //   * The LINE and PARAGRAPH separators, which a line-ending replacement treats as line endings but a
     //     control-character test does not reach.
+    //   * The RECORD-MARKER bracket (#1557), which none of the three classes above touches and which is
+    //     what lets a member name reproduce the audit trail's record-marker prefix inside this entry. The
+    //     tree-wide conformance rule finds a foreign value by its line-ending strip, which this name
+    //     deliberately does not carry, so the substitution here is pinned by its own payload test instead.
     //
     // The fourth class named on #1195, the unpaired surrogate, has no arm, because a provider cannot put one
     // here: a raw one has no UTF-8 encoding and StrictJson refuses the document before the walk starts, and
@@ -200,18 +204,20 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         // rather than over everything the provider sent. The cut steps BACK off a high surrogate instead of
         // through it: the bound is the one thing here that can manufacture an unpaired surrogate, by
         // separating the halves of a legitimate astral pair, and a half pair corrupts the entry it lands in.
-        var cut = repeatedMember is null || repeatedMember.Length <= MaxLoggedMemberNameChars
-            ? repeatedMember
-            : string.Concat(
-                repeatedMember.AsSpan(0, char.IsHighSurrogate(repeatedMember[MaxLoggedMemberNameChars - 1]) ? MaxLoggedMemberNameChars - 1 : MaxLoggedMemberNameChars),
-                NameTruncationMarker);
+        var truncated = repeatedMember is { Length: > MaxLoggedMemberNameChars };
+        var cut = repeatedMember is { Length: > MaxLoggedMemberNameChars } overlong
+            ? overlong[..(char.IsHighSurrogate(overlong[MaxLoggedMemberNameChars - 1]) ? MaxLoggedMemberNameChars - 1 : MaxLoggedMemberNameChars)]
+            : repeatedMember;
 
         // The filter, in the method that logs rather than behind a call from it. SA1118 forbids the
         // expression inside the argument list, so it is a local here; what the log-forging invariant rules
         // out is a HELPER, and TheNeutralisationLivesInTheMethodThatLogs is the scan that keeps it out.
+        // The record-marker bracket is substituted on the FILTERED name and the truncation marker is joined
+        // only afterwards (#1557): the marker is this screen's own text and opens with the very bracket the
+        // substitution exists to remove, so joining it first would turn the screen's marker into a lie.
         var named = cut is null
             ? string.Empty
-            : ", the repeated member is named \"" + new string(Array.FindAll(cut.ToCharArray(), c => !char.IsControl(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator))) + "\"";
+            : ", the repeated member is named \"" + new string(Array.FindAll(cut.ToCharArray(), c => !char.IsControl(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator))).Replace('[', '(') + (truncated ? NameTruncationMarker : string.Empty) + "\"";
 
         _logger.LogWarning(
             "Refused the OpenID {Document} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",

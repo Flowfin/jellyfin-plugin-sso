@@ -220,7 +220,16 @@ internal sealed class AvatarService
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Failed to fetch or save the SSO avatar.");
+            // The exception TYPE and its message, inline, rather than the exception object (#1557). A sink renders
+            // a handed-over exception on the lines that FOLLOW the message, and HttpRequestException quotes the
+            // remote server's reason phrase verbatim - a host the identity provider's picture claim chose. That
+            // put a provider-authored value at the start of a physical line, which is the one place an anchored
+            // search of the audit trail trusts. The message still names what failed; the stack trace is the
+            // price, and for a best-effort avatar fetch it is one an operator never needed.
+            _logger.LogError(
+                "Failed to fetch or save the SSO avatar ({ExceptionType}): {Reason}",
+                e.GetType().Name,
+                e.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
     }
 

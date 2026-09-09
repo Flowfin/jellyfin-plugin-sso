@@ -150,9 +150,7 @@ public partial class ArchitectureConformanceTests
                 {
                     strips++;
                     var receiver = text[Math.Max(0, start - 40)..start];
-                    var exempt = AuditValuesPrintedExactly.Any(value =>
-                        receiver.EndsWith(value + "?.", StringComparison.Ordinal)
-                        || receiver.EndsWith(value + ".", StringComparison.Ordinal));
+                    var exempt = AuditValuesPrintedExactly.Any(value => IsWholeReceiver(receiver, value));
                     var substituted = string.CompareOrdinal(text, end, "." + RecordMarkerSanitizer, 0, RecordMarkerSanitizer.Length + 1) == 0;
 
                     if (exempt == substituted)
@@ -183,14 +181,35 @@ public partial class ArchitectureConformanceTests
     }
 
     /// <summary>
-    /// The character ranges of every <c>.Log&lt;Level&gt;(...)</c> argument list in a source text, found by walking
-    /// from the opening parenthesis to its match while skipping string literals, character literals and line
-    /// comments, so a parenthesis inside a message template does not end the span early.
+    /// Whether the text before a sanitizer ends in exactly <paramref name="value"/> as a whole identifier
+    /// followed by <c>.</c> or <c>?.</c>. A plain suffix test would also exempt <c>someResource.</c> for the
+    /// value <c>source</c>, in the direction that lets a strip-alone value pass.
+    /// </summary>
+    private static bool IsWholeReceiver(string receiver, string value)
+    {
+        foreach (var access in new[] { "?.", "." })
+        {
+            var suffix = value + access;
+            if (receiver.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                var before = receiver.Length - suffix.Length - 1;
+                return before < 0 || !(char.IsLetterOrDigit(receiver[before]) || receiver[before] == '_');
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The character ranges of every <c>.Log&lt;Level&gt;(...)</c> and bare <c>.Log(...)</c> argument list in a
+    /// source text, found by walking from the opening parenthesis to its match while skipping string literals,
+    /// character literals and both comment forms, so a parenthesis inside a message template or a remark does
+    /// not end the span early.
     /// </summary>
     private static List<(int Start, int End)> LoggingCallSpans(string text)
     {
         var spans = new List<(int Start, int End)>();
-        foreach (Match call in Regex.Matches(text, @"\.Log(Trace|Debug|Information|Warning|Error|Critical)\s*\("))
+        foreach (Match call in Regex.Matches(text, @"\.Log(Trace|Debug|Information|Warning|Error|Critical)?\s*\("))
         {
             var i = call.Index + call.Length;
             var depth = 1;
@@ -246,6 +265,13 @@ public partial class ArchitectureConformanceTests
                         i++;
                     }
 
+                    continue;
+                }
+
+                if (c == '/' && i + 1 < text.Length && text[i + 1] == '*')
+                {
+                    var close = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = close < 0 ? text.Length : close + 2;
                     continue;
                 }
 
