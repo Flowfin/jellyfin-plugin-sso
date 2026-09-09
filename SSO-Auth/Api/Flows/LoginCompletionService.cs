@@ -186,7 +186,15 @@ internal sealed class LoginCompletionService
             sessionParameters,
             remoteEndPointResolver,
             () => _canonicalLinks.IsIdentityStillLinked(identity.LinkMode, identity.Provider, identity.Subject, userId)).ConfigureAwait(false);
-        SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, identity.Username, identity.Admin);
+        // #1551: the line names the account the HOST is about to name in its own AuthenticationSuccess
+        // event, so an operator can line the two up. AuthenticateDirect builds that event's payload from
+        // THIS result - it publishes the same instance it returns - so User.Name is the host's own value
+        // rather than a second derivation of it that could drift. The provider-presented name is passed
+        // beside it and is logged only where the two differ, which is the arm where an existing link
+        // resolves an account under its own name and SyncUsernameFromProvider is off. The fallback is
+        // reached only when the host returned no user, and there is then no host event to correlate with.
+        var mintedUsername = MintedUsername(authenticationResult, identity);
+        SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, mintedUsername, identity.Admin, identity.Username);
 
         // #1139: counted beside the audit line rather than at a new hook point, so the counter and the trail
         // cannot come apart. Here rather than in the status mapper because a success reaches the mapper too,
@@ -221,6 +229,14 @@ internal sealed class LoginCompletionService
     // indistinguishable from an unlimited account, and disabling on it would make that same transient change
     // indistinguishable from a real expiry - so the fail-closed answer is to refuse this login and leave the
     // account exactly as it was.
+    // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
+    // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
+    // reading it here is reading the host's own value rather than deriving a second one beside it. The
+    // parameter is nullable and the presented name is the fallback because a host that returned no user
+    // raised no event either, and an audit line is never worth throwing a completed login away for.
+    private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
+        => authenticationResult?.User?.Name ?? identity.Username;
+
     private async Task<ActionResult?> EnforceAccountExpiryAsync(VerifiedIdentity identity, Guid userId)
     {
         if (_canonicalLinks.IsAccountAdministrator(userId))

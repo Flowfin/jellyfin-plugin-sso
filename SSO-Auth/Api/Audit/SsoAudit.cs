@@ -19,16 +19,39 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 /// </summary>
 internal static class SsoAudit
 {
-    /// <summary>Records a successful login (a session was issued).</summary>
+    /// <summary>
+    /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
+    /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
+    /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
+    /// (#1551). The provider-presented name can differ from it - an existing link resolves an account under
+    /// whatever name it already carries, and <c>SyncUsernameFromProvider</c> is off by default - so it is
+    /// named too, and only where it differs, so an unchanged login writes the line it always wrote.
+    /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider name.</param>
-    /// <param name="username">The Jellyfin username the session was issued for.</param>
+    /// <param name="username">The Jellyfin account the session was issued for.</param>
     /// <param name="isAdmin">Whether the session was granted administrator rights.</param>
-    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin)
+    /// <param name="presentedUsername">
+    /// The username the identity provider presented on this login. Named in the line only where it differs
+    /// from <paramref name="username"/>; null suppresses the comparison entirely.
+    /// </param>
+    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin, string? presentedUsername = null)
     {
         if (!logger.IsEnabled(LogLevel.Information))
         {
+            return;
+        }
+
+        if (presentedUsername is not null && !string.Equals(presentedUsername, username, StringComparison.Ordinal))
+        {
+            logger.LogInformation(
+                "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}'.",
+                username?.ReplaceLineEndings(string.Empty),
+                protocol,
+                provider?.ReplaceLineEndings(string.Empty),
+                isAdmin,
+                presentedUsername.ReplaceLineEndings(string.Empty));
             return;
         }
 

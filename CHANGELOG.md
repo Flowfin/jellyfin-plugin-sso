@@ -568,6 +568,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The login audit line now names the Jellyfin account, and the
+  provider-presented name beside it where the two differ (#1551).** The
+  `[SSO Audit] Login succeeded` line carried the username the identity provider
+  presented. Jellyfin publishes its own `AuthenticationSuccess` event for the
+  same mint and names the **resolved account** in it, and the two are not always
+  the same name: an existing account link resolves an account under whatever
+  name it already carries, and `SyncUsernameFromProvider` is off by default, so
+  the audit line could name somebody the server's own event never mentioned.
+  Correlating the plugin's trail with the host's notification - which is the only
+  way to tell an SSO login from a password login at a notification destination -
+  was then not possible for exactly the accounts whose names had drifted. The
+  line now carries the name the host is about to carry, read off the very result
+  the host publishes rather than derived a second time beside it, and appends
+  `The provider presented the name '<name>'.` only where the presented name
+  differs. A login whose names agree writes the line byte-for-byte as before.
+  **A log parser matching the old line for the provider's username reads the
+  account's name instead.**
+
 - **Restoring an account-link backup now says how many links it restored
   (#1520).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
   button that posts to it, answered the same empty success whatever the number
