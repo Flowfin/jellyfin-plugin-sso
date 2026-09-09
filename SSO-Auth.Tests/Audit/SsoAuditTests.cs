@@ -80,6 +80,49 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void LoginSucceeded_StripsLineEndings_FromTheProviderPresentedName()
+    {
+        // The presented name is a second identity-provider-supplied value in the same template (#1551), so
+        // it is a second forging surface and carries the same inline sanitizer as the first.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice.jellyfin", isAdmin: false, presentedUsername: "ali\r\n[SSO Audit] forged");
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
+        Assert.Contains("Login succeeded: alice.jellyfin", message, StringComparison.Ordinal);
+        Assert.Contains("presented the name 'ali[SSO Audit] forged'", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LoginSucceeded_APresentedNameDifferingOnlyInStrippedCharacters_AddsNothingToTheLine()
+    {
+        // The decision is taken on what the line will PRINT, not on the raw values. Compared raw, these two
+        // are different strings; printed, they are the same name - so a raw comparison emits a line asserting
+        // a difference and then showing two identical names, which an identity provider can produce at will
+        // just by appending a newline to the name it presents.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: false, presentedUsername: "alice\r\n");
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False).", message);
+    }
+
+    [Fact]
+    public void LoginSucceeded_APresentedNameEqualToTheAccountName_AddsNothingToTheLine()
+    {
+        // The clause exists for the drift arm only. Every other login writes what it always wrote, and this
+        // is the row that fails if the comparison is dropped and the clause becomes unconditional.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: false, presentedUsername: "alice");
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False).", message);
+    }
+
+    [Fact]
     public void ProvisionedPendingApproval_LogsWarning_SayingNoSessionWasIssued()
     {
         var logger = new CapturingLogger();

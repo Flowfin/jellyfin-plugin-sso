@@ -439,4 +439,64 @@ public class LoginCompletionServiceTests
         await sessions.DidNotReceive().AuthenticateDirect(Arg.Any<AuthenticationRequest>());
         await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
     }
+
+    [Fact]
+    public async Task CompleteAsync_AResolvedAccountNamedDifferently_IsNamedByTheAccount_AndThePresentedNameBeside()
+    {
+        // #1551. The operator lines this line up against the host's own AuthenticationSuccess event for the
+        // same mint, and that event names the RESOLVED ACCOUNT: AuthenticateDirect publishes the very result
+        // it returns, with User set from the account it minted for. An existing subject-keyed link resolves
+        // an account under whatever name it already carries, and SyncUsernameFromProvider is off by default,
+        // so a line carrying the provider-presented name names somebody the host's event never mentions and
+        // the correlation the issue closes on is not available.
+        var config = new OidConfig
+        {
+            Enabled = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
+        };
+        var auditLog = new CapturingLogger();
+        var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
+        // THREE DISTINCT NAMES on purpose. The account the resolver returns, the name on the result the
+        // host hands back, and the name the provider presented are all different here, so the row can only
+        // pass if the line is read off the HOST RESULT - the value the host itself publishes - rather than
+        // off the account record or off the identity. Two of the three being equal would let a second
+        // derivation pass while claiming to be the host's.
+        users.GetUserById(Existing).Returns(TestUsers.Named("alice.account", Existing));
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>())
+            .Returns(new AuthenticationResult { User = new UserDto { Name = "alice.host" } });
+
+        await service.CompleteAsync(
+            OidcIdentity("kc", "sub-1", "alice.idp"), Response(), config, AdoptionGate.None, () => "203.0.113.9");
+
+        var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
+        Assert.Contains("Login succeeded: alice.host", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("alice.account", audit.Message, StringComparison.Ordinal);
+        Assert.Contains("presented the name 'alice.idp'", audit.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_AResolvedAccountNamedTheSame_WritesTheLineUnchanged()
+    {
+        // The near-miss beside the row above: the two names agree on every login that is not the drift arm,
+        // and a fix that appended the provider's name unconditionally would add a clause to every audit line
+        // on every server. Nothing about a login that did not drift may change.
+        var config = new OidConfig
+        {
+            Enabled = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
+        };
+        var auditLog = new CapturingLogger();
+        var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
+        users.GetUserById(Existing).Returns(TestUsers.Named("alice", Existing));
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>())
+            .Returns(new AuthenticationResult { User = new UserDto { Name = "alice" } });
+
+        await service.CompleteAsync(
+            OidcIdentity("kc", "sub-1", "alice"), Response(), config, AdoptionGate.None, () => "203.0.113.9");
+
+        var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
+        Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'kc' (admin=False).", audit.Message);
+    }
 }

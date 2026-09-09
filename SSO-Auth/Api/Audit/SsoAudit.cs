@@ -19,16 +19,61 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 /// </summary>
 internal static class SsoAudit
 {
-    /// <summary>Records a successful login (a session was issued).</summary>
+    /// <summary>
+    /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
+    /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
+    /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
+    /// (#1551). The provider-presented name can differ from the account's for more than one reason - an
+    /// existing link resolves an account under whatever name it already carries and
+    /// <c>SyncUsernameFromProvider</c> is off by default; a created account was provisioned under the
+    /// host's own name allowlist, which drops characters the provider's name may carry; a requested rename
+    /// can have been declined - so the presented name is carried too, and only where the two differ.
+    /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider name.</param>
-    /// <param name="username">The Jellyfin username the session was issued for.</param>
-    /// <param name="isAdmin">Whether the session was granted administrator rights.</param>
-    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin)
+    /// <param name="username">The Jellyfin account the session was issued for.</param>
+    /// <param name="isAdmin">
+    /// Whether the identity provider ASSERTED administrator rights on this login. It is the identity's claim
+    /// and not the state the mint granted: the permission write is skipped entirely when EnableAuthorization
+    /// is off, and the break-glass administrator is never demoted by it. The name beside it is the account's,
+    /// so the two halves of this line have different provenance - see #1554.
+    /// </param>
+    /// <param name="presentedUsername">
+    /// The username the identity provider presented on this login. Named in the line only where it differs
+    /// from <paramref name="username"/>; null suppresses the comparison entirely.
+    /// </param>
+    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin, string? presentedUsername = null)
     {
         if (!logger.IsEnabled(LogLevel.Information))
         {
+            return;
+        }
+
+        // The decision is taken on the values AS THEY WILL BE PRINTED, never on the raw ones. Both names are
+        // stripped of line endings on the way into the line, so a provider presenting "alice\r\n" against the
+        // account "alice" compares unequal raw and prints two identical names - a line asserting a difference
+        // its own evidence denies, which an identity provider can produce at will. The sanitizer is still
+        // spelled out inline at each logging call below rather than being passed down from here, because
+        // CodeQL's cs/log-forging taint tracking does not follow it across an assignment.
+        //
+        // ORDINAL, DELIBERATELY, though the host resolves a username case-insensitively. The rename this
+        // clause reports the absence of decides on the same basis - CanonicalLinkService compares the
+        // account name against the sanitized presented name with StringComparison.Ordinal - so a case-folding
+        // comparison here would stay silent about a difference the rename path would act on.
+        if (presentedUsername is not null
+            && !string.Equals(
+                presentedUsername.ReplaceLineEndings(string.Empty),
+                username?.ReplaceLineEndings(string.Empty),
+                StringComparison.Ordinal))
+        {
+            logger.LogInformation(
+                "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}'.",
+                username?.ReplaceLineEndings(string.Empty),
+                protocol,
+                provider?.ReplaceLineEndings(string.Empty),
+                isAdmin,
+                presentedUsername.ReplaceLineEndings(string.Empty));
             return;
         }
 
