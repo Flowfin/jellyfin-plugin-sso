@@ -193,6 +193,22 @@ these are the three a migration runs into.
   Both refusals exist so a backup file cannot silently remap an
   identity-provider subject onto another account. Unlink the existing link
   first, then re-import.
+- **An issuer this provider could not have issued.** The entry names an OpenID
+  issuer that is not what the provider on this instance is configured to issue:
+  `the entry's issuer '<from the file>' is not what this provider is configured
+to issue ('<from the configuration>'), so every login on the restored link
+would be refused for a mismatch; re-point the provider or re-key the link
+deliberately`. This is the refusal to expect when the identity provider moved
+  at the same time as the server - `http://idp.lan` became
+  `https://idp.example.com` - and step 2 configured the provider as it is now
+  while the file still names the old issuer. Stored instead of refused, that
+  binding would be terminal rather than degrading: every login on every restored
+  link is refused for a mismatch, permanently, and the page would have said the
+  links were restored. Both issuers are named so the choice is yours to make:
+  re-point the provider at what it actually issues, or re-key the links
+  deliberately. A provider carrying `DoNotValidateIssuerName` states no
+  expectation and is not checked here, because its issuer is not derivable from
+  its configuration by design.
 
 An import that succeeds ANSWERS with the total and the per-provider counts, and
 audits the same numbers with no canonical name in the line

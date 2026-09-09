@@ -334,6 +334,7 @@ caller will actually read.
 | Two entries mapping one identity to two accounts                    | `the document maps this identity to two different accounts`                                         | Otherwise the order of the document would silently decide which of the two won                                                            |
 | A canonical name this instance already links to a different account | `this instance already links that identity to a different account; unlink it first`                 | The repoint refusal: a crafted backup file must not remap an identity-provider subject onto another account. Unlink first, then re-import |
 | A link this instance already binds to a different issuer            | `this instance already binds that link to a different issuer; unlink it first`                      | A restore must not rewrite a security decision as a side effect. Unlink first                                                             |
+| An issuer the provider is not configured to issue                   | `the entry's issuer '<file>' is not what this provider is configured to issue ('<configured>')...`  | Stored verbatim it locks every restored link out permanently; refusing at import puts the failure where the operator can still act on it  |
 
 ### What succeeds, and is worth relying on
 

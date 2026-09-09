@@ -196,6 +196,86 @@ public class LinkImportTests
     }
 
     [Fact]
+    public void AnIssuerTheProviderCannotIssue_IsRefusedAtImportInsteadOfStored()
+    {
+        // The migration this refusal exists for (#1518): the server moves and the identity provider goes
+        // behind TLS and a new hostname at the same time. Step 2 configures the provider as it is NOW, step
+        // 4 imports links exported months earlier under the OLD issuer. Stored verbatim that binding is
+        // terminal rather than degrading - ClassifyIssuer returns Mismatch on every login for the link, the
+        // trust-on-first-use arm reaches only an ABSENT binding, and there is no path back through a login -
+        // so the whole restored userbase is locked out at once, found by the users after the migration is
+        // over. Nothing on the target holds a binding here, which is exactly why the neighbouring repoint
+        // guard never fires on a rebuilt server and why this one has to.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "http://idp.lan")),
+            TargetDirectory));
+
+        // Both issuers are named, which is what makes the refusal actionable rather than merely correct:
+        // the operator re-points the provider or re-keys the links, in the open, instead of guessing.
+        Assert.Contains("http://idp.lan", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("https://idp.example.test", refusal.Message, StringComparison.Ordinal);
+        Assert.Empty(target.OidConfigs["idp"].CanonicalLinks);
+        Assert.Empty(target.OidConfigs["idp"].CanonicalLinkIssuers);
+    }
+
+    [Fact]
+    public void AnIssuerDifferingOnlyByATrailingSlash_IsRestored()
+    {
+        // The check runs the library's own authority comparison rather than a second copy of it, and that
+        // comparison ignores a trailing slash. Without this row the guard would refuse honest imports for
+        // every provider whose discovery issuer is written with the slash and whose endpoint is not, which
+        // is a lockout introduced by the guard against lockouts.
+        var target = TargetConfiguration();
+
+        LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test/")),
+            TargetDirectory);
+
+        Assert.Equal("https://idp.example.test/", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+    }
+
+    [Fact]
+    public void AProviderWithIssuerNameValidationOff_StillTakesTheIssuerTheFileNames()
+    {
+        // DoNotValidateIssuerName exists for providers whose issuer legitimately differs from the discovery
+        // location - templated and multi-tenant setups - and it relaxes the issuer match on the login path
+        // and in the id_token parameters alike. Where it is on, the configuration states no expectation, so
+        // there is nothing to compare against here either. This is the disclosed hole in the guard, pinned
+        // so that it stays a decision rather than becoming an accident.
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].DoNotValidateIssuerName = true;
+
+        LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://tenant-7.idp.example.test")),
+            TargetDirectory);
+
+        Assert.Equal("https://tenant-7.idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+    }
+
+    [Fact]
+    public void AProviderWhoseEndpointIsNotAUsableUrl_RefusesAnyIssuer()
+    {
+        // Fail closed. A provider whose endpoint cannot be parsed completes no login at all, so no reading
+        // of its configuration makes any issuer the right one to store against it - and a guard that let the
+        // value through here would be answering "cannot tell" with "yes".
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].OidEndpoint = "not a url";
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory));
+
+        Assert.Contains("is not a usable URL", refusal.Message, StringComparison.Ordinal);
+        Assert.Empty(target.OidConfigs["idp"].CanonicalLinks);
+    }
+
+    [Fact]
     public void AnEntryWithNoIssuer_RestoresAgainstABoundLinkWithoutRelaxingIt()
     {
         // A backup taken before the binding existed carries no issuer. Restoring it must not clear the

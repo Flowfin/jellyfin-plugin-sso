@@ -789,6 +789,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **The account-link import no longer stores an issuer the provider could not
+  have issued (#1518).** The import wrote the OpenID issuer an operator's backup
+  file named and compared it to nothing. The one guard beside it fires only when
+  the TARGET already holds a binding for that canonical name, and a rebuilt
+  migration target holds none - so on the run that matters every entry's issuer
+  was stored verbatim. That is terminal rather than degrading: the link's every
+  future login is refused for a mismatch, the trust-on-first-use arm reaches only
+  an ABSENT binding, and no login can repair it. The ordinary migration that hits
+  it is the one where the identity provider moves behind TLS or a new hostname at
+  the same time as the server: the import succeeds, the audit line counts the
+  links, the page says they were restored, and the whole userbase is locked out
+  at once, discovered by the users. The incoming issuer is now checked against
+  what the provider is configured to issue and a mismatch is refused at import
+  time, with the whole document rejected and nothing written, naming both issuers
+  so an operator can re-point the provider or re-key the links deliberately
+  instead of guessing. The check runs the same two library rules a login runs -
+  the id_token is validated against the discovery issuer, and the discovery
+  issuer against the configured authority - rather than a second copy of them, so
+  a trailing slash is tolerated exactly as discovery tolerates it. A provider
+  carrying `DoNotValidateIssuerName` states no expectation its configuration
+  could be read for, so it is accepted as before; that hole is deliberate and
+  pinned by a test rather than left to be rediscovered.
+
 - **An account the plugin creates is now stored with the password and the login
   routing it is given (#1440).** Both were written onto the account object the
   server handed back at creation and neither reached the database: the session

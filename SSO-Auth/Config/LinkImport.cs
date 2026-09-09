@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
@@ -165,6 +166,25 @@ internal static class LinkImport
                 && !string.Equals(boundTo, entry.Issuer, StringComparison.Ordinal))
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already binds that link to a different issuer; unlink it first"));
+                continue;
+            }
+
+            // The issuer an operator's file names is checked against what the provider is CONFIGURED to
+            // issue, and a mismatch is refused here rather than stored (#1518). Stored verbatim it is
+            // terminal, not degrading: the binding it writes makes ClassifyIssuer return Mismatch on every
+            // login for that link, the trust-on-first-use arm applies only to an ABSENT binding, and there
+            // is no path back through a login - so the ordinary migration where the identity provider moves
+            // behind TLS or a new hostname at the same time as the server restores its links and locks the
+            // whole userbase out at once, discovered by the users rather than by the operator. Refusing at
+            // import moves that failure to the moment the operator is still holding the file and can act on
+            // it, and the message names both issuers so the choice is made in the open: re-point the
+            // provider, or re-key the links deliberately. The anti-mix-up reason the exported issuer
+            // carries is kept rather than given up, which is what the decision of 2026-09-09 chose.
+            if (!string.IsNullOrWhiteSpace(entry.Issuer)
+                && config is OidConfig oidConfig
+                && OidcConfiguredIssuer.Refuse(oidConfig, entry.Issuer) is { } unissuable)
+            {
+                refusals.Add(Describe(index, entry.Protocol, entry.Provider, unissuable));
                 continue;
             }
 
