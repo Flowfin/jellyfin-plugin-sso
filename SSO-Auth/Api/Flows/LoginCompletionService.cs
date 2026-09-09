@@ -190,9 +190,11 @@ internal sealed class LoginCompletionService
         // event, so an operator can line the two up. AuthenticateDirect builds that event's payload from
         // THIS result - it publishes the same instance it returns - so User.Name is the host's own value
         // rather than a second derivation of it that could drift. The provider-presented name is passed
-        // beside it and is logged only where the two differ, which is the arm where an existing link
-        // resolves an account under its own name and SyncUsernameFromProvider is off. The fallback is
-        // reached only when the host returned no user, and there is then no host event to correlate with.
+        // beside it and is logged only where the two differ, which happens for more than one reason: an
+        // existing link resolves an account under its own name with SyncUsernameFromProvider off, a created
+        // account was provisioned through Jellyfin's name allowlist, or a requested rename was declined. The
+        // fallback is reached only when the host returned no usable name; the line then names what it always
+        // named, and an audit line is never worth throwing a completed login away for.
         var mintedUsername = MintedUsername(authenticationResult, identity);
         SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, mintedUsername, identity.Admin, identity.Username);
 
@@ -321,9 +323,11 @@ internal sealed class LoginCompletionService
     // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
     // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
     // reading it here is reading the host's own value rather than deriving a second one beside it. The
-    // parameter is nullable and the presented name is the fallback because a host that returned no user
-    // raised no event either, and an audit line is never worth throwing a completed login away for. Empty
-    // counts as absent for the same reason: a blank name correlates with nothing.
+    // parameter is nullable and the presented name is the fallback because a name is all this line can
+    // correlate on: without one there is nothing to line the two records up by, so the pre-#1551 value is
+    // no worse than a blank, and an audit line is never worth throwing a completed login away for. Empty
+    // counts as absent for the same reason. The host publishes its event BEFORE returning, so a missing
+    // name does not mean a missing event - it means the correlation cannot be made from this end.
     private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
         => string.IsNullOrEmpty(authenticationResult?.User?.Name) ? identity.Username : authenticationResult.User.Name;
 }

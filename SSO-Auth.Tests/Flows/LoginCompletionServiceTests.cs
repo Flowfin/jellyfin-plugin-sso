@@ -456,16 +456,22 @@ public class LoginCompletionServiceTests
         };
         var auditLog = new CapturingLogger();
         var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
-        users.GetUserById(Existing).Returns(TestUsers.Named("alice.jellyfin", Existing));
+        // THREE DISTINCT NAMES on purpose. The account the resolver returns, the name on the result the
+        // host hands back, and the name the provider presented are all different here, so the row can only
+        // pass if the line is read off the HOST RESULT - the value the host itself publishes - rather than
+        // off the account record or off the identity. Two of the three being equal would let a second
+        // derivation pass while claiming to be the host's.
+        users.GetUserById(Existing).Returns(TestUsers.Named("alice.account", Existing));
         users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
         sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>())
-            .Returns(new AuthenticationResult { User = new UserDto { Name = "alice.jellyfin" } });
+            .Returns(new AuthenticationResult { User = new UserDto { Name = "alice.host" } });
 
         await service.CompleteAsync(
             OidcIdentity("kc", "sub-1", "alice.idp"), Response(), config, AdoptionGate.None, () => "203.0.113.9");
 
         var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
-        Assert.Contains("Login succeeded: alice.jellyfin", audit.Message, StringComparison.Ordinal);
+        Assert.Contains("Login succeeded: alice.host", audit.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("alice.account", audit.Message, StringComparison.Ordinal);
         Assert.Contains("presented the name 'alice.idp'", audit.Message, StringComparison.Ordinal);
     }
 

@@ -33,7 +33,12 @@ internal static class SsoAudit
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="username">The Jellyfin account the session was issued for.</param>
-    /// <param name="isAdmin">Whether the session was granted administrator rights.</param>
+    /// <param name="isAdmin">
+    /// Whether the identity provider ASSERTED administrator rights on this login. It is the identity's claim
+    /// and not the state the mint granted: the permission write is skipped entirely when EnableAuthorization
+    /// is off, and the break-glass administrator is never demoted by it. The name beside it is the account's,
+    /// so the two halves of this line have different provenance - see #1554.
+    /// </param>
     /// <param name="presentedUsername">
     /// The username the identity provider presented on this login. Named in the line only where it differs
     /// from <paramref name="username"/>; null suppresses the comparison entirely.
@@ -51,6 +56,11 @@ internal static class SsoAudit
         // its own evidence denies, which an identity provider can produce at will. The sanitizer is still
         // spelled out inline at each logging call below rather than being passed down from here, because
         // CodeQL's cs/log-forging taint tracking does not follow it across an assignment.
+        //
+        // ORDINAL, DELIBERATELY, though the host resolves a username case-insensitively. The rename this
+        // clause reports the absence of decides on the same basis - CanonicalLinkService compares the
+        // account name against the sanitized presented name with StringComparison.Ordinal - so a case-folding
+        // comparison here would stay silent about a difference the rename path would act on.
         if (presentedUsername is not null
             && !string.Equals(
                 presentedUsername.ReplaceLineEndings(string.Empty),
