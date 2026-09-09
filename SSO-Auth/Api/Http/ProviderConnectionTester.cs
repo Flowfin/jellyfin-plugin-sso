@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
@@ -33,6 +34,12 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// </summary>
 internal static class ProviderConnectionTester
 {
+    // How long the link import waits for ONE provider's issuer before giving up on it (#1518). Shorter than
+    // the reader's own per-request timeout on purpose: a restore names several providers and an operator is
+    // holding the request, so the sum has to stay a wait rather than a hang. Giving up refuses the entries
+    // that needed the answer, which is the same fail-closed arm an unreachable provider takes.
+    private static readonly TimeSpan IssuerReadBudget = TimeSpan.FromSeconds(8);
+
     /// <summary>
     /// Probes a stored OpenID provider: reads its discovery document under the login's hardened discovery
     /// policy and reports the issuer, endpoints, JWKS reachability and the two discovery facts. Fail-closed
@@ -108,10 +115,12 @@ internal static class ProviderConnectionTester
     /// <param name="provider">The provider name, for the reader's fail-closed warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the hardened discovery fetch is built over.</param>
     /// <param name="logger">The logger the reader logs its fail-closed warning to (never a secret).</param>
+    /// <param name="cancellationToken">Abandons the read when the administrator's request goes away.</param>
     /// <returns>The issuer, or the reason it could not be read.</returns>
-    internal static async Task<LinkImportIssuerFact> ReadConfiguredIssuerAsync(OidConfig config, string provider, IHttpClientFactory httpClientFactory, ILogger logger)
+    internal static async Task<LinkImportIssuerFact> ReadConfiguredIssuerAsync(OidConfig config, string provider, IHttpClientFactory httpClientFactory, ILogger logger, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(config?.OidEndpoint))
+        var endpoint = config?.OidEndpoint?.Trim();
+        if (string.IsNullOrWhiteSpace(endpoint))
         {
             return LinkImportIssuerFact.Failed("no OpenID endpoint is configured for it");
         }
@@ -119,14 +128,40 @@ internal static class ProviderConnectionTester
         OidcClientOptions options;
         try
         {
-            options = OidcDiscoveryOptions.Build(config);
+            options = OidcDiscoveryOptions.Build(config!);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
             return LinkImportIssuerFact.Failed("its configured OpenID Endpoint is not a valid absolute URL");
         }
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses).ConfigureAwait(false);
+        // THE ONE PLACE THIS READ IS DELIBERATELY NARROWER THAN THE LOGIN'S, and it is a relaxation on
+        // purpose. The library's DiscoveryPolicy requires a key set by default, so an ordinary discovery
+        // read also fetches jwks_uri - a provider-authored URL, often on a different host - and fails the
+        // whole read when that second leg fails. The login needs those keys and must fail closed without
+        // them; this read needs one string out of the first document and no key material, so a JWKS host
+        // having a bad minute would otherwise refuse an operator's entire link restore for a value it never
+        // touches. Nothing else in the posture moves: RequireHttps, ValidateIssuerName, ValidateEndpoints,
+        // the SSRF transport tier and the repeated-member screen are all still the provider's own.
+        options.Policy.Discovery.RequireKeySet = false;
+
+        // The reader takes no cancellation token - adding one there would reach thirty test call sites in
+        // files this change is not about - so the budget is applied HERE, around the whole read. The fetch
+        // it abandons keeps running until its own timeout; what this bounds is how long an administrator
+        // waits, not how long the socket lives. #1558 holds the token itself.
+        OidcDiscoveryResult discovery;
+        try
+        {
+            discovery = await OidcDiscoveryReader
+                .ReadAsync(options, provider, httpClientFactory, logger, config!.AllowPrivateNetworkAddresses)
+                .WaitAsync(IssuerReadBudget, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+        {
+            return LinkImportIssuerFact.Failed("reading its discovery document did not finish in time");
+        }
+
         if (!discovery.Available)
         {
             return LinkImportIssuerFact.Failed(CauseOf(discovery.Refusal));
@@ -139,7 +174,7 @@ internal static class ProviderConnectionTester
         var issuer = discovery.ProviderInformation?.IssuerName;
         return string.IsNullOrWhiteSpace(issuer)
             ? LinkImportIssuerFact.Failed("its discovery document declares no issuer")
-            : LinkImportIssuerFact.Read(issuer!);
+            : LinkImportIssuerFact.Read(issuer!, endpoint);
     }
 
     /// <summary>

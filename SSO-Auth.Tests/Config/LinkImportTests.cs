@@ -49,8 +49,13 @@ public class LinkImportTests
     // What the target's OpenID provider is configured to issue (#1518), as the caller reads it off the
     // discovery document before the import runs. Every row that restores an issuer-carrying link hands
     // this in, and the rows below that pin the refusals hand in a deliberately different fact.
+    // The endpoint the target's provider is configured with. The fact carries it so the importer can
+    // confirm under the lock that the provider still points where the read was made, and a fact naming a
+    // different one is refused rather than written.
+    private const string TargetEndpoint = "https://idp.example.test";
+
     private static readonly Dictionary<string, LinkImportIssuerFact> TargetIssuers =
-        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read("https://idp.example.test") };
+        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read("https://idp.example.test", TargetEndpoint) };
 
     [Fact]
     public void ExportOnOneServer_ImportsOntoAnother_ReboundToTheTargetsOwnIds()
@@ -224,6 +229,78 @@ public class LinkImportTests
         // the operator decides in the open between re-pointing the provider and re-keying the links.
         Assert.Contains("http://idp.lan", refusal.Message, StringComparison.Ordinal);
         Assert.Contains("https://idp.example.com", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AProviderWithDoNotValidateIssuerName_IsTakenOutOfTheComparison_AndStillRestores()
+    {
+        // THE EXEMPTION, and it is the row that decides whether this guard is usable rather than merely
+        // safe. The stored binding is the id_token's `iss`; the fact is the discovery document's `issuer`.
+        // With ValidateIssuerName on the login has already required the two to be equal, so comparing them
+        // asks a real question. The escape hatch turns that requirement off, and it exists precisely for
+        // providers whose two values differ FOREVER - a templated multi-tenant discovery issuer against a
+        // concrete per-tenant token issuer. Comparing there would refuse every entry of a correct backup
+        // from a supported deployment, all-or-nothing, and print a remedy nobody can follow: there is no
+        // address that makes such a provider's discovery document emit the concrete issuer. The plugin
+        // already accepts both anchors on the login path for the same reason.
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].DoNotValidateIssuerName = true;
+
+        var restored = LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://login.example.test/tenant-42/v2.0")),
+            TargetDirectory,
+            IssuesInstead("https://login.example.test/{tenantid}/v2.0"));
+
+        Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
+        Assert.Equal("https://login.example.test/tenant-42/v2.0", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+        Assert.Equal(1, restored.Single().Links);
+    }
+
+    [Fact]
+    public void AFactReadFromAnEndpointTheProviderNoLongerUses_IsRefused()
+    {
+        // The window between the read and the write, which exists because the read is a network round trip
+        // and is deliberately taken outside the configuration lock. A provider re-pointed in that window is
+        // a DIFFERENT identity provider - the save path clears the link and issuer maps on exactly that
+        // change - so a fact read from the old endpoint must not be allowed to write the old issuers back
+        // in. Doing so would re-create this issue's own mass lockout through the change that closes it.
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].OidEndpoint = "https://idp-moved.example.test";
+        var stale = new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal)
+        {
+            ["idp"] = LinkImportIssuerFact.Read("https://idp.example.test", TargetEndpoint),
+        };
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory,
+            stale));
+
+        Assert.Contains("endpoint changed while the import was being prepared", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AProviderAuthoredIssuer_IsBoundedInTheRefusal()
+    {
+        // The issuer in the refusal is NOT the plugin's string: under DoNotValidateIssuerName a discovery
+        // document may declare whatever it likes, bounded in megabytes rather than characters, so an
+        // unbounded echo lets a provider decide how much text an operator's error message carries. The
+        // reader bounds the library error it logs for the same reason; this is the same bound one layer up.
+        var target = TargetConfiguration();
+        var long_ = new string('z', 4000);
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
+            TargetDirectory,
+            IssuesInstead(long_)));
+
+        Assert.DoesNotContain(long_, refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("...", refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
     }
 
@@ -528,7 +605,7 @@ public class LinkImportTests
     // where the identity provider moved to a new hostname or behind TLS while the backup still names the
     // old one.
     private static Dictionary<string, LinkImportIssuerFact> IssuesInstead(string issuer) =>
-        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read(issuer) };
+        new(StringComparer.Ordinal) { ["idp"] = LinkImportIssuerFact.Read(issuer, TargetEndpoint) };
 
     private static Guid? TargetDirectory(string username) => username switch
     {

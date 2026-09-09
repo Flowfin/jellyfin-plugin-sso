@@ -49,6 +49,9 @@ internal static class LinkImport
     // a log line; the count that follows says how many more there were.
     private const int MaxReportedEntries = 10;
 
+    // How much of a provider-authored issuer a refusal reproduces. See Bound below for why one is needed.
+    private const int MaxReportedIssuerChars = 256;
+
     /// <summary>
     /// Validates and applies the link document onto <paramref name="live"/>. Throws before any mutation
     /// when the document is unsupported or any entry is unrestorable, so the caller's
@@ -194,7 +197,21 @@ internal static class LinkImport
             // wrong" get the same answer, and the message says which of the two happened. An entry carrying
             // no issuer reaches none of this, so a document from before the binding existed still restores
             // with the identity provider down.
-            if (config is OidConfig && !string.IsNullOrWhiteSpace(entry.Issuer))
+            //
+            // WHAT THE COMPARISON IS BETWEEN, AND WHY DoNotValidateIssuerName TAKES AN ENTRY OUT OF IT. The
+            // stored binding is the id_token's `iss`; the fact is the discovery document's `issuer`. With
+            // ValidateIssuerName on - the default - the login has already required those two to be equal
+            // before a binding could ever be stamped, so comparing against the discovery issuer asks exactly
+            // "has this provider's issuer changed since the backup". The escape hatch turns that requirement
+            // off, and it exists for providers whose two values legitimately differ FOREVER: a templated,
+            // multi-tenant discovery issuer against a concrete per-tenant id_token issuer. OidcResponseIssuer
+            // accepts both anchors for the same reason and says so. On such a provider there is no comparand
+            // here at all, and refusing would turn a supported deployment's whole restore into a refusal
+            // whose printed remedy is impossible. Those entries therefore restore as they did before this
+            // guard existed, which is a DISCLOSED GAP rather than a check that quietly passed: the operator
+            // who set that flag has already declared this provider's issuer unverifiable against its
+            // discovery document, and docs/SERVER-MIGRATION.md says the same in the operator's own words.
+            if (config is OidConfig target && !target.DoNotValidateIssuerName && !string.IsNullOrWhiteSpace(entry.Issuer))
             {
                 var fact = configuredIssuers.TryGetValue(entry.Provider!, out var known) ? known : default;
                 if (!string.IsNullOrWhiteSpace(fact.Unreadable))
@@ -209,9 +226,20 @@ internal static class LinkImport
                     continue;
                 }
 
+                // The fact was read before the configuration lock, because it is a network round trip. A
+                // provider re-pointed in that window is a DIFFERENT identity provider - ServerManagedFields
+                // clears the link and issuer maps on exactly that change - so a fact read from the old
+                // endpoint must not be allowed to write the old issuers back in under the lock. That would
+                // re-create this issue's own mass lockout through the change meant to close it.
+                if (!string.Equals(fact.ReadFromEndpoint, target.OidEndpoint?.Trim(), StringComparison.Ordinal))
+                {
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this provider's OpenID endpoint changed while the import was being prepared, so what it issues was read from an endpoint it no longer uses; import again"));
+                    continue;
+                }
+
                 if (!string.Equals(fact.Issuer, entry.Issuer, StringComparison.Ordinal))
                 {
-                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', but this provider is configured to issue '{fact.Issuer}'; re-point the provider, or re-key the links deliberately, before importing"));
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', but this provider is configured to issue '{Bound(fact.Issuer)}'; re-point the provider, or re-key the links deliberately, before importing"));
                     continue;
                 }
             }
@@ -257,6 +285,15 @@ internal static class LinkImport
             .ThenBy(count => count.Provider, StringComparer.Ordinal)
             .ToList();
     }
+
+    // The issuer read off a discovery document is NOT the plugin's string. Under DoNotValidateIssuerName it
+    // need not equal the authority, and the response body it came from is bounded in megabytes rather than
+    // characters, so a provider could otherwise put as much text into a refusal as it liked. The same reason
+    // OidcDiscoveryReader bounds the library error it logs, and the same shape of bound.
+    private static string Bound(string? issuer) =>
+        issuer is { Length: > MaxReportedIssuerChars }
+            ? string.Concat(issuer.AsSpan(0, MaxReportedIssuerChars), "...")
+            : issuer ?? string.Empty;
 
     // The protocol name is matched case-insensitively while the provider name is matched exactly, and the
     // difference is deliberate. The protocol is a two-value vocabulary this plugin writes itself, so

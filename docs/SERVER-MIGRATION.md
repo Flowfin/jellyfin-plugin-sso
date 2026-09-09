@@ -30,6 +30,11 @@ configuration directory, the accounts recreated, both files imported - and every
 refusal quoted on this page was read back from that run rather than from the
 source. It is tested rather than derived, and #1135 records the run.
 
+That provenance covers the refusals that existed on the day of the walk. The two
+issuer refusals below arrived with #1518, after it, and are quoted from the
+source rather than read back from a run - which is a weaker citation and is said
+here rather than left for a reader to assume.
+
 **It did not pass the first time, and step 4 does not work on any build published
 so far.** On every beta from `4.3.0-beta.43` to `4.3.0-beta.61` the link import
 answers 204 and restores nothing: the posted document reaches the importer with
@@ -167,11 +172,11 @@ claims to apply.
 
 ## The failure modes an operator actually hits
 
-All three produce `400`, restore nothing, and name the offending entries by
+They all produce `400`, restore nothing, and name the offending entries by
 their index in the file that was posted rather than by canonical name. The full
 refusal table, with a code line beside each row, is
 [What is refused, and why](ACCOUNT-MANAGEMENT-API.md#what-is-refused-and-why);
-these are the three a migration runs into.
+these are the ones a migration runs into.
 
 - **A renamed user.** The entry names a username no account on this instance
   holds: `no Jellyfin account is named ... on this instance`. Rename the account
@@ -204,13 +209,29 @@ these are the three a migration runs into.
   page to say why. Decide in the open: point the provider back at the address
   the file names, or re-key the links deliberately by importing a file with the
   issuers removed and letting the first login take the binding.
+- **A provider set to `DoNotValidateIssuerName`.** These entries are **not**
+  checked, and that is deliberate rather than an oversight. The value stored
+  with a link is the `iss` the identity provider puts in its id_token; the value
+  read here is the `issuer` its discovery document declares. With issuer
+  validation on - the default - a login has already required those two to be
+  equal, so comparing them asks a real question. That flag exists for providers
+  where the two differ permanently - a templated, multi-tenant discovery issuer
+  against a concrete per-tenant token issuer - and comparing there would refuse
+  a correct backup with a remedy nobody can follow. On such a provider the
+  import restores the issuers the file names, unchecked, exactly as it did
+  before this refusal existed.
 - **An issuer that could not be checked.** The import reads what each OpenID
   provider issues before it writes anything, so an identity provider that is
   unreachable at that moment refuses the entries that carry an issuer:
   `the file binds that link to issuer '<file>', and what this provider issues could not be read to compare it against: <cause>`.
   Retry when the provider answers. Entries carrying **no** issuer need no such
   read, so a document exported before this plugin bound links to issuers, and
-  every SAML entry, restores with the identity provider down.
+  every SAML entry, restores with the identity provider down. If the provider is
+  gone for good rather than briefly unreachable - decommissioned, or behind a
+  firewall this host cannot cross - retrying will not help: remove the `Issuer`
+  field from those entries and let the first login take the binding, the same
+  escape as the bullet above. It is a deliberate downgrade to trust-on-first-use
+  for those links, and it is the only route this plugin offers today.
 
 An import that succeeds ANSWERS with the total and the per-provider counts, and
 audits the same numbers with no canonical name in the line

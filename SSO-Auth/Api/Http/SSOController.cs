@@ -1938,23 +1938,42 @@ public class SSOController : ControllerBase
     // not exist. Its own rule fires first, so the absent fact is never reached for that entry.
     private async Task<Dictionary<string, LinkImportIssuerFact>> ReadConfiguredIssuersAsync(LinkExportDocument document)
     {
-        var configuration = SSOPlugin.Instance.Configuration;
-        var facts = new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal);
-
-        var providers = document.Links
+        var wanted = document.Links
             .Where(entry => entry is not null
                 && !string.IsNullOrWhiteSpace(entry.Issuer)
                 && !string.IsNullOrWhiteSpace(entry.Provider)
                 && string.Equals(entry.Protocol, LinkExport.OpenIdProtocol, StringComparison.OrdinalIgnoreCase))
             .Select(entry => entry.Provider!)
-            .Distinct(StringComparer.Ordinal);
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
-        foreach (var provider in providers)
+        // The provider snapshot is taken THROUGH THE STORE, not off SSOPlugin.Instance.Configuration
+        // directly. Every other configuration read in this controller does the same, and for the reason the
+        // store's own summary gives: these collections are not thread-safe, so a read racing a provider add
+        // or remove can tear or throw - here that would be a 500 out of an admin restore rather than a
+        // refusal. Only the snapshot is taken under the lock; the network reads below are not.
+        //
+        // A provider carrying DoNotValidateIssuerName is skipped rather than read. Its discovery issuer is
+        // not what its id_token issuer will be - that is what the flag is for - so there is nothing here to
+        // compare against, and fetching it would only produce a fact the importer must not use. The importer
+        // re-reads the same flag under the lock and takes those entries out of the comparison there, so the
+        // decision is made against the configuration that is actually written into, not against this one.
+        var probes = SSOPlugin.Instance.ReadConfiguration(configuration => wanted
+            .Where(provider => configuration.OidConfigs.TryGetValue(provider, out var config)
+                && config is not null
+                && !config.DoNotValidateIssuerName)
+            .Select(provider => (Provider: provider, Config: configuration.OidConfigs[provider]))
+            .ToList());
+
+        var facts = new Dictionary<string, LinkImportIssuerFact>(StringComparer.Ordinal);
+        foreach (var probe in probes)
         {
-            if (configuration.OidConfigs.TryGetValue(provider, out var config) && config is not null)
-            {
-                facts[provider] = await ProviderConnectionTester.ReadConfiguredIssuerAsync(config, provider, _httpClientFactory, _logger).ConfigureAwait(false);
-            }
+            facts[probe.Provider] = await ProviderConnectionTester.ReadConfiguredIssuerAsync(
+                probe.Config,
+                probe.Provider,
+                _httpClientFactory,
+                _logger,
+                HttpContext.RequestAborted).ConfigureAwait(false);
         }
 
         return facts;
