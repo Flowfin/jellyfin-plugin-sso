@@ -16,10 +16,15 @@
  * promise nothing could check: the tool read the single old page and could only
  * ask whether a control had SOME row. It now reads the five built pages and
  * asks the stronger question the stage-1 done-condition names - whether each
- * control is reachable on the page its row names. Three ways to be wrong are
- * refused by name: a control on no page, a control on two pages, and a control
- * on a page the table does not name for it. The mock beside the table is
- * checked exactly as before.
+ * control is reachable on the page its row names - and three more questions the
+ * split created, at the legs below: whether a controller reaches off its own
+ * page, whether an id the core names is declared anywhere, and whether the tab
+ * strip actually routes to the pages the plugin registers. The mock beside the
+ * table is checked exactly as before.
+ *
+ * NO COUNT OF THE REFUSALS IS WRITTEN HERE. Each leg says what it refused when
+ * it refuses, and a total in this header would drift against the legs the way
+ * every hand count does. What each one is for is written at the leg.
  *
  * WHY COMMENTS ARE STRIPPED FIRST. The Providers page documents its own hidden
  * `selectProvider` inside an HTML comment, and that comment contains a second
@@ -253,12 +258,24 @@ function functionBody(source, name) {
   return null;
 }
 
-/** Every id the markup of one page declares. */
+/**
+ * Every id the markup of one page declares, COMMENTS STRIPPED FIRST.
+ *
+ * The stripping is the whole point and it was missing. The control leg strips
+ * comments and this one did not, so an element wrapped in an HTML comment
+ * disappeared from the page while its id went on being "declared" here - and a
+ * controller registering an unguarded handler against it passed both legs and
+ * threw at the browser, killing the rest of that page's wiring. That is exactly
+ * the failure the controller leg exists to prevent, walking through the check
+ * that prevents it.
+ */
 function idsDeclaredBy(file) {
   return new Set(
-    [...fs.readFileSync(file, "utf8").matchAll(/\sid="([^"]+)"/g)].map(
-      (m) => m[1],
-    ),
+    [
+      ...withoutComments(fs.readFileSync(file, "utf8")).matchAll(
+        /\sid="([^"]+)"/g,
+      ),
+    ].map((m) => m[1]),
   );
 }
 
@@ -352,6 +369,27 @@ function registeredPageNames() {
   );
 }
 
+/**
+ * The registered page name each tab must link to, derived rather than restated.
+ *
+ * Overview is the plugin's own page id, because that is the name the dashboard's
+ * plugin list opens; the other four are that id and their tab in lower case,
+ * which is the convention `SSOPlugin.GetPages` registers them under. Deriving it
+ * is what lets the leg below ask the question it is actually for - does the
+ * Accounts tab open Accounts - rather than the weaker one it asked first, which
+ * was only whether an href names SOME registered page. A strip whose Policies
+ * label pointed at Server passed that weaker question with five registered
+ * hrefs and no route to the profile editor at all.
+ */
+function tabTargets(registered, tabs) {
+  const id = [...registered].reduce((a, b) => (a.length <= b.length ? a : b));
+  const out = {};
+  tabs.forEach((tab, i) => {
+    out[tab] = i === 0 ? id : id + "-" + tab.toLowerCase();
+  });
+  return out;
+}
+
 function linkFaults() {
   const registered = registeredPageNames();
   if (registered === null) {
@@ -367,21 +405,83 @@ function linkFaults() {
     }
   };
 
+  // The tab each anchor is FOR, in strip order, so an href can be paired with its own label rather
+  // than only checked for existing. Naming a registered page is the weaker question: an Accounts tab
+  // pointing at Policies names a registered page and opens the wrong one, silently, and the first
+  // draft of this leg passed it.
+  const ORDER = Object.keys(PAGES);
+  const PAGE_NAMES = tabTargets(registered, ORDER);
+
   for (const [tab, file] of Object.entries(PAGES)) {
-    const html = fs.readFileSync(file, "utf8");
+    const html = withoutComments(fs.readFileSync(file, "utf8"));
     const where = path.basename(file);
-    const hrefs = [
-      ...html.matchAll(/href="#\/configurationpage\?name=([^"]+)"/g),
-    ].map((m) => m[1]);
-    if (hrefs.length !== Object.keys(PAGES).length) {
+
+    // One match per anchor, carrying its label class, its data-index and its href together, so the
+    // three are compared against each other instead of each being read on its own.
+    const anchors = [
+      ...html.matchAll(
+        /class="emby-tab-button SSOTAB_(\w+)([^"]*)"[^>]*?data-index="(\d+)"[^>]*?href="#\/configurationpage\?name=([^"]+)"/g,
+      ),
+    ].map((m) => ({
+      key: m[1],
+      active: m[2].includes("emby-tab-button-active"),
+      index: Number(m[3]),
+      href: m[4],
+    }));
+
+    if (anchors.length !== ORDER.length) {
       faults.push(
         where +
           " carries " +
-          hrefs.length +
-          " tab link(s); one per page is expected, so a tab is missing or duplicated",
+          anchors.length +
+          " tab link(s) of the expected shape; one per page is expected, so a tab is missing, duplicated or written differently",
       );
+      continue;
     }
-    hrefs.forEach((name) => say("tab link", name, where));
+
+    anchors.forEach((a, position) => {
+      say("tab link", a.href, where);
+
+      const expectedKey = ORDER[position].toLowerCase();
+      if (a.key !== expectedKey) {
+        faults.push(
+          where +
+            " has the " +
+            a.key +
+            " tab where " +
+            expectedKey +
+            " belongs, so the strip is not in the declared order",
+        );
+      }
+
+      // The href must be the page this anchor is labelled for. `emby-tabs` also drives its highlight
+      // off data-index, so an index that is not the anchor's position paints the wrong tab white.
+      const expectedHref = PAGE_NAMES[ORDER[position]];
+      if (expectedHref && a.href !== expectedHref) {
+        faults.push(
+          where +
+            ": the " +
+            a.key +
+            ' tab links to "' +
+            a.href +
+            '", not to "' +
+            expectedHref +
+            '"',
+        );
+      }
+
+      if (a.index !== position) {
+        faults.push(
+          where +
+            ": the " +
+            a.key +
+            " tab carries data-index " +
+            a.index +
+            " at position " +
+            position,
+        );
+      }
+    });
 
     const controller = html.match(/data-controller="__plugin\/([^"]+)"/);
     if (!controller) {
@@ -392,12 +492,14 @@ function linkFaults() {
 
     // The page must also be the one the tab strip marks as current, or an administrator is told they
     // are somewhere they are not.
-    const active = html.match(/class="emby-tab-button SSOTAB_(\w+) emby-tab/);
-    if (!active) {
-      faults.push(where + " marks no tab as the current one");
-    } else if (active[1] !== tab.toLowerCase()) {
+    const active = anchors.filter((a) => a.active);
+    if (active.length !== 1) {
       faults.push(
-        where + " marks the " + active[1] + " tab as current, not " + tab,
+        where + " marks " + active.length + " tabs as current; exactly one is",
+      );
+    } else if (active[0].key !== tab.toLowerCase()) {
+      faults.push(
+        where + " marks the " + active[0].key + " tab as current, not " + tab,
       );
     }
   }

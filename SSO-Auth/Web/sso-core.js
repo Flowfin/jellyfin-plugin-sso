@@ -4384,6 +4384,14 @@ const ssoConfigurationPage = {
     const next = page.querySelector("#sso-overview-next");
     const state = page.querySelector("#sso-overview-state");
 
+    // ALL FOUR OR NONE. The caller gates on the card list alone, and three of these were dereferenced
+    // straight after it - so a page carrying one of the four and not the others threw here, on a render
+    // that runs on every visit. They are one region and there is no arrangement in which a subset of
+    // them is the right answer, so this asks for the region rather than for its first member.
+    if (!cards || !empty || !next || !state) {
+      return;
+    }
+
     cards.replaceChildren();
     next.replaceChildren();
 
@@ -4616,9 +4624,19 @@ function bindTemplatePermissionAdders(view) {
  * pathname+search, and viewManager's onBeforeChange constructs the controller only where `initComplete`
  * is unset - so a tab returned to has NOT re-run its controller and still shows whatever it last loaded.
  * That was read out of jellyfin-web rather than assumed, and the consequence is worst exactly here: add a
- * provider on Providers, come back, and Overview goes on saying no provider is configured. `viewshow`
- * fires on every show INCLUDING the first, which is why the load moved into the listener rather than
- * being repeated beside it.
+ * provider on Providers, come back, and Overview goes on saying no provider is configured.
+ *
+ * IT LOADS TWICE OVER, AT INIT AND ON `viewshow`, AND THE BELT IS NOT THE BRACES. A first draft moved the
+ * load into the listener alone, on the reading that `viewshow` fires on every show including the first.
+ * The EVENT does; the LISTENER is not there to hear it. jellyfin-web constructs the controller inside
+ * `loadView`'s own chain and dispatches `viewshow` in the `.then` after that chain resolves - one
+ * microtask later - and this controller registers its listener only once a dynamic import of the core has
+ * resolved, which is a fetch. So the first `viewshow` is always missed, and what that shipped was an
+ * Overview blank on every fresh load, with the markup's own default line asserting that SSO-only was off
+ * on a server where it was on. The init call covers the show that has already happened by the time the
+ * core arrives; the listener covers every later show of the same cached view, when the controller does
+ * not run at all. In the ordering where both fire, the page loads twice, which costs one read of a
+ * read-only report and paints the same thing.
  *
  * WHY THE OTHER FOUR DO NOT DO THIS. Re-reading the configuration re-fills form controls, and those four
  * pages hold controls an administrator may have typed into and not yet saved, so a reload on every show
@@ -4634,10 +4652,13 @@ function initOverviewPage(view) {
   view.querySelector("#sso-self-service-link").href =
     ApiClient.getUrl("/SSOViews/linking");
 
-  view.addEventListener("viewshow", () => {
+  const read = () => {
     ssoConfigurationPage.loadConfiguration(view);
     ssoConfigurationPage.renderOverview(view);
-  });
+  };
+
+  read();
+  view.addEventListener("viewshow", read);
 }
 
 /** The Providers tab: both provider workspaces, their editors and the readiness panel. */

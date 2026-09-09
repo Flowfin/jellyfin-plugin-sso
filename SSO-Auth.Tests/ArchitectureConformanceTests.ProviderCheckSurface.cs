@@ -110,16 +110,28 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void TheCheckAction_IsBoundAndPaintsIntoElementsThatExist()
     {
-        // config.js addresses the button and the result list by id. An id no element carries is not an error
-        // in a browser: querySelector answers null, and either the binding throws during page setup - taking
-        // every later binding on the page with it - or the handler silently paints nowhere.
+        // sso-core.js addresses the button and the result list by id. An id no element carries is not an
+        // error in a browser: querySelector answers null, and either the binding throws during page setup -
+        // taking every later binding on the page with it - or the handler silently paints nowhere.
+        //
+        // READ AGAINST ONE PAGE AND NOT THE CONCATENATION OF FIVE (#1527). The button and the list it paints
+        // into have to be on the SAME page, and a rule reading the whole surface at once cannot say so:
+        // leave the button on Providers and the list on Overview and every id is still "present", while the
+        // handler returns at its own guard and the button does nothing, with no error anywhere. The banner
+        // below is the opposite case and is read against every page on purpose - it belongs on all five.
         var js = ConfigJs();
-        var html = ConfigPageHtml();
+        var providers = WebAssets.Page("providersPage.html");
 
-        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result", "sso-unreadable-config" })
+        foreach (var id in new[] { "CheckAllProviders", "sso-config-check-result" })
         {
             Assert.Contains("\"#" + id + "\"", js, StringComparison.Ordinal);
-            Assert.Contains("id=\"" + id + "\"", html, StringComparison.Ordinal);
+            Assert.Contains("id=\"" + id + "\"", providers, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("\"#sso-unreadable-config\"", js, StringComparison.Ordinal);
+        foreach (var page in new[] { "configPage.html", "providersPage.html", "accountsPage.html", "policiesPage.html", "serverPage.html" })
+        {
+            Assert.Contains("id=\"sso-unreadable-config\"", WebAssets.Page(page), StringComparison.Ordinal);
         }
     }
 

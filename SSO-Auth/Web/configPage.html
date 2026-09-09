@@ -112,13 +112,19 @@
                   Does single sign-on work
                 </h2>
                 <div id="sso-overview-state" class="fieldDescription"></div>
-                <div
-                  id="sso-overview-sso-only"
-                  class="fieldDescription"
-                  data-i18n="overview.sso_only_off"
-                >
-                  SSO-only is off. Local Jellyfin passwords still work.
-                </div>
+                <!--
+              EMPTY, AND CARRYING NO data-i18n MARKER, BOTH DELIBERATELY. This line states whether SSO-only
+              is on, which is a statement about this server rather than a label, so sso-core.js OWNS it and
+              writes it once the configuration answers - and it localizes the wording at that source through
+              tr(), the same arrangement the provider editor titles use. A marker here would let the
+              localizer, which sets textContent for every marked element whenever its catalogue arrives,
+              overwrite a written "SSO-only is ON" with the catalogue value for the OFF wording; the two
+              race freely and the loser is a security statement. Empty rather than defaulted for the same
+              reason in the other direction: a built-in "SSO-only is off" would be asserted on a server
+              where it is on for as long as the read takes, and on any load where the read fails it would
+              never be corrected at all. Nothing is better than a confident wrong answer here.
+            -->
+                <div id="sso-overview-sso-only" class="fieldDescription"></div>
               </div>
 
               <div class="verticalSection">
