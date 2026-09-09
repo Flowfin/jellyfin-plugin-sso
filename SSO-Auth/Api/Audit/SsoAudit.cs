@@ -57,27 +57,80 @@ internal static class SsoAudit
     /// <c>SyncUsernameFromProvider</c> is off by default; a created account was provisioned under the
     /// host's own name allowlist, which drops characters the provider's name may carry; a requested rename
     /// can have been declined - so the presented name is carried too, and only where the two differ.
+    /// THE PRIVILEGE FIELD IS THE SAME KIND OF VALUE FOR THE SAME REASON (#1554): <c>admin=</c> reports what
+    /// the MINT GRANTED, and the role mapping's own verdict is named beside it only where the two disagree.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="username">The Jellyfin account the session was issued for.</param>
-    /// <param name="isAdmin">
-    /// Whether the identity provider ASSERTED administrator rights on this login. It is the identity's claim
-    /// and not the state the mint granted: the permission write is skipped entirely when EnableAuthorization
-    /// is off, and the break-glass administrator is never demoted by it. The name beside it is the account's,
-    /// so the two halves of this line have different provenance - see #1554.
+    /// <param name="grantedAdmin">
+    /// Whether the minted session's account HOLDS administrator rights, read from the host's own
+    /// authentication result after the permission write. Reporting the mapping here instead failed in both
+    /// directions, and the second is what settled #1554: <c>admin=True</c> for a session the mint never made
+    /// an administrator is a false alarm, while the break-glass administrator - which the minter is forbidden
+    /// to demote - signing in where no role maps to admin printed <c>admin=False</c> for a session that held
+    /// administrator rights, and under-reporting real administrator access is the failure an audit trail is
+    /// bought to prevent. Null where there was no result to read; see the shape note in the body.
+    /// </param>
+    /// <param name="mappedAdmin">
+    /// Whether a role this login carried is on the configured <c>AdminRoles</c> allow-list. Evidence about
+    /// the provider read through this server's own mapping rather than a state this server reached, so it is
+    /// named in the line only where it disagrees with <paramref name="grantedAdmin"/>.
     /// </param>
     /// <param name="presentedUsername">
     /// The username the identity provider presented on this login. Named in the line only where it differs
     /// from <paramref name="username"/>; null suppresses the comparison entirely.
     /// </param>
-    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin, string? presentedUsername = null)
+    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool? grantedAdmin, bool mappedAdmin, string? presentedUsername = null)
     {
         if (!logger.IsEnabled(LogLevel.Information))
         {
             return;
         }
+
+        // The outcome is rendered through ONE field whose absent state is a word of its own. True and False
+        // are byte-for-byte what this field has always printed, so nothing keyed on the RENDERED line moves;
+        // carrying the absent case as a third optional clause instead would have doubled the templates below
+        // from four to eight for a state that says less than the word does.
+        //
+        // WHAT DOES MOVE IS THE STRUCTURED FIELD, and it is stated rather than left to be discovered. A JSON
+        // or Serilog sink received {IsAdmin} as a Boolean and now receives a String, so an operator rule
+        // written as IsAdmin == true stops matching - silently, in the same under-reporting direction this
+        // change exists to close. It is disclosed in the changelog for that reason. The alternative keeps the
+        // Boolean by giving the absent state two templates of its own, which is six for a state that
+        // Jellyfin's own AuthenticateDirect cannot produce (see GrantedAdmin in LoginCompletionService), and
+        // the shape was decided on #1554 before the first template was written.
+        var granted = grantedAdmin switch
+        {
+            true => "True",
+            false => "False",
+            _ => "unknown",
+        };
+
+        // The mapped value is named only where it does not agree with the outcome, so the common line stays
+        // short and a divergence is the thing that catches the eye. A lifted comparison, DELIBERATELY: an
+        // absent outcome agrees with nothing, so a line that could not read the granted state still names
+        // the mapping rather than carrying no privilege information at all - which would be less than this
+        // line carried before the outcome replaced the mapping in it.
+        //
+        // AND IT IS NAMED AS A MAPPING RATHER THAN AS AN ASSERTION. mappedAdmin is not a claim the provider
+        // made: RolePrivilegeMapper.Evaluate sets it when a role the login carried is on the ADMIN-CONFIGURED
+        // AdminRoles allow-list, which is empty by default - so on a default install it is false however
+        // loudly the provider asserts otherwise, because nothing here ever asked. A clause reading "the
+        // provider asserted admin=False" would put a denial in the provider's mouth on every administrator's
+        // login, which is the kind of sentence this file refuses to write elsewhere.
+        var mappingDisagrees = grantedAdmin != mappedAdmin;
+
+        // Two independent optional clauses, so four whole templates rather than a composed sentence. The
+        // constant is not decoration: it is what keeps the structured field names stable for a log reader,
+        // and it is what the log-forging rules are written against, so every foreign value below is still
+        // sanitized inline at its own logging call.
+        var namesDiffer = presentedUsername is not null
+            && !string.Equals(
+                presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                StringComparison.Ordinal);
 
         // The decision is taken on the values AS THEY WILL BE PRINTED, never on the raw ones. Both names are
         // stripped of line endings on the way into the line, so a provider presenting "alice\r\n" against the
@@ -98,19 +151,40 @@ internal static class SsoAudit
         // clause reports the absence of decides on the same basis - CanonicalLinkService compares the
         // account name against the sanitized presented name with StringComparison.Ordinal - so a case-folding
         // comparison here would stay silent about a difference the rename path would act on.
-        if (presentedUsername is not null
-            && !string.Equals(
-                presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('),
+        if (namesDiffer && mappingDisagrees)
+        {
+            logger.LogInformation(
+                "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}', and its roles mapped to admin={MappedAdmin}.",
                 username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                StringComparison.Ordinal))
+                protocol,
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                granted,
+                presentedUsername!.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                mappedAdmin);
+            return;
+        }
+
+        if (namesDiffer)
         {
             logger.LogInformation(
                 "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}'.",
                 username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                 protocol,
                 provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                isAdmin,
-                presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                granted,
+                presentedUsername!.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            return;
+        }
+
+        if (mappingDisagrees)
+        {
+            logger.LogInformation(
+                "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider's roles mapped to admin={MappedAdmin}.",
+                username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                protocol,
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                granted,
+                mappedAdmin);
             return;
         }
 
@@ -119,7 +193,7 @@ internal static class SsoAudit
             username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-            isAdmin);
+            granted);
     }
 
     /// <summary>

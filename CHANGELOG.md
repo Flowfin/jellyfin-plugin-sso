@@ -568,6 +568,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **This line is 5.0, because the Jellyfin generation under it changed
+  (#1579).** Jellyfin 12.0 went GA on 2026-09-07 and its announcement is
+  explicit that plugins built for 10.11 will not load on it: the server targets
+  .NET 10 and several plugin interfaces changed. The scheme at the top of this
+  file reserves **X** for exactly that, a breaking or Jellyfin-ABI change, so
+  what was numbered 4.4 is 5.0 in all three places that carry the number: the
+  assembly, `build.yaml` and `build-jf12.yaml`.
+
+  **4.3 stays the last release for Jellyfin 10.11.** It is finishing its soak
+  and ships as the stable for that generation; nothing on this line is offered
+  to a 10.11 server. The net9.0 half of the build is not removed here, because
+  taking a target framework out also takes the 10.11-only package pins and the
+  ABI-floor job with it and re-opens which assemblies the package must carry.
+  That is its own change.
+
+  The number is the only thing this entry is about. What the line compiles
+  against moved in the same delivery and is recorded above.
+
 - **The settings page is five pages (#1527).** One 222 KB page carrying all 123
   controls became five, joined by the dashboard's own tab strip: **Overview**,
   **Providers**, **Accounts**, **Policies** and **Server**. Nothing was added to
@@ -757,6 +775,28 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   A media library added while the dashboard has been left open on one of those
   tabs is not picked up by a return; the checklist is the one the page loaded,
   until the next save, import, or reload of the dashboard.
+
+- **The login audit line's `admin=` field now reports the rights the session was
+  actually granted, not the role mapping's verdict (#1554).** The
+  `[SSO Audit] Login succeeded` line printed the result of matching the login's
+  roles against the configured `AdminRoles` list, and the session mint does not
+  always agree with it. The whole permission block is behind
+  `EnableAuthorization`, which is off by default, so `admin=True` could be
+  printed for a session that was never made an administrator; and the break-glass
+  administrator is deliberately never demoted, so that account signing in where
+  no role maps to admin was printed as `admin=False` while holding an
+  administrator session. The first is a false alarm and the second is a
+  **missed** one, and a trail that under-reports real administrator access is the
+  failure an audit trail is bought to prevent. The field is now read from the
+  same authentication result the host publishes in its own
+  `AuthenticationSuccess` event, after the permission write, so the two records
+  cannot disagree; a mapping that differs from the outcome is appended as
+  `The provider's roles mapped to admin=<value>.` rather than replacing it, and a
+  login where the two agree writes the line byte-for-byte as before.
+  **A structured log sink received `IsAdmin` as a Boolean and now receives a
+  String - `True`, `False`, or `unknown` where there was no result to read - so a
+  rule written as `IsAdmin == true` has to be rewritten. The rendered text of
+  `admin=True` and `admin=False` is unchanged.**
 
 - **A failed configuration read no longer leaves a pressed Save with no outcome
   at all (#1577).** Saving or deleting a provider reads the stored configuration

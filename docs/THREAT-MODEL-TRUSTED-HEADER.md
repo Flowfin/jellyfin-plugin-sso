@@ -203,16 +203,20 @@ What the plugin can do: record the header path under its own protocol label in
 the audit trail rather than folding it into the two existing ones, and record the
 peer address the login was accepted from, which is the only piece of evidence
 that exists. Today the success record carries the username, the protocol, the
-provider and whether administrator rights were granted, and no address. The
-quotation below is pinned to `origin/main`, which is where it was taken; on the
-`4.4` line the username field became the RESOLVED Jellyfin account rather than
-the name the provider presented, with the presented name appended where the two
-differ (#1551), and every foreign value the audit emitter prints has its
-opening square bracket substituted as well as its line endings stripped, so an
-audit line cannot be made to carry a second forged record (#1555 - which is the
-emitter alone; the same text is still plantable through ordinary plugin log
-lines, #1557). None of those changes adds an address, so nothing in this section
-moves.
+provider and an administrator field, and no address. The quotation below is
+pinned to `origin/main`, which is where it was taken; on the `4.4` line the
+username field became the RESOLVED Jellyfin account rather than the name the
+provider presented, with the presented name appended where the two differ
+(#1551), the administrator field became the right the session was actually
+GRANTED rather than the verdict of matching the login's roles against the
+configured `AdminRoles` list, with that verdict appended where the two disagree
+(#1554 - on `origin/main` the field is still that verdict, which is why the
+sentence above names an administrator field rather than a grant), and every
+foreign value the audit emitter prints has its opening square bracket
+substituted as well as its line endings stripped, so an audit line cannot be
+made to carry a second forged record (#1555 - which is the emitter alone; the
+same text is still plantable through ordinary plugin log lines, #1557). None of
+those changes adds an address, so nothing in this section moves.
 
 ```
 $ git show origin/main:SSO-Auth/Api/Audit/SsoAudit.cs | sed -n '35,41p'

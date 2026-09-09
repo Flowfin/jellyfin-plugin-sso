@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
+﻿// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -22,6 +22,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Users;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using Xunit;
@@ -61,14 +62,32 @@ public class LoginCompletionServiceTests
     private static AuthResponse Response() =>
         new AuthResponse { AppName = "app", AppVersion = "1", DeviceID = "d", DeviceName = "dev" };
 
-    private static VerifiedIdentity OidcIdentity(string provider, string subject, string username, int? maxParentalRatingScore = null) =>
+    // The host's own answering shape (#1554). AuthenticateDirect builds its result's user from the account as
+    // it stands WHEN IT IS CALLED - after the minter's permission write - and publishes the same instance it
+    // returns. A fixture answering with a fixed policy would report whatever it was handed, so the two arms
+    // below would prove nothing about what the mint decided; this one is read off the very account the minter
+    // mutates, at the moment the host reads it.
+    private static void AnswerLikeTheHost(ISessionManager sessions, User account) =>
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(_ => new AuthenticationResult
+        {
+            User = new UserDto
+            {
+                Name = account.Username,
+                Policy = new UserPolicy
+                {
+                    IsAdministrator = account.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator),
+                },
+            },
+        });
+
+    private static VerifiedIdentity OidcIdentity(string provider, string subject, string username, int? maxParentalRatingScore = null, bool admin = false) =>
         TestIdentities.Oidc(provider, new OidcAuthorizeStateBuilder.OidcAuthorizeState(
             Username: username,
             Subject: subject,
             Issuer: null,
             EmailVerified: null,
             Valid: true,
-            Admin: false,
+            Admin: admin,
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
@@ -488,15 +507,122 @@ public class LoginCompletionServiceTests
         };
         var auditLog = new CapturingLogger();
         var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
-        users.GetUserById(Existing).Returns(TestUsers.Named("alice", Existing));
+        var alice = TestUsers.Named("alice", Existing);
+        users.GetUserById(Existing).Returns(alice);
         users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
-        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>())
-            .Returns(new AuthenticationResult { User = new UserDto { Name = "alice" } });
+        // The host result carries a policy because the host's always does (#1554): it is built from the
+        // resolved account, whose administrator permission this row leaves off, and the provider asserts
+        // nothing either - so both optional clauses are silent and this is the whole line.
+        AnswerLikeTheHost(sessions, alice);
 
         await service.CompleteAsync(
             OidcIdentity("kc", "sub-1", "alice"), Response(), config, AdoptionGate.None, () => "203.0.113.9");
 
         var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
         Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'kc' (admin=False).", audit.Message);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_AnAdminClaimWithAuthorizationOff_ReportsTheRightsTheMintGranted()
+    {
+        // #1554, arm one. EnableAuthorization is off - the default - so the minter's whole permission block is
+        // skipped and this login makes nobody an administrator. The line reporting the role mapping said
+        // admin=True for a session that never held the rights, which sends an operator after an escalation
+        // that did not happen. The outcome is read off the host's own result, so it cannot drift from the
+        // AuthenticationSuccess event published for the same mint, and the mapping is named as a mapping.
+        var config = new OidConfig
+        {
+            Enabled = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
+        };
+        var auditLog = new CapturingLogger();
+        var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
+        var alice = TestUsers.Named("alice", Existing);
+        users.GetUserById(Existing).Returns(alice);
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        AnswerLikeTheHost(sessions, alice);
+
+        await service.CompleteAsync(
+            OidcIdentity("kc", "sub-1", "alice", admin: true), Response(), config, AdoptionGate.None, () => "203.0.113.9");
+
+        // The mint really did leave the account alone: the row would pass on a wrong reading of an account
+        // that HAD been made an administrator, so the state it reports is asserted beside the line.
+        Assert.False(alice.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator));
+        var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: alice via OpenID provider 'kc' (admin=False). The provider's roles mapped to admin=True.",
+            audit.Message);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_BreakGlassAdminWithNoAdminClaim_ReportsTheAdministratorSessionItHolds()
+    {
+        // #1554, arm two, and the direction that settled the issue. SSO-only mode is on and role mapping IS
+        // on, but the minter is forbidden to demote the break-glass administrator (#165 Finding H1), so this
+        // login holds an administrator session while no role of it maps to admin. The line reporting the
+        // mapping said admin=False: an administrator signed in and the trail denied it, which is the
+        // under-reporting failure an audit trail exists to prevent.
+        var config = new OidConfig
+        {
+            Enabled = true,
+            EnableAuthorization = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-root"] = Existing },
+        };
+        var auditLog = new CapturingLogger();
+        var (service, _, users, sessions) = Build(
+            c =>
+            {
+                c.OidConfigs["kc"] = config;
+                c.DisablePasswordLogin = true;
+                c.BreakGlassAdminUsername = "root";
+            },
+            auditLog);
+        var root = TestUsers.Named("root", Existing);
+        root.AuthenticationProviderId = SsoAuthenticationProviders.DefaultPasswordProviderId;
+        root.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator, true);
+        users.GetUserById(Existing).Returns(root);
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        AnswerLikeTheHost(sessions, root);
+
+        await service.CompleteAsync(
+            OidcIdentity("kc", "sub-root", "root"), Response(), config, AdoptionGate.None, () => "203.0.113.9");
+
+        Assert.True(root.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator));
+        var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True). The provider's roles mapped to admin=False.",
+            audit.Message);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_AMintThatReturnedNoPolicy_SaysTheGrantIsUnknown_RatherThanGuessingIt()
+    {
+        // The absent arm the decision asked for: the line is still written when there is no policy to read,
+        // and it says so in a word. Guessing False here would report an administrator login as an ordinary
+        // one, which is the same under-reporting this issue closes; guessing the mapping would put the field
+        // back where it started.
+        //
+        // THE FIXTURE IS A RESULT WITH NO USER, AND THAT IS THE ONLY WAY IN. A UserDto carries a UserPolicy
+        // whether or not one is assigned - written first as `new UserDto { Name = "alice" }`, this row read
+        // admin=False rather than unknown - so the absent state is reachable exactly where the host returned
+        // no user at all, which is the same condition MintedUsername already falls back on.
+        var config = new OidConfig
+        {
+            Enabled = true,
+            CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
+        };
+        var auditLog = new CapturingLogger();
+        var (service, _, users, sessions) = Build(c => c.OidConfigs["kc"] = config, auditLog);
+        users.GetUserById(Existing).Returns(TestUsers.Named("alice", Existing));
+        users.GetUserByName(Arg.Any<string>()).Returns((User?)null);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await service.CompleteAsync(
+            OidcIdentity("kc", "sub-1", "alice", admin: true), Response(), config, AdoptionGate.None, () => "203.0.113.9");
+
+        var audit = Assert.Single(auditLog.Entries, e => e.Message.Contains("[SSO Audit] Login succeeded", StringComparison.Ordinal));
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: alice via OpenID provider 'kc' (admin=unknown). The provider's roles mapped to admin=True.",
+            audit.Message);
     }
 }
