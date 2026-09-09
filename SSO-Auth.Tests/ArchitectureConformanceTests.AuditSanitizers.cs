@@ -134,6 +134,21 @@ public partial class ArchitectureConformanceTests
         // WHAT THE RULE CAN SEE IS THE VALUE ALREADY MARKED FOREIGN BY THE STRIP. A value logged with no
         // sanitizer at all is not this rule's subject and never was: that is CodeQL's cs/log-forging query,
         // which is why both sanitizers stay spelled out inline at the call rather than behind a helper.
+        //
+        // WHY THAT RESIDUAL IS NOT CLOSED BY WIDENING THIS RULE (#1564), measured rather than supposed. On 4.4
+        // at 0c32770c the tree held 127 logging calls with 219 arguments past the template: 128 carried both
+        // sanitizers, 16 the strip alone (every one of them named in AuditValuesPrintedExactly), and 71 neither.
+        // Of the 71, every string-typed value is the plugin's own - a protocol label, a reason code, an enum
+        // token, a constant sentence, an embedded resource path, a record whose ToString redacts itself - and
+        // the rest are counts, booleans, Guids and durations. The one foreign value among them is the repeated
+        // JSON member name in RepeatedMemberScreen, neutralised by hand and pinned by its own payload row. What
+        // separates a constant label from a foreign name is the value's type and where it came from, and
+        // neither is in the text of one argument, so a widened text rule would refuse the 71 and pass the
+        // seventy-second the moment it looked like a label. A semantic pass could tell them apart, at the
+        // cost of compiling the plugin inside this test; the population it would guard is a dozen
+        // string-valued arguments, and that price was not paid. The census is reproduced by counting the
+        // arguments inside LoggingCallSpans the way this rule does and sorting them by whether they contain
+        // LineEndingSanitizer and RecordMarkerSanitizer; the classification of the 71 was by hand.
         var offenders = new List<string>();
         var strips = 0;
 
