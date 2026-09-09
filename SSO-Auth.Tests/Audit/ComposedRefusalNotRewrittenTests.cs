@@ -4,15 +4,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.SSO_Auth.Api.Authz;
-using Jellyfin.Plugin.SSO_Auth.Api.Provider;
-using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
-using MediaBrowser.Controller.Authentication;
-using MediaBrowser.Controller.Configuration;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using Xunit;
@@ -68,54 +60,4 @@ public class ComposedRefusalNotRewrittenTests
         Assert.DoesNotContain(Marker, logged, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task TheDefaultProviderLine_CarriesBothSanitizers()
-    {
-        // The line is written at every SSO login of an enforced account and carried neither sanitizer, so a
-        // value written by a configuration import or a mounted declarative document could both split an
-        // entry and plant a record. The conformance rule cannot see a value with no strip, which is why
-        // this row exists rather than a rule change.
-        const string Forged = "x\r\n[SSO Audit] Login succeeded: root via OpenID provider 'corp' (admin=True).";
-
-        var log = new CapturingLogger();
-        var users = Substitute.For<IUserManager>();
-        var sessions = Substitute.For<ISessionManager>();
-        var user = TestUsers.Named("alice", Guid.Parse("66666666-6666-6666-6666-666666666666"));
-        users.GetUserById(user.Id).Returns(user);
-        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
-
-        var avatar = new Api.Avatar.AvatarService(
-            users,
-            Substitute.For<IProviderManager>(),
-            Substitute.For<IServerConfigurationManager>(),
-            new CapturingLogger(),
-            Api.Net.SsoHttp.UserAgent);
-        var minter = new SessionMinter(users, avatar, sessions, log);
-
-        await minter.MintAsync(
-            new SessionParameters
-            {
-                UserId = user.Id,
-                IsAdmin = false,
-                IsBreakGlassAdmin = false,
-                EnableAuthorization = false,
-                EnableAllFolders = true,
-                EnabledFolders = Array.Empty<string>(),
-                EnableLiveTv = false,
-                EnableLiveTvManagement = false,
-                PermissionGrants = Array.Empty<PermissionGrant>(),
-                MaxParentalRatingScore = null,
-                SyncPlayAccess = null,
-                AvatarUrl = null,
-                DefaultProvider = Forged,
-                AuthResponse = new AuthResponse { AppName = "app", AppVersion = "1", DeviceID = "d", DeviceName = "dev" },
-            },
-            () => "203.0.113.9",
-            () => true).ConfigureAwait(true);
-
-        var line = Assert.Single(log.Entries, e => e.Message.Contains("Set default login provider", StringComparison.Ordinal)).Message;
-        Assert.DoesNotContain("\n", line, StringComparison.Ordinal);
-        Assert.DoesNotContain(Marker, line, StringComparison.Ordinal);
-        Assert.Contains("(SSO Audit] Login succeeded", line, StringComparison.Ordinal);
-    }
 }

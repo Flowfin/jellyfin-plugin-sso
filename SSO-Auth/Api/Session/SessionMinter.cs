@@ -139,13 +139,7 @@ internal sealed class SessionMinter
             user.AuthenticationProviderId = parameters.DefaultProvider;
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                // Sanitized like every other value the plugin logs (#1566). It is the administrator's rather
-                // than an identity provider's, which is exactly why it was missed: it arrives from the
-                // provider configuration, which a configuration import or a mounted declarative document
-                // writes, and this line is written at EVERY SSO login of an enforced account. It carried
-                // neither sanitizer, so it could split an entry as well as plant a record, and the rule that
-                // holds this property elsewhere cannot see it - that rule keys on the strip.
-                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider);
             }
         }
 

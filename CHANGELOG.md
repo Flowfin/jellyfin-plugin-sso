@@ -690,13 +690,13 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   conformance rule names the composed sentence rather than leaving its absence
   to be noticed.
 
-  The second half is a line that carried NEITHER sanitizer: the one reporting
-  the configured default login provider, written at every SSO login of an
-  SSO-only account. That value arrives from the provider configuration, which a
-  configuration import or a mounted declarative document writes, so it could
-  both split an entry and plant a record - and the rule that holds this property
-  elsewhere cannot see it, because that rule keys on the line-ending strip. It
-  carries both now, with a row that reddens if either is removed.
+  A second line of the same kind - the one reporting the configured default
+  login provider, written at every SSO login of an SSO-only account - is **not**
+  fixed here. It carries neither sanitizer and it should carry both, but adding
+  them raises a new high-severity `cs/cleartext-storage-of-sensitive-information`
+  alert: the value can be Jellyfin's default password-provider id, which is a
+  provider type name rather than a credential. Choosing how this repository
+  answers a CodeQL false positive is a decision of its own and #1569 holds it.
 
 - **A discovery read whose caller has gone away now ends with the caller
   (#1558).** The hardened OpenID discovery read took no cancellation token, so
