@@ -207,7 +207,10 @@ provider and whether administrator rights were granted, and no address. The
 quotation below is pinned to `origin/main`, which is where it was taken; on the
 `4.4` line the username field became the RESOLVED Jellyfin account rather than
 the name the provider presented, with the presented name appended where the two
-differ (#1551). Neither change adds an address, so nothing in this section moves.
+differ (#1551), and every foreign value in the trail lost its opening square
+bracket as well as its line endings, so that a value cannot forge a second
+record inside the line it lands in (#1555). None of those changes adds an
+address, so nothing in this section moves.
 
 ```
 $ git show origin/main:SSO-Auth/Api/Audit/SsoAudit.cs | sed -n '35,41p'

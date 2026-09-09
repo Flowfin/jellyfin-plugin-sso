@@ -813,6 +813,28 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An identity-provider-supplied value can no longer forge a second audit
+  record inside one line (#1555).** Every foreign value in the SSO audit trail
+  was already stripped of line endings, so none of them could SPLIT an entry -
+  and nothing bounded a value inside the sentence it landed in, so a presented
+  username could close the sentence and write a whole second, plausible record
+  on the same physical line. An unanchored search of the trail, or a SIEM rule
+  matching the substring, then reports a login that never happened, under any
+  name the attacker chooses; the value is attacker-supplied wherever the
+  identity provider lets a person edit their own `preferred_username`, which is
+  most of them. Every foreign value now also has the opening square bracket
+  removed at the logging call, which is enough because the `[SSO Audit] ` prefix
+  a trail is filtered on can begin no other way. The repair is on the emitter
+  rather than on the login line, so it covers every entry carrying a foreign
+  value.
+
+  **If you parse this trail, read this.** A name legitimately containing an
+  opening square bracket now prints without it, exactly as a name containing a
+  line ending already printed without that. Structured sinks are unchanged in
+  shape - the fields were separate template parameters before and still are -
+  and the value they receive is the stripped one, the same value the rendered
+  line shows.
+
 - **An account the plugin creates is now stored with the password and the login
   routing it is given (#1440).** Both were written onto the account object the
   server handed back at creation and neither reached the database: the session

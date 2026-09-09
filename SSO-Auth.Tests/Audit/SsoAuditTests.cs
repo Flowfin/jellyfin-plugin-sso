@@ -91,7 +91,13 @@ public class SsoAuditTests
         var message = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
         Assert.Contains("Login succeeded: alice.jellyfin", message, StringComparison.Ordinal);
-        Assert.Contains("presented the name 'ali[SSO Audit] forged'", message, StringComparison.Ordinal);
+
+        // THIS ROW ASSERTED THE FORGED MARKER SURVIVED UNTIL #1555, and that was the defect stated as an
+        // expectation: the fixture's own name carries the audit prefix, the line-ending strip left it
+        // whole, and an unanchored search over the trail then matched a record nothing emitted. The
+        // line-ending property this row exists for is unchanged - the two halves of the name are joined
+        // and no newline reaches the message - and the bracket is gone with it.
+        Assert.Contains("presented the name 'aliSSO Audit] forged'", message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -434,6 +440,56 @@ public class SsoAuditTests
 
         Assert.Equal(5, log.Entries.Count);
         Assert.All(log.Entries, e => Assert.StartsWith("[SSO Audit]", e.Message, StringComparison.Ordinal));
+    }
+
+    // The payload of #1555, verbatim: a presented name whose text closes the sentence it lands in and
+    // then opens a whole second, plausible record on the SAME physical line. Stripping line endings does
+    // not touch it - it forges no new line - so an unanchored search or a SIEM substring rule reports a
+    // login by "root" that never happened. The bracket escape is what makes the marker unforgeable, and
+    // these two rows redden the moment it is taken back off the emitter.
+    private const string SecondRecordPayload =
+        "x'. [SSO Audit] Login succeeded: root via OpenID provider 'corp' (admin=True). The provider presented the name 'root";
+
+    [Fact]
+    public void LoginSucceeded_APresentedNameForgingASecondRecord_LeavesOneAuditMarkerOnTheLine()
+    {
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "eve", isAdmin: false, presentedUsername: SecondRecordPayload);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(1, CountMarkers(message));
+        Assert.StartsWith("[SSO Audit]", message, StringComparison.Ordinal);
+
+        // The forged record is what a reader is meant not to be able to find, so the assertion is on the
+        // text a search would look for rather than on the escape that prevents it.
+        Assert.DoesNotContain("[SSO Audit] Login succeeded: root", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AccountRenamed_AForeignNameForgingASecondRecord_LeavesOneAuditMarkerOnTheLine()
+    {
+        var logger = new CapturingLogger();
+
+        // The shape reaches every entry carrying a foreign value, not the login line alone, which is why
+        // the repair sits on the emitter. A second entry with two foreign names holds that scope down: it
+        // fails if the escape is added at one call site and not at the others.
+        SsoAudit.AccountRenamed(logger, "OpenID", "corp", SecondRecordPayload, SecondRecordPayload);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(1, CountMarkers(message));
+        Assert.DoesNotContain("[SSO Audit] Login succeeded: root", message, StringComparison.Ordinal);
+    }
+
+    private static int CountMarkers(string message)
+    {
+        var markers = 0;
+        for (var at = message.IndexOf("[SSO Audit] ", StringComparison.Ordinal); at >= 0; at = message.IndexOf("[SSO Audit] ", at + 1, StringComparison.Ordinal))
+        {
+            markers++;
+        }
+
+        return markers;
     }
 
     private sealed class LevelFilteredLogger : ILogger
