@@ -58,7 +58,7 @@ public class OidcDiscoveryReaderErrorBoundTests
         Assert.True(
             warning.Length < LongSegmentChars,
             $"the fail-closed warning carries {warning.Length} characters against an {LongSegmentChars}-character provider-authored URL");
-        Assert.Contains("[truncated]", warning, StringComparison.Ordinal);
+        Assert.Contains("(truncated)", warning, StringComparison.Ordinal);
 
         // And the provider cannot get a long run of its own bytes in even below the total length: a bound
         // applied to the wrong operand, or applied after concatenation, would still let a long run through.
@@ -80,7 +80,7 @@ public class OidcDiscoveryReaderErrorBoundTests
         // The endpoint the read failed on survives intact, and so does the marker's absence: an untruncated
         // entry must not claim to have been cut.
         Assert.Contains(Authority + "/jwks", warning, StringComparison.Ordinal);
-        Assert.DoesNotContain("[truncated]", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("(truncated)", warning, StringComparison.Ordinal);
     }
 
     [Fact]

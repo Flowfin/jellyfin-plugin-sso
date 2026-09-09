@@ -832,15 +832,32 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   prints the assertion's NameID. Every foreign value the plugin logs now carries
   the same bracket substitution the audit emitter carries, spelled out inline in
   the argument so the analyzer still sees it, and a conformance rule refuses a
-  file that strips a value's line endings without substituting its bracket - so
-  the ninety-first site added next month cannot reopen this quietly. **A value
-  that legitimately carries an opening square bracket prints a round one in these
-  lines**, as it already did in the audit trail. The values a line prints exactly
-  on purpose - the paths this server composed for itself - are named in the rule
-  rather than noticed as an absence, and the one place the two sanitizers are
-  spelled apart is named with its reason: the plugin's own truncation marker opens
-  with a bracket, so the substitution runs on the provider's error before the
-  marker is appended rather than over the composed argument.
+  line that strips a value's line endings without substituting its bracket
+  immediately after - so the ninety-first site added next month cannot reopen this
+  quietly. Two more sites were found while that rule was being written, both
+  invisible to it because they carried no line-ending strip to key on: the
+  **repeated-member refusal**, which neutralised a provider-authored JSON member
+  name with a character-category filter instead - and an opening square bracket is
+  not a control, format or separator character, so a complete forged record passed
+  through it from an **anonymous** challenge - and the line reporting the
+  configured default login provider, written at every SSO login of an enforced
+  account with neither sanitizer. Both are fixed; that a third could arrive the
+  same way is #1564 and is stated in the rule rather than left to be discovered.
+
+  **A value that legitimately carries an opening square bracket prints a round one
+  in these lines**, as it already did in the audit trail - including an IPv6
+  literal in a refused avatar URL and a role or claim value carrying one. The
+  values a line prints exactly on purpose - the paths this server composed for
+  itself - are named in the rule rather than noticed as an absence, and so are the
+  sentences the plugin composes: a substitution applied to a whole composed message
+  rewrites the plugin's own words, which took the opening bracket out of the very
+  message listing the characters a provider name may not contain and mangled the
+  path in the line telling an operator which document to edit. Those sentences
+  strip only, and their foreign parts are substituted where they enter the
+  sentence. **The `[truncated]` marker the discovery reader, the repeated-member
+  screen and the link-import refusal share is now `(truncated)`** for the same
+  reason: a marker of the plugin's own that opens with a bracket cannot survive a
+  rule about brackets, and moving it is cheaper than carrying an exception for it.
 
 - **The account-link import no longer stores an issuer the provider could not
   have issued (#1518).** The import wrote the OpenID issuer an operator's backup

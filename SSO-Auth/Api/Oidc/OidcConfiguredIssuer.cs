@@ -49,7 +49,7 @@ internal static class OidcConfiguredIssuer
 
     // The same marker the discovery reader bounds a provider error with, so a truncated value reads the
     // same wherever the plugin produces one.
-    private const string TruncationMarker = "[truncated]";
+    private const string TruncationMarker = "(truncated)";
 
     /// <summary>
     /// Reports why <paramref name="issuer"/> may not be stored as the binding for a link on
@@ -109,8 +109,12 @@ internal static class OidcConfiguredIssuer
         return $"the entry's issuer '{Echo(issuer)}' is not what this provider is configured to issue ('{Echo(authority)}'), so every login on the restored link would be refused for a mismatch; remove the Issuer field from these entries to restore the links unbound and let the first login bind them, or fix the provider before importing - do NOT change OidEndpoint after a restore, which clears the link table";
     }
 
+    // Bounded AND record-marker-substituted (#1557). The value is the caller's own text and this refusal
+    // reaches a log line as well as the response body, so an opening bracket here would let a posted file
+    // plant something that reads like an audit record. Substituting before the marker is appended keeps
+    // the plugin's own marker text out of the substitution.
     private static string Echo(string value) =>
         value.Length > MaxEchoedIssuerChars
-            ? string.Concat(value.AsSpan(0, MaxEchoedIssuerChars), TruncationMarker)
-            : value;
+            ? string.Concat(value.Replace('[', '(').AsSpan(0, MaxEchoedIssuerChars), TruncationMarker)
+            : value.Replace('[', '(');
 }

@@ -479,7 +479,7 @@ internal sealed class SamlLoginService
             // material is not part of the message, so nothing sensitive is logged.
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("SAML challenge for provider {Provider} could not sign the AuthnRequest: {Reason}", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
+                _logger.LogError("SAML challenge for provider {Provider} could not sign the AuthnRequest: {Reason}", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; the SAML request signing key is misconfigured.");

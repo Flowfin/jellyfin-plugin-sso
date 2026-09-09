@@ -312,8 +312,11 @@ internal static class LinkImport
     // carries no raw subject value (T-I1); echoing it into an HTTP error body and from there into
     // whatever logs that body would widen where it travels for no gain an operator could use. The index
     // into the document they are holding is what lets them find the entry.
+    // The two names come out of the posted document, so their opening bracket is substituted HERE rather
+    // than over the composed sentence (#1557): this message travels into a log line and into a 400 body,
+    // and a substitution applied to the whole of it would rewrite the plugin's own words alongside them.
     private static string Describe(int index, string? protocol, string? provider, string reason) =>
-        $"entry #{index.ToString(CultureInfo.InvariantCulture)} ({protocol ?? "no protocol"}/{provider ?? "no provider"}): {reason}";
+        $"entry #{index.ToString(CultureInfo.InvariantCulture)} ({(protocol ?? "no protocol").Replace('[', '(')}/{(provider ?? "no provider").Replace('[', '(')}): {reason}";
 
     // One validated entry: the map it belongs in, and everything needed to write it. Nothing is written
     // while this list is being built, which is the whole of the fail-closed property - the first refusal

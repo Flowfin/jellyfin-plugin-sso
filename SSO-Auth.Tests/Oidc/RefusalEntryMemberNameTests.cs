@@ -67,7 +67,7 @@ public class RefusalEntryMemberNameTests
         var entry = await RefusalEntryFor(Longest);
 
         Assert.Contains(NameLeadIn + " \"" + Longest + "\"", entry, StringComparison.Ordinal);
-        Assert.DoesNotContain("[truncated]", entry, StringComparison.Ordinal);
+        Assert.DoesNotContain("(truncated)", entry, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -116,7 +116,7 @@ public class RefusalEntryMemberNameTests
         Assert.True(
             entry.Length < 1024,
             $"the refusal entry carries {entry.Length} characters against an {name.Length}-character provider-authored member name");
-        Assert.Contains("[truncated]", entry, StringComparison.Ordinal);
+        Assert.Contains("(truncated)", entry, StringComparison.Ordinal);
 
         // And not merely shorter overall: a bound applied to the wrong operand still lets a long run through.
         Assert.DoesNotContain(new string('m', 1024), entry, StringComparison.Ordinal);
@@ -228,6 +228,25 @@ public class RefusalEntryMemberNameTests
     // established that the read actually REFUSED: the library was handed the screen's constant reason in
     // place of the document, and the JWKS that document named was never fetched. A screen that logged and
     // passed the document on satisfies neither.
+    [Fact]
+    public async Task AMemberNameCarryingAnAuditRecord_CannotPlantOne()
+    {
+        // #1557, and this is the site that refuted the first version of that change. The member name is
+        // neutralised by a CHARACTER-CATEGORY filter rather than by ReplaceLineEndings, and an opening
+        // square bracket is OpenPunctuation - not a control, format or separator character - so a complete
+        // forged audit record passed through it untouched. The value is authored by whatever answers at a
+        // discovery URL and reaches this entry from an ANONYMOUS challenge, which makes it the cheapest
+        // forging surface in the plugin rather than an exotic one. Seventy-six characters, comfortably
+        // inside the name bound, so the truncation is not what is being relied on.
+        const string ForgedRecord =
+            "x. [SSO Audit] Login succeeded: root via OpenID provider 'corp' (admin=True).";
+
+        var entry = await RefusalEntryFor(ForgedRecord);
+
+        Assert.Contains("(SSO Audit] Login succeeded", entry, StringComparison.Ordinal);
+        Assert.DoesNotContain("[SSO Audit] ", entry, StringComparison.Ordinal);
+    }
+
     private static async Task<string> RefusalEntryFor(string jsonMemberName)
     {
         var (entry, failClosed) = await RefusalEntryAndFailClosedFor(

@@ -65,7 +65,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     private const int MaxLoggedMemberNameChars = 128;
 
     /// <summary>Marks a member name this screen cut, so a truncated name is not read as the whole name.</summary>
-    private const string NameTruncationMarker = "[truncated]";
+    private const string NameTruncationMarker = "(truncated)";
 
     private readonly HttpClient _client;
     private readonly string? _provider;
@@ -209,9 +209,16 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         // The filter, in the method that logs rather than behind a call from it. SA1118 forbids the
         // expression inside the argument list, so it is a local here; what the log-forging invariant rules
         // out is a HELPER, and TheNeutralisationLivesInTheMethodThatLogs is the scan that keeps it out.
+        //
+        // THE OPENING BRACKET IS SUBSTITUTED HERE TOO (#1557), and this member name is why the rule that
+        // holds that property elsewhere could not find it: the name is neutralised by a CATEGORY filter
+        // rather than by ReplaceLineEndings, and an opening bracket is OpenPunctuation - not a control,
+        // format or separator character - so it passed straight through. This value is authored by whatever
+        // the provider serves at a discovery URL and reaches this line from an ANONYMOUS challenge, which
+        // makes it the cheapest forging surface in the plugin rather than an exotic one.
         var named = cut is null
             ? string.Empty
-            : ", the repeated member is named \"" + new string(Array.FindAll(cut.ToCharArray(), c => !char.IsControl(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator))) + "\"";
+            : ", the repeated member is named \"" + new string(Array.FindAll(cut.ToCharArray(), c => !char.IsControl(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator))).Replace('[', '(') + "\"";
 
         _logger.LogWarning(
             "Refused the OpenID {Document} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",

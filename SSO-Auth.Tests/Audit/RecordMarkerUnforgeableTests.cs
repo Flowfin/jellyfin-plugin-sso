@@ -61,7 +61,7 @@ public class RecordMarkerUnforgeableTests
 
         await harness.Controller.OidCallback("kc", "state-1").ConfigureAwait(true);
 
-        AssertNoRecordWasPlanted(harness.ControllerLog, "x. ");
+        AssertNoRecordWasPlanted(harness.ControllerLog, "the authorization-response processing failed");
     }
 
     [Fact]
@@ -142,7 +142,10 @@ public class RecordMarkerUnforgeableTests
     private static void AssertNoRecordWasPlanted(CapturingLogger log, string lineFragment)
     {
         Assert.Contains(log.Entries, e => e.Message.Contains(lineFragment, StringComparison.Ordinal));
-        Assert.DoesNotContain(log.Entries, e => e.Message.Contains(Marker, StringComparison.Ordinal));
+        // Scoped to the RECORD rather than to the marker, so a legitimate audit entry added to one of these
+        // flows later - auditing a denied SAML role check is an obvious next hardening - does not redden
+        // four rows with a message about forging.
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains(Marker + "Login succeeded", StringComparison.Ordinal));
         Assert.Contains(log.Entries, e => e.Message.Contains("(SSO Audit] Login succeeded", StringComparison.Ordinal));
     }
 

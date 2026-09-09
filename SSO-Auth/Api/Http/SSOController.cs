@@ -516,7 +516,7 @@ public class SSOController : ControllerBase
                 // is logged.
                 if (_logger.IsEnabled(LogLevel.Error))
                 {
-                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
+                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
             }
         }
@@ -743,15 +743,19 @@ public class SSOController : ControllerBase
     // The refusal every elevated write door gives for a declaratively managed provider (#1415), defined once
     // so five doors and their tests cannot drift into five wordings. It names the source, because a refusal
     // that does not say where the change belongs leaves an administrator with nowhere to make it.
+    // The record-marker substitution runs on the NAMES and never on the composed sentence (#1557). The
+    // source is a path this server was pointed at and is printed exactly, for the reason both sanitizer
+    // rules give: a path with a substituted bracket is a path that does not exist, in the one line telling
+    // an operator which document to edit. Substituting the whole sentence would have rewritten it anyway.
     private static string ManagedProviderRefusal(string protocol, string provider, string source) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"The {protocol} provider '{provider}' is managed by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
+            $"The {protocol.Replace('[', '(')} provider '{provider.Replace('[', '(')}' is managed by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
 
     private static string ManagedProfileRefusal(string profile, string source) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"The provisioning profile '{profile}' is defined by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
+            $"The provisioning profile '{profile.Replace('[', '(')}' is defined by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
 
     /// <summary>
     /// Refuses an elevated single-provider write against a provider a declarative source decided (#1415), and
@@ -1252,7 +1256,7 @@ public class SSOController : ControllerBase
         {
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
+                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
         }
 
@@ -1729,7 +1733,7 @@ public class SSOController : ControllerBase
             var (firstProtocol, firstProvider, firstSource) = managed[0];
             return BadRequest(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty).Replace('[', '('));
+                $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
         }
 
         // #1102: the same refusal for a profile the document REDEFINES. A managed provider is what an
@@ -1748,7 +1752,7 @@ public class SSOController : ControllerBase
             var (firstProfile, firstProfileSource) = managedProfiles[0];
             return BadRequest(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{ManagedProfileRefusal(firstProfile, firstProfileSource)} The import redefines {managedProfiles.Count} declaratively defined provisioning profile(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty).Replace('[', '('));
+                $"{ManagedProfileRefusal(firstProfile, firstProfileSource)} The import redefines {managedProfiles.Count} declaratively defined provisioning profile(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
         }
 
         try
@@ -1764,7 +1768,7 @@ public class SSOController : ControllerBase
             // The validator and the import throw ArgumentException for a hostile/malformed document (a bad
             // Base URL override, an unloadable certificate/key, a reserved-character provider name, an
             // unsupported version). Strip line endings from the echoed message so it cannot split a log line.
-            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
         }
 
         // Audit the import and any provider that arrived with a security check disabled (#140), so importing
@@ -1910,10 +1914,10 @@ public class SSOController : ControllerBase
             // importer builds its refusals under.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty));
             }
 
-            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
         }
 
         var result = LinkImportResultDocument.Of(restored);

@@ -99,7 +99,7 @@ public class OidcConfiguredIssuerTests
 
         Assert.NotNull(reason);
         Assert.DoesNotContain(overlong, reason, StringComparison.Ordinal);
-        Assert.Contains("[truncated]", reason, StringComparison.Ordinal);
+        Assert.Contains("(truncated)", reason, StringComparison.Ordinal);
         Assert.True(reason.Length < 600, "the refusal stays readable: " + reason.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 }

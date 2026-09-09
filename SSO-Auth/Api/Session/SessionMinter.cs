@@ -139,7 +139,12 @@ internal sealed class SessionMinter
             user.AuthenticationProviderId = parameters.DefaultProvider;
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider);
+                // Sanitized like every other value the plugin logs (#1557), even though this one is the
+                // administrator's rather than an identity provider's: it arrives from the provider
+                // configuration, which a config import or a mounted declarative document can write, and it
+                // is printed on EVERY SSO login of an enforced account. A value nobody thought of as
+                // foreign, on the most repeated line in the file, is the shape this issue is about.
+                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
         }
 
