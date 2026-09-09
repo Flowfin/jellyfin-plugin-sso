@@ -3,6 +3,7 @@
 
 using System;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.Client;
 using Duende.IdentityModel.OidcClient;
@@ -78,6 +79,11 @@ internal static class OidcDiscoveryReader
     /// transient failure, a policy rejection (e.g. non-HTTPS under <c>RequireHttps</c>), a malformed document,
     /// or a document refused by <see cref="RepeatedMemberScreen"/> for naming a member twice all return
     /// <c>Unavailable</c> so the caller fails the login closed rather than proceeding on unverified facts.
+    /// The one exception is the caller's own <paramref name="cancellationToken"/> (#1558): a read the caller
+    /// abandoned is neither a provider failure nor a login decision, so it propagates as
+    /// <see cref="OperationCanceledException"/> instead of being logged as a fail-closed read and counted
+    /// against the provider. <see cref="FetchTimeout"/> still ends a read the caller is waiting on, and that
+    /// path is unchanged: it arrives with the token NOT cancelled and returns <c>Unavailable</c>.
     /// </summary>
     /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses - the same the login is built with.</param>
     /// <param name="provider">The provider name, for the failure warning only.</param>
@@ -87,11 +93,22 @@ internal static class OidcDiscoveryReader
     /// The provider's <c>AllowPrivateNetworkAddresses</c> opt-in, selecting the private-permitted outbound
     /// transport for this one read (#1179). Defaults to <see langword="false"/> - the full guard.
     /// </param>
+    /// <param name="cancellationToken">
+    /// The caller's lifetime, passed to every request this read makes - the well-known document and the JWKS
+    /// it points at (#1558). A request that has gone away no longer holds the outbound connection until
+    /// <see cref="FetchTimeout"/> runs out on each of them.
+    /// </param>
     /// <returns>The facts and provider metadata from the one discovery response, or <see cref="OidcDiscoveryResult.Unavailable"/>.</returns>
-    internal static async Task<OidcDiscoveryResult> ReadAsync(OidcClientOptions options, string provider, IHttpClientFactory httpClientFactory, ILogger logger, bool allowPrivateNetworkAddresses = false)
+    internal static async Task<OidcDiscoveryResult> ReadAsync(OidcClientOptions options, string provider, IHttpClientFactory httpClientFactory, ILogger logger, bool allowPrivateNetworkAddresses = false, CancellationToken cancellationToken = default)
     {
         try
         {
+            // A caller that has already gone away opens no outbound connection at all (#1558). The transport
+            // would notice the token on its own at the first socket operation; checking here first keeps a
+            // dead request from spending a connection, and it is the one place a test can observe the wiring
+            // without a transport that honours cancellation.
+            cancellationToken.ThrowIfCancellationRequested();
+
             using var client = SsoHttp.CreateClient(httpClientFactory, allowPrivateNetworkAddresses);
             client.Timeout = FetchTimeout;
 
@@ -104,11 +121,13 @@ internal static class OidcDiscoveryReader
             using var screen = new RepeatedMemberScreen(client, provider, logger);
             using var invoker = new HttpMessageInvoker(screen, disposeHandler: false);
 
-            var discovery = await invoker.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
-            {
-                Address = options.Authority,
-                Policy = options.Policy.Discovery,
-            }).ConfigureAwait(false);
+            var discovery = await invoker.GetDiscoveryDocumentAsync(
+                new DiscoveryDocumentRequest
+                {
+                    Address = options.Authority,
+                    Policy = options.Policy.Discovery,
+                },
+                cancellationToken).ConfigureAwait(false);
 
             if (discovery.IsError)
             {
@@ -169,6 +188,15 @@ internal static class OidcDiscoveryReader
             };
 
             return OidcDiscoveryResult.From(facts, providerInformation);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller went away (#1558). Not a fail-closed read and not a provider fetch failure: logging
+            // it as one would tell an operator the provider is unhealthy for a browser that closed its tab,
+            // and counting it would move the fetch-error gauge for the same non-event. The filter keeps the
+            // timeout on its old path: HttpClient ends a slow read with the same exception type, but with
+            // THIS token still live, so it falls through to the arm below exactly as before.
+            throw;
         }
         catch (Exception e)
         {

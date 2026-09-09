@@ -5,6 +5,7 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
@@ -50,6 +51,31 @@ public sealed class SSOControllerOidBackChannelLogoutTests : IDisposable
             c.OidConfigs["kc"] = Provider(backChannel: true);
             c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
         });
+
+        var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
+
+        Assert.IsType<OkResult>(result);
+        await harness.SessionManager.Received(1).RevokeUserTokens(UserA, null);
+        Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("a")));
+    }
+
+    [Fact]
+    public async Task ProviderThatWentAway_StillGetsItsOrderedTerminationPerformed()
+    {
+        // #1558's review refused wiring the POST's request lifetime into this read, and this row is what keeps
+        // it refused. The party whose outcome depends on the read is the user the provider ordered signed
+        // out, not the provider: a provider whose outbound socket timeout is shorter than the discovery read
+        // aborts the POST, and a read ended by that abort would turn the ordered termination into a silent
+        // no-op - the #1183 shape, produced by any attacker who can slow the server-to-provider path. So an
+        // aborted POST changes nothing: discovery is read to its own budget, the token validates, and the
+        // session is revoked. Kills: passing HttpContext.RequestAborted into ValidateBackChannelLogoutAsync.
+        var harness = Harness(c =>
+        {
+            c.EnableSingleLogout = true;
+            c.OidConfigs["kc"] = Provider(backChannel: true);
+            c.LogoutSessions["a"] = Session("sub-1", "sess-9", UserA);
+        });
+        harness.Controller.HttpContext.RequestAborted = new CancellationToken(canceled: true);
 
         var result = await harness.Controller.OidBackChannelLogout("kc", _fixture.LogoutToken("sub-1", "sess-9"));
 

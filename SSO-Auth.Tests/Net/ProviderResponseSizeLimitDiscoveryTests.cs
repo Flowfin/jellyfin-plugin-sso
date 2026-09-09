@@ -43,7 +43,7 @@ public sealed class ProviderResponseSizeLimitDiscoveryTests
             Content = new OversizeJson((int)ProviderResponseSizeLimit.MaxProviderResponseBytes + 4096),
         });
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(OidcDiscoveryResult.Unavailable, result);
 
@@ -82,7 +82,7 @@ public sealed class ProviderResponseSizeLimitDiscoveryTests
                 ? Json("{\"keys\":[]}")
                 : Json(FullDiscovery));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEqual(OidcDiscoveryResult.Unavailable, result);
         Assert.Empty(logger.Entries);

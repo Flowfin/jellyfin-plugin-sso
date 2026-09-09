@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
@@ -15,6 +16,7 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -90,6 +92,25 @@ public class SSOControllerTestConnectionTests
         Assert.True(result.Ok);
         Assert.Contains(result.Details, d => d.StartsWith("Issuer:", StringComparison.Ordinal) && d.Contains(Authority, StringComparison.Ordinal));
         Assert.Contains(result.Details, d => d.StartsWith("JWKS: reachable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OidTest_AdminThatWentAway_AnswersQuietlyWithoutAProviderVerdict()
+    {
+        // #1558: the probe passes the admin request's lifetime down to the discovery read. A request already
+        // gone answers a fixed 400 - no verdict about the provider, since none was reached, and nothing at
+        // Warning or above: not the reader's fail-closed warning, and not an exception into the host, whose
+        // middleware would log it at Error and answer 500. Kills: dropping the token from the probe's read,
+        // or letting the cancellation escape the endpoint.
+        var harness = new SsoControllerHarness(
+            c => c.OidConfigs["kc"] = new OidConfig { Enabled = true, OidEndpoint = Authority, OidClientId = "jf", OidSecret = OidSecretSentinel },
+            httpResponder: Responder);
+        harness.Controller.HttpContext.RequestAborted = new CancellationToken(canceled: true);
+
+        var result = await harness.Controller.OidTest("kc");
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Level >= LogLevel.Warning);
     }
 
     [Fact]

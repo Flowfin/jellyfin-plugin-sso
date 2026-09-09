@@ -65,7 +65,7 @@ public class OidcDiscoveryReaderTests
     {
         var http = new CountingFactory(Serve(FullDiscovery(Authority)));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
         // Facts read from the SAME discovery response the metadata is built from (#450).
@@ -93,7 +93,7 @@ public class OidcDiscoveryReaderTests
             + "\"authorization_response_iss_parameter_supported\":true}";
         var http = new CountingFactory(Serve(discovery));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
         Assert.False(result.Facts.PkceS256);
@@ -114,7 +114,7 @@ public class OidcDiscoveryReaderTests
             + "\"code_challenge_methods_supported\":[\"S256\"]}";
         var http = new CountingFactory(Serve(discovery));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
         Assert.True(result.Facts.PkceS256);
@@ -128,7 +128,7 @@ public class OidcDiscoveryReaderTests
         // than proceeding on unverified facts (#450). Never a tolerant default that silently weakens iss.
         var http = new CountingFactory(_ => throw new HttpRequestException("unreachable"));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Null(result.ProviderInformation);
@@ -153,7 +153,7 @@ public class OidcDiscoveryReaderTests
         const string httpAuthority = "http://idp-plaintext.example.com";
         var http = new CountingFactory(Serve(FullDiscovery(httpAuthority)));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(httpAuthority, requireHttps: true), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(httpAuthority, requireHttps: true), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Equal(0, http.DiscoveryRequests); // policy rejected the address before any fetch
@@ -168,7 +168,7 @@ public class OidcDiscoveryReaderTests
         var duplicated = FullDiscovery(Authority).Insert(1, $"\"issuer\":\"https://attacker.example\",");
         var http = new CountingFactory(Serve(duplicated));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
     }
@@ -181,7 +181,7 @@ public class OidcDiscoveryReaderTests
         // screen's body read leaves the response readable for the library that parses it afterwards.
         var http = new CountingFactory(Serve(FullDiscovery(Authority)));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
         Assert.Equal(Authority, result.ProviderInformation.IssuerName);
@@ -204,7 +204,7 @@ public class OidcDiscoveryReaderTests
         var duplicated = FullDiscovery(Authority).TrimEnd('}') + $",\"jwks_uri\":\"{attackerJwks}\"}}";
         var http = new CountingFactory(Serve(duplicated));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Equal(1, http.DiscoveryRequests);
@@ -223,7 +223,7 @@ public class OidcDiscoveryReaderTests
         // reader that materialises it.
         var http = new CountingFactory(Serve(FullDiscovery(Authority), "{\"keys\":[{\"kty\":\"RSA\",\"kty\":\"oct\"}]}"));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Equal(1, http.JwksRequests);
@@ -241,7 +241,7 @@ public class OidcDiscoveryReaderTests
             + "{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"b2\",\"n\":\"yHPs\",\"e\":\"AQAB\"}]}";
         var http = new CountingFactory(Serve(FullDiscovery(Authority), twoKeys));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
         Assert.NotNull(result.ProviderInformation.KeySet);
@@ -261,7 +261,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(Serve("{\"a\\ud800\":1}"));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
@@ -278,7 +278,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(Serve(body));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
@@ -306,7 +306,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(_ => JsonWithCharset(FullDiscovery(Authority), MarkerCharset));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         AssertScreenRefused(logger, http, RepeatedMemberScreen.UninspectableReason);
@@ -340,7 +340,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.DoesNotContain(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
@@ -357,7 +357,7 @@ public class OidcDiscoveryReaderTests
         // that had established nothing about it.
         var http = new CountingFactory(ServeWithEncoding(FullDiscovery(Authority), Encoding.Unicode));
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Available);
     }
@@ -375,7 +375,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(ServeWithEncoding(duplicated, Encoding.Unicode));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         AssertScreenRefused(logger, http, RepeatedMemberScreen.RefusalReason);
@@ -395,7 +395,7 @@ public class OidcDiscoveryReaderTests
         });
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.DoesNotContain(logger.Entries, e => e.Message.Contains(RepeatedMemberScreen.UninspectableReason, StringComparison.Ordinal));
@@ -424,7 +424,7 @@ public class OidcDiscoveryReaderTests
             Content = new StringContent(hostile, Encoding.UTF8, "application/json"),
         });
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger());
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         Assert.Null(result.ProviderInformation);
@@ -477,7 +477,7 @@ public class OidcDiscoveryReaderTests
         var http = new CountingFactory(Serve(duplicated));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
         var entry = Assert.Single(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));

@@ -55,7 +55,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf", OidSecret = OidSecretSentinel };
         var factory = FactoryFor(Serve(FullDiscovery(Authority)));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok);
         Assert.Contains(result.Details, d => d.Contains(Authority, StringComparison.Ordinal) && d.StartsWith("Issuer:", StringComparison.Ordinal));
@@ -72,7 +72,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = "https://idp-unreachable.example.com", OidClientId = "jf" };
         var factory = FactoryFor(_ => throw new HttpRequestException("unreachable"));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.Contains("discovery document", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -93,7 +93,7 @@ public class ProviderConnectionTesterTests
         var repeated = FullDiscovery(Authority).Insert(1, "\"issuer\":\"https://attacker.example\",");
         var logger = new CapturingLogger();
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(repeated)), logger);
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(repeated)), logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.Contains(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
@@ -123,7 +123,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
         var factory = FactoryFor(_ => JsonWithCharset(FullDiscovery(Authority), "zzMarkerCharsetzz"));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.Contains(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
@@ -145,7 +145,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = "https://idp-unreachable.example.com", OidClientId = "jf" };
         var factory = FactoryFor(_ => throw new HttpRequestException("unreachable"));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.Contains("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
@@ -161,7 +161,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = endpoint, OidClientId = "jf" };
         var factory = FactoryFor(Serve(FullDiscovery(Authority)));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
     }
@@ -180,7 +180,7 @@ public class ProviderConnectionTesterTests
             return Json(FullDiscovery(Authority));
         });
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.False(contacted); // no endpoint -> no outbound fetch
@@ -200,7 +200,7 @@ public class ProviderConnectionTesterTests
             return Json(FullDiscovery(httpAuthority));
         });
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
         Assert.False(fetched);
@@ -212,7 +212,7 @@ public class ProviderConnectionTesterTests
         var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf", OidSecret = OidSecretSentinel };
         var factory = FactoryFor(Serve(FullDiscovery(Authority)));
 
-        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger());
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         AssertNoSecret(result, OidSecretSentinel);
     }
@@ -239,13 +239,13 @@ public class ProviderConnectionTesterTests
         var strict = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
         var optedIn = new OidConfig { OidEndpoint = Authority, OidClientId = "jf", AllowPrivateNetworkAddresses = true };
 
-        await ProviderConnectionTester.TestOidcAsync(strict, "public-idp", factory, Logger());
+        await ProviderConnectionTester.TestOidcAsync(strict, "public-idp", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(requested);
         Assert.All(requested, name => Assert.Equal(SsoHttp.OutboundClientName, name));
 
         requested.Clear();
-        await ProviderConnectionTester.TestOidcAsync(optedIn, "lan-idp", factory, Logger());
+        await ProviderConnectionTester.TestOidcAsync(optedIn, "lan-idp", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(requested);
         Assert.All(requested, name => Assert.Equal(SsoHttp.PrivateOutboundClientName, name));
