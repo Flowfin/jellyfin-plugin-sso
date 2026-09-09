@@ -97,6 +97,21 @@
             hidden
           ></div>
 
+          <!--
+            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
+            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
+            carries no configuration value. It is above the columns rather than beside the save, because
+            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
+            at the moment of arrival rather than after scrolling past every field.
+          -->
+          <div
+            id="sso-unsaved"
+            class="fieldDescription sso-unsaved"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+
           <div class="sso-columns">
             <div class="sso-column-main">
               <!--
@@ -161,10 +176,10 @@
               <!--
             Login-page buttons (#722): GLOBAL setting. ManageLoginPageButtons lives on the root
             PluginConfiguration, not on a provider, so it deliberately sits OUTSIDE both provider forms
-            and carries NO sso-* marker class: it is saved by its own handler (sso-core.js
-            saveLoginButtons), which re-posts the whole configuration with only this flag changed, and
-            loaded by loadConfiguration. The per-provider button settings (HideLoginButton,
-            LoginButtonText) are ordinary persisting provider-form fields in each editor below.
+            and carries NO sso-* marker class: it is saved by this page's own Save (sso-core.js
+            saveServerSettings), which re-posts the whole configuration with only this page's two flags
+            changed, and loaded by loadConfiguration. The per-provider button settings (HideLoginButton,
+            LoginButtonText) are ordinary persisting provider-form fields in each provider's editor.
           -->
               <form id="sso-login-buttons" class="esqConfigurationForm">
                 <div
@@ -198,15 +213,6 @@
                         custom label.
                       </div>
                     </div>
-
-                    <button
-                      id="SaveLoginButtons"
-                      is="emby-button"
-                      type="button"
-                      class="raised button-submit block emby-button"
-                    >
-                      <span>Save</span>
-                    </button>
                   </div>
                 </div>
               </form>
@@ -214,10 +220,9 @@
               <!--
             Single Logout (#727): GLOBAL setting. EnableSingleLogout lives on the root PluginConfiguration,
             not on a provider, so, like ManageLoginPageButtons above, it sits OUTSIDE both provider forms and
-            carries NO sso-* marker class: it is saved by its own handler (sso-core.js saveSingleLogout), which
-            re-posts the whole configuration with only this flag changed, and loaded by loadConfiguration. The
-            per-provider return URL (PostLogoutRedirectUri) is an ordinary persisting provider-form field in
-            each editor below.
+            carries NO sso-* marker class: it is saved by this page's Save together with that flag (sso-core.js
+            saveServerSettings) and loaded by loadConfiguration. The per-provider return URL
+            (PostLogoutRedirectUri) is an ordinary persisting provider-form field in each provider's editor.
           -->
               <form id="sso-single-logout" class="esqConfigurationForm">
                 <div
@@ -252,18 +257,40 @@
                         optional post-logout redirect URL in its editor below.
                       </div>
                     </div>
-
-                    <button
-                      id="SaveSingleLogout"
-                      is="emby-button"
-                      type="button"
-                      class="raised button-submit block emby-button"
-                    >
-                      <span>Save</span>
-                    </button>
                   </div>
                 </div>
               </form>
+
+              <!--
+            ONE SAVE FOR THIS PAGE (#1572). The two switches above each had their own button and their own
+            handler, and each handler re-read the whole configuration, set its own flag and posted the
+            result. This button replaces both with sso-core.js saveServerSettings, which reads that
+            document ONCE, sets both flags on it and posts it ONCE - so there is no moment at which one
+            flag is stored and the other is not, and a refusal leaves both exactly as they were stored.
+            That is why merging the buttons was #1527's deferral and not its layout work.
+
+            It sits outside both forms, because it belongs to neither: a button inside one of them would
+            read as that section's save. The outcome is rendered into the region below it rather than
+            raised as an alert - a modal that has to be dismissed says nothing a reader can come back to.
+          -->
+              <div class="verticalSection sso-page-save">
+                <button
+                  id="SaveServerSettings"
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit block emby-button"
+                >
+                  <span data-i18n="config.save_server"
+                    >Save server settings</span
+                  >
+                </button>
+                <div
+                  id="sso-page-status"
+                  class="sso-save-status"
+                  role="status"
+                  aria-live="polite"
+                ></div>
+              </div>
             </div>
             <aside class="sso-column-rail"></aside>
           </div>

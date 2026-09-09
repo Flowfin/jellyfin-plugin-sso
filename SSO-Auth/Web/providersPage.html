@@ -97,6 +97,33 @@
             hidden
           ></div>
 
+          <!--
+            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
+            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
+            carries no configuration value. It is above the columns rather than beside the save, because
+            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
+            at the moment of arrival rather than after scrolling past every field.
+          -->
+          <div
+            id="sso-unsaved"
+            class="fieldDescription sso-unsaved"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+
+          <!--
+            The page-level outcome region (#1572). What a delete, or a save whose own section is no longer
+            on screen, has to say: the editor's status region lives INSIDE the editor, and a delete closes
+            that editor, so an outcome written there would be invisible. Written with textContent (#221).
+          -->
+          <div
+            id="sso-page-status"
+            class="sso-save-status"
+            role="status"
+            aria-live="polite"
+          ></div>
+
           <div class="sso-columns">
             <div class="sso-column-main">
               <!--
@@ -325,12 +352,6 @@
                       New provider
                     </h3>
                     <div class="sso-editor-header-actions">
-                      <div
-                        id="sso-save-status"
-                        class="sso-save-status"
-                        role="status"
-                        aria-live="polite"
-                      ></div>
                       <button
                         id="DeleteProvider"
                         is="emby-button"
@@ -2381,6 +2402,21 @@
                     <div class="fieldDescription sso-restart-reminder">
                       Saving requires a restart of Jellyfin to take effect.
                     </div>
+                    <!--
+                      The save outcome sits WITH the button (#1572), not in the editor header where it
+                      used to. The footer is sticky, so this is on screen whenever the editor is; the
+                      header is up to fifty-seven controls above, and the footer exists precisely so an
+                      administrator never scrolls back up to it. While a modal also carried the reason
+                      that did not matter. Now this is the only channel, so it has to be where the press
+                      happened. role/aria-live are kept from its old home, so it is announced as well as
+                      seen.
+                    -->
+                    <div
+                      id="sso-save-status"
+                      class="sso-save-status"
+                      role="status"
+                      aria-live="polite"
+                    ></div>
                     <button
                       id="SaveProvider"
                       is="emby-button"
@@ -2534,12 +2570,6 @@
                       New provider
                     </h3>
                     <div class="sso-editor-header-actions">
-                      <div
-                        id="saml-save-status"
-                        class="sso-save-status"
-                        role="status"
-                        aria-live="polite"
-                      ></div>
                       <button
                         id="saml-DeleteProvider"
                         is="emby-button"
@@ -4084,6 +4114,21 @@
                     <div class="fieldDescription sso-restart-reminder">
                       Saving requires a restart of Jellyfin to take effect.
                     </div>
+                    <!--
+                      The save outcome sits WITH the button (#1572), not in the editor header where it
+                      used to. The footer is sticky, so this is on screen whenever the editor is; the
+                      header is up to fifty-seven controls above, and the footer exists precisely so an
+                      administrator never scrolls back up to it. While a modal also carried the reason
+                      that did not matter. Now this is the only channel, so it has to be where the press
+                      happened. role/aria-live are kept from its old home, so it is announced as well as
+                      seen.
+                    -->
+                    <div
+                      id="saml-save-status"
+                      class="sso-save-status"
+                      role="status"
+                      aria-live="polite"
+                    ></div>
                     <button
                       id="saml-SaveProvider"
                       is="emby-button"

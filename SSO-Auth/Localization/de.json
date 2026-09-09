@@ -204,5 +204,12 @@
   "overview.next_none_configured": "Fügen Sie im Reiter Anbieter einen Anbieter hinzu, um Einmalanmeldung anzubieten.",
   "overview.next_nothing": "Jeder eingerichtete Anbieter ist vollständig und eingeschaltet. Ob er auch antwortet, meldet die Verbindungsprüfung im Reiter Anbieter.",
   "overview.sso_only_on": "Nur-SSO ist AN: Die Anmeldung mit einem Jellyfin-Kennwort wird für die von diesem Plugin verwalteten Konten abgelehnt.",
-  "overview.no_providers": "Es ist noch kein Anbieter eingerichtet. Fügen Sie im Reiter Anbieter einen hinzu."
+  "overview.no_providers": "Es ist noch kein Anbieter eingerichtet. Fügen Sie im Reiter Anbieter einen hinzu.",
+  "config.unsaved": "Ungespeicherte Änderungen in diesem Editor. Speichern Sie sie, bevor Sie einen anderen Anbieter öffnen oder diese Seite verlassen, sonst gehen sie verloren.",
+  "config.save_server": "Servereinstellungen speichern",
+  "config.server_settings_saved": "Beide Servereinstellungen gespeichert.",
+  "config.server_settings_save_failed": "Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde KEINER der beiden Schalter geändert – beide gehören zu einem Dokument und werden gemeinsam oder gar nicht geschrieben. Laden Sie die Seite neu, um den gespeicherten Stand zu sehen, und versuchen Sie es erneut.",
+  "config.server_settings_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts gespeichert und keiner der beiden Schalter geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
+  "config.provider_removed": "Anbieter entfernt.",
+  "config.provider_remove_failed": "Der Anbieter konnte nicht entfernt werden: Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut."
 }

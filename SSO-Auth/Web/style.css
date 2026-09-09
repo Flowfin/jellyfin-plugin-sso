@@ -231,6 +231,22 @@
   color: rgba(255, 255, 255, 0.92);
 }
 
+/* Unsaved changes (#1572). A strip rather than a pill: it carries a whole sentence, and its second job
+   is to say why a tab returned to was not refreshed. The left border repeats the state the words already
+   state, so the meaning does not rest on the colour alone (#221). */
+.sso-unsaved {
+  margin: 0.5em 0 1em;
+  padding: 0.6em 0.9em;
+  border-left: 4px solid #f9a825;
+  background: rgba(249, 168, 37, 0.12);
+  border-radius: 0.25em;
+}
+
+/* The page-level Save of the Server tab (#1572): outside both sections, because it commits both. */
+.sso-page-save {
+  margin-top: 1.5em;
+}
+
 /* Required / optional field markers */
 .sso-required-legend {
   margin-top: 0;
