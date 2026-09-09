@@ -198,31 +198,52 @@ internal static class LinkImport
             // no issuer reaches none of this, so a document from before the binding existed still restores
             // with the identity provider down.
             //
-            // WHAT THE COMPARISON IS BETWEEN, AND WHY DoNotValidateIssuerName TAKES AN ENTRY OUT OF IT. The
-            // stored binding is the id_token's `iss`; the fact is the discovery document's `issuer`. With
-            // ValidateIssuerName on - the default - the login has already required those two to be equal
-            // before a binding could ever be stamped, so comparing against the discovery issuer asks exactly
-            // "has this provider's issuer changed since the backup". The escape hatch turns that requirement
-            // off, and it exists for providers whose two values legitimately differ FOREVER: a templated,
-            // multi-tenant discovery issuer against a concrete per-tenant id_token issuer. OidcResponseIssuer
-            // accepts both anchors for the same reason and says so. On such a provider there is no comparand
-            // here at all, and refusing would turn a supported deployment's whole restore into a refusal
-            // whose printed remedy is impossible. Those entries therefore restore as they did before this
-            // guard existed, which is a DISCLOSED GAP rather than a check that quietly passed: the operator
-            // who set that flag has already declared this provider's issuer unverifiable against its
-            // discovery document, and docs/SERVER-MIGRATION.md says the same in the operator's own words.
-            if (config is OidConfig target && !target.DoNotValidateIssuerName && !string.IsNullOrWhiteSpace(entry.Issuer))
+            // WHAT THE COMPARISON IS BETWEEN, AND WHEN THERE IS NOTHING TO COMPARE. The stored binding is
+            // the id_token's `iss`; the fact is the discovery document's `issuer`. With ValidateIssuerName
+            // on - the default - the login has already required those two to be equal before a binding could
+            // ever be stamped, so comparing against the discovery issuer asks exactly "has this provider's
+            // issuer changed since the backup".
+            //
+            // DoNotValidateIssuerName ALONE IS NOT THE EXEMPTION, and reading it as one was the first
+            // version of this guard. That flag means "the issuer differs from the AUTHORITY", which is a
+            // different statement from "the issuer is not a value anything can be compared against". It is
+            // set by Azure AD B2C deployments and by a Keycloak behind a reverse proxy, and on both of those
+            // the discovery document declares a concrete literal equal to what the tokens carry - a
+            // comparand, and a check that works. Exempting on the flag skipped it for them.
+            //
+            // WHAT IS EXEMPT IS A DECLARED ISSUER THAT IS NOT A LITERAL. A templated, multi-tenant provider -
+            // Entra ID on /common declaring "https://login.microsoftonline.com/{tenantid}/v2.0" while every
+            // id_token carries the concrete tenant - has no comparand here at all, and refusing would turn a
+            // supported deployment's whole restore into a refusal whose printed remedy is impossible: no
+            // address makes such a provider emit the concrete issuer. OidcResponseIssuer accepts both
+            // anchors on the login path for the same reason and says so.
+            //
+            // THE TEST FOR "NOT A LITERAL" IS A PLACEHOLDER BRACE, and it is a heuristic rather than a proof.
+            // It is stated as one: it recognises the shape every templated provider in this tree's experience
+            // uses, and a provider that templated its issuer some other way would be compared and could be
+            // refused. That direction is the recoverable one - the refusal names both values and
+            // docs/SERVER-MIGRATION.md gives the escape - where the other direction is a lockout nobody sees
+            // until the users do. The exemption is also DISCLOSED rather than silent: the caller audits which
+            // providers had their issuers restored without a comparison.
+            if (config is OidConfig target && !string.IsNullOrWhiteSpace(entry.Issuer))
             {
                 var fact = configuredIssuers.TryGetValue(entry.Provider!, out var known) ? known : default;
                 if (!string.IsNullOrWhiteSpace(fact.Unreadable))
                 {
-                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', and what this provider issues could not be read to compare it against: {fact.Unreadable}"));
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{Bound(entry.Issuer)}', and what this provider issues could not be read to compare it against: {fact.Unreadable}"));
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(fact.Issuer))
                 {
-                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', and nothing was read for this provider to compare it against"));
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{Bound(entry.Issuer)}', and nothing was read for this provider to compare it against"));
+                    continue;
+                }
+
+                if (target.DoNotValidateIssuerName && IsTemplatedIssuer(fact.Issuer!))
+                {
+                    claimed[key] = userId;
+                    resolved.Add(new ResolvedLink(protocol, entry.Provider!, config, entry.CanonicalName!, userId, entry.Issuer));
                     continue;
                 }
 
@@ -239,7 +260,7 @@ internal static class LinkImport
 
                 if (!string.Equals(fact.Issuer, entry.Issuer, StringComparison.Ordinal))
                 {
-                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{entry.Issuer}', but this provider is configured to issue '{Bound(fact.Issuer)}'; re-point the provider, or re-key the links deliberately, before importing"));
+                    refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"the file binds that link to issuer '{Bound(entry.Issuer)}', but this provider is configured to issue '{Bound(fact.Issuer)}'; re-point the provider, or re-key the links deliberately, before importing"));
                     continue;
                 }
             }
@@ -286,10 +307,22 @@ internal static class LinkImport
             .ToList();
     }
 
-    // The issuer read off a discovery document is NOT the plugin's string. Under DoNotValidateIssuerName it
-    // need not equal the authority, and the response body it came from is bounded in megabytes rather than
-    // characters, so a provider could otherwise put as much text into a refusal as it liked. The same reason
-    // OidcDiscoveryReader bounds the library error it logs, and the same shape of bound.
+    /// <summary>
+    /// Whether a declared issuer is a TEMPLATE rather than a value: a placeholder brace is the shape a
+    /// multi-tenant provider publishes when the concrete issuer is only known once a token is minted. There
+    /// is nothing here to compare such a document against, which is what takes those entries out of the
+    /// comparison, and the audit line the caller writes reads this rule from here rather than restating it.
+    /// A heuristic, stated as one where the rule is, and it fails in the recoverable direction.
+    /// </summary>
+    /// <param name="issuer">The issuer a discovery document declares.</param>
+    /// <returns><see langword="true"/> when nothing can be compared against it.</returns>
+    internal static bool IsTemplatedIssuer(string issuer) => issuer.Contains('{', StringComparison.Ordinal);
+
+    // Neither issuer in a refusal is the plugin's string. The declared one comes off a response bounded in
+    // megabytes rather than characters; the file's comes off a document an administrator was handed and this
+    // class's own remarks model as possibly crafted. Either could otherwise put as much text into a refusal
+    // as it liked, ten times over. The same reason OidcDiscoveryReader bounds the library error it logs, and
+    // the same shape of bound.
     private static string Bound(string? issuer) =>
         issuer is { Length: > MaxReportedIssuerChars }
             ? string.Concat(issuer.AsSpan(0, MaxReportedIssuerChars), "...")

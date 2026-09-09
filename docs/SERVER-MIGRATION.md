@@ -209,29 +209,50 @@ these are the ones a migration runs into.
   page to say why. Decide in the open: point the provider back at the address
   the file names, or re-key the links deliberately by importing a file with the
   issuers removed and letting the first login take the binding.
-- **A provider set to `DoNotValidateIssuerName`.** These entries are **not**
-  checked, and that is deliberate rather than an oversight. The value stored
-  with a link is the `iss` the identity provider puts in its id_token; the value
-  read here is the `issuer` its discovery document declares. With issuer
-  validation on - the default - a login has already required those two to be
-  equal, so comparing them asks a real question. That flag exists for providers
-  where the two differ permanently - a templated, multi-tenant discovery issuer
-  against a concrete per-tenant token issuer - and comparing there would refuse
-  a correct backup with a remedy nobody can follow. On such a provider the
-  import restores the issuers the file names, unchecked, exactly as it did
-  before this refusal existed.
+- **A provider whose discovery document declares a TEMPLATED issuer.** These
+  entries are **not** checked, and that is deliberate rather than an oversight.
+  The value stored with a link is the `iss` the identity provider puts in its
+  id_token; the value read here is the `issuer` its discovery document declares.
+  With issuer validation on - the default - a login has already required those
+  two to be equal, so comparing them asks a real question. A multi-tenant
+  provider publishes a template instead of a value - Entra ID on `/common`
+  declares `https://login.microsoftonline.com/{tenantid}/v2.0` while every token
+  carries the concrete tenant - and there is nothing there to compare against,
+  so those entries restore on the file's word. Setting `DoNotValidateIssuerName`
+  is **not** on its own enough to be exempt: an Azure AD B2C tenant and a
+  Keycloak behind a reverse proxy both need that flag and both declare a
+  concrete issuer, so their entries are compared like any other.
+  **The lockout this refusal exists to prevent is still live for an exempted
+  provider.** Nothing checked those issuers, so a stale one refuses that link at
+  every later login exactly as before - the escape two bullets down applies to
+  this case too. The import writes an `[SSO Audit]` line naming every provider
+  whose bindings it restored without comparing them, so a restore that skipped
+  the check is not indistinguishable from one that passed it.
 - **An issuer that could not be checked.** The import reads what each OpenID
   provider issues before it writes anything, so an identity provider that is
   unreachable at that moment refuses the entries that carry an issuer:
   `the file binds that link to issuer '<file>', and what this provider issues could not be read to compare it against: <cause>`.
   Retry when the provider answers. Entries carrying **no** issuer need no such
   read, so a document exported before this plugin bound links to issuers, and
-  every SAML entry, restores with the identity provider down. If the provider is
+  every SAML entry, restores with the identity provider down. **The read needs
+  the key set too**: the library fetches the `jwks_uri` the discovery document
+  advertises as part of the same read and fails the whole read when that leg
+  fails, so a provider whose metadata is served fine but whose key host is
+  having a bad minute refuses the restore under this bullet. That is the login's
+  own posture rather than a rule this endpoint invented, and relaxing it here
+  was tried and taken back out: the setting only accepts a document advertising
+  no key set at all, which would make the import accept metadata a login would
+  refuse and buy nothing. If the provider is
   gone for good rather than briefly unreachable - decommissioned, or behind a
   firewall this host cannot cross - retrying will not help: remove the `Issuer`
   field from those entries and let the first login take the binding, the same
   escape as the bullet above. It is a deliberate downgrade to trust-on-first-use
   for those links, and it is the only route this plugin offers today.
+  **It works only where this instance holds no binding for those names yet** -
+  a rebuilt migration target, which is the case this page is about. On a server
+  that already holds the stale bindings, an issuer-less entry overwrites
+  nothing and the import changes nothing: there the route is a per-link unlink
+  followed by a re-import.
 
 An import that succeeds ANSWERS with the total and the per-provider counts, and
 audits the same numbers with no canonical name in the line

@@ -34,11 +34,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// </summary>
 internal static class ProviderConnectionTester
 {
-    // How long the link import waits for ONE provider's issuer before giving up on it (#1518). Shorter than
-    // the reader's own per-request timeout on purpose: a restore names several providers and an operator is
-    // holding the request, so the sum has to stay a wait rather than a hang. Giving up refuses the entries
-    // that needed the answer, which is the same fail-closed arm an unreachable provider takes.
-    private static readonly TimeSpan IssuerReadBudget = TimeSpan.FromSeconds(8);
+    // How long the link import waits for ONE provider's issuer before giving up on it (#1518). It is a
+    // BACKSTOP and is deliberately looser than what it backs: the reader caps each request at ten seconds
+    // and a discovery read makes two of them, so a budget under twenty would refuse a provider the login
+    // itself tolerates - a cold start would log in fine and have its restore refused. What this catches is
+    // the case the reader's per-request cap cannot: a socket that keeps trickling. It bounds ONE provider;
+    // a document naming several pays the sum, which is why the read runs outside the configuration lock.
+    private static readonly TimeSpan IssuerReadBudget = TimeSpan.FromSeconds(25);
 
     /// <summary>
     /// Probes a stored OpenID provider: reads its discovery document under the login's hardened discovery
@@ -135,15 +137,14 @@ internal static class ProviderConnectionTester
             return LinkImportIssuerFact.Failed("its configured OpenID Endpoint is not a valid absolute URL");
         }
 
-        // THE ONE PLACE THIS READ IS DELIBERATELY NARROWER THAN THE LOGIN'S, and it is a relaxation on
-        // purpose. The library's DiscoveryPolicy requires a key set by default, so an ordinary discovery
-        // read also fetches jwks_uri - a provider-authored URL, often on a different host - and fails the
-        // whole read when that second leg fails. The login needs those keys and must fail closed without
-        // them; this read needs one string out of the first document and no key material, so a JWKS host
-        // having a bad minute would otherwise refuse an operator's entire link restore for a value it never
-        // touches. Nothing else in the posture moves: RequireHttps, ValidateIssuerName, ValidateEndpoints,
-        // the SSRF transport tier and the repeated-member screen are all still the provider's own.
-        options.Policy.Discovery.RequireKeySet = false;
+        // THE POSTURE IS THE LOGIN'S, UNCHANGED, and one relaxation was tried here and taken back out.
+        // Relaxing RequireKeySet looked like it would stop a sick JWKS host refusing a link restore for a
+        // value that read never touches. It does not: the library fetches jwks_uri whenever the document
+        // advertises one and errors the whole response when that leg fails, so the flag only accepts a
+        // document advertising NO key set - which would make this read accept metadata the login itself
+        // would refuse, for no availability gained. Measured rather than reasoned, and the measurement is
+        // kept as AProviderWhoseJwksLegFails_RefusesTheRestore rather than as a sentence. The cost is real
+        // and is disclosed where an operator meets it, in docs/SERVER-MIGRATION.md.
 
         // The reader takes no cancellation token - adding one there would reach thirty test call sites in
         // files this change is not about - so the budget is applied HERE, around the whole read. The fetch

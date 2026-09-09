@@ -207,6 +207,89 @@ public class SSOControllerImportLinksTests
         Assert.Equal(2, result.Restored);
     }
 
+    [Fact]
+    public async Task ARestoreThatWroteIssuersWithoutComparingThem_SaysSoInTheAuditTrail()
+    {
+        // A restore that compared every issuer and one that compared none produce the same answer and the
+        // same count, so the audit trail is the only place that difference survives an incident. The
+        // templated provider is the one arm where issuers are written on the file's word, and the line that
+        // reports it is the same one the configuration import uses when a toggle switches a default-on
+        // protection off - a shape an operator already knows how to grep for.
+        var fixture = new OidcTokenFixture(WasAt, "jf");
+        using (fixture)
+        {
+            var harness = new SsoControllerHarness(
+                configuration =>
+                {
+                    configuration.OidConfigs["idp"] = new OidConfig
+                    {
+                        Enabled = true,
+                        OidEndpoint = fixture.Issuer,
+                        DoNotValidateIssuerName = true,
+                    };
+                },
+                httpResponder: request =>
+                {
+                    var url = request.RequestUri!.AbsoluteUri;
+                    if (url == fixture.DiscoveryUrl)
+                    {
+                        return Json(fixture.Discovery().Replace("\"issuer\":\"" + fixture.Issuer + "\"", "\"issuer\":\"" + fixture.Issuer + "/{tenantid}\"", StringComparison.Ordinal));
+                    }
+
+                    return url == fixture.JwksUrl ? Json(fixture.Jwks()) : new HttpResponseMessage(HttpStatusCode.NotFound);
+                });
+            harness.UserManager.GetUserByName("alice").Returns(TestUsers.Named("alice", TargetAlice));
+
+            var result = Restore(await harness.Controller.ImportLinks(OneStaleIssuer()).ConfigureAwait(true));
+
+            Assert.Equal(1, result.Restored);
+            Assert.Equal(WasAt, harness.Configuration.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
+            Assert.Contains(
+                harness.ControllerLog.Entries,
+                e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal)
+                    && e.Message.Contains("were not compared", StringComparison.Ordinal)
+                    && e.Message.Contains("idp", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task AProviderWhoseJwksLegFails_RefusesTheRestore()
+    {
+        // A probe of what the discovery read actually depends on, kept as a row because the answer is the
+        // opposite of what is easy to assume. The library fetches jwks_uri whenever the document advertises
+        // one and errors the whole discovery response when that leg fails, so a healthy discovery host and
+        // a sick key host still refuses the operator's entire restore. Relaxing RequireKeySet does NOT buy
+        // tolerance of a failing fetch - it only accepts a document that advertises no key set at all -
+        // which is why this change does not relax it and the migration document names the key host.
+        var fixture = new OidcTokenFixture(WasAt, "jf");
+        using (fixture)
+        {
+            var harness = new SsoControllerHarness(
+                configuration =>
+                {
+                    configuration.OidConfigs["idp"] = new OidConfig { Enabled = true, OidEndpoint = fixture.Issuer };
+                    configuration.SamlConfigs["adfs"] = new SamlConfig { Enabled = true };
+                },
+                httpResponder: request =>
+                {
+                    var url = request.RequestUri!.AbsoluteUri;
+                    if (url == fixture.DiscoveryUrl)
+                    {
+                        return Json(fixture.Discovery());
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+                });
+            harness.UserManager.GetUserByName("alice").Returns(TestUsers.Named("alice", TargetAlice));
+
+            var answer = await harness.Controller.ImportLinks(OneStaleIssuer()).ConfigureAwait(true);
+
+            var refusal = Assert.IsType<BadRequestObjectResult>(answer);
+            Assert.Contains("could not be read to compare it against", Assert.IsType<string>(refusal.Value), StringComparison.Ordinal);
+            Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinks);
+        }
+    }
+
     // The two addresses of one identity provider across an ordinary migration: the backup names the first,
     // the server is configured for the second.
     private const string WasAt = "https://idp-import-was.example.test";

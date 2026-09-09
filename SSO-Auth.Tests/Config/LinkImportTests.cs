@@ -259,6 +259,39 @@ public class LinkImportTests
     }
 
     [Fact]
+    public void AProviderWithDoNotValidateIssuerName_ButAConcreteDeclaredIssuer_IsStillCompared()
+    {
+        // The narrowing, and the row that separates the flag from the exemption. DoNotValidateIssuerName
+        // says the issuer differs from the AUTHORITY - an Azure AD B2C tenant declaring a b2clogin.com
+        // issuer behind an onmicrosoft.com authority, or a Keycloak behind a reverse proxy declaring its
+        // internal URL. Both set the flag and both declare a CONCRETE issuer equal to what their tokens
+        // carry, so the comparison works there and skipping it on the flag alone left the whole population
+        // of this issue's own lockout unguarded on a supported deployment shape.
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].DoNotValidateIssuerName = true;
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://contoso.b2clogin.test/old-tenant/v2.0")),
+            TargetDirectory,
+            IssuesInstead("https://contoso.b2clogin.test/new-tenant/v2.0")));
+
+        Assert.Contains("old-tenant", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("new-tenant", refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void AConcreteDeclaredIssuer_IsNotTreatedAsATemplate()
+    {
+        // The rule the exemption turns on, read directly, so the two sides of it are pinned rather than
+        // only the arms that use it. A brace is what a multi-tenant provider publishes in place of a value;
+        // an ordinary issuer URL carries none.
+        Assert.True(LinkImport.IsTemplatedIssuer("https://login.example.test/{tenantid}/v2.0"));
+        Assert.False(LinkImport.IsTemplatedIssuer("https://login.example.test/tenant-42/v2.0"));
+    }
+
+    [Fact]
     public void AFactReadFromAnEndpointTheProviderNoLongerUses_IsRefused()
     {
         // The window between the read and the write, which exists because the read is a network round trip

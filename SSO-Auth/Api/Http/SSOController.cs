@@ -99,6 +99,13 @@ public class SSOController : ControllerBase
     private readonly ICryptoProvider _cryptoProvider;
     // Kept so the elevation-gated Test-connection endpoints (#163) can read a provider's OpenID discovery
     // through the SAME hardened reader the login uses; the shared login flow takes its own reference.
+    // The one option the link import reports through the insecure-options audit line (#1518). A static
+    // field rather than an inline array because the call site runs once per import.
+    private static readonly string[] IssuersNotCompared =
+    {
+        "the restored issuer bindings were not compared: this provider declares a templated issuer",
+    };
+
     private readonly IHttpClientFactory _httpClientFactory;
 
     // The account-linking workflow (resolve/adopt/create, legacy re-key, revoke); the controller keeps
@@ -1914,6 +1921,26 @@ public class SSOController : ControllerBase
 
         var result = LinkImportResultDocument.Of(restored);
 
+        // #1518: a restore that wrote issuers WITHOUT comparing them leaves the same answer and the same
+        // count as one that compared every single one, so the audit trail is the only place that difference
+        // can survive. It is written for the same reason the config import audits a toggle that switches a
+        // default-on protection off: an operator reconstructing an incident needs to know which providers'
+        // bindings were taken on the file's word. The rule for what counts as uncomparable is read from
+        // LinkImport rather than restated here, so the line and the decision cannot drift apart.
+        var unverified = configuredIssuers
+            .Where(fact => fact.Value.Issuer is { } declared && LinkImport.IsTemplatedIssuer(declared))
+            .Select(fact => fact.Key)
+            .OrderBy(provider => provider, StringComparer.Ordinal)
+            .ToList();
+        if (unverified.Count > 0)
+        {
+            SsoAudit.InsecureOptionsEnabled(
+                _logger,
+                LinkExport.OpenIdProtocol,
+                string.Join(", ", unverified),
+                IssuersNotCompared);
+        }
+
         SsoAudit.LinksImported(
             _logger,
             await ResolveActorAsync().ConfigureAwait(false),
@@ -1953,15 +1980,13 @@ public class SSOController : ControllerBase
         // or remove can tear or throw - here that would be a 500 out of an admin restore rather than a
         // refusal. Only the snapshot is taken under the lock; the network reads below are not.
         //
-        // A provider carrying DoNotValidateIssuerName is skipped rather than read. Its discovery issuer is
-        // not what its id_token issuer will be - that is what the flag is for - so there is nothing here to
-        // compare against, and fetching it would only produce a fact the importer must not use. The importer
-        // re-reads the same flag under the lock and takes those entries out of the comparison there, so the
-        // decision is made against the configuration that is actually written into, not against this one.
+        // EVERY named provider is read, including one carrying DoNotValidateIssuerName. That flag says the
+        // issuer differs from the AUTHORITY, which is not the same statement as "there is nothing to compare
+        // against": a Keycloak behind a reverse proxy and an Azure AD B2C tenant both set it and both
+        // declare a concrete issuer the comparison works on. Only the importer decides what a fact is worth,
+        // under the lock, against the configuration actually being written into.
         var probes = SSOPlugin.Instance.ReadConfiguration(configuration => wanted
-            .Where(provider => configuration.OidConfigs.TryGetValue(provider, out var config)
-                && config is not null
-                && !config.DoNotValidateIssuerName)
+            .Where(provider => configuration.OidConfigs.TryGetValue(provider, out var config) && config is not null)
             .Select(provider => (Provider: provider, Config: configuration.OidConfigs[provider]))
             .ToList());
 

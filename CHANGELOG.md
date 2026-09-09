@@ -595,18 +595,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   - and every SAML entry - still restores with the identity provider down. The
     refusal is whole-document as every other one is: nothing is written.
 
-  **A provider carrying `DoNotValidateIssuerName` is exempt**, and the exemption
-  is disclosed rather than quiet. The value stored with a link is the `iss` an
-  id_token carries; the value read here is the `issuer` a discovery document
-  declares. Issuer validation being on - the default - is what makes those two
-  equal, and that flag exists precisely for providers where they differ forever,
-  such as a templated multi-tenant discovery issuer against a concrete
-  per-tenant token issuer. Comparing there would refuse a correct backup from a
-  supported deployment and print a remedy nobody can follow, so those entries
-  restore unchecked, as they did before. A fact read from an endpoint the
-  provider no longer uses is refused too: the read happens before the
-  configuration lock, and a provider re-pointed in that window is a different
-  identity provider.
+  **A provider whose discovery document declares a TEMPLATED issuer is exempt**,
+  and the exemption is disclosed rather than quiet. The value stored with a link
+  is the `iss` an id_token carries; the value read here is the `issuer` a
+  discovery document declares, and issuer validation being on - the default - is
+  what makes those two equal. A multi-tenant provider publishes a template in
+  place of a value, so there is nothing to compare against and refusing would
+  print a remedy nobody can follow; those entries restore on the file's word,
+  the lockout this refusal prevents is still live for them, and the import
+  writes an `[SSO Audit]` line naming every provider it did that for.
+  `DoNotValidateIssuerName` alone is **not** the exemption - that flag says the
+  issuer differs from the AUTHORITY, which an Azure AD B2C tenant and a proxied
+  Keycloak both need while still declaring a concrete issuer the comparison
+  works on. A fact read from an endpoint the provider no longer uses is refused
+  too: the read happens before the configuration lock, and a provider re-pointed
+  in that window is a different identity provider.
 
 - **The login audit line now names the Jellyfin account, and the
   provider-presented name beside it where the two differ (#1551).** The
