@@ -735,6 +735,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A settings tab returned to now shows what the server holds, instead of what
+  it last loaded (#1576, #1572).** The Jellyfin dashboard keeps three views
+  alive and hands a cached one back without re-running its controller, so a
+  settings tab left and returned to went on showing the configuration as it was
+  when the page was built - a provider added, renamed or deleted from another
+  window, or by a declarative source, was simply not there. Only the Overview
+  tab re-read itself, because it holds no control to overwrite.
+  The other four re-read on every return now, and they refuse to when the page
+  holds work: a re-read is skipped outright while a provider editor is open, and
+  skipped while the page holds anything the last read did not put there - which
+  includes a permission or role-mapping row removed by a click, because the
+  comparison is recomputed from the controls rather than read off a flag
+  something has to set. The same two questions are asked a second time,
+  immediately before anything is written, so an edit made while the
+  configuration was in flight is not overwritten by it; and the library
+  checklists are never rebuilt by a return, which is what would otherwise have
+  persisted an empty Enabled Folders set and cost every user of that provider
+  their library access at the next sign-in. When a return is refused, the page
+  raises its unsaved-changes notice rather than refreshing silently.
+  A media library added while the dashboard has been left open on one of those
+  tabs is not picked up by a return; the checklist is the one the page loaded,
+  until the next save, import, or reload of the dashboard.
+
 - **A failed configuration read no longer leaves a pressed Save with no outcome
   at all (#1577).** Saving or deleting a provider reads the stored configuration
   before it writes, and four of those reads had no failure arm. The two saves

@@ -58,6 +58,7 @@ const root = path.resolve(__dirname, "..");
 const CORE = path.join(root, "SSO-Auth", "Web", "sso-core.js");
 const SERVER_PAGE = path.join(root, "SSO-Auth", "Web", "serverPage.html");
 const POLICIES_PAGE = path.join(root, "SSO-Auth", "Web", "policiesPage.html");
+const PROVIDERS_PAGE = path.join(root, "SSO-Auth", "Web", "providersPage.html");
 
 /** Replaces every HTML comment with spaces, so a documented control is not a real one. */
 function withoutComments(html) {
@@ -164,6 +165,21 @@ function policiesPageFixture() {
   return pageFixture(POLICIES_PAGE, ["sso-unsaved", "SaveProvisioningProfile"]);
 }
 
+/**
+ * The Providers page, which is the only one that carries an editor - two of them - and the two library
+ * checklists a re-read used to empty (#1576). The regions are asserted against the markup like every
+ * other fixture's, so a renamed editor or checklist container fails here rather than passing silently.
+ */
+function providersPageFixture() {
+  return pageFixture(PROVIDERS_PAGE, [
+    "sso-unsaved",
+    "sso-editor",
+    "saml-editor",
+    "EnabledFolders",
+    "saml-EnabledFolders",
+  ]);
+}
+
 function pageFixture(file, regionIds) {
   const html = withoutComments(fs.readFileSync(file, "utf8"));
   const controls = [
@@ -192,6 +208,20 @@ function pageFixture(file, regionIds) {
           ", so the state would render into nothing",
       );
     }
+  });
+
+  // The editors ship `hidden` in the markup, and a fixture that started them open would make the
+  // refresh refuse for a reason the arm did not set up. Read off the tag rather than assumed, so a
+  // region that stops shipping hidden fails an arm here instead of quietly changing what it proves.
+  regions.forEach((region) => {
+    // Read by cutting the tag out around the id rather than by matching one, because an opening tag in
+    // this markup runs over several lines and a pattern for it is a second thing to get wrong.
+    const at = html.indexOf('id="' + region.id + '"');
+    const tag =
+      at === -1
+        ? ""
+        : html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
+    region.hidden = tag.split(/[\s>]+/).includes("hidden");
   });
 
   return new Page([...controls, ...regions]);
@@ -489,6 +519,332 @@ async function main() {
     }
   }
 
+  // ---- The refresh on return to a tab (#1576) ----
+  //
+  // WHAT THESE FIVE ARMS CAN AND CANNOT SAY. The subject is the DECISION - whether the refresh runs at
+  // all, and whether the fill it triggers writes anything - so the fills themselves are substituted and
+  // counted rather than executed. That is the honest bound: an arm below reddens when a guard is taken
+  // off, and none of them says the fills are correct, which is what every other route over this file
+  // already asks. The configuration fetch is substituted for the same reason, and because the stub is
+  // node and `ApiClient` is the dashboard's.
+  //
+  // The order is the issue's: the library-checklist case first, because it is the one that costs users
+  // their libraries.
+  const refreshHarness = (page) => {
+    const original = {
+      loadManagedProviders: core.loadManagedProviders,
+      showUnreadableConfigurationNotice: core.showUnreadableConfigurationNotice,
+      populateProviders: core.populateProviders,
+      populateSamlProviders: core.populateSamlProviders,
+      populateProvisioningProfiles: core.populateProvisioningProfiles,
+      renderOverviewFrom: core.renderOverviewFrom,
+      populateFolders: core.populateFolders,
+      apiClient: globalThis.ApiClient,
+    };
+    const seen = { folders: 0, fills: 0 };
+    let settle = null;
+    core.loadManagedProviders = () => {};
+    core.showUnreadableConfigurationNotice = () => Promise.resolve();
+    core.populateProviders = () => {};
+    core.populateSamlProviders = () => {};
+    // The checklist fill is a REQUEST OF ITS OWN and it appends id-less checkboxes the signature counts,
+    // so the substitute has to do both of those things or the arms cannot see the ordering that broke
+    // the baseline. It settles when the arm says so, not when it is called.
+    let releaseFolders = null;
+    core.populateFolders = (container) => {
+      seen.folders += 1;
+      return new Promise((resolve) => {
+        const previous = releaseFolders;
+        releaseFolders = () => {
+          if (previous) {
+            previous();
+          }
+          const box = new Element("input", "", "checkbox");
+          page.elements.push(box);
+          container.appended = (container.appended || 0) + 1;
+          resolve();
+        };
+      });
+    };
+    // The fill counter is on the ONE call the `.then` makes unconditionally. Counting on
+    // populateProviders instead reads zero on the Server page, which has no #selectProvider - so the
+    // in-flight arm's first assertion would have been vacuous there.
+    core.populateProvisioningProfiles = () => {
+      seen.fills += 1;
+    };
+    core.renderOverviewFrom = () => {};
+    globalThis.ApiClient = {
+      getUrl: (u) => u,
+      getJSON: () => Promise.resolve({}),
+      getPluginConfiguration: () =>
+        new Promise((resolve) => {
+          settle = () => resolve({ OidConfigs: {}, SamlConfigs: {} });
+        }),
+    };
+    // Enough turns to drain the chain the load builds: the configuration `.then`, the Promise.all over
+    // the checklist fills, and the `.then` that takes the baseline. Counted generously rather than
+    // exactly, because an arm that under-drains passes by not looking.
+    const drain = async () => {
+      for (let turn = 0; turn < 12; turn += 1) {
+        await Promise.resolve();
+      }
+    };
+    return {
+      seen,
+      drain,
+      // Answers the CONFIGURATION request. The checklist fills stay outstanding, which is the ordering
+      // that broke the baseline and the one an arm has to be able to produce.
+      deliver: async () => {
+        settle();
+        await drain();
+      },
+      // Answers the checklist fills, appending their controls, after the configuration has landed.
+      deliverFolders: async () => {
+        if (releaseFolders) {
+          releaseFolders();
+          releaseFolders = null;
+        }
+        await drain();
+      },
+      restore: () => {
+        Object.keys(original).forEach((key) => {
+          if (key !== "apiClient") {
+            core[key] = original[key];
+          }
+        });
+        globalThis.ApiClient = original.apiClient;
+      },
+      page,
+    };
+  };
+
+  // ---- Arm: the library checklists are not rebuilt by a refresh ----
+  {
+    const page = providersPageFixture();
+    wire(core, page);
+    const h = refreshHarness(page);
+    core.loadConfiguration(page, { refreshing: true });
+    await h.deliver();
+    if (h.seen.folders !== 0) {
+      refuse(
+        "refresh-folders",
+        "a refresh repopulated a library checklist, which rebuilds it with nothing ticked and does not run loadProvider - the next save then persists an empty EnabledFolders and every user of that provider loses library access",
+      );
+    }
+    // The near-miss: an ordinary load - a save, a delete, an import reading itself back - must still
+    // fill them. A guard that skipped the checklists for every caller would pass the arm above.
+    core.loadConfiguration(page);
+    await h.deliver();
+    h.restore();
+    if (h.seen.folders === 0) {
+      refuse(
+        "refresh-folders",
+        "an ordinary load stopped filling the library checklists, so an editor opened after a save shows none",
+      );
+    }
+  }
+
+  // ---- Arm: the baseline covers the checklist fills, not just the configuration ----
+  {
+    // The ordering that broke this, reproduced: a load is THREE requests, and the configuration answers
+    // before the two checklist reads. Each of those appends id-less checkboxes the signature counts, so
+    // a baseline taken in the configuration `.then` alone left the Providers page differing from its own
+    // baseline for the life of the view - the refresh then refused forever AND the page asserted unsaved
+    // changes on a tab nobody had touched, which is the indicator that says a real edit is at risk.
+    const page = providersPageFixture();
+    wire(core, page);
+    const h = refreshHarness(page);
+    core.loadConfiguration(page);
+    await h.deliver();
+    if (h.seen.folders !== 2) {
+      refuse(
+        "refresh-baseline",
+        "the fixture issued no checklist fill, so this arm cannot produce the ordering it is about",
+      );
+    }
+    await h.deliverFolders();
+    const differs = core.pageDiffersFromBaseline(page);
+
+    const loads = [];
+    const real = core.loadConfiguration;
+    core.loadConfiguration = (_, options) => loads.push(options);
+    core.refreshOnShow(page);
+    core.loadConfiguration = real;
+    h.restore();
+
+    if (differs) {
+      refuse(
+        "refresh-baseline",
+        "a page nobody touched differed from its own baseline once the library checklists landed, so the baseline does not cover the whole load",
+      );
+    }
+    if (loads.length !== 1) {
+      refuse(
+        "refresh-baseline",
+        "the tab refused to re-read on a page nobody had touched, so the refresh never runs on Providers at all",
+      );
+    }
+    if (core.isPageDirty(page)) {
+      refuse(
+        "refresh-baseline",
+        "the page asserted unsaved changes with nothing typed and no editor open, which trains away the indicator that says a real edit is at risk",
+      );
+    }
+  }
+
+  // ---- Arm: an open editor refuses the refresh outright ----
+  {
+    const page = providersPageFixture();
+    wire(core, page);
+    const editor = page.querySelector("#sso-editor");
+    if (editor.hidden !== true) {
+      refuse(
+        "refresh-editor",
+        "the fixture starts with the editor open, so this arm proves nothing",
+      );
+    }
+    const loads = [];
+    const real = core.loadConfiguration;
+    core.loadConfiguration = (_, options) => loads.push(options);
+
+    editor.hidden = false;
+    core.refreshOnShow(page);
+    if (loads.length !== 0) {
+      refuse(
+        "refresh-editor",
+        "a tab returned to with the editor open re-read the server, which clears the hidden selector the save reads its target from and empties the checklists",
+      );
+    }
+
+    editor.hidden = true;
+    core.refreshOnShow(page);
+    core.loadConfiguration = real;
+    if (loads.length !== 1) {
+      refuse(
+        "refresh-editor",
+        "a clean tab with every editor closed did not re-read, so it goes on showing whatever it last loaded",
+      );
+    }
+  }
+
+  // ---- Arm: a removed row is an unsaved edit, and nothing dispatched an event for it ----
+  {
+    const page = policiesPageFixture();
+    wire(core, page);
+    const notice = page.querySelector("#sso-unsaved");
+    // Removing a permission row is `row.remove()`: no input, no change, so the tracking never runs and
+    // the page is never MARKED dirty. The decision must read the controls, not the mark.
+    // A control the state actually tracks, taken from the page's own list rather than guessed: the first
+    // control on this page is the profile SELECTOR, which is excluded as a navigation control, so
+    // removing that one would change no signature and the arm would prove nothing.
+    const removed = core.editableControls(page)[0];
+    page.elements.splice(page.elements.indexOf(removed), 1);
+    page.byId.delete(removed.id);
+    if (core.isPageDirty(page)) {
+      refuse(
+        "refresh-removed-row",
+        "the fixture was already marked dirty, so this arm cannot tell the mark from the signature",
+      );
+    }
+    const loads = [];
+    const real = core.loadConfiguration;
+    core.loadConfiguration = () => loads.push(1);
+    core.refreshOnShow(page);
+    core.loadConfiguration = real;
+    if (loads.length !== 0) {
+      refuse(
+        "refresh-removed-row",
+        "a page holding a removed row re-read the server, which renders the removed row straight back out of storage",
+      );
+    }
+    if (!core.isPageDirty(page) || notice.hidden) {
+      refuse(
+        "refresh-removed-row",
+        "the tab refused to refresh and said nothing about why",
+      );
+    }
+  }
+
+  // ---- Arm: an edit made while the configuration is in flight is not overwritten ----
+  {
+    const page = serverPageFixture();
+    wire(core, page);
+    const h = refreshHarness(page);
+    const toggle = page.querySelector("#ManageLoginPageButtons");
+
+    core.loadConfiguration(page, { refreshing: true });
+    // The decision has been taken and the request is out. Now an administrator types.
+    toggle.checked = true;
+    page.dispatch("change", toggle, true);
+    await h.deliver();
+    h.restore();
+
+    if (h.seen.fills !== 0) {
+      refuse(
+        "refresh-in-flight",
+        "a refresh overtaken by an edit went on filling the page, which is the check-then-act the review refused",
+      );
+    }
+    if (!toggle.checked || !core.isPageDirty(page)) {
+      refuse(
+        "refresh-in-flight",
+        "an edit made while the configuration was in flight was reverted and the page then read as clean",
+      );
+    }
+  }
+
+  // ---- Arm: an editor opened while the refresh is in flight also stops the fill ----
+  {
+    // `mayReplacePageContents` is a conjunction and the arm above only exercises the dirty half. This is
+    // the other one, and it is the half with the worse outcome: `populateProviders` clears the hidden
+    // #selectProvider, whose value is the provider a save writes to, so a fill landing into a freshly
+    // opened editor writes the wrong provider or none at all. It has to be on the Providers page,
+    // because the Server page declares no editor and could never reach this.
+    const page = providersPageFixture();
+    wire(core, page);
+    const h = refreshHarness(page);
+
+    core.loadConfiguration(page, { refreshing: true });
+    // The decision has been taken and the request is out. Now an administrator clicks a provider card.
+    page.querySelector("#sso-editor").hidden = false;
+    await h.deliver();
+    h.restore();
+
+    if (h.seen.fills !== 0) {
+      refuse(
+        "refresh-in-flight-editor",
+        "a refresh overtaken by an opened editor went on filling the page, which clears the hidden selector the save reads its target from",
+      );
+    }
+  }
+
+  // ---- Arm: an ordinary load still replaces the page, whatever state it is in ----
+  {
+    // The near-miss for the two guards above. A save, a delete or an import has just changed the stored
+    // configuration and is reading it back; it must write the page even with an editor open and the page
+    // dirty, or every one of those paths stops showing its own result.
+    const page = providersPageFixture();
+    wire(core, page);
+    const h = refreshHarness(page);
+    page.querySelector("#sso-editor").hidden = false;
+    const toggle = page.querySelector("#OidEnabled");
+    if (toggle) {
+      toggle.checked = !toggle.checked;
+      page.dispatch("change", toggle, true);
+    }
+
+    core.loadConfiguration(page);
+    await h.deliver();
+    h.restore();
+
+    if (h.seen.fills !== 1) {
+      refuse(
+        "refresh-ordinary-load",
+        "an ordinary load refused to write the page, so a save no longer shows what it saved",
+      );
+    }
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(
@@ -498,7 +854,7 @@ async function main() {
   }
 
   console.log(
-    "unsaved state:     eight arms run against the shipped sso-core.js and the pages it serves",
+    "unsaved state:     fifteen arms run against the shipped sso-core.js and the pages it serves",
   );
   console.log(
     "  untouched        a page nobody typed into is clean, shows nothing, and its Save is open",
@@ -526,6 +882,27 @@ async function main() {
   );
   console.log(
     "  hidden-region    a gate whose editor is off screen is left alone",
+  );
+  console.log(
+    "  refresh-folders  a refresh leaves the library checklists alone, and an ordinary load fills them",
+  );
+  console.log(
+    "  refresh-baseline the baseline covers the checklist fills, so an untouched tab re-reads and stays quiet",
+  );
+  console.log(
+    "  refresh-editor   an open editor refuses the refresh, a closed one lets it run",
+  );
+  console.log(
+    "  refresh-removed  a removed row refuses the refresh and the page says so",
+  );
+  console.log(
+    "  refresh-in-flight an edit made while the configuration was in flight is not overwritten,",
+  );
+  console.log(
+    "                   and neither is an editor opened inside the same window",
+  );
+  console.log(
+    "  refresh-ordinary a save, delete or import still replaces the page whatever state it is in",
   );
 }
 
