@@ -164,7 +164,7 @@ public class RoleClaimScopeScreenTests
         var http = new StubFactory(Unreadable);
         var logger = new CapturingLogger();
 
-        var discovery = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var discovery = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(discovery.Available);
         Assert.Equal(OidcDiscoveryRefusal.Uninspectable, discovery.Refusal);

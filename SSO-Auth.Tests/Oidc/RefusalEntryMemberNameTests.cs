@@ -280,7 +280,7 @@ public class RefusalEntryMemberNameTests
         options.Policy.Discovery.AdditionalEndpointBaseAddresses.Add(new Uri(Authority).GetLeftPart(UriPartial.Authority));
         options.Policy.Discovery.ValidateEndpoints = false;
 
-        var result = await OidcDiscoveryReader.ReadAsync(options, "name", factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(options, "name", factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Available);
 

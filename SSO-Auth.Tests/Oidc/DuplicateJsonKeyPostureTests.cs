@@ -128,7 +128,7 @@ public class DuplicateJsonKeyPostureTests
         var http = new CountingFactory(Serve(hostile));
         var logger = new CapturingLogger();
 
-        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger);
+        var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
 
         // Neither reader produced anything: no metadata for the library's side, no facts for the plugin's.
         Assert.False(result.Available);

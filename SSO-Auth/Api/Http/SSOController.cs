@@ -957,7 +957,17 @@ public class SSOController : ControllerBase
             return NotFound(NoMatchingProviderMessage);
         }
 
-        return Ok(await ProviderConnectionTester.TestOidcAsync(config, provider, _httpClientFactory, _logger).ConfigureAwait(false));
+        try
+        {
+            return Ok(await ProviderConnectionTester.TestOidcAsync(config, provider, _httpClientFactory, _logger, HttpContext.RequestAborted).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            // The admin's browser left before the probe answered (#1558). The host's exception middleware
+            // would log a propagated cancellation at Error and answer 500; a probe nobody is waiting for is
+            // neither, so it answers a fixed 400 with no log line and no provider verdict.
+            return BadRequest("The request was cancelled before the probe finished.");
+        }
     }
 
     /// <summary>

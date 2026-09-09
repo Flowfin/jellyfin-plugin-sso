@@ -141,7 +141,7 @@ public class OidcDiscoveryReaderErrorBoundTests
         options.Policy.Discovery.AdditionalEndpointBaseAddresses.Add(new Uri(Authority).GetLeftPart(UriPartial.Authority));
         options.Policy.Discovery.ValidateEndpoints = false;
 
-        return await OidcDiscoveryReader.ReadAsync(options, "bound", factory, logger);
+        return await OidcDiscoveryReader.ReadAsync(options, "bound", factory, logger, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     private static string FailClosedWarning(CapturingLogger logger)

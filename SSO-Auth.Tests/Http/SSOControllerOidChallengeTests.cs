@@ -6,10 +6,12 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -120,6 +122,34 @@ public class SSOControllerOidChallengeTests
         // per-test reset of the static state store (#289) keeps the added authorize state from leaking.
         var redirect = Assert.IsType<RedirectResult>(result);
         Assert.StartsWith(authority + "/authorize", redirect.Url);
+    }
+
+    [Fact]
+    public async Task OidChallenge_BrowserThatWentAway_EndsTheDiscoveryReadQuietly()
+    {
+        // #1558: the challenge is the login-path caller with a request lifetime, and it passes that lifetime
+        // down to the discovery read. A challenge whose browser is already gone answers a fixed 400 that
+        // nobody reads, and writes NOTHING at Warning or above: not the fail-closed warning that names the
+        // provider as unreadable, and not an exception into the host pipeline, whose middleware logs every
+        // throw at Error and answers 500 - so a closed tab would otherwise become an Error entry naming
+        // nothing. Kills: dropping the token from the challenge's read, or letting the cancellation escape.
+        const string authority = "https://idp-gone.example.com";
+        var harness = new SsoControllerHarness(
+            c => c.OidConfigs["kc"] = new OidConfig
+            {
+                Enabled = true,
+                OidEndpoint = authority,
+                OidClientId = "jf",
+                OidScopes = Array.Empty<string>(),
+                DisablePushedAuthorization = true,
+            },
+            httpResponder: request => Json(Discovery(authority)));
+        harness.Controller.HttpContext.RequestAborted = new CancellationToken(canceled: true);
+
+        var result = await harness.Controller.OidChallenge("kc");
+
+        Assert.Equal(400, Assert.IsType<ContentResult>(result).StatusCode);
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Level >= LogLevel.Warning);
     }
 
     private static string Discovery(string authority) =>
