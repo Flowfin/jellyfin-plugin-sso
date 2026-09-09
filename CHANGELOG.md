@@ -568,6 +568,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **This line is 5.0, because the Jellyfin generation under it changed
+  (#1579).** Jellyfin 12.0 went GA on 2026-09-07 and its announcement is
+  explicit that plugins built for 10.11 will not load on it: the server targets
+  .NET 10 and several plugin interfaces changed. The scheme at the top of this
+  file reserves **X** for exactly that, a breaking or Jellyfin-ABI change, so
+  what was numbered 4.4 is 5.0 in all three places that carry the number: the
+  assembly, `build.yaml` and `build-jf12.yaml`.
+
+  **4.3 stays the last release for Jellyfin 10.11.** It is finishing its soak
+  and ships as the stable for that generation; nothing on this line is offered
+  to a 10.11 server. The net9.0 half of the build is not removed here, because
+  taking a target framework out also takes the 10.11-only package pins and the
+  ABI-floor job with it and re-opens which assemblies the package must carry.
+  That is its own change.
+
+  The number is the only thing this entry is about. What the line compiles
+  against moved in the same delivery and is recorded above.
+
 - **The settings page is five pages (#1527).** One 222 KB page carrying all 123
   controls became five, joined by the dashboard's own tab strip: **Overview**,
   **Providers**, **Accounts**, **Policies** and **Server**. Nothing was added to
