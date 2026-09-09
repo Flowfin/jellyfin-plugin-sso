@@ -2527,8 +2527,8 @@ const ssoConfigurationPage = {
     ) {
       return;
     }
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
+    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+      .then((config) => {
         if (!config.OidConfigs.hasOwnProperty(provider_name)) {
           return;
         }
@@ -2573,8 +2573,20 @@ const ssoConfigurationPage = {
             );
           },
         );
-      },
-    );
+      })
+      // The read that precedes the delete can fail on its own (#1577), and a delete that says nothing
+      // reads as one that worked. The editor is still open on this arm - nothing was removed - so the
+      // message goes in the editor's own region, exactly where the write-failure arm above puts its own.
+      .catch(() =>
+        ssoConfigurationPage.renderSaveStatus(
+          page,
+          tr(
+            "config.config_read_failed",
+            "Could not read the stored configuration, so nothing was changed. Reload the page and try again.",
+          ),
+          false,
+        ),
+      );
   },
   // ONE SAVE FOR THE SERVER PAGE (#1572), AND THE PARTIAL FAILURE IT DOES NOT HAVE.
   //
@@ -2697,79 +2709,87 @@ const ssoConfigurationPage = {
     return new Promise((resolve, reject) => {
       const form_elements = ssoConfigurationPage.listArgumentsByType(page);
 
-      ApiClient.getPluginConfiguration(
-        ssoConfigurationPage.pluginUniqueId,
-      ).then((config) => {
-        let current_config = {};
-        if (config.OidConfigs.hasOwnProperty(provider_name)) {
-          current_config = config.OidConfigs[provider_name];
-        }
+      ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+        .then((config) => {
+          let current_config = {};
+          if (config.OidConfigs.hasOwnProperty(provider_name)) {
+            current_config = config.OidConfigs[provider_name];
+          }
 
-        form_elements.text_fields.forEach((id) => {
-          current_config[id] = page.querySelector("#" + id).value || null;
-        });
+          form_elements.text_fields.forEach((id) => {
+            current_config[id] = page.querySelector("#" + id).value || null;
+          });
 
-        form_elements.check_fields.forEach((id) => {
-          current_config[id] = page.querySelector("#" + id).checked;
-        });
+          form_elements.check_fields.forEach((id) => {
+            current_config[id] = page.querySelector("#" + id).checked;
+          });
 
-        form_elements.text_list_fields.forEach((id) => {
-          current_config[id] = ssoConfigurationPage.parseTextList(
-            page.querySelector("#" + id),
+          form_elements.text_list_fields.forEach((id) => {
+            current_config[id] = ssoConfigurationPage.parseTextList(
+              page.querySelector("#" + id),
+            );
+          });
+
+          form_elements.folder_list_fields.forEach((id) => {
+            const elem = page.querySelector(`#${id}`);
+            current_config[id] =
+              ssoConfigurationPage.serializeEnabledFolders(elem);
+          });
+
+          form_elements.role_map_fields.forEach((id) => {
+            const elem = page.querySelector(`#${id}`);
+            current_config[id] =
+              ssoConfigurationPage.serializeRoleMappings(elem);
+          });
+
+          // The named profile and the inline template are ONE decision and are written together (#1105).
+          // The selector is read here rather than by the flat loop above, for the reason
+          // fillProvisioningTemplate states; the template follows it, because a save carrying both is
+          // refused by ProviderConfigValidator - one account-creation policy has one source. Leaving the
+          // stored template in place beside a newly chosen profile name would therefore make the provider
+          // unsaveable from this page, client id and secret included, so the discard is deliberate; it is
+          // confirmed at the moment the profile is chosen (chooseProvisioningProfile) rather than here,
+          // where the administrator has already pressed Save.
+          current_config.ProvisioningProfile =
+            page.querySelector("#ProvisioningProfile").value || null;
+          current_config.ProvisioningPolicyTemplate =
+            current_config.ProvisioningProfile === null
+              ? ssoConfigurationPage.readProvisioningTemplate(page, "")
+              : null;
+
+          config.OidConfigs[provider_name] = current_config;
+
+          ApiClient.updatePluginConfiguration(
+            ssoConfigurationPage.pluginUniqueId,
+            config,
+          ).then(
+            function (result) {
+              Dashboard.processPluginConfigurationUpdateResult(result);
+              ssoConfigurationPage.loadConfiguration(page);
+              ssoConfigurationPage.loadProvider(page, provider_name);
+
+              page.querySelector("#selectProvider").value = provider_name;
+              // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
+              resolve();
+            },
+            // Rejection handler attached directly to the save call, so it reports only a genuine save
+            // failure and not an error thrown by the post-save UI work above. The server can refuse a
+            // save for more than one reason (a malformed Base URL Override, #139; a provider name with
+            // URI-reserved or control characters, #336/#360), so the message the caller renders names both
+            // checks instead of blaming one.
+            function () {
+              reject(new Error("Provider save failed"));
+            },
           );
-        });
-
-        form_elements.folder_list_fields.forEach((id) => {
-          const elem = page.querySelector(`#${id}`);
-          current_config[id] =
-            ssoConfigurationPage.serializeEnabledFolders(elem);
-        });
-
-        form_elements.role_map_fields.forEach((id) => {
-          const elem = page.querySelector(`#${id}`);
-          current_config[id] = ssoConfigurationPage.serializeRoleMappings(elem);
-        });
-
-        // The named profile and the inline template are ONE decision and are written together (#1105).
-        // The selector is read here rather than by the flat loop above, for the reason
-        // fillProvisioningTemplate states; the template follows it, because a save carrying both is
-        // refused by ProviderConfigValidator - one account-creation policy has one source. Leaving the
-        // stored template in place beside a newly chosen profile name would therefore make the provider
-        // unsaveable from this page, client id and secret included, so the discard is deliberate; it is
-        // confirmed at the moment the profile is chosen (chooseProvisioningProfile) rather than here,
-        // where the administrator has already pressed Save.
-        current_config.ProvisioningProfile =
-          page.querySelector("#ProvisioningProfile").value || null;
-        current_config.ProvisioningPolicyTemplate =
-          current_config.ProvisioningProfile === null
-            ? ssoConfigurationPage.readProvisioningTemplate(page, "")
-            : null;
-
-        config.OidConfigs[provider_name] = current_config;
-
-        ApiClient.updatePluginConfiguration(
-          ssoConfigurationPage.pluginUniqueId,
-          config,
-        ).then(
-          function (result) {
-            Dashboard.processPluginConfigurationUpdateResult(result);
-            ssoConfigurationPage.loadConfiguration(page);
-            ssoConfigurationPage.loadProvider(page, provider_name);
-
-            page.querySelector("#selectProvider").value = provider_name;
-            // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
-            resolve();
-          },
-          // Rejection handler attached directly to the save call, so it reports only a genuine save
-          // failure and not an error thrown by the post-save UI work above. The server can refuse a
-          // save for more than one reason (a malformed Base URL Override, #139; a provider name with
-          // URI-reserved or control characters, #336/#360), so the message the caller renders names both
-          // checks instead of blaming one.
-          function () {
-            reject(new Error("Provider save failed"));
-          },
-        );
-      });
+        })
+        // THE READ CAN FAIL ON ITS OWN, AND WITHOUT THIS NOTHING SETTLES (#1577). The rejection arm above
+        // belongs to the WRITE. If the configuration read that precedes it fails - an expired dashboard
+        // token, a 500, the server restart this editor itself asks for after a save - this promise never
+        // settles, so neither of the caller's status arms runs and a pressed Save produces nothing at all:
+        // the one failure a page can make that reads exactly like a save that worked. It also settles a
+        // throw from inside the fill above, which would otherwise hang in the same way. A reject after a
+        // resolve is a no-op, so the success path is untouched.
+        .catch(() => reject(new Error("Provider save failed")));
     });
   },
   // Test-connection (#163). Calls the elevation-gated OID/Test endpoint for the SAVED provider and renders
@@ -4514,8 +4534,8 @@ const ssoConfigurationPage = {
     ) {
       return;
     }
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
+    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+      .then((config) => {
         if (
           !config.SamlConfigs ||
           !config.SamlConfigs.hasOwnProperty(provider_name)
@@ -4553,83 +4573,96 @@ const ssoConfigurationPage = {
             );
           },
         );
-      },
-    );
+      })
+      // The same reason the OpenID delete states (#1577): the read can fail on its own and the editor is
+      // still open, so the message goes where that editor's other outcomes go.
+      .catch(() =>
+        ssoConfigurationPage.renderSamlSaveStatus(
+          page,
+          tr(
+            "config.config_read_failed",
+            "Could not read the stored configuration, so nothing was changed. Reload the page and try again.",
+          ),
+          false,
+        ),
+      );
   },
   saveSamlProvider: (page, provider_name) => {
     return new Promise((resolve, reject) => {
       const form_elements = ssoConfigurationPage.listSamlArgumentsByType(page);
 
-      ApiClient.getPluginConfiguration(
-        ssoConfigurationPage.pluginUniqueId,
-      ).then((config) => {
-        if (!config.SamlConfigs) {
-          config.SamlConfigs = {};
-        }
-        let current_config = {};
-        if (config.SamlConfigs.hasOwnProperty(provider_name)) {
-          current_config = config.SamlConfigs[provider_name];
-        }
+      ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+        .then((config) => {
+          if (!config.SamlConfigs) {
+            config.SamlConfigs = {};
+          }
+          let current_config = {};
+          if (config.SamlConfigs.hasOwnProperty(provider_name)) {
+            current_config = config.SamlConfigs[provider_name];
+          }
 
-        form_elements.text_fields.forEach((id) => {
-          const prop = ssoConfigurationPage.samlPropOf(id);
-          current_config[prop] = page.querySelector("#" + id).value || null;
-        });
+          form_elements.text_fields.forEach((id) => {
+            const prop = ssoConfigurationPage.samlPropOf(id);
+            current_config[prop] = page.querySelector("#" + id).value || null;
+          });
 
-        form_elements.check_fields.forEach((id) => {
-          const prop = ssoConfigurationPage.samlPropOf(id);
-          current_config[prop] = page.querySelector("#" + id).checked;
-        });
+          form_elements.check_fields.forEach((id) => {
+            const prop = ssoConfigurationPage.samlPropOf(id);
+            current_config[prop] = page.querySelector("#" + id).checked;
+          });
 
-        form_elements.text_list_fields.forEach((id) => {
-          const prop = ssoConfigurationPage.samlPropOf(id);
-          current_config[prop] = ssoConfigurationPage.parseTextList(
-            page.querySelector("#" + id),
+          form_elements.text_list_fields.forEach((id) => {
+            const prop = ssoConfigurationPage.samlPropOf(id);
+            current_config[prop] = ssoConfigurationPage.parseTextList(
+              page.querySelector("#" + id),
+            );
+          });
+
+          form_elements.folder_list_fields.forEach((id) => {
+            const prop = ssoConfigurationPage.samlPropOf(id);
+            const elem = page.querySelector("#" + id);
+            current_config[prop] =
+              ssoConfigurationPage.serializeEnabledFolders(elem);
+          });
+
+          form_elements.role_map_fields.forEach((id) => {
+            const prop = ssoConfigurationPage.samlPropOf(id);
+            const elem = page.querySelector("#" + id);
+            current_config[prop] =
+              ssoConfigurationPage.serializeRoleMappings(elem);
+          });
+
+          // Same rule as the OpenID arm above, including the discard.
+          current_config.ProvisioningProfile =
+            page.querySelector("#saml-ProvisioningProfile").value || null;
+          current_config.ProvisioningPolicyTemplate =
+            current_config.ProvisioningProfile === null
+              ? ssoConfigurationPage.readProvisioningTemplate(page, "saml-")
+              : null;
+
+          config.SamlConfigs[provider_name] = current_config;
+
+          ApiClient.updatePluginConfiguration(
+            ssoConfigurationPage.pluginUniqueId,
+            config,
+          ).then(
+            function (result) {
+              Dashboard.processPluginConfigurationUpdateResult(result);
+              ssoConfigurationPage.loadConfiguration(page);
+              ssoConfigurationPage.loadSamlProvider(page, provider_name);
+
+              page.querySelector("#saml-selectProvider").value = provider_name;
+              // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
+              resolve();
+            },
+            function () {
+              reject(new Error("Provider save failed"));
+            },
           );
-        });
-
-        form_elements.folder_list_fields.forEach((id) => {
-          const prop = ssoConfigurationPage.samlPropOf(id);
-          const elem = page.querySelector("#" + id);
-          current_config[prop] =
-            ssoConfigurationPage.serializeEnabledFolders(elem);
-        });
-
-        form_elements.role_map_fields.forEach((id) => {
-          const prop = ssoConfigurationPage.samlPropOf(id);
-          const elem = page.querySelector("#" + id);
-          current_config[prop] =
-            ssoConfigurationPage.serializeRoleMappings(elem);
-        });
-
-        // Same rule as the OpenID arm above, including the discard.
-        current_config.ProvisioningProfile =
-          page.querySelector("#saml-ProvisioningProfile").value || null;
-        current_config.ProvisioningPolicyTemplate =
-          current_config.ProvisioningProfile === null
-            ? ssoConfigurationPage.readProvisioningTemplate(page, "saml-")
-            : null;
-
-        config.SamlConfigs[provider_name] = current_config;
-
-        ApiClient.updatePluginConfiguration(
-          ssoConfigurationPage.pluginUniqueId,
-          config,
-        ).then(
-          function (result) {
-            Dashboard.processPluginConfigurationUpdateResult(result);
-            ssoConfigurationPage.loadConfiguration(page);
-            ssoConfigurationPage.loadSamlProvider(page, provider_name);
-
-            page.querySelector("#saml-selectProvider").value = provider_name;
-            // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
-            resolve();
-          },
-          function () {
-            reject(new Error("Provider save failed"));
-          },
-        );
-      });
+        })
+        // The same reason saveProvider states above (#1577): the arm inside belongs to the write, and a
+        // failed READ would otherwise leave this promise unsettled and the pressed Save silent.
+        .catch(() => reject(new Error("Provider save failed")));
     });
   },
   // Test-connection for a SAVED SAML provider (#163). Calls the elevation-gated SAML/Test endpoint, which

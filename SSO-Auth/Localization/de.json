@@ -211,5 +211,6 @@
   "config.server_settings_save_failed": "Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde KEINER der beiden Schalter geändert – beide gehören zu einem Dokument und werden gemeinsam oder gar nicht geschrieben. Laden Sie die Seite neu, um den gespeicherten Stand zu sehen, und versuchen Sie es erneut.",
   "config.server_settings_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts gespeichert und keiner der beiden Schalter geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
   "config.provider_removed": "Anbieter entfernt.",
-  "config.provider_remove_failed": "Der Anbieter konnte nicht entfernt werden: Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut."
+  "config.provider_remove_failed": "Der Anbieter konnte nicht entfernt werden: Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
+  "config.config_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut."
 }

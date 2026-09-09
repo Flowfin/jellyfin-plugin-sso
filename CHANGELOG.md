@@ -735,6 +735,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A failed configuration read no longer leaves a pressed Save with no outcome
+  at all (#1577).** Saving or deleting a provider reads the stored configuration
+  before it writes, and four of those reads had no failure arm. The two saves
+  wrap their write in a promise that only the write settled, so a read that
+  failed - an expired dashboard session, a server error, or the very restart the
+  editor asks for after a save - left that promise hanging: neither outcome arm
+  ran and pressing Save did nothing visible whatsoever, which is the one failure
+  a settings page can make that looks exactly like success. All four now answer,
+  and the two deletes say in the editor that nothing was read and therefore
+  nothing was changed.
+
 - **A refused account-link import no longer logs a different sentence from
   the one it answers, and the default-provider line is sanitized (#1566).**
   Two residuals of #1557. The refusal a link import answers is a sentence this
