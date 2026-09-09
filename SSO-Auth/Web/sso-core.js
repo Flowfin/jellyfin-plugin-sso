@@ -305,18 +305,29 @@ const ssoConfigurationPage = {
       ApiClient.getUrl("sso/Config/Managed"),
     ).then(
       (report) => {
+        // AN EMPTY REPORT AND SOMETHING THAT IS NOT THE REPORT ARE NOT THE SAME ANSWER (#1597). Each member
+        // is kept as `null` until it is seen to be a list, so the arm can tell the two apart; a report
+        // naming any one of the three is the report, whatever the other two are, because a server with no
+        // SAML provider legitimately sends an empty list for that member.
+        const listOrNothing = (member) =>
+          Array.isArray(member) ? member : null;
+        const oid = listOrNothing(report && report.OidConfigs);
+        const saml = listOrNothing(report && report.SamlConfigs);
+        const profiles = listOrNothing(report && report.ProvisioningProfiles);
+
+        if (oid === null && saml === null && profiles === null) {
+          // A 200 carrying none of the three is a body that reached this page instead of the report - a
+          // proxy's error page that happens to parse, a version-skewed endpoint, a truncated body. Reading
+          // it as "nothing is managed" is the #1589 fail-open arriving through the arm that believes it
+          // succeeded, and it is worse there, because that arm also clears the flag that would have said so.
+          ssoConfigurationPage.managedReportUnread = true;
+          return;
+        }
+
         ssoConfigurationPage.managedProviders = {
-          OidConfigs: Array.isArray(report && report.OidConfigs)
-            ? report.OidConfigs
-            : [],
-          SamlConfigs: Array.isArray(report && report.SamlConfigs)
-            ? report.SamlConfigs
-            : [],
-          ProvisioningProfiles: Array.isArray(
-            report && report.ProvisioningProfiles,
-          )
-            ? report.ProvisioningProfiles
-            : [],
+          OidConfigs: oid || [],
+          SamlConfigs: saml || [],
+          ProvisioningProfiles: profiles || [],
         };
         ssoConfigurationPage.managedReportUnread = false;
       },
