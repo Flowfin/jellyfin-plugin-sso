@@ -155,7 +155,7 @@ internal sealed class SsoLoginEvents
         {
             // Never let a notification decide a login's answer. The denial has already been settled by the
             // policy above this call; this only reports it.
-            _logger.LogWarning(ex, "Could not publish the SSO denial event ({Reason}) for provider {Provider} within {Budget}. The login was refused regardless.", reason, provider?.ReplaceLineEndings(string.Empty), _budget);
+            _logger.LogWarning(ex, "Could not publish the SSO denial event ({Reason}) for provider {Provider} within {Budget}. The login was refused regardless.", reason, provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), _budget);
         }
     }
 }

@@ -127,7 +127,7 @@ internal static class ProviderConfigValidator
             // alone would let e.g. ESC survive into the exception text and any log that captures it -
             // strip ALL controls inline here, then the two non-control line separators (U+2028/U+2029)
             // that ReplaceLineEndings covers and char.IsControl does not.
-            var echoName = string.Concat((provider ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var echoName = string.Concat((provider ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
             throw new ArgumentException(
                 $"{protocol} provider '{echoName}' has a name with control characters, URI-reserved characters, or a backslash; the name becomes part of the callback URL registered with the identity provider, so a new name must not contain control characters, a backslash, or any of % : / ? # [ ] @ ! $ & ' ( ) * + , ; =.",
                 nameof(provider));
@@ -152,7 +152,7 @@ internal static class ProviderConfigValidator
         if (config?.RequireAcr == true && string.IsNullOrWhiteSpace(config.AcrValues))
         {
             throw new ArgumentException(
-                $"OpenID provider '{provider?.ReplaceLineEndings(string.Empty)}' sets RequireAcr but no Acr Values; set the required acr_values (space-separated) the returned acr must match, or turn RequireAcr off.",
+                $"OpenID provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' sets RequireAcr but no Acr Values; set the required acr_values (space-separated) the returned acr must match, or turn RequireAcr off.",
                 nameof(config));
         }
     }
@@ -175,7 +175,7 @@ internal static class ProviderConfigValidator
         if (CanonicalBaseUrl.IsInvalidOverride(baseUrlOverride))
         {
             throw new ArgumentException(
-                $"{protocol} provider '{provider?.ReplaceLineEndings(string.Empty)}' has an invalid Base URL override; it must be an absolute http(s) URL such as https://jellyfin.example.com.",
+                $"{protocol} provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has an invalid Base URL override; it must be an absolute http(s) URL such as https://jellyfin.example.com.",
                 nameof(baseUrlOverride));
         }
     }
@@ -220,7 +220,7 @@ internal static class ProviderConfigValidator
         if (!OidcLogout.IsAllowedPostLogoutRedirect(postLogoutRedirectUri, canonicalBase, out _))
         {
             throw new ArgumentException(
-                $"{protocol} provider '{provider?.ReplaceLineEndings(string.Empty)}' has a Post Logout Redirect URI that is not at or under the configured Base URL; it must be an absolute http(s) URL at or under this server's base URL, or it is ignored at logout. Leave it blank for no post-logout redirect.",
+                $"{protocol} provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has a Post Logout Redirect URI that is not at or under the configured Base URL; it must be an absolute http(s) URL at or under this server's base URL, or it is ignored at logout. Leave it blank for no post-logout redirect.",
                 nameof(postLogoutRedirectUri));
         }
     }
@@ -254,7 +254,7 @@ internal static class ProviderConfigValidator
             || !normalized.StartsWith("https://", StringComparison.Ordinal))
         {
             throw new ArgumentException(
-                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty)}' has an invalid SAML SLO Endpoint; it must be an absolute https URL such as https://idp.example.com/slo, or left blank to disable SP-initiated Single Logout.",
+                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has an invalid SAML SLO Endpoint; it must be an absolute https URL such as https://idp.example.com/slo, or left blank to disable SP-initiated Single Logout.",
                 nameof(sloEndpoint));
         }
     }
@@ -275,7 +275,7 @@ internal static class ProviderConfigValidator
         if (SamlCertificate.IsInvalid(certificate ?? string.Empty))
         {
             throw new ArgumentException(
-                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty)}' has an invalid signing certificate; it must be a Base64-encoded (DER) X.509 certificate.",
+                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has an invalid signing certificate; it must be a Base64-encoded (DER) X.509 certificate.",
                 nameof(certificate));
         }
     }
@@ -299,7 +299,7 @@ internal static class ProviderConfigValidator
         if (SamlCertificate.IsInvalid(certificate ?? string.Empty))
         {
             throw new ArgumentException(
-                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty)}' has an invalid secondary signing certificate; it must be a Base64-encoded (DER) X.509 certificate.",
+                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has an invalid secondary signing certificate; it must be a Base64-encoded (DER) X.509 certificate.",
                 nameof(certificate));
         }
     }
@@ -344,8 +344,8 @@ internal static class ProviderConfigValidator
                 continue;
             }
 
-            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
-            var echoPerm = string.Concat((mapping.Permission ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
+            var echoPerm = string.Concat((mapping.Permission ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
             var reason = status switch
             {
                 PermissionRolePolicy.PermissionNameStatus.Empty => "has an empty permission name",
@@ -369,7 +369,7 @@ internal static class ProviderConfigValidator
     /// <param name="template">The provisioning template to check.</param>
     /// <exception cref="ArgumentException">The template names an invalid or dedicated permission, or carries a negative number.</exception>
     internal static void ValidateProvisioningTemplate(string protocol, string provider, ProvisioningPolicyTemplate? template)
-        => ValidateTemplateFields($"{protocol} provider '{(provider ?? string.Empty).ReplaceLineEndings(string.Empty)}'", template);
+        => ValidateTemplateFields($"{protocol} provider '{(provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(')}'", template);
 
     // The template checks themselves, over whatever names the template being judged - a provider carrying an
     // inline one, or a named profile several providers share (#1105). One implementation, so a profile cannot
@@ -397,7 +397,7 @@ internal static class ProviderConfigValidator
                 continue;
             }
 
-            var echoPerm = string.Concat((entry.Permission ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var echoPerm = string.Concat((entry.Permission ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
             var reason = status switch
             {
                 PermissionRolePolicy.PermissionNameStatus.Empty => "has an entry with an empty permission name",
@@ -438,7 +438,7 @@ internal static class ProviderConfigValidator
         if (template.SubtitleMode != null
             && !ProvisioningPolicy.TryParseSubtitleMode(template.SubtitleMode, out _))
         {
-            var echoMode = string.Concat(template.SubtitleMode.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var echoMode = string.Concat(template.SubtitleMode.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
             throw new ArgumentException(
                 $"{subject} has an invalid provisioning template: it names subtitle mode '{echoMode}', which is not a known Jellyfin SubtitlePlaybackMode. Use the exact enum name (for example Default, Always, OnlyForced, or Smart), or leave it unset to keep Jellyfin's default.",
                 nameof(template));
@@ -453,7 +453,7 @@ internal static class ProviderConfigValidator
         {
             var reason = refusedSection is null
                 ? $"lists {template.HomeSections.Count} home-screen sections, more than the {HomeScreenPolicy.SlotCount} slots the web client renders"
-                : $"names home-screen section '{string.Concat(refusedSection.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty)}', which is not a known Jellyfin HomeSectionType";
+                : $"names home-screen section '{string.Concat(refusedSection.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(')}', which is not a known Jellyfin HomeSectionType";
             throw new ArgumentException(
                 $"{subject} has an invalid provisioning template: it {reason}. Use the exact enum names (for example SmallLibraryTiles, Resume, NextUp, LatestMedia, or None), one per slot from the top and at most {HomeScreenPolicy.SlotCount}, or leave the list empty to keep Jellyfin's own layout.",
                 nameof(template));
@@ -485,7 +485,7 @@ internal static class ProviderConfigValidator
             }
 
             ValidateTemplateFields(
-                $"Provisioning profile '{string.Concat(kvp.Key.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty)}'",
+                $"Provisioning profile '{string.Concat(kvp.Key.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(')}'",
                 kvp.Value);
         }
     }
@@ -519,8 +519,8 @@ internal static class ProviderConfigValidator
             return;
         }
 
-        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
-        var echoProfile = string.Concat(profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
+        var echoProfile = string.Concat(profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
 
         if (config!.ProvisioningPolicyTemplate != null)
         {
@@ -568,7 +568,7 @@ internal static class ProviderConfigValidator
             return;
         }
 
-        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+        var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
 
         foreach (var mapping in mappings)
         {
@@ -586,7 +586,7 @@ internal static class ProviderConfigValidator
                     nameof(config));
             }
 
-            var echoProfile = string.Concat(mapping.Profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+            var echoProfile = string.Concat(mapping.Profile.Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
 
             // A row listing no role never matches, so it would sit in the map looking like a rule while
             // selecting nothing - the same failure ValidateParentalRatingMappings refuses for the same reason.
@@ -637,7 +637,7 @@ internal static class ProviderConfigValidator
                 continue;
             }
 
-            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
             if (mapping.Score < 0)
             {
                 throw new ArgumentException(
@@ -678,13 +678,13 @@ internal static class ProviderConfigValidator
                 continue;
             }
 
-            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
 
             // One parse, shared with the login path: the validator refuses exactly what the resolver would
             // skip, so a saved mapping is one the mint can act on rather than one it silently drops.
             if (!SyncPlayAccessPolicy.TryParseAccess(mapping.Access, out _))
             {
-                var echoAccess = string.Concat((mapping.Access ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty);
+                var echoAccess = string.Concat((mapping.Access ?? string.Empty).Where(c => !char.IsControl(c))).ReplaceLineEndings(string.Empty).Replace('[', '(');
                 throw new ArgumentException(
                     $"{protocol} provider '{echoName}' has an invalid SyncPlay-access mapping: '{echoAccess}' is not a SyncPlay access level. Use the exact spelling CreateAndJoinGroups, JoinGroups or None.",
                     nameof(mappings));
@@ -725,7 +725,7 @@ internal static class ProviderConfigValidator
                 continue;
             }
 
-            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty);
+            var echoName = (provider ?? string.Empty).ReplaceLineEndings(string.Empty).Replace('[', '(');
             if (mapping.DurationHours <= 0)
             {
                 throw new ArgumentException(
@@ -768,7 +768,7 @@ internal static class ProviderConfigValidator
         if (SamlSigningKey.IsInvalid(signingKeyPfx ?? string.Empty))
         {
             throw new ArgumentException(
-                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty)}' has an invalid request signing key; it must be a Base64-encoded, unencrypted PKCS#12 (PFX) blob containing an RSA or ECDSA private key.",
+                $"SAML provider '{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(')}' has an invalid request signing key; it must be a Base64-encoded, unencrypted PKCS#12 (PFX) blob containing an RSA or ECDSA private key.",
                 nameof(signingKeyPfx));
         }
     }

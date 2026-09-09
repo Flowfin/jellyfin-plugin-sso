@@ -141,7 +141,7 @@ internal sealed class AvatarService
 
         if (!AvatarUrlValidator.IsAllowedUrl(avatarUrl, out var avatarUri))
         {
-            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatarUrl.ReplaceLineEndings(string.Empty));
+            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatarUrl.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -203,7 +203,7 @@ internal sealed class AvatarService
                 // Log the rejected type sanitized inline at the log call (mediaType is server-controlled),
                 // and keep the thrown/caught exception message generic so no untrusted text reaches the
                 // logged exception - mirrors the disallowed-URL warning above.
-                _logger.LogWarning("Refusing avatar with disallowed content type: {MediaType}", (mediaType ?? "(none)").ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("Refusing avatar with disallowed content type: {MediaType}", (mediaType ?? "(none)").ReplaceLineEndings(string.Empty).Replace('[', '('));
                 throw new InvalidOperationException("Avatar content type is not an allowed raster image.");
             }
 
@@ -264,7 +264,7 @@ internal sealed class AvatarService
             _logger.LogWarning(
                 "Timed out after {TimeoutSeconds}s waiting for another login to finish storing the SSO avatar for user: {Username}; skipping this store.",
                 _storeLockAcquireTimeout.TotalSeconds,
-                user.Username?.ReplaceLineEndings(string.Empty));
+                user.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -291,7 +291,7 @@ internal sealed class AvatarService
         {
             _logger.LogWarning(
                 "Refusing to store the SSO avatar: username is not a safe path component: {Username}",
-                user.Username?.ReplaceLineEndings(string.Empty));
+                user.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 

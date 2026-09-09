@@ -125,7 +125,7 @@ internal static class ChallengeNewPathResolver
             // every persist failure is handled identically - but logged so a persistently failing config
             // write stays observable rather than silently accepted forever (mirrors AvatarService's
             // best-effort avatar fetch).
-            logger?.LogWarning(ex, "Could not record the NewPath redirect spelling for provider {Provider}; this login proceeds with its own derived value.", provider?.ReplaceLineEndings(string.Empty));
+            logger?.LogWarning(ex, "Could not record the NewPath redirect spelling for provider {Provider}; this login proceeds with its own derived value.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return derived;
         }
     }

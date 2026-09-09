@@ -516,7 +516,7 @@ public class SSOController : ControllerBase
                 // is logged.
                 if (_logger.IsEnabled(LogLevel.Error))
                 {
-                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty), ex.Message);
+                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
                 }
             }
         }
@@ -1252,7 +1252,7 @@ public class SSOController : ControllerBase
         {
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty), ex.Message);
+                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
             }
         }
 
@@ -1729,7 +1729,7 @@ public class SSOController : ControllerBase
             var (firstProtocol, firstProvider, firstSource) = managed[0];
             return BadRequest(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
+                $"{ManagedProviderRefusal(firstProtocol, firstProvider, firstSource)} The import names {managed.Count} declaratively managed provider(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         // #1102: the same refusal for a profile the document REDEFINES. A managed provider is what an
@@ -1748,7 +1748,7 @@ public class SSOController : ControllerBase
             var (firstProfile, firstProfileSource) = managedProfiles[0];
             return BadRequest(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{ManagedProfileRefusal(firstProfile, firstProfileSource)} The import redefines {managedProfiles.Count} declaratively defined provisioning profile(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty));
+                $"{ManagedProfileRefusal(firstProfile, firstProfileSource)} The import redefines {managedProfiles.Count} declaratively defined provisioning profile(s) and none of it was applied; remove them from the document and import the rest.").ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         try
@@ -1764,7 +1764,7 @@ public class SSOController : ControllerBase
             // The validator and the import throw ArgumentException for a hostile/malformed document (a bad
             // Base URL override, an unloadable certificate/key, a reserved-character provider name, an
             // unsupported version). Strip line endings from the echoed message so it cannot split a log line.
-            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
+            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         // Audit the import and any provider that arrived with a security check disabled (#140), so importing
@@ -1910,10 +1910,10 @@ public class SSOController : ControllerBase
             // importer builds its refusals under.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
-            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
+            return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         var result = LinkImportResultDocument.Of(restored);
@@ -2454,7 +2454,7 @@ public class SSOController : ControllerBase
                 // Capped, like the link import's own refusal: a server where many accounts hold
                 // administrator would otherwise make this body as long as the roster, on one request.
                 var overflow = outcome.StrandedAdministrators.Count - NamedStrandedAdministrators;
-                var stranded = string.Join(", ", outcome.StrandedAdministrators.Take(NamedStrandedAdministrators)).ReplaceLineEndings(string.Empty)
+                var stranded = string.Join(", ", outcome.StrandedAdministrators.Take(NamedStrandedAdministrators)).ReplaceLineEndings(string.Empty).Replace('[', '(')
                     + (overflow > 0 ? FormattableString.Invariant($" and {overflow} more") : string.Empty);
                 return StatusCode(
                     StatusCodes.Status409Conflict,

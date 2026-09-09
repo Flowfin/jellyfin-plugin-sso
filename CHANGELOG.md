@@ -813,6 +813,35 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An identity-provider value can no longer plant an audit record in any line
+  this plugin writes, not only in the audit trail's own (#1557).** The repair for
+  #1555 made `SsoAudit` unable to print a foreign value that reproduces the
+  `[SSO Audit] ` marker, and stopped there. The thing an operator searches is the
+  log **file**, and around ninety other places in this plugin put an
+  identity-provider- or request-supplied value into a line under the line-ending
+  strip alone - so the marker still travelled through them, on one physical line,
+  and an unanchored search or a substring rule in a SIEM still reported a login
+  that never happened. Four of those sites are reachable without any credential
+  or with only the ordinary shape of a login: the **OpenID callback's
+  `error_description`**, which a visitor supplies by returning to the redirect
+  endpoint with a query of their choosing; the **account-name sanitization
+  notice**, which fires on the first login of any user whose presented name
+  carries a character Jellyfin does not accept - an opening square bracket being
+  one of them; the **refused avatar URL**, logged precisely because it failed the
+  URL check, so no parseable URL is needed; and the **SAML role refusal**, which
+  prints the assertion's NameID. Every foreign value the plugin logs now carries
+  the same bracket substitution the audit emitter carries, spelled out inline in
+  the argument so the analyzer still sees it, and a conformance rule refuses a
+  file that strips a value's line endings without substituting its bracket - so
+  the ninety-first site added next month cannot reopen this quietly. **A value
+  that legitimately carries an opening square bracket prints a round one in these
+  lines**, as it already did in the audit trail. The values a line prints exactly
+  on purpose - the paths this server composed for itself - are named in the rule
+  rather than noticed as an absence, and the one place the two sanitizers are
+  spelled apart is named with its reason: the plugin's own truncation marker opens
+  with a bracket, so the substitution runs on the provider's error before the
+  marker is appended rather than over the composed argument.
+
 - **The account-link import no longer stores an issuer the provider could not
   have issued (#1518).** The import wrote the OpenID issuer an operator's backup
   file named and compared it to nothing. The one guard beside it fires only when
