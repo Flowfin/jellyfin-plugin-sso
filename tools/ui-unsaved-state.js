@@ -859,16 +859,17 @@ async function main() {
     const originalSet = core.managedProviders;
     const originalUnread = core.managedReportUnread;
     let rejecting = false;
+    let serving = {
+      OidConfigs: ["file-owned"],
+      SamlConfigs: [],
+      ProvisioningProfiles: ["file-profile"],
+    };
     globalThis.ApiClient = {
       getUrl: (url) => url,
       getJSON: () =>
         rejecting
           ? Promise.reject(new Error("sso/Config/Managed answered 500"))
-          : Promise.resolve({
-              OidConfigs: ["file-owned"],
-              SamlConfigs: [],
-              ProvisioningProfiles: ["file-profile"],
-            }),
+          : Promise.resolve(serving),
     };
 
     // The report arrives once, which is the state a transient failure then has to survive.
@@ -971,6 +972,74 @@ async function main() {
       refuse(
         "managed-report-failure",
         "an unfrozen editor went on warning about a report that is being read fine",
+      );
+    }
+
+    // A 200 that is not the report at all (#1597). The rejection arm above is careful; this one used to
+    // believe it had succeeded, so it emptied the set AND cleared the flag that would have said otherwise -
+    // the same fail-open through the door that reports nothing. Two bodies are served: one carrying none of
+    // the three members, and one carrying a single empty member, which IS the report and must still be read
+    // as one.
+    serving = { detail: "502 Bad Gateway" };
+    await core.loadManagedProviders();
+    if (!core.isManagedProvider("oid", "file-owned")) {
+      refuse(
+        "managed-report-failure",
+        "a body that is not the report unfroze a provider a configuration file owns",
+      );
+    }
+    if (!core.managedReportUnread) {
+      refuse(
+        "managed-report-failure",
+        "a body that is not the report was counted as having read the set",
+      );
+    }
+
+    serving = null;
+    await core.loadManagedProviders();
+    if (
+      !core.isManagedProvider("oid", "file-owned") ||
+      !core.managedReportUnread
+    ) {
+      refuse(
+        "managed-report-failure",
+        "a body of null was read as a report saying nothing is managed",
+      );
+    }
+
+    // The other direction of the same boundary, and the one that costs availability if it is wrong: an
+    // ordinary server with nothing managed sends three empty lists, and that IS the report. Read as "not
+    // the report" it would warn on every editor forever on the commonest installation there is.
+    serving = { OidConfigs: [], SamlConfigs: [], ProvisioningProfiles: [] };
+    await core.loadManagedProviders();
+    if (core.managedReportUnread) {
+      refuse(
+        "managed-report-failure",
+        "a server with nothing managed was treated as one whose report could not be read",
+      );
+    }
+    if (core.isManagedProvider("oid", "file-owned")) {
+      refuse(
+        "managed-report-failure",
+        "an empty report left a provider frozen from the set before it",
+      );
+    }
+
+    // And a report naming ONE member is still the report. The guard asks whether all three are missing
+    // rather than whether any one is, and this is the arm that says which: a server is free to answer with
+    // only the members it has, and a page that refused that would warn forever on a real installation.
+    serving = { SamlConfigs: ["saml-owned"] };
+    await core.loadManagedProviders();
+    if (!core.isManagedProvider("saml", "saml-owned")) {
+      refuse(
+        "managed-report-failure",
+        "a report naming one member was thrown away as though it were not the report",
+      );
+    }
+    if (core.managedReportUnread) {
+      refuse(
+        "managed-report-failure",
+        "a report naming one member was counted as a read that did not happen",
       );
     }
 
