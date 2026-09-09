@@ -211,5 +211,6 @@
   "config.server_settings_save_failed": "The server refused the saved configuration, so NEITHER switch was changed - the two ride one document and are written together or not at all. Reload the page to see what is stored, and try again.",
   "config.server_settings_read_failed": "Could not read the stored configuration, so nothing was saved and neither switch was changed. Reload the page and try again.",
   "config.provider_removed": "Provider removed.",
-  "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again."
+  "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
+  "config.config_read_failed": "Could not read the stored configuration, so nothing was changed. Reload the page and try again."
 }
