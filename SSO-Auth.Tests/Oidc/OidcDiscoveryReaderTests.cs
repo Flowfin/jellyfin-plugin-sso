@@ -337,10 +337,24 @@ public class OidcDiscoveryReaderTests
         // the read closed, and no screen refusal is recorded for it. The day the read stops being pre-buffered
         // this row goes red: the two arms become reachable, the screen starts refusing here, and their
         // retention becomes checkable instead of decorative.
+        //
+        // THE READ IS MADE TWICE AND ONLY THE SECOND IS ASSERTED (#1591). Which failure arrives is a race
+        // the reader itself starts: it gives a fetch FetchTimeout to complete, and the first read a process
+        // makes pays the first touch of the whole fetch graph inside that budget. On a cold process here
+        // that first touch has outlasted the budget, the timeout won the race, and the row read a timeout
+        // error rather than the copy failure it is named for - so it said different things on a cold process
+        // and a warm one. The warm-up spends the first touch outside the read under assertion. Widening
+        // FetchTimeout would do the same thing by moving a production bound this row does not own.
+        var warmUp = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
+        await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", warmUp.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
+
+
         var http = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
+
         var logger = new CapturingLogger();
 
         var result = await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", http.Factory, logger, cancellationToken: TestContext.Current.CancellationToken);
+
 
         Assert.False(result.Available);
         Assert.DoesNotContain(logger.Entries, e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal));
