@@ -229,14 +229,6 @@ internal sealed class LoginCompletionService
     // indistinguishable from an unlimited account, and disabling on it would make that same transient change
     // indistinguishable from a real expiry - so the fail-closed answer is to refuse this login and leave the
     // account exactly as it was.
-    // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
-    // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
-    // reading it here is reading the host's own value rather than deriving a second one beside it. The
-    // parameter is nullable and the presented name is the fallback because a host that returned no user
-    // raised no event either, and an audit line is never worth throwing a completed login away for.
-    private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
-        => authenticationResult?.User?.Name ?? identity.Username;
-
     private async Task<ActionResult?> EnforceAccountExpiryAsync(VerifiedIdentity identity, Guid userId)
     {
         if (_canonicalLinks.IsAccountAdministrator(userId))
@@ -325,4 +317,13 @@ internal sealed class LoginCompletionService
             _logger.LogError(ex, "Failed to capture the Single Logout session state after a successful login; logout propagation will be unavailable for this session.");
         }
     }
+
+    // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
+    // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
+    // reading it here is reading the host's own value rather than deriving a second one beside it. The
+    // parameter is nullable and the presented name is the fallback because a host that returned no user
+    // raised no event either, and an audit line is never worth throwing a completed login away for. Empty
+    // counts as absent for the same reason: a blank name correlates with nothing.
+    private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
+        => string.IsNullOrEmpty(authenticationResult?.User?.Name) ? identity.Username : authenticationResult.User.Name;
 }

@@ -203,7 +203,11 @@ What the plugin can do: record the header path under its own protocol label in
 the audit trail rather than folding it into the two existing ones, and record the
 peer address the login was accepted from, which is the only piece of evidence
 that exists. Today the success record carries the username, the protocol, the
-provider and whether administrator rights were granted, and no address:
+provider and whether administrator rights were granted, and no address. The
+quotation below is pinned to `origin/main`, which is where it was taken; on the
+`4.4` line the username field became the RESOLVED Jellyfin account rather than
+the name the provider presented, with the presented name appended where the two
+differ (#1551). Neither change adds an address, so nothing in this section moves.
 
 ```
 $ git show origin/main:SSO-Auth/Api/Audit/SsoAudit.cs | sed -n '35,41p'

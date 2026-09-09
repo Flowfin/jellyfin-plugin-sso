@@ -23,9 +23,11 @@ internal static class SsoAudit
     /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
     /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
     /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
-    /// (#1551). The provider-presented name can differ from it - an existing link resolves an account under
-    /// whatever name it already carries, and <c>SyncUsernameFromProvider</c> is off by default - so it is
-    /// named too, and only where it differs, so an unchanged login writes the line it always wrote.
+    /// (#1551). The provider-presented name can differ from the account's for more than one reason - an
+    /// existing link resolves an account under whatever name it already carries and
+    /// <c>SyncUsernameFromProvider</c> is off by default; a created account was provisioned under the
+    /// host's own name allowlist, which drops characters the provider's name may carry; a requested rename
+    /// can have been declined - so the presented name is carried too, and only where the two differ.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
@@ -43,7 +45,17 @@ internal static class SsoAudit
             return;
         }
 
-        if (presentedUsername is not null && !string.Equals(presentedUsername, username, StringComparison.Ordinal))
+        // The decision is taken on the values AS THEY WILL BE PRINTED, never on the raw ones. Both names are
+        // stripped of line endings on the way into the line, so a provider presenting "alice\r\n" against the
+        // account "alice" compares unequal raw and prints two identical names - a line asserting a difference
+        // its own evidence denies, which an identity provider can produce at will. The sanitizer is still
+        // spelled out inline at each logging call below rather than being passed down from here, because
+        // CodeQL's cs/log-forging taint tracking does not follow it across an assignment.
+        if (presentedUsername is not null
+            && !string.Equals(
+                presentedUsername.ReplaceLineEndings(string.Empty),
+                username?.ReplaceLineEndings(string.Empty),
+                StringComparison.Ordinal))
         {
             logger.LogInformation(
                 "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}'.",

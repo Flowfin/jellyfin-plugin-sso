@@ -95,6 +95,21 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void LoginSucceeded_APresentedNameDifferingOnlyInStrippedCharacters_AddsNothingToTheLine()
+    {
+        // The decision is taken on what the line will PRINT, not on the raw values. Compared raw, these two
+        // are different strings; printed, they are the same name - so a raw comparison emits a line asserting
+        // a difference and then showing two identical names, which an identity provider can produce at will
+        // just by appending a newline to the name it presents.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: false, presentedUsername: "alice\r\n");
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False).", message);
+    }
+
+    [Fact]
     public void LoginSucceeded_APresentedNameEqualToTheAccountName_AddsNothingToTheLine()
     {
         // The clause exists for the drift arm only. Every other login writes what it always wrote, and this

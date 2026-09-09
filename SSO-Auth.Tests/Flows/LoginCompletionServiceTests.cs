@@ -439,6 +439,7 @@ public class LoginCompletionServiceTests
         await sessions.DidNotReceive().AuthenticateDirect(Arg.Any<AuthenticationRequest>());
         await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
     }
+
     [Fact]
     public async Task CompleteAsync_AResolvedAccountNamedDifferently_IsNamedByTheAccount_AndThePresentedNameBeside()
     {
