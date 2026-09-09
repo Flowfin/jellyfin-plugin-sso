@@ -22,10 +22,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 public partial class ArchitectureConformanceTests
 {
     private static string LinkedAccountsScript()
-        => File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
+        => WebAssets.Script();
 
     private static string LinkedAccountsMarkup()
-        => File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
+        => WebAssets.Markup();
 
     private static IReadOnlyDictionary<string, string> LinkedAccountsEnglishCatalog()
         => JsonSerializer.Deserialize<Dictionary<string, string>>(

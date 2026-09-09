@@ -43,7 +43,16 @@ public class SSOPluginPageManifestTests
             new[]
             {
                 ("SSO-Auth", $"{ns}.Web.configPage.html"),
-                ("SSO-Auth.js", $"{ns}.Web.config.js"),
+                ("SSO-Auth.js", $"{ns}.Web.overview.js"),
+                ("SSO-Auth-providers", $"{ns}.Web.providersPage.html"),
+                ("SSO-Auth-providers.js", $"{ns}.Web.providers.js"),
+                ("SSO-Auth-accounts", $"{ns}.Web.accountsPage.html"),
+                ("SSO-Auth-accounts.js", $"{ns}.Web.accounts.js"),
+                ("SSO-Auth-policies", $"{ns}.Web.policiesPage.html"),
+                ("SSO-Auth-policies.js", $"{ns}.Web.policies.js"),
+                ("SSO-Auth-server", $"{ns}.Web.serverPage.html"),
+                ("SSO-Auth-server.js", $"{ns}.Web.server.js"),
+                ("SSO-Auth-core.js", $"{ns}.Web.sso-core.js"),
                 ("SSO-Auth.css", $"{ns}.Web.style.css"),
                 ("SSO-Auth-linking", $"{ns}.Web.linking.html"),
                 ("SSO-Auth-linking.js", $"{ns}.Web.linking.js"),

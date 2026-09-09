@@ -387,18 +387,29 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     // Both tables below are the plugin's public URL contract (#370): the first element of each Page()
-    // pair is the name a caller (the admin config page, the linking page, SSOViewsController) requests
-    // an asset by, matched case-sensitively (SSOViewsController.GetView); the second is the embedded
-    // resource path suffix, which must match the source file's actual on-disk name and casing under
-    // this project's default (path-derived) embedded-resource naming. Every served asset lives under the
-    // one flat Web/ folder, so the suffix is Web.<file>. The two elements never have to agree with each
-    // other, but changing either one changes what breaks: renaming the registered name breaks every
-    // caller of that URL (config.js, linking.html, config page markup); renaming/moving the source file
-    // without updating the resource suffix here breaks the embedded-resource lookup at runtime (a 404,
-    // since GetManifestResourceStream is also case-sensitive). Web.style.css is deliberately published
-    // under two different registered names below - "SSO-Auth.css" (GetPages, the admin config page's own
-    // stylesheet load) and "style.css" (GetViews, the public linking page) - the same resource, two
-    // unrelated consumers with independently-chosen URL conventions, not a casing inconsistency.
+    // pair is the name a caller (a configuration page, the linking page, SSOViewsController) requests an
+    // asset by; the second is the embedded resource path suffix, which must match the source file's
+    // actual on-disk name and casing under this project's default (path-derived) embedded-resource
+    // naming. Every served asset lives under the one flat Web/ folder, so the suffix is Web.<file>.
+    //
+    // THE TWO TABLES DO NOT MATCH THEIR NAMES THE SAME WAY, and this comment said for both what is true
+    // of one. GetViews is matched with StringComparison.Ordinal, in SSOViewsController.GetView in this
+    // repository. GetPages is matched by the HOST, and Jellyfin's DashboardController resolves it with
+    // StringComparison.OrdinalIgnoreCase - so the mixed case in the page modules' import and the lower
+    // case in addTextAreaStyle both resolve, and neither is a latent 404.
+    //
+    // The two elements of a pair never have to agree with each other, but changing either one changes
+    // what breaks: renaming a registered name breaks every caller of that URL (the tab strip in all five
+    // pages, each page's data-controller, the page modules' core reference, linking.html), and
+    // renaming or moving the source file without updating the resource suffix here breaks the
+    // embedded-resource lookup at runtime, a 404, since GetManifestResourceStream IS case-sensitive.
+    // tools/ui-mock-fields.js reads this table and refuses a link or a controller that names something
+    // it does not register, so the first half of that is a gate rather than a warning.
+    //
+    // Web.style.css is deliberately published under two different registered names below -
+    // "SSO-Auth.css" (GetPages, a configuration page's own stylesheet load) and "style.css" (GetViews,
+    // the public linking page) - the same resource, two unrelated consumers with independently-chosen
+    // URL conventions, not a casing inconsistency.
 
     /// <summary>
     /// Returns the available internal web pages of this plugin.
@@ -407,8 +418,28 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public IEnumerable<PluginPageInfo> GetPages() =>
         new[]
         {
+            // The FIVE tabs (#1527). PageId itself stays the Overview page, because that is the name the
+            // dashboard's plugin list links to and it is the entry an administrator arrives on; the other
+            // four hang off it by suffix, and the tab strip in every page's markup links to exactly these
+            // names. They are the URL contract the comment above describes: a rename here and not in the
+            // strip leaves four dead tabs, and the reverse leaves four pages nothing links to.
             Page(PageId, "Web.configPage.html"),
-            Page(PageId + ".js", "Web.config.js"),
+            Page(PageId + ".js", "Web.overview.js"),
+            Page(PageId + "-providers", "Web.providersPage.html"),
+            Page(PageId + "-providers.js", "Web.providers.js"),
+            Page(PageId + "-accounts", "Web.accountsPage.html"),
+            Page(PageId + "-accounts.js", "Web.accounts.js"),
+            Page(PageId + "-policies", "Web.policiesPage.html"),
+            Page(PageId + "-policies.js", "Web.policies.js"),
+            Page(PageId + "-server", "Web.serverPage.html"),
+            Page(PageId + "-server.js", "Web.server.js"),
+
+            // The shared core the five page scripts load. Registered here rather than under GetViews
+            // because this is the route the pages themselves are served from, so it widens nothing: it is
+            // reachable by exactly the audience that can already fetch the page markup and the five page
+            // scripts beside it. It is not a page anybody navigates to, and no markup names it.
+            Page(PageId + "-core.js", "Web.sso-core.js"),
+
             Page(PageId + ".css", "Web.style.css"),
             Page(PageId + "-linking", "Web.linking.html"),
             Page(PageId + "-linking.js", "Web.linking.js"),

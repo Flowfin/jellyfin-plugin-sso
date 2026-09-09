@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>SSO</title>
+  </head>
+  <body>
+    <div
+      id="sso-accounts-page"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage esqConfigurationPage"
+      data-controller="__plugin/SSO-Auth-accounts.js"
+    >
+      <div data-role="content">
+        <div class="content-primary sso-page">
+          <div class="sectionTitleContainer flex align-items-center">
+            <h2 class="sectionTitle" data-i18n="config.title">SSO Settings:</h2>
+            <a
+              is="emby-button"
+              class="raised button-alt headerHelpButton"
+              target="_blank"
+              rel="noopener noreferrer"
+              href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
+              data-i18n="link.help"
+              >Help</a
+            >
+          </div>
+
+          <!--
+            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
+            navigable before any controller runs and a page whose script failed to load still says where
+            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
+            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
+            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
+            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
+            there breaks the page.
+          -->
+          <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="2">
+            <div class="emby-tabs-slider">
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_overview"
+                data-index="0"
+                href="#/configurationpage?name=SSO-Auth"
+                ><div class="emby-button-foreground" data-i18n="tab.overview">
+                  Overview
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_providers"
+                data-index="1"
+                href="#/configurationpage?name=SSO-Auth-providers"
+                ><div class="emby-button-foreground" data-i18n="tab.providers">
+                  Providers
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_accounts emby-tab-button-active"
+                aria-current="page"
+                data-index="2"
+                href="#/configurationpage?name=SSO-Auth-accounts"
+                ><div class="emby-button-foreground" data-i18n="tab.accounts">
+                  Accounts
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_policies"
+                data-index="3"
+                href="#/configurationpage?name=SSO-Auth-policies"
+                ><div class="emby-button-foreground" data-i18n="tab.policies">
+                  Policies
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_server"
+                data-index="4"
+                href="#/configurationpage?name=SSO-Auth-server"
+                ><div class="emby-button-foreground" data-i18n="tab.server">
+                  Server
+                </div></a
+              >
+            </div>
+          </div>
+
+          <!--
+            The server could not read its stored configuration and is running on defaults (#1543). Hidden
+            until the server says so, and it says so until an administrator imports or saves one - so this
+            is the one statement on the page that is not about what the form in front of you contains, but
+            about whether the form is showing you your settings at all.
+          -->
+          <div
+            id="sso-unreadable-config"
+            class="fieldDescription sso-empty-state"
+            hidden
+          ></div>
+
+          <div class="sso-columns">
+            <div class="sso-column-main">
+              <!--
+            The linked-accounts panel (#1121). Presentation only: it reads the elevation-gated aggregate
+            roster (SSOController.LinkedAccountRoster, #1119) and drives the EXISTING elevation-gated,
+            rate-limited Unregister endpoint. It adds no server route, no second revoke path, and it does not
+            bypass the limiter. Every cell is written with textContent, never innerHTML (#221): a canonical
+            name is whatever the identity provider put in its subject claim and a username is
+            attacker-influenced, and this page is the higher-value target because an administrator opens it.
+            A row whose account no longer exists carries no Revoke button, because Unregister resolves the
+            account by username and can only answer 404 on exactly those rows; the row says so instead.
+            The revoke's confirmation names its consequence - the account is switched back to the built-in
+            password provider, so it can sign in with a password again even on an SSO-only server - which is
+            what #1121 decided, rather than refusing the action there and leaving those servers with no
+            in-dashboard route at all.
+          -->
+              <form id="sso-linked-accounts" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Linked Accounts"
+                  data-i18n-title="config.linked_accounts_title"
+                >
+                  <div class="collapseContent">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.linked_accounts_help"
+                    >
+                      Every Jellyfin account that holds an SSO link, with the
+                      provider and the identity-provider subject behind each
+                      link. Revoking an account removes its links from every
+                      provider, ends every session it holds on every device, and
+                      switches it back to the built-in Jellyfin password
+                      provider - so that account can sign in with a password
+                      again even while this server is otherwise SSO-only, and
+                      the server-wide setting is not changed. A revoke is not
+                      durable where a provider has Allow Existing Account Link
+                      enabled: the same-named account can be re-adopted on its
+                      next SSO login, so disable or rename the local account as
+                      well when the cut has to hold. Requires administrator
+                      privileges.
+                    </div>
+
+                    <button
+                      id="RefreshLinkedAccounts"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit block emby-button"
+                    >
+                      <span data-i18n="config.linked_accounts_refresh"
+                        >Refresh Linked Accounts</span
+                      >
+                    </button>
+
+                    <div id="LinkedAccountsRevokeResult"></div>
+                    <div id="LinkedAccountsResult"></div>
+                  </div>
+                </div>
+              </form>
+
+              <!--
+            Account-link transfer (#1131), on the Accounts tab since #1527. It used to sit in the same
+            section as the configuration transfer so an administrator met both together; the two are now one
+            tab apart, and this is the half that belongs beside the accounts it names. The other half stayed
+            with the rest of the server-wide settings. They are separated for the difference that matters:
+            the configuration export is redacted, this one is not. It carries usernames paired with
+            identity-provider subject identifiers, which is why the server makes an administrator ask for it
+            explicitly (SSOController.ExportLinks) rather than folding it into the configuration export. Both
+            endpoints are elevation-gated; the import is validated whole and applied atomically, and it
+            refuses a canonical name this instance already links to a different account, so a crafted file
+            cannot remap a subject onto another account. Status is rendered with textContent, never
+            innerHTML (#221).
+          -->
+              <form id="sso-link-transfer" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Export / Import Account Links"
+                >
+                  <div class="collapseContent">
+                    <h3
+                      class="checkboxListLabel"
+                      data-i18n="config.link_transfer_title"
+                    >
+                      Export / Import Account Links
+                    </h3>
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.link_transfer_help"
+                    >
+                      Account links are stored against Jellyfin user ids, which
+                      a rebuilt user database does not reissue, so a migration
+                      needs this second file as well as the configuration file
+                      above. It is keyed on usernames and is NOT redacted: it
+                      contains usernames and the identity-provider subject
+                      identifiers behind each link, so treat it as identity
+                      data. Import restores every link onto the account this
+                      server holds for that username today, and rejects the
+                      whole file rather than restoring part of it if it names a
+                      user or a provider this instance does not have, or a link
+                      this instance already holds for a different account.
+                      Requires administrator privileges.
+                    </div>
+
+                    <button
+                      id="ExportLinks"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit block emby-button"
+                    >
+                      <span data-i18n="config.export_links"
+                        >Export Account Links</span
+                      >
+                    </button>
+
+                    <input
+                      id="ImportLinksFile"
+                      type="file"
+                      accept="application/json,.json"
+                      style="display: none"
+                    />
+                    <button
+                      id="ImportLinks"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-alt block emby-button"
+                    >
+                      <span data-i18n="config.import_links"
+                        >Import Account Links</span
+                      >
+                    </button>
+
+                    <div id="LinkTransferResult"></div>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <aside class="sso-column-rail"></aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

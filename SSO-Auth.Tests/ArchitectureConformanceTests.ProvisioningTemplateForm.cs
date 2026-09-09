@@ -34,10 +34,10 @@ public partial class ArchitectureConformanceTests
         ["sso-tmpl-number", "sso-tmpl-text", "sso-tmpl-bool", "sso-tmpl-list", "sso-tmpl-perms"];
 
     private static string ProvisioningTemplateMarkup()
-        => File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
+        => WebAssets.Markup();
 
     private static string ProvisioningTemplateScript()
-        => File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
+        => WebAssets.Script();
 
     private static IReadOnlyList<string> TemplatePropertyNames()
         => typeof(ProvisioningPolicyTemplate)

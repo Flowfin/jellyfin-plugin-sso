@@ -1,30 +1,67 @@
 # Where every field of the configuration page goes
 
-Stage 0 of the 4.4 surface (#1526). One row per form control of
-`SSO-Auth/Web/configPage.html`, with the block it sits in today and the tab and
-accordion it takes in the mock beside this file.
+Written for stage 0 of the 4.4 surface (#1526), when the five pages were a mock
+and the "New tab" column was a plan. Stage 1 (#1527) built them, so the columns
+now describe the tree rather than an intention: one row per form control of the
+five configuration pages under `SSO-Auth/Web/`, with the block it sat in on the
+single page it came from and the tab and accordion it has now.
 
 ## How the number is kept honest
 
-The count is read off the page rather than written here:
+The count is read off the pages rather than written here:
 
 ```
 $ node tools/ui-mock-fields.js
-configPage.html: 123 form controls outside HTML comments
-FIELDS.md:       123 rows
-fields.js:       123 entries
-every field of the page has one row, and no row names a field the page lost
+configPage.html:     0 form controls outside HTML comments
+providersPage.html:107 form controls outside HTML comments
+accountsPage.html:   1 form controls outside HTML comments
+policiesPage.html:  12 form controls outside HTML comments
+serverPage.html:     3 form controls outside HTML comments
+the five pages:    123 in total
+FIELDS.md:         123 rows
+fields.js:         123 entries
+controllers:         5 page controllers checked against the ids their page declares
+page names:         14 registered by SSOPlugin.GetPages, checked against every tab link, controller and core reference
+every field has one row, no row names a field the pages lost, every field is on the page and inside the risk region its row names, no controller reaches off its own page, and every link names a page the plugin registers
 ```
 
 That check compares the id SETS of the three, not their sizes. A row kept for a
 deleted field and a new field with no row cancel out in a count and do not
 cancel out in a set, so it is the set comparison that catches the drift the
-count exists for. It exits non-zero when the three disagree.
+count exists for. It exits non-zero when they disagree, and since #1527 the
+`.NET` workflow runs it, so this is a gate rather than a command somebody
+remembers.
 
-**123 and not 124.** A reader that greps the raw bytes of the page counts 124,
-because the page documents its hidden `selectProvider` inside an HTML comment
-that contains a second `<select>` tag. The check strips comments first, so the
-number it prints is the set of controls an administrator can reach.
+More ways to be wrong are refused by name, and every one of them is a failure
+the split made possible. The count is not written here, for the reason the count
+of controls is not: the tool prints what it refused, and a list in a document
+goes stale against the tool that decides it.
+
+- a control on **two** pages, which is one setting with two owners;
+- a control on a page this table does not name for it, which is the stage-1
+  done-condition itself;
+- a control that has left the `sso-danger-zone` or `sso-sensitive-region` box
+  the **Marked** column declares. That one saves exactly as before and simply
+  stops being presented as dangerous, so nothing else would notice it;
+- a page controller that reaches an id its own page does not declare. The five
+  `initXPage` functions register their handlers unguarded, so one such id is a
+  `TypeError` that leaves the rest of that page's controls inert;
+- an id named anywhere in `sso-core.js` that no page declares at all, which is
+  how a renamed container is caught - containers are not form controls, so the
+  table above does not list them;
+- a tab link, a page's `data-controller`, or a page module's core reference that
+  names something `SSOPlugin.GetPages` does not register. The tab strip is the
+  only route between the five pages, so a name renamed in the table and in the
+  test that pins the table would otherwise ship an Overview with four dead tabs
+  and no way to reach the settings at all.
+
+**123 and not 124.** A reader that greps the raw bytes of the pages counts 124,
+because the Providers page documents its hidden `selectProvider` inside an HTML
+comment that contains a second `<select>` tag. The check strips comments first,
+so the number it prints is the set of controls an administrator can reach.
+
+**Overview holds none of them**, which is not a gap in this table - see the
+section below.
 
 ## What the columns mean
 

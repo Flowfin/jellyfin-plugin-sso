@@ -55,7 +55,7 @@ public partial class ArchitectureConformanceTests
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
 
         var form = OidcProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
+            WebAssets.Markup());
 
         var oidConfigProperties = typeof(OidConfig)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -143,7 +143,7 @@ public partial class ArchitectureConformanceTests
         // rostered, instead of shipping outside the guard.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = OidcProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
+            WebAssets.Markup());
 
         var markedIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match tag in Regex.Matches(form, "<[a-zA-Z][^>]*>", RegexOptions.Singleline))
@@ -214,7 +214,7 @@ public partial class ArchitectureConformanceTests
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
 
         var form = SamlProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
+            WebAssets.Markup());
 
         var samlConfigProperties = typeof(SamlConfig)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -299,7 +299,7 @@ public partial class ArchitectureConformanceTests
         // SamlConfigs dictionary key, not a SamlConfig property) and is asserted present separately.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = SamlProviderFormMarkup(
-            File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html")));
+            WebAssets.Markup());
 
         var markedProps = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match tag in Regex.Matches(form, "<[a-zA-Z][^>]*>", RegexOptions.Singleline))

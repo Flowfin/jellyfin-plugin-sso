@@ -20,10 +20,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 public partial class ArchitectureConformanceTests
 {
     private static string ConfigJs() =>
-        File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
+        WebAssets.Script();
 
     private static string ConfigPageHtml() =>
-        File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
+        WebAssets.Markup();
 
     [Fact]
     public void ConfigPage_ReadsTheManagedSet_FromTheRouteTheServerServes()
