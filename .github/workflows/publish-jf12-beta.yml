@@ -2,8 +2,10 @@ name: Publish JF12 Beta
 
 # The Jellyfin 12.0 (.NET 10) BETA channel - the 5.0 line (#135). Jellyfin 12.0 moves the server to
 # .NET 10 and a 10.11-ABI plugin will not load there, so upgraders need a 12-targeted build. Since
-# #954 the one multi-target codebase (net9.0;net10.0) lives on `main` and BOTH betas publish from it:
-# this leg builds the net10 target and publishes an installable prerelease into the SHARED
+# #954 put both generations on ONE multi-target codebase (net9.0;net10.0). Since #1585 the two legs
+# publish from DIFFERENT refs of it: the JF10.11 leg from `main`, frozen on the 4.3 candidate for its
+# soak, and this leg from the 5.0 development branch. This leg builds the net10 target and publishes
+# an installable prerelease into the SHARED
 # `manifest-beta` branch. Jellyfin filters plugin versions client-side by targetAbi, so one beta
 # manifest carries BOTH generations (4.x at targetAbi 10.11, 5.0 at 12.0) and each server installs only
 # its compatible build - no separate JF12 manifest is needed. (The JF10.11 beta is published by
@@ -14,7 +16,8 @@ name: Publish JF12 Beta
 # committed build.yaml stays the JF10.11 metadata.
 # No push trigger: a beta is no longer minted on every merge (that spammed one release per PR).
 # nightly-betas.yml (the scheduler on the default branch) dispatches this workflow once a day; the gate
-# job below then skips the build unless main has advanced since the last JF12 beta. Still manually
+# job below then skips the build unless the dispatched ref has advanced since the last JF12 beta.
+# Still manually
 # runnable via workflow_dispatch.
 on:
   workflow_dispatch:
@@ -32,21 +35,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Publish only when main has advanced since the last JF12 beta, so a scheduled daily run on an
-  # unchanged branch does not mint a duplicate release. Compares the current main HEAD (github.sha) to
+  # Publish only when the dispatched ref has advanced since the last JF12 beta, so a scheduled daily
+  # run on an unchanged branch does not mint a duplicate release. Since #1585 that ref is the 5.0
+  # development branch rather than `main`, which is frozen on the 4.3 candidate; the comparison is
+  # written against whatever ref dispatched this run. Compares the current ref HEAD (github.sha) to
   # the commit the newest 5.0.0-JF12-beta.<n> tag points at. If the base version is ever bumped (the
   # JF12 line is 5.0 for now) no tag matches, last_sha is empty, and the build proceeds - the safe
   # default is to publish, never to silently skip a real change. (The first run after #954 moved this
-  # leg from the retired 4.2 branch always builds: the last tag points at a 4.2 commit, not main HEAD.)
+  # leg from the retired 4.2 branch always builds: the last tag points at a 4.2 commit, not this
+  # ref's HEAD. #1585 moved it again, off the frozen `main`, and it built for the same reason.)
   gate:
-    name: Gate on new main commits
+    name: Gate on new commits in the dispatched ref
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
       changed: ${{ steps.check.outputs.changed }}
     steps:
-    - name: Compare main HEAD to the last JF12 beta
+    - name: Compare the dispatched ref HEAD to the last JF12 beta
       id: check
       env:
         GH_TOKEN: ${{ github.token }}
@@ -69,7 +75,7 @@ jobs:
         if [ -n "$last_tag" ]; then
           last_sha=$(gh api "repos/${REPO}/git/refs/tags/${last_tag}" --jq '.object.sha' 2>/dev/null || echo "")
         fi
-        echo "current main HEAD: ${CUR}"
+        echo "current ref HEAD: ${CUR}"
         echo "last JF12 beta:   ${last_tag:-<none>} -> ${last_sha:-<none>}"
         if [ -n "$last_sha" ] && [ "$last_sha" = "$CUR" ]; then
           echo "No new commits since the last JF12 beta; skipping the build."
@@ -103,7 +109,7 @@ jobs:
   # the residual it leaves rather than as one it closed.
   #
   # AHEAD of the build job, so a red stack stops the publish instead of documenting it afterwards, and
-  # gated on the same output as the build, so an unchanged main still costs nothing.
+  # gated on the same output as the build, so an unchanged ref still costs nothing.
   provider-matrix:
     name: Provider matrix (net10.0 into a Jellyfin 12 server)
     needs: gate
