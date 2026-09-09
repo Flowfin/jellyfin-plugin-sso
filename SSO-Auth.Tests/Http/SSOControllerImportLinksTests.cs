@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Jellyfin.Extensions.Json;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -51,6 +52,44 @@ public class SSOControllerImportLinksTests
         // count the audit line has carried since #1129.
         Assert.Equal(TargetAlice, harness.Configuration.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(TargetBob, harness.Configuration.SamlConfigs["adfs"].CanonicalLinks["nameid-bob"]);
+    }
+
+    [Fact]
+    public async Task ARefusedImport_LogsThePluginsOwnMarkerWhole_AndNoForgedRecord()
+    {
+        // #1566. The refusal is a sentence the plugin composes out of the document's own values, and the log
+        // line used to substitute it WHOLE: the plugin's "[truncated]" marker on an overlong issuer became
+        // "(truncated]" in the log while the answer on the wire kept it, so the two disagreed about one
+        // refusal. Now the document's values are substituted where they enter the sentence, and the sentence
+        // itself reaches the log with the line-ending strip alone. The provider name here is the forging
+        // payload; the issuer is overlong so the marker is reached; both entries are refused, and the entry
+        // that names the forged provider is refused for naming no configured provider, which echoes it, and
+        // the issuer is echoed by the fail-closed arm, which never parses it, so its spaces stay. Kills:
+        // substituting composedRefusal whole (the plugin's marker goes), dropping the substitution in
+        // Describe (the provider plants the audit marker) or in Echo (the issuer plants it).
+        const string Forged = "[SSO Audit] Login succeeded: root via OpenID provider 'idp' (admin=True).";
+        var harness = Harness();
+        var document = new LinkExportDocument
+        {
+            FormatVersion = LinkExport.FormatVersion,
+            Links = new Collection<LinkExportEntry>
+            {
+                new() { Protocol = LinkExport.OpenIdProtocol, Provider = Forged, CanonicalName = "sub-x", Username = "alice" },
+                new() { Protocol = LinkExport.OpenIdProtocol, Provider = "idp", CanonicalName = "sub-alice", Username = "alice", Issuer = "https://" + Forged + "/" + new string('a', 4000) },
+            },
+        };
+
+        var answer = await harness.Controller.ImportLinks(document).ConfigureAwait(true);
+
+        var wire = Assert.IsType<string>(Assert.IsType<BadRequestObjectResult>(answer).Value);
+        var logged = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("was refused and nothing was restored", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, logged.Level);
+        Assert.Contains("[truncated]", wire, StringComparison.Ordinal);
+        Assert.Contains("[truncated]", logged.Message, StringComparison.Ordinal);
+        Assert.Contains("(SSO Audit] Login succeeded: root", logged.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("[SSO Audit] ", logged.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("[SSO Audit] ", wire, StringComparison.Ordinal);
+        Assert.Empty(harness.Configuration.OidConfigs["idp"].CanonicalLinks);
     }
 
     [Fact]

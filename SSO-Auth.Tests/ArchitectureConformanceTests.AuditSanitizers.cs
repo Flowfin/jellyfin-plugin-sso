@@ -26,6 +26,11 @@ public partial class ArchitectureConformanceTests
     // a data directory whose name carries a bracket would otherwise be named as a path that does not exist,
     // in the one line written for a total lockout. No untrusted party can write any of them, so the bracket
     // substitution buys nothing here and costs the whole point of the line.
+    //
+    // composedRefusal is the one value of a different kind (#1566): a sentence this plugin composed whose
+    // foreign parts were substituted where they entered it, in LinkImport.Describe and
+    // OidcConfiguredIssuer.Echo. Substituting the sentence whole rewrote the plugin's own "[truncated]"
+    // marker, so the log disagreed with the answer on the wire about one refusal.
     private static readonly string[] AuditValuesPrintedExactly =
     {
         "configurationFilePath",
@@ -33,6 +38,7 @@ public partial class ArchitectureConformanceTests
         "markerPath",
         "source",
         "sourcePath",
+        "composedRefusal",
     };
 
     private const string LineEndingSanitizer = "ReplaceLineEndings(string.Empty)";
