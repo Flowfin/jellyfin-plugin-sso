@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
@@ -98,6 +99,13 @@ internal static class LinkImport
         // two won, silently, and a restore would be non-deterministic in exactly the case that matters.
         var claimed = new Dictionary<(string Protocol, string Provider, string CanonicalName), Guid>();
 
+        // The issuer verdict depends on the PROVIDER and the value, and on nothing else about the entry, so
+        // it is computed once per distinct pair. This whole walk runs inside the configuration store's
+        // exclusive lock, which every login also takes to read, and a document restoring one provider carries
+        // one issuer for thousands of entries - so recomputing the policy and the authority per entry would
+        // multiply a hold time this repository publishes a measurement for, to buy an answer it already has.
+        var issuerVerdicts = new Dictionary<(ProviderConfigBase Config, string Issuer), string?>();
+
         for (var index = 0; index < document.Links.Count; index++)
         {
             var entry = document.Links[index];
@@ -168,6 +176,25 @@ internal static class LinkImport
                 continue;
             }
 
+            // The issuer an operator's file names is checked against what the provider is CONFIGURED to
+            // issue, and a mismatch is refused here rather than stored (#1518). Stored verbatim it is
+            // terminal, not degrading: the binding it writes makes ClassifyIssuer return Mismatch on every
+            // login for that link, the trust-on-first-use arm applies only to an ABSENT binding, and there
+            // is no path back through a login - so the ordinary migration where the identity provider moves
+            // behind TLS or a new hostname at the same time as the server restores its links and locks the
+            // whole userbase out at once, discovered by the users rather than by the operator. Refusing at
+            // import moves that failure to the moment the operator is still holding the file and can act on
+            // it, and the message names both issuers so the choice is made in the open: re-point the
+            // provider, or re-key the links deliberately. The anti-mix-up reason the exported issuer
+            // carries is kept rather than given up, which is what the decision of 2026-09-09 chose.
+            if (!string.IsNullOrWhiteSpace(entry.Issuer)
+                && config is OidConfig oidConfig
+                && IssuerRefusal(issuerVerdicts, oidConfig, entry.Issuer!) is { } unissuable)
+            {
+                refusals.Add(Describe(index, entry.Protocol, entry.Provider, unissuable));
+                continue;
+            }
+
             claimed[key] = userId;
             resolved.Add(new ResolvedLink(protocol, entry.Provider!, config, entry.CanonicalName!, userId, entry.Issuer));
         }
@@ -183,6 +210,23 @@ internal static class LinkImport
         }
 
         return resolved;
+    }
+
+    // The verdict for one (provider, issuer) pair, computed once. The dictionary is per Apply call and never
+    // outlives it, so a provider edited between two imports is never answered from a stale entry.
+    private static string? IssuerRefusal(
+        Dictionary<(ProviderConfigBase Config, string Issuer), string?> verdicts,
+        OidConfig config,
+        string issuer)
+    {
+        var key = ((ProviderConfigBase)config, issuer);
+        if (!verdicts.TryGetValue(key, out var verdict))
+        {
+            verdict = OidcConfiguredIssuer.Refuse(config, issuer);
+            verdicts[key] = verdict;
+        }
+
+        return verdict;
     }
 
     private static List<LinkImportCount> Write(List<ResolvedLink> resolved)

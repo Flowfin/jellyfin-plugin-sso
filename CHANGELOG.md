@@ -813,6 +813,43 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **The account-link import no longer stores an issuer the provider could not
+  have issued (#1518).** The import wrote the OpenID issuer an operator's backup
+  file named and compared it to nothing. The one guard beside it fires only when
+  the TARGET already holds a binding for that canonical name, and a rebuilt
+  migration target holds none - so on the run that matters every entry's issuer
+  was stored verbatim. That is terminal rather than degrading: the link's every
+  future login is refused for a mismatch, the trust-on-first-use arm reaches only
+  an ABSENT binding, and no login can repair it. The ordinary migration that hits
+  it is the one where the identity provider moves behind TLS or a new hostname at
+  the same time as the server: the import succeeds, the audit line counts the
+  links, the page says they were restored, and the whole userbase is locked out
+  at once, discovered by the users. The incoming issuer is now checked against
+  what the provider is configured to issue and a mismatch is refused at import
+  time, with the whole document rejected and nothing written, naming both issuers
+  so an operator can re-point the provider or re-key the links deliberately
+  instead of guessing. The check runs the same two library rules a login runs -
+  the id_token is validated against the discovery issuer, and the discovery
+  issuer against the configured authority - rather than a second copy of them, so
+  a trailing slash is tolerated exactly as discovery tolerates it. A refused
+  import now also leaves a line in the server log, which only a successful one
+  did before.
+
+  **If this refuses your migration, read this before working around it.** The
+  way through is to remove the `Issuer` field from the offending entries: the
+  links restore unbound and the first login binds each one to whatever the
+  provider issues now. That is weaker than a carried binding for the window
+  before that first login, so do it deliberately. Do NOT change `OidEndpoint`
+  afterwards to make a stale issuer fit - changing it clears that provider's
+  whole link table by design, deleting what you just restored. And do NOT switch
+  `DoNotValidateIssuerName` on to get past the check: it is skipped for such a
+  provider, because with issuer-name validation off a login there accepts any
+  issuer and so could have stamped the value, but the binding comparison at
+  login never reads that toggle - a stale issuer still refuses every restored
+  link, permanently and silently, and issuer validation is now off for everyone
+  on that provider. It turns a loud refusal into the outcome the refusal exists
+  to prevent.
+
 - **An identity-provider-supplied value can no longer forge a second audit
   record inside an audit line (#1555).** Every foreign value the SSO audit
   trail prints was already stripped of line endings, so none of them could

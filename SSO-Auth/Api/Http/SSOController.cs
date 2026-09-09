@@ -1902,6 +1902,17 @@ public class SSOController : ControllerBase
             // The importer throws ArgumentException for an unsupported version and for every unrestorable
             // entry. Strip line endings from the echoed message so a username inside it cannot split a log
             // line (cs/log-forging is sanitized inline at the emission point, never behind a helper).
+            //
+            // THE REFUSAL LEAVES A TRACE (#1518). Only the SUCCESS of an import was recorded, so a control
+            // whose job is to surface a migration mistake - and which a hostile backup file also trips -
+            // produced nothing an operator reading the log or an incident responder could see. The message
+            // is the same text the caller receives and names no canonical name, which is the rule the
+            // importer builds its refusals under.
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty));
+            }
+
             return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
         }
 
