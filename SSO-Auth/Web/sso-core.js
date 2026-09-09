@@ -1070,8 +1070,18 @@ const ssoConfigurationPage = {
       return;
     }
     const dirty = ssoConfigurationPage.isPageDirty(page);
-    box.textContent = dirty ? ssoConfigurationPage.unsavedNoticeText() : "";
-    box.hidden = !dirty;
+    // UNHIDE FIRST, THEN WRITE. `hidden` takes the element out of the accessibility tree, so text set
+    // while it is hidden changes a live region nothing is watching, and the unhide that follows is not
+    // itself a text change for the region to announce. Doing it in this order is what gives the
+    // announcement a chance; whether a particular screen reader takes it is not something this tree can
+    // measure, and nothing here claims it does.
+    if (dirty) {
+      box.hidden = false;
+      box.textContent = ssoConfigurationPage.unsavedNoticeText();
+      return;
+    }
+    box.textContent = "";
+    box.hidden = true;
   },
   // What each Save on a page needs before it can be pressed, DERIVED from the readiness specs rather
   // than restated, so a required field added to an editor closes its Save without a second edit here. A
