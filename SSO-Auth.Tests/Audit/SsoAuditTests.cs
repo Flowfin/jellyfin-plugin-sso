@@ -13,8 +13,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// <summary>
 /// Tests for <see cref="SsoAudit"/> - the structured security audit-log entries (#928 U1). Every
 /// method is pinned on three properties: the level it fires at, the "[SSO Audit]" prefix plus its
-/// key fields, and the inline line-ending strip on EVERY caller-supplied string so an identity-
-/// provider- or admin-supplied value can never forge or split an entry. The sensitive-data posture
+/// key fields, and the two inline sanitizers on EVERY foreign caller-supplied string so an identity-
+/// provider- or admin-supplied value can neither SPLIT an entry (the line-ending strip) nor forge a
+/// second one inside the line it lands in (the bracket substitution, #1555). A filesystem path this
+/// server composed for itself is not a foreign value and deliberately carries only the first, because
+/// the exact text is the actionable content of the line it appears in. The sensitive-data posture
 /// is structural - the signatures accept no secret, token, NameID or SessionIndex - and the fixed-
 /// code discipline (reason codes are enum names/constants, never request-derived text) is asserted
 /// where a code parameter exists.
@@ -91,7 +94,13 @@ public class SsoAuditTests
         var message = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
         Assert.Contains("Login succeeded: alice.jellyfin", message, StringComparison.Ordinal);
-        Assert.Contains("presented the name 'ali[SSO Audit] forged'", message, StringComparison.Ordinal);
+
+        // THIS ROW ASSERTED THE FORGED MARKER SURVIVED UNTIL #1555, and that was the defect stated as an
+        // expectation: the fixture's own name carries the audit prefix, the line-ending strip left it
+        // whole, and an unanchored search over the trail then matched a record nothing emitted. The
+        // line-ending property this row exists for is unchanged - the two halves of the name are joined
+        // and no newline reaches the message - and the marker cannot open a second record beside it.
+        Assert.Contains("presented the name 'ali(SSO Audit] forged'", message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -434,6 +443,61 @@ public class SsoAuditTests
 
         Assert.Equal(5, log.Entries.Count);
         Assert.All(log.Entries, e => Assert.StartsWith("[SSO Audit]", e.Message, StringComparison.Ordinal));
+    }
+
+    // The payload of #1555, verbatim: a presented name whose text closes the sentence it lands in and
+    // then opens a whole second, plausible record on the SAME physical line. Stripping line endings does
+    // not touch it - it forges no new line - so an unanchored search or a SIEM substring rule reports a
+    // login by "root" that never happened. The bracket escape is what makes the marker unforgeable, and
+    // these two rows redden the moment it is taken back off the emitter.
+    private const string SecondRecordPayload =
+        "x'. [SSO Audit] Login succeeded: root via OpenID provider 'corp' (admin=True). The provider presented the name 'root";
+
+    [Fact]
+    public void LoginSucceeded_APresentedNameForgingASecondRecord_LeavesOneAuditMarkerOnTheLine()
+    {
+        var logger = new CapturingLogger();
+
+        // Both foreign values of this entry carry the payload, so the row reddens whichever of the two
+        // loses its substitution. The account name cannot carry one in practice - Jellyfin's own
+        // allowlist admits no bracket - which is exactly why the provider name is the second here.
+        SsoAudit.LoginSucceeded(logger, "OpenID", SecondRecordPayload, "eve", isAdmin: false, presentedUsername: SecondRecordPayload);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(1, CountMarkers(message));
+        Assert.StartsWith("[SSO Audit]", message, StringComparison.Ordinal);
+
+        // The forged record is what a reader is meant not to be able to find, so the assertion is on the
+        // text a search would look for rather than on the escape that prevents it.
+        Assert.DoesNotContain("[SSO Audit] Login succeeded: root", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AccountRenamed_AForeignNameForgingASecondRecord_LeavesOneAuditMarkerOnTheLine()
+    {
+        var logger = new CapturingLogger();
+
+        // The shape reaches every entry carrying a foreign value, not the login line alone, which is why
+        // the repair sits on the emitter rather than on one entry. EVERY foreign argument of this entry
+        // carries the payload - the provider name as well as both account names - so the row reddens if
+        // the substitution is dropped from any one of the three. What it does NOT hold down is the other
+        // emitters, and that is what the conformance rule over this file is for.
+        SsoAudit.AccountRenamed(logger, "OpenID", SecondRecordPayload, SecondRecordPayload, SecondRecordPayload);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(1, CountMarkers(message));
+        Assert.DoesNotContain("[SSO Audit] Login succeeded: root", message, StringComparison.Ordinal);
+    }
+
+    private static int CountMarkers(string message)
+    {
+        var markers = 0;
+        for (var at = message.IndexOf("[SSO Audit] ", StringComparison.Ordinal); at >= 0; at = message.IndexOf("[SSO Audit] ", at + 1, StringComparison.Ordinal))
+        {
+            markers++;
+        }
+
+        return markers;
     }
 
     private sealed class LevelFilteredLogger : ILogger
