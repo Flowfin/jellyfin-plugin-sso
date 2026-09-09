@@ -673,6 +673,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A refused account-link import no longer logs a different sentence from
+  the one it answers, and the default-provider line is sanitized (#1566).**
+  Two residuals of #1557. The refusal a link import answers is a sentence this
+  plugin composes out of the document's own values, and the log line carrying
+  it substituted the whole sentence, so the plugin's own `[truncated]` marker
+  on an overlong issuer read `(truncated]` in the log while the answer on the
+  wire kept it. The document's values - protocol, provider, username, issuer -
+  are now substituted where they enter the sentence, and the sentence reaches
+  the log unchanged except for the line-ending strip, so the log and the wire
+  agree. And the line written at every SSO login of an enforced account, naming
+  the configured default provider, carried neither sanitizer; it carries both
+  now, like every other provider name the plugin prints.
+
 - **A discovery read whose caller has gone away now ends with the caller
   (#1558).** The hardened OpenID discovery read took no cancellation token, so
   nothing a caller could do abandoned it: the only bound was the per-request

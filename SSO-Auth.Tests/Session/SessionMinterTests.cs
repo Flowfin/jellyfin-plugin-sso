@@ -42,6 +42,31 @@ public class SessionMinterTests
         return (minter, users, sessions);
     }
 
+    [Fact]
+    public async Task MintAsync_DefaultProviderCarryingAForgedRecord_CannotPlantTheMarkerInTheLoginLine()
+    {
+        // #1566: the configured default provider is written to the log at every SSO login of an enforced
+        // account, and it carried neither sanitizer - the one provider-name value in the plugin that did
+        // not. It is administrator- or import-supplied rather than identity-provider-supplied, and provider
+        // names from the same hands are substituted everywhere else, so this was an inconsistency and not an
+        // exemption. Kills: dropping either sanitizer on that line.
+        const string Forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).\r\n";
+        var users = Substitute.For<IUserManager>();
+        var sessions = Substitute.For<ISessionManager>();
+        var log = new CapturingLogger();
+        var avatar = new AvatarService(users, Substitute.For<IProviderManager>(), Substitute.For<IServerConfigurationManager>(), new CapturingLogger(), "test-agent");
+        var minter = new SessionMinter(users, avatar, sessions, log);
+        users.GetUserById(UserId).Returns(TestUsers.Named("alice", UserId));
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(Params(defaultProvider: Forged), () => "203.0.113.7", () => true);
+
+        var line = Assert.Single(log.Entries, e => e.Message.Contains("Set default login provider", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
     private static SessionParameters Params(
         bool enableAuthorization = false,
         bool isAdmin = false,

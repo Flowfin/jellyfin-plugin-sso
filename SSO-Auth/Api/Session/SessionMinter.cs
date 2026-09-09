@@ -139,7 +139,7 @@ internal sealed class SessionMinter
             user.AuthenticationProviderId = parameters.DefaultProvider;
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider);
+                _logger.LogInformation("Set default login provider to {DefaultProvider}", parameters.DefaultProvider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
         }
 

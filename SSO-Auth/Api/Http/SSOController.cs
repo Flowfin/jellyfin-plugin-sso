@@ -1920,7 +1920,14 @@ public class SSOController : ControllerBase
             // importer builds its refusals under.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                // The refusal is a sentence this plugin composed, and its foreign parts - the document's
+                // protocol, provider, username and issuer - are substituted where they enter it, in
+                // LinkImport.Describe and OidcConfiguredIssuer.Echo (#1566). Substituting the whole sentence
+                // here rewrote the plugin's own "[truncated]" marker in the log while the answer on the wire
+                // kept it, so the log and the wire disagreed about one refusal. The strip stays inline for
+                // cs/log-forging; composedRefusal is named in the conformance rule's exact-print list.
+                var composedRefusal = ex.Message;
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", composedRefusal?.ReplaceLineEndings(string.Empty));
             }
 
             return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));

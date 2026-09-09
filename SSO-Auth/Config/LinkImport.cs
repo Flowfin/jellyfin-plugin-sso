@@ -138,7 +138,7 @@ internal static class LinkImport
             // different and much larger primitive than one that restores links between things that exist.
             if (resolveUserId(entry.Username) is not { } userId)
             {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"no Jellyfin account is named '{entry.Username}' on this instance"));
+                refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"no Jellyfin account is named '{entry.Username.ReplaceLineEndings(string.Empty).Replace('[', '(')}' on this instance"));
                 continue;
             }
 
@@ -312,8 +312,14 @@ internal static class LinkImport
     // carries no raw subject value (T-I1); echoing it into an HTTP error body and from there into
     // whatever logs that body would widen where it travels for no gain an operator could use. The index
     // into the document they are holding is what lets them find the entry.
+    //
+    // The document's own values - protocol, provider, and the username the caller above interpolates - are
+    // stripped of line endings and have their record-marker bracket substituted HERE, where they enter the
+    // sentence (#1566). The sentence is then the plugin's own, and the log line that carries it applies the
+    // line-ending strip alone: substituting the composed sentence whole rewrote the plugin's own
+    // "[truncated]" marker in the log while the answer on the wire kept it.
     private static string Describe(int index, string? protocol, string? provider, string reason) =>
-        $"entry #{index.ToString(CultureInfo.InvariantCulture)} ({protocol ?? "no protocol"}/{provider ?? "no provider"}): {reason}";
+        $"entry #{index.ToString(CultureInfo.InvariantCulture)} ({protocol?.ReplaceLineEndings(string.Empty).Replace('[', '(') ?? "no protocol"}/{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(') ?? "no provider"}): {reason}";
 
     // One validated entry: the map it belongs in, and everything needed to write it. Nothing is written
     // while this list is being built, which is the whole of the fail-closed property - the first refusal

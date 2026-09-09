@@ -109,8 +109,11 @@ internal static class OidcConfiguredIssuer
         return $"the entry's issuer '{Echo(issuer)}' is not what this provider is configured to issue ('{Echo(authority)}'), so every login on the restored link would be refused for a mismatch; remove the Issuer field from these entries to restore the links unbound and let the first login bind them, or fix the provider before importing - do NOT change OidEndpoint after a restore, which clears the link table";
     }
 
+    // The caller's value is stripped of line endings and has its record-marker bracket substituted before
+    // the plugin's own truncation marker is joined to it (#1566): the marker opens with the very bracket the
+    // substitution removes, so sanitizing the joined text would rewrite the marker instead of the value.
     private static string Echo(string value) =>
-        value.Length > MaxEchoedIssuerChars
-            ? string.Concat(value.AsSpan(0, MaxEchoedIssuerChars), TruncationMarker)
-            : value;
+        string.Concat(
+            value[..Math.Min(value.Length, MaxEchoedIssuerChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+            value.Length > MaxEchoedIssuerChars ? TruncationMarker : string.Empty);
 }
