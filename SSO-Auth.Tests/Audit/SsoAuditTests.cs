@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
+﻿// SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -57,7 +57,7 @@ public class SsoAuditTests
     {
         var logger = new CapturingLogger();
 
-        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: true);
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", grantedAdmin: true, mappedAdmin: true);
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Information, entry.Level);
@@ -74,7 +74,7 @@ public class SsoAuditTests
         var logger = new CapturingLogger();
 
         // Both the username (IdP-derived) and the provider (route/admin input) are foreign values.
-        SsoAudit.LoginSucceeded(logger, "SAML", "corp\nX", "ali\r\nce", isAdmin: false);
+        SsoAudit.LoginSucceeded(logger, "SAML", "corp\nX", "ali\r\nce", grantedAdmin: false, mappedAdmin: false);
 
         var message = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
@@ -89,7 +89,7 @@ public class SsoAuditTests
         // it is a second forging surface and carries the same inline sanitizer as the first.
         var logger = new CapturingLogger();
 
-        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice.jellyfin", isAdmin: false, presentedUsername: "ali\r\n[SSO Audit] forged");
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice.jellyfin", grantedAdmin: false, mappedAdmin: false, presentedUsername: "ali\r\n[SSO Audit] forged");
 
         var message = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
@@ -112,7 +112,7 @@ public class SsoAuditTests
         // just by appending a newline to the name it presents.
         var logger = new CapturingLogger();
 
-        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: false, presentedUsername: "alice\r\n");
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", grantedAdmin: false, mappedAdmin: false, presentedUsername: "alice\r\n");
 
         var message = Assert.Single(logger.Entries).Message;
         Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False).", message);
@@ -125,10 +125,83 @@ public class SsoAuditTests
         // is the row that fails if the comparison is dropped and the clause becomes unconditional.
         var logger = new CapturingLogger();
 
-        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", isAdmin: false, presentedUsername: "alice");
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", grantedAdmin: false, mappedAdmin: false, presentedUsername: "alice");
 
         var message = Assert.Single(logger.Entries).Message;
         Assert.Equal("[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False).", message);
+    }
+
+    [Fact]
+    public void LoginSucceeded_TheRoleMappingDisagreeingWithTheGrant_ReportsTheGrantAndNamesTheMapping()
+    {
+        // #1554. The field is the OUTCOME: a login whose roles mapped to admin but which the mint granted
+        // nothing for prints admin=False, and the mapping's verdict is carried beside it as what it is.
+        // Reversing the two - which is what this line did before - is the false-alarm direction of the defect.
+        //
+        // THE CLAUSE NAMES A MAPPING AND NOT AN ASSERTION, and the exact sentence is asserted for that reason:
+        // the value is a role of this login matching the ADMIN-CONFIGURED AdminRoles list, so wording it as
+        // something the provider said would put words in a third party's mouth - and on a default install,
+        // where that list is empty, it would put a denial there on every administrator's login.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", grantedAdmin: false, mappedAdmin: true);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=False). The provider's roles mapped to admin=True.",
+            message);
+    }
+
+    [Fact]
+    public void LoginSucceeded_AGrantNoRoleMappedTo_IsReportedAsHeld()
+    {
+        // The MISSED direction, and the one that settled #1554: the break-glass administrator is never demoted
+        // by the mint, so it holds an administrator session while no role of its login maps to admin. Reporting
+        // the mapping there told the trail an administrator did not sign in when one did, which is the failure
+        // an audit trail is bought to prevent.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "root", grantedAdmin: true, mappedAdmin: false);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: root via OpenID provider 'corp' (admin=True). The provider's roles mapped to admin=False.",
+            message);
+    }
+
+    [Fact]
+    public void LoginSucceeded_AnUnreadableGrant_SaysSoInItsOwnWord_AndStillNamesTheMapping()
+    {
+        // The absent arm. A mint that returned nothing to read leaves the outcome unknown, and the word says
+        // so rather than a boolean guessing it - guessing False would report every such login as a
+        // non-administrator one, which is the under-reporting direction again. The mapping is named because an
+        // absent outcome agrees with nothing, so the line still carries some privilege information.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice", grantedAdmin: null, mappedAdmin: true);
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: alice via OpenID provider 'corp' (admin=unknown). The provider's roles mapped to admin=True.",
+            message);
+    }
+
+    [Fact]
+    public void LoginSucceeded_BothOptionalClausesAtOnce_AreWrittenAsOneSentence()
+    {
+        // The two clauses are independent, so all four templates are reachable and this is the one a
+        // three-template implementation drops. It also pins that the presented name keeps both inline
+        // sanitizers in the fourth template - a template added without them is a fresh forging surface.
+        var logger = new CapturingLogger();
+
+        SsoAudit.LoginSucceeded(logger, "OpenID", "corp", "alice.jellyfin", grantedAdmin: true, mappedAdmin: false, presentedUsername: "ali\r\n[SSO Audit] ce");
+
+        var message = Assert.Single(logger.Entries).Message;
+        Assert.Equal(
+            "[SSO Audit] Login succeeded: alice.jellyfin via OpenID provider 'corp' (admin=True). "
+            + "The provider presented the name 'ali(SSO Audit] ce', and its roles mapped to admin=False.",
+            message);
+        Assert.Equal(1, CountMarkers(message));
     }
 
     [Fact]
@@ -367,7 +440,7 @@ public class SsoAuditTests
         // (CA1873); a disabled level must emit NOTHING rather than an unsanitized fallback.
         var off = new LevelFilteredLogger(minimum: LogLevel.Error);
 
-        SsoAudit.LoginSucceeded(off, "OpenID", "corp", "alice", isAdmin: false);
+        SsoAudit.LoginSucceeded(off, "OpenID", "corp", "alice", grantedAdmin: false, mappedAdmin: false);
         SsoAudit.ProviderConfigured(off, "OpenID", "corp");
         SsoAudit.LogoutRequested(off, "corp", 1);
         SsoAudit.ProvisionedPendingApproval(off, "OpenID", "corp", "u");
@@ -461,7 +534,7 @@ public class SsoAuditTests
         // Both foreign values of this entry carry the payload, so the row reddens whichever of the two
         // loses its substitution. The account name cannot carry one in practice - Jellyfin's own
         // allowlist admits no bracket - which is exactly why the provider name is the second here.
-        SsoAudit.LoginSucceeded(logger, "OpenID", SecondRecordPayload, "eve", isAdmin: false, presentedUsername: SecondRecordPayload);
+        SsoAudit.LoginSucceeded(logger, "OpenID", SecondRecordPayload, "eve", grantedAdmin: false, mappedAdmin: false, presentedUsername: SecondRecordPayload);
 
         var message = Assert.Single(logger.Entries).Message;
         Assert.Equal(1, CountMarkers(message));
