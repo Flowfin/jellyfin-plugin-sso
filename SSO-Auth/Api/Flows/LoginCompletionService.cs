@@ -195,8 +195,21 @@ internal sealed class LoginCompletionService
         // account was provisioned through Jellyfin's name allowlist, or a requested rename was declined. The
         // fallback is reached only when the host returned no usable name; the line then names what it always
         // named, and an audit line is never worth throwing a completed login away for.
+        // #1554: the PRIVILEGE field is read off the same result for the same reason the name is, and the two
+        // arms it closes are the ones the MINT decides on its own - the whole permission block is behind
+        // EnableAuthorization, which is off by default, and the break-glass administrator is never demoted.
+        // identity.Admin is passed beside the outcome as what it is, the role mapping's verdict, and is named
+        // only where the two disagree. Both are named arguments: they are adjacent booleans of opposite
+        // meaning, and transposing them would invert exactly what this issue fixed.
         var mintedUsername = MintedUsername(authenticationResult, identity);
-        SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, mintedUsername, identity.Admin, identity.Username);
+        SsoAudit.LoginSucceeded(
+            _logger,
+            identity.AuditProtocol,
+            identity.Provider,
+            mintedUsername,
+            grantedAdmin: GrantedAdmin(authenticationResult),
+            mappedAdmin: identity.Admin,
+            presentedUsername: identity.Username);
 
         // #1139: counted beside the audit line rather than at a new hook point, so the counter and the trail
         // cannot come apart. Here rather than in the status mapper because a success reaches the mapper too,
@@ -330,4 +343,18 @@ internal sealed class LoginCompletionService
     // name does not mean a missing event - it means the correlation cannot be made from this end.
     private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
         => string.IsNullOrEmpty(authenticationResult?.User?.Name) ? identity.Username : authenticationResult.User.Name;
+
+    // The administrator right the mint GRANTED (#1554), read off the same result and for the same reason as
+    // the name above: the host builds that user from the account as it stands after the permission write, so
+    // this is the state it published rather than a second reading of the account that could disagree with it.
+    //
+    // ABSENT AND THE FALLBACK ABOVE ARE ONE PRECONDITION, not two. A UserDto carries a UserPolicy whether or
+    // not one was assigned - measured, in the row that had to stop using `new UserDto { Name = "alice" }` to
+    // reach the absent arm - so the only way through the ?. chain is a result with no User at all, which is
+    // the same condition MintedUsername falls back on. Jellyfin's AuthenticateDirect always sets one, so the
+    // word this prints is what an unexpected host answer reads as rather than a state a login produces.
+    // Guessing false instead would report such a login as a non-administrator one, which is the
+    // under-reporting direction this issue exists to remove.
+    private static bool? GrantedAdmin(AuthenticationResult? authenticationResult)
+        => authenticationResult?.User?.Policy?.IsAdministrator;
 }

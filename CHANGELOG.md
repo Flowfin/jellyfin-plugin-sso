@@ -735,6 +735,28 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The login audit line's `admin=` field now reports the rights the session was
+  actually granted, not the role mapping's verdict (#1554).** The
+  `[SSO Audit] Login succeeded` line printed the result of matching the login's
+  roles against the configured `AdminRoles` list, and the session mint does not
+  always agree with it. The whole permission block is behind
+  `EnableAuthorization`, which is off by default, so `admin=True` could be
+  printed for a session that was never made an administrator; and the break-glass
+  administrator is deliberately never demoted, so that account signing in where
+  no role maps to admin was printed as `admin=False` while holding an
+  administrator session. The first is a false alarm and the second is a
+  **missed** one, and a trail that under-reports real administrator access is the
+  failure an audit trail is bought to prevent. The field is now read from the
+  same authentication result the host publishes in its own
+  `AuthenticationSuccess` event, after the permission write, so the two records
+  cannot disagree; a mapping that differs from the outcome is appended as
+  `The provider's roles mapped to admin=<value>.` rather than replacing it, and a
+  login where the two agree writes the line byte-for-byte as before.
+  **A structured log sink received `IsAdmin` as a Boolean and now receives a
+  String - `True`, `False`, or `unknown` where there was no result to read - so a
+  rule written as `IsAdmin == true` has to be rewritten. The rendered text of
+  `admin=True` and `admin=False` is unchanged.**
+
 - **A failed configuration read no longer leaves a pressed Save with no outcome
   at all (#1577).** Saving or deleting a provider reads the stored configuration
   before it writes, and four of those reads had no failure arm. The two saves
