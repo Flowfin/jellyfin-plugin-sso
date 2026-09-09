@@ -50,8 +50,9 @@ class="tabs-viewmenubar">` around an `emby-tabs-slider` of
   `emby-tab-button` links. The controls carry the same `emby-*` classes the
   current configuration page uses.
 - **Real.** The field list. Every control renders from `fields.js`, which
-  `tools/ui-mock-fields.js` reconciles against `SSO-Auth/Web/configPage.html`, so
-  a control that exists on the page and not in the mock fails that check.
+  `tools/ui-mock-fields.js` reconciles against the five built configuration
+  pages under `SSO-Auth/Web/` - one page until #1527 built the rest - so a
+  control that exists on a page and not in the mock fails that check.
 - **A stand-in.** The colours and the type. Inside the dashboard the `emby-*`
   classes are already styled and the stand-in switches itself off; opened from
   the tree there is no dashboard stylesheet, so `mock.css` paints enough to make

@@ -36,7 +36,16 @@
 
   <ItemGroup>
     <None Remove="Web\configPage.html" />
-    <None Remove="Web\config.js" />
+    <None Remove="Web\overview.js" />
+    <None Remove="Web\providersPage.html" />
+    <None Remove="Web\providers.js" />
+    <None Remove="Web\accountsPage.html" />
+    <None Remove="Web\accounts.js" />
+    <None Remove="Web\policiesPage.html" />
+    <None Remove="Web\policies.js" />
+    <None Remove="Web\serverPage.html" />
+    <None Remove="Web\server.js" />
+    <None Remove="Web\sso-core.js" />
     <None Remove="Web\style.css" />
     <None Remove="Web\linking.html" />
     <None Remove="Web\linking.js" />
@@ -44,7 +53,16 @@
     <None Remove="Web\jellyfin-apiClient.esm.min.js" />
     <None Remove="Web\emby-restyle.css" />
     <EmbeddedResource Include="Web\configPage.html" />
-    <EmbeddedResource Include="Web\config.js" />
+    <EmbeddedResource Include="Web\overview.js" />
+    <EmbeddedResource Include="Web\providersPage.html" />
+    <EmbeddedResource Include="Web\providers.js" />
+    <EmbeddedResource Include="Web\accountsPage.html" />
+    <EmbeddedResource Include="Web\accounts.js" />
+    <EmbeddedResource Include="Web\policiesPage.html" />
+    <EmbeddedResource Include="Web\policies.js" />
+    <EmbeddedResource Include="Web\serverPage.html" />
+    <EmbeddedResource Include="Web\server.js" />
+    <EmbeddedResource Include="Web\sso-core.js" />
     <EmbeddedResource Include="Web\style.css" />
     <EmbeddedResource Include="Web\linking.html" />
     <EmbeddedResource Include="Web\linking.js" />

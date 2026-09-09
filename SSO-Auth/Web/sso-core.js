@@ -418,44 +418,67 @@ const ssoConfigurationPage = {
         notice.hidden = true;
       });
   },
+  // ONE load path for five pages since #1527, and every section it fills is gated on that section being
+  // in front of it. The gate is the presence of the section's own control rather than a page name: a
+  // page is identified by what it holds, so moving a section between tabs moves its load with it and
+  // this function does not have to learn the new arrangement. What it must never become is a load that
+  // SKIPS a section the page does have - so each test names the exact control the branch below writes
+  // to, not a container that could survive the control being dropped.
   loadConfiguration: (page) => {
     // Refreshed with the configuration itself: a provider that stopped being declaratively managed between
     // two loads must not keep a frozen form, and one that started being managed must not keep an open one.
     ssoConfigurationPage.loadManagedProviders();
     // Same refresh reason: a save or an import ends the serve-defaults state, so the banner has to be
-    // re-asked rather than left standing from the load that found it.
+    // re-asked rather than left standing from the load that found it. It is on every page, because the
+    // statement it makes - that the settings in front of you are not this server's - is true of all five.
     ssoConfigurationPage.showUnreadableConfigurationNotice(page);
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
-        ssoConfigurationPage.populateProviders(page, config.OidConfigs);
-        // Refresh the SAML workspace from the same configuration load (#725), so a SAML save/delete/import
-        // reloads its provider list exactly as the OpenID one does.
-        ssoConfigurationPage.populateSamlProviders(
-          page,
-          config.SamlConfigs || {},
-        );
+        // The two provider workspaces (Providers). Both or neither: they are one tab.
+        if (page.querySelector("#selectProvider")) {
+          ssoConfigurationPage.populateProviders(page, config.OidConfigs);
+          // Refresh the SAML workspace from the same configuration load (#725), so a SAML save/delete/import
+          // reloads its provider list exactly as the OpenID one does.
+          ssoConfigurationPage.populateSamlProviders(
+            page,
+            config.SamlConfigs || {},
+          );
+        }
         // The GLOBAL login-page buttons opt-in (#722) rides the same configuration load. It is a root
         // PluginConfiguration flag, not a provider field, so it has its own save path (saveLoginButtons)
-        // and no sso-* marker class.
-        page.querySelector("#ManageLoginPageButtons").checked = Boolean(
-          config.ManageLoginPageButtons,
-        );
+        // and no sso-* marker class. On the Server tab since #1527.
+        const manage_buttons = page.querySelector("#ManageLoginPageButtons");
+        if (manage_buttons) {
+          manage_buttons.checked = Boolean(config.ManageLoginPageButtons);
+        }
+
         // The GLOBAL Single Logout opt-in (#727) rides the same configuration load. Like
         // ManageLoginPageButtons it is a root PluginConfiguration flag, not a provider field, so it has its
         // own save path (saveSingleLogout) and no sso-* marker class.
-        page.querySelector("#EnableSingleLogout").checked = Boolean(
-          config.EnableSingleLogout,
-        );
+        const single_logout = page.querySelector("#EnableSingleLogout");
+        if (single_logout) {
+          single_logout.checked = Boolean(config.EnableSingleLogout);
+        }
+
         // The GLOBAL provisioning profile set (#1105) rides the same configuration load, for the
         // reason the two flags above do: it is a root PluginConfiguration member with its own save
         // path. Doing it here means every existing save, delete and import route refreshes the
-        // editor and both provider-form selectors without knowing that they exist.
+        // editor and both provider-form selectors without knowing that they exist. Since #1527 the
+        // editor is on Policies and the two provider-form selectors are on Providers, so this runs on
+        // both tabs and fills whichever half is there.
         ssoConfigurationPage.populateProvisioningProfiles(page, config);
+
+        // The Overview tab reads the same configuration rather than a second endpoint, so what it says
+        // about a provider and what the editor shows for it cannot come apart.
+        ssoConfigurationPage.renderOverviewFrom(page, config);
       },
     );
 
     const folder_container = page.querySelector("#EnabledFolders");
-    ssoConfigurationPage.populateFolders(folder_container);
+    if (folder_container) {
+      ssoConfigurationPage.populateFolders(folder_container);
+    }
+
     // The SAML editor has its own available-folders checklist; populate it too (#725).
     const saml_folder_container = page.querySelector("#saml-EnabledFolders");
     if (saml_folder_container) {
@@ -1382,22 +1405,30 @@ const ssoConfigurationPage = {
   },
   // Fills the editor and both provider-form selectors from one configuration load. Called from
   // loadConfiguration, so every existing save, delete and import path refreshes the editor for free.
+  //
+  // THE TWO HALVES ARE ON DIFFERENT TABS SINCE #1527 and each is gated on its own control. The editor
+  // is on Policies and the two provider-form selectors are on Providers, so this runs on both and fills
+  // whichever half is in front of it. It returns the fill promise a Save waits on only where it started
+  // one; on a page with no editor it returns nothing and, more importantly, WRITES nothing - the branch
+  // below says what that costs when it does.
   populateProvisioningProfiles: (page, config) => {
     const names = ssoConfigurationPage.provisioningProfileNames(config);
     const select = page.querySelector("#selectProvisioningProfile");
-    const wanted = ssoConfigurationPage.provisioningProfileWanted;
-    ssoConfigurationPage.provisioningProfileWanted = null;
-    const chosen =
-      wanted && names.includes(wanted)
-        ? wanted
-        : names.includes(select.value)
-          ? select.value
-          : names[0] || "";
-    ssoConfigurationPage.populateProvisioningProfileOptions(
-      select,
-      names,
-      chosen,
-    );
+    if (select) {
+      const wanted = ssoConfigurationPage.provisioningProfileWanted;
+      ssoConfigurationPage.provisioningProfileWanted = null;
+      const chosen =
+        wanted && names.includes(wanted)
+          ? wanted
+          : names.includes(select.value)
+            ? select.value
+            : names[0] || "";
+      ssoConfigurationPage.populateProvisioningProfileOptions(
+        select,
+        names,
+        chosen,
+      );
+    }
 
     // An open provider form keeps whatever it has selected, so a profile added here appears in its list
     // without discarding a choice the administrator has already made and not yet saved.
@@ -1412,8 +1443,33 @@ const ssoConfigurationPage = {
       }
     });
 
-    const sources = ssoConfigurationPage.provisioningProfileSources(config);
     const source_select = page.querySelector("#ProvisioningProfileSource");
+    if (!source_select) {
+      // No editor on this page, so there is nothing left to fill: the provider-form selectors above are
+      // this page's whole share of the profile set.
+      //
+      // AND `provisioningProfileFill` IS LEFT ALONE, WHICH IS WHAT THIS BRANCH IS FOR. It first wrote
+      // `Promise.resolve(true)` here, on the reading that a page with no editor has no fill to be
+      // mid-way through. That reading is wrong for one reason: the field is not this page's. It lives
+      // on the shared object, the dashboard is a single-page application, so one instance of that
+      // object serves every tab of a session - and the only reader is the Policies Save. A page that
+      // can never save a profile was reaching across and overwriting the guard of the page that can,
+      // always in the direction of "go ahead".
+      //
+      // What that cost was demonstrated rather than argued. Policies is opened while another tab's
+      // configuration fetch is still outstanding; that fetch lands after Policies has assigned its own
+      // fill promise; the guard is then permanently true; and a Save in that window PUTs the profile
+      // with its permission rows cleared and not yet re-rendered - every grant and deny stripped,
+      // under a success message. Those denials are what new SSO-provisioned accounts are given, so an
+      // administrator's restriction quietly stops applying.
+      //
+      // Leaving the field is what the single page did, because there was nothing else to write it: it
+      // is null until the editor's own load sets it, and the page that has the editor always sets it
+      // before a Save on that page is possible.
+      return;
+    }
+
+    const sources = ssoConfigurationPage.provisioningProfileSources(config);
     source_select.replaceChildren();
     const empty = window.document.createElement("option");
     empty.value = "";
@@ -4255,12 +4311,376 @@ const ssoConfigurationPage = {
       },
     );
   },
+  // ---- The Overview tab (#1527) ----
+  //
+  // A STATUS VIEW THAT HOLDS NO SETTING. It writes nothing and offers nothing to save: every figure on it
+  // is read back from the server, which is why docs/ui/mock/FIELDS.md gives it none of the page's 123
+  // controls. Two sources, and each is used only for what it actually answers:
+  //
+  //   sso/Config/Check - whether a provider's configuration is complete, and whether it is switched on.
+  //     It says nothing about whether the identity provider ANSWERS, and its own document says so, so
+  //     nothing here reports a provider as reachable or as having passed a connection test. That is what
+  //     the per-provider Test Connection is for, and it is on the Providers tab.
+  //   sso/Links/Roster - the newest recorded SSO sign-in of any account linked to that provider. A
+  //     provider nobody has signed in through carries no timestamp, and the card says exactly that
+  //     rather than leaving a blank where a date belongs.
+  //
+  // Built with createElement/textContent throughout and never innerHTML (#221): a provider name reaches
+  // this view from the configuration, so it stays inert here as it does on the provider cards.
+  //
+  // A FAILED READ AND AN EMPTY SERVER ARE NEVER COLLAPSED. Reporting "nothing configured" to an
+  // administrator whose providers are all there is the one wrong answer this view can give, so a report
+  // that did not arrive is said in words and no card list is painted at all.
+  renderOverview: (page) => {
+    const cards = page.querySelector("#sso-overview-providers");
+    if (!cards) {
+      return Promise.resolve();
+    }
+
+    return Promise.all([
+      ApiClient.getJSON(ApiClient.getUrl("sso/Config/Check")).catch(() => null),
+      ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).catch(() => null),
+    ]).then(([report, roster]) =>
+      ssoConfigurationPage.paintOverview(page, report, roster),
+    );
+  },
+
+  // One status line of an Overview card. Its own helper rather than renderCheckRow, because that one
+  // prefixes a readiness VERDICT ("Ready" / "Needs attention") and these lines are states rather than
+  // verdicts - a disabled provider is not a provider needing attention, which is the distinction
+  // ProviderCheckDocument itself insists on.
+  appendOverviewRow: (list, ok, label) => {
+    const item = document.createElement("li");
+    item.classList.add("fieldDescription");
+    item.dataset.state = ok ? "ok" : "bad";
+    item.textContent = label;
+    list.appendChild(item);
+  },
+
+  // The newest recorded SSO sign-in per "protocol/provider", from the link roster. A provider with links
+  // but no recorded sign-in yields nothing rather than a zero date, so a card can tell "nobody has signed
+  // in" from "the roster did not load" - the second is the case the caller passes null for.
+  lastSsoLoginByProvider: (roster) => {
+    const newest = {};
+    const accounts = (roster && roster.Accounts) || [];
+    accounts.forEach((account) => {
+      ((account && account.Links) || []).forEach((link) => {
+        if (!link || !link.LastSsoLoginUtc) {
+          return;
+        }
+
+        const key = link.Protocol + "/" + link.Provider;
+        if (!newest[key] || newest[key] < link.LastSsoLoginUtc) {
+          newest[key] = link.LastSsoLoginUtc;
+        }
+      });
+    });
+    return newest;
+  },
+
+  paintOverview: (page, report, roster) => {
+    const cards = page.querySelector("#sso-overview-providers");
+    const empty = page.querySelector("#sso-overview-providers-empty");
+    const next = page.querySelector("#sso-overview-next");
+    const state = page.querySelector("#sso-overview-state");
+
+    // ALL FOUR OR NONE. The caller gates on the card list alone, and three of these were dereferenced
+    // straight after it - so a page carrying one of the four and not the others threw here, on a render
+    // that runs on every visit. They are one region and there is no arrangement in which a subset of
+    // them is the right answer, so this asks for the region rather than for its first member.
+    if (!cards || !empty || !next || !state) {
+      return;
+    }
+
+    cards.replaceChildren();
+    next.replaceChildren();
+
+    if (!report) {
+      empty.hidden = true;
+      ssoConfigurationPage.renderTransferMessage(
+        state,
+        tr(
+          "overview.check_failed",
+          "Could not read this server's SSO state. Make sure you are signed in as an administrator, then reload the page.",
+        ),
+      );
+      return;
+    }
+
+    const rows = report.Providers || [];
+    const newest = ssoConfigurationPage.lastSsoLoginByProvider(roster);
+    empty.hidden = rows.length !== 0;
+
+    const enabled = rows.filter((row) => row.Enabled).length;
+    const unready = rows.filter((row) => !row.Ready).length;
+    // Concatenated rather than substituted into a catalog string. tr() only substitutes placeholders
+    // once the catalog has loaded, and loading it is deliberately best-effort, so a "{0} of {1}" default
+    // would be shown with its braces intact on exactly the run where that fetch failed.
+    ssoConfigurationPage.renderTransferMessage(
+      state,
+      rows.length === 0
+        ? tr(
+            "overview.state_none",
+            "No provider is configured, so single sign-on is not offered at the login page.",
+          )
+        : tr("overview.state_configured", "Configured providers:") +
+            " " +
+            String(rows.length) +
+            ". " +
+            tr("overview.state_enabled", "Offered at the login page:") +
+            " " +
+            String(enabled) +
+            ". " +
+            tr(
+              "overview.state_incomplete",
+              "With an incomplete configuration:",
+            ) +
+            " " +
+            String(unready) +
+            ".",
+    );
+
+    rows.forEach((row) => {
+      const card = document.createElement("div");
+      card.classList.add("sso-provider-card", "sso-overview-card");
+      card.setAttribute("role", "listitem");
+
+      const name = document.createElement("span");
+      name.classList.add("sso-provider-name");
+      name.textContent = row.Provider;
+      card.appendChild(name);
+
+      const badge = document.createElement("span");
+      badge.classList.add("sso-provider-badge");
+      badge.textContent = row.Protocol;
+      card.appendChild(badge);
+
+      const list = document.createElement("ul");
+      list.classList.add("sso-check-list");
+      ssoConfigurationPage.appendOverviewRow(
+        list,
+        row.Enabled,
+        row.Enabled
+          ? tr("overview.enabled", "Offered at the login page")
+          : tr("overview.disabled", "Not offered at the login page"),
+      );
+      ssoConfigurationPage.appendOverviewRow(
+        list,
+        row.Ready,
+        row.Ready
+          ? tr("overview.config_ok", "Configuration complete")
+          : tr("overview.config_incomplete", "Configuration incomplete"),
+      );
+
+      const when = newest[row.Protocol + "/" + row.Provider];
+      ssoConfigurationPage.appendOverviewRow(
+        list,
+        Boolean(when),
+        when
+          ? tr("overview.last_login", "Last SSO sign-in:") +
+              " " +
+              ssoConfigurationPage.formatLastSsoLogin(when)
+          : tr("overview.never_signed_in", "No SSO sign-in recorded yet"),
+      );
+      card.appendChild(list);
+      cards.appendChild(card);
+    });
+
+    ssoConfigurationPage.paintOverviewNextSteps(next, report, rows);
+  },
+
+  // What to do next. Every entry names a condition read out of the report above, so an entry disappears
+  // exactly when the condition does and nothing here is advice nobody measured. An empty list is a
+  // sentence rather than a blank region, so it cannot be read as a panel that failed to load.
+  paintOverviewNextSteps: (next, report, rows) => {
+    const todo = [];
+
+    rows
+      .filter((row) => !row.Ready)
+      .forEach((row) =>
+        todo.push(
+          row.Provider +
+            " " +
+            tr(
+              "overview.next_incomplete",
+              "is missing a required setting. Open it on the Providers tab.",
+            ),
+        ),
+      );
+
+    rows
+      .filter((row) => row.Ready && !row.Enabled)
+      .forEach((row) =>
+        todo.push(
+          row.Provider +
+            " " +
+            tr(
+              "overview.next_disabled",
+              "is configured and switched off. Enable it, or delete it so the list says what the server actually serves.",
+            ),
+        ),
+      );
+
+    if (report.ConfigurationUnreadable) {
+      todo.push(
+        tr(
+          "overview.next_unreadable",
+          "This server could not read its stored configuration when it started, so every setting shown here is a default and not this server’s. Save a provider on the Providers tab, import a configuration on the Server tab, or move the unreadable file aside and remove the marker beside it, then restart.",
+        ),
+      );
+    }
+
+    if (todo.length === 0) {
+      ssoConfigurationPage.renderCheckNote(
+        next,
+        rows.length === 0
+          ? tr(
+              "overview.next_none_configured",
+              "Add a provider on the Providers tab to offer single sign-on.",
+            )
+          : tr(
+              "overview.next_nothing",
+              "Every configured provider is complete and switched on. Whether each one answers is what Test Connection on the Providers tab reports.",
+            ),
+      );
+      return;
+    }
+
+    todo.forEach((line) =>
+      ssoConfigurationPage.appendOverviewRow(next, false, line),
+    );
+  },
+
+  // The SSO-only line rides the configuration load every page already makes rather than a second fetch,
+  // so what it says and what the Server tab's own control holds cannot come apart. A no-op on the four
+  // tabs that carry no overview.
+  renderOverviewFrom: (page, config) => {
+    const line = page.querySelector("#sso-overview-sso-only");
+    if (!line) {
+      return;
+    }
+
+    line.textContent = config.DisablePasswordLogin
+      ? tr(
+          "overview.sso_only_on",
+          "SSO-only is ON: Jellyfin password sign-in is refused for the accounts this plugin manages.",
+        )
+      : tr(
+          "overview.sso_only_off",
+          "SSO-only is off. Local Jellyfin passwords still work.",
+        );
+  },
 };
 
-export default function initSsoConfigurationPage(view) {
+// ---- The five page controllers (#1527) ----
+//
+// One function per registered configuration page. The object above is the shared core - the API client
+// calls, the validation, the provisioning-template controls, the presets and the renderers - and every
+// function below only WIRES the controls of the page it is named for. The partition is not a style
+// choice: a handler registered against a control that lives on another page would throw on a null and
+// take the rest of that page's wiring down with it, because none of these registrations is guarded
+// individually. What keeps them safe is that each one is reached only from the page whose markup holds
+// its control, and `docs/ui/mock/FIELDS.md` plus `tools/ui-mock-fields.js` are what hold that partition
+// to the markup: the tool refuses a control that is on no page, on two pages, or on a page the table
+// does not name.
+//
+// The three calls every page makes are the prelude below. loadConfiguration fills whatever sections the
+// page in front of it actually has and skips the rest, so one load path serves five pages.
+
+/** The three calls every page makes: the stylesheet, the configuration, and the localized labels. */
+function initSharedPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
   ssoConfigurationPage.loadConfiguration(view);
   ssoConfigurationPage.localize(view);
+}
+
+// One registration per template-control prefix that this page actually carries, derived from the
+// prefix->form map rather than written out per form. Two of the three were once listed by hand and the
+// third - the profile editor's - was missed, which left the button rendered, styled and disabled-managed
+// while doing nothing, so a named profile could never be given a permission from the page at all. The
+// presence test is what makes the same loop correct on two different pages since #1527: the OpenID and
+// SAML forms are on Providers and the profile form is on Policies, so each page registers its own and
+// silently skips a prefix whose form is not in front of it.
+function bindTemplatePermissionAdders(view) {
+  Object.keys(ssoConfigurationPage.templateFormSelectors).forEach((prefix) => {
+    const add = view.querySelector("#" + prefix + "Tmpl-Permissions-add");
+    if (!add) {
+      return;
+    }
+
+    add.addEventListener("click", (e) => {
+      ssoConfigurationPage.addTemplatePermissionRow(view, prefix);
+      e.preventDefault();
+      return false;
+    });
+  });
+}
+
+/**
+ * The Overview tab: a status view that holds no setting of its own.
+ *
+ * THE ONLY PAGE THAT RE-READS ON EVERY SHOW, and the asymmetry is deliberate. The dashboard keeps three
+ * views alive and hands a cached one back rather than building it again - viewContainer caches by
+ * pathname+search, and viewManager's onBeforeChange constructs the controller only where `initComplete`
+ * is unset - so a tab returned to has NOT re-run its controller and still shows whatever it last loaded.
+ * That was read out of jellyfin-web rather than assumed, and the consequence is worst exactly here: add a
+ * provider on Providers, come back, and Overview goes on saying no provider is configured.
+ *
+ * IT LOADS TWICE OVER, AT INIT AND ON `viewshow`, AND THE BELT IS NOT THE BRACES. A first draft moved the
+ * load into the listener alone, on the reading that `viewshow` fires on every show including the first.
+ * The EVENT does; the LISTENER is not there to hear it. jellyfin-web constructs the controller inside
+ * `loadView`'s own chain and dispatches `viewshow` in the `.then` after that chain resolves - one
+ * microtask later - and this controller registers its listener only once a dynamic import of the core has
+ * resolved, which is a fetch. So the first `viewshow` is always missed, and what that shipped was an
+ * Overview blank on every fresh load, with the markup's own default line asserting that SSO-only was off
+ * on a server where it was on. The init call covers the show that has already happened by the time the
+ * core arrives; the listener covers every later show of the same cached view, when the controller does
+ * not run at all. In the ordering where both fire, the page loads twice, which costs one read of a
+ * read-only report and paints the same thing.
+ *
+ * WHY THE OTHER FOUR DO NOT DO THIS. Re-reading the configuration re-fills form controls, and those four
+ * pages hold controls an administrator may have typed into and not yet saved, so a reload on every show
+ * would silently discard an edit made before a glance at another tab. Overview has no control at all -
+ * none of the page's 123 - so re-reading it can lose nothing. What that leaves is a Providers, Policies
+ * or Server tab returned to after a change made elsewhere still showing the older list until it is
+ * reloaded, which is stated on the pull request rather than left to be discovered.
+ */
+function initOverviewPage(view) {
+  ssoConfigurationPage.addTextAreaStyle(view);
+  ssoConfigurationPage.localize(view);
+
+  view.querySelector("#sso-self-service-link").href =
+    ApiClient.getUrl("/SSOViews/linking");
+
+  const read = () => {
+    ssoConfigurationPage.loadConfiguration(view);
+    ssoConfigurationPage.renderOverview(view);
+  };
+
+  read();
+  view.addEventListener("viewshow", read);
+}
+
+/** The Providers tab: both provider workspaces, their editors and the readiness panel. */
+function initProvidersPage(view) {
+  initSharedPage(view);
+  bindTemplatePermissionAdders(view);
+
+  // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
+  //
+  // ON THIS TAB AND NOT ON OVERVIEW, because of what its detail lines are made of. Each row names the
+  // settings a provider is still missing and resolves each one to the form's own localized label, read
+  // off the page's `<label for>` rather than from a second copy of every label kept beside it. Overview
+  // holds no form and therefore no label, so the same report rendered there fell back to bare property
+  // ids - "Still empty: OidEndpoint, saml-SamlCertificate" where the page had said "OpenID Endpoint, IdP
+  // Signing Certificate" - putting an internal prefix in front of an administrator and losing the
+  // localization outright. The check belongs beside the labels it reads. Overview says the same thing in
+  // whole sentences that need no label, derived from the same report by paintOverviewNextSteps.
+  view.querySelector("#CheckAllProviders").addEventListener("click", (e) => {
+    ssoConfigurationPage.checkAllProviders(view);
+    e.preventDefault();
+    return false;
+  });
 
   view.querySelector("#SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#OidProviderName").value;
@@ -4339,21 +4759,6 @@ export default function initSsoConfigurationPage(view) {
     current_mappings.push({ Role: "", Folders: [] });
     ssoConfigurationPage.populateRoleMappings(current_mappings, container);
   });
-
-  // One registration per template-control prefix, derived from the prefix->form map rather than written
-  // out per form. Two of the three were listed by hand and the third - the profile editor's - was missed,
-  // which left the button rendered, styled and disabled-managed while doing nothing, so a named profile
-  // could never be given a permission from the page at all.
-  Object.keys(ssoConfigurationPage.templateFormSelectors).forEach((prefix) => {
-    view
-      .querySelector("#" + prefix + "Tmpl-Permissions-add")
-      .addEventListener("click", (e) => {
-        ssoConfigurationPage.addTemplatePermissionRow(view, prefix);
-        e.preventDefault();
-        return false;
-      });
-  });
-
   // The insecure-options expander keeps the dangerous toggles in the DOM (hidden), never detached, so they
   // still serialize; it only flips the `hidden` attribute and the aria-expanded state.
   view.querySelector("#ShowInsecureOptions").addEventListener("click", (e) => {
@@ -4432,83 +4837,6 @@ export default function initSsoConfigurationPage(view) {
 
   // Populate the redirect URI once at init (the blank editor shows its placeholder until a name is typed).
   ssoConfigurationPage.updateRedirectUri(view);
-
-  view.querySelector("#SaveLoginButtons").addEventListener("click", (e) => {
-    ssoConfigurationPage.saveLoginButtons(view);
-    e.preventDefault();
-    return false;
-  });
-
-  view.querySelector("#SaveSingleLogout").addEventListener("click", (e) => {
-    ssoConfigurationPage.saveSingleLogout(view);
-    e.preventDefault();
-    return false;
-  });
-
-  // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
-  view.querySelector("#CheckAllProviders").addEventListener("click", (e) => {
-    ssoConfigurationPage.checkAllProviders(view);
-    e.preventDefault();
-    return false;
-  });
-
-  view.querySelector("#ExportConfig").addEventListener("click", (e) => {
-    ssoConfigurationPage.exportConfig(view);
-    e.preventDefault();
-    return false;
-  });
-
-  // The visible Import button drives the hidden file input; selecting a file runs the import.
-  view.querySelector("#ImportConfig").addEventListener("click", (e) => {
-    view.querySelector("#ImportConfigFile").click();
-    e.preventDefault();
-    return false;
-  });
-
-  view.querySelector("#ImportConfigFile").addEventListener("change", (e) => {
-    const file = e.target.files && e.target.files[0];
-    // Clear the input so choosing the same file again re-triggers change.
-    e.target.value = "";
-    ssoConfigurationPage.importConfig(view, file);
-  });
-
-  // Account-link transfer (#1131): the exact parallel of the configuration pair above, against its own
-  // endpoints and its own status region, so one file's outcome never overwrites the other's.
-  view.querySelector("#ExportLinks").addEventListener("click", (e) => {
-    ssoConfigurationPage.exportLinks(view);
-    e.preventDefault();
-    return false;
-  });
-
-  view.querySelector("#ImportLinks").addEventListener("click", (e) => {
-    view.querySelector("#ImportLinksFile").click();
-    e.preventDefault();
-    return false;
-  });
-
-  view.querySelector("#ImportLinksFile").addEventListener("change", (e) => {
-    const file = e.target.files && e.target.files[0];
-    // Clear the input so choosing the same file again re-triggers change.
-    e.target.value = "";
-    ssoConfigurationPage.importLinks(view, file);
-  });
-
-  // The linked-accounts panel (#1121). Read-only on arrival: the roster is fetched once when the page
-  // initialises, so an administrator sees who is linked without pressing anything, and the button re-reads
-  // it. The revoke is bound per row in renderLinkedAccountRow, because the row is what carries the username.
-  view
-    .querySelector("#RefreshLinkedAccounts")
-    .addEventListener("click", (e) => {
-      ssoConfigurationPage.loadLinkedAccounts(view);
-      e.preventDefault();
-      return false;
-    });
-
-  ssoConfigurationPage.loadLinkedAccounts(view);
-
-  view.querySelector("#sso-self-service-link").href =
-    ApiClient.getUrl("/SSOViews/linking");
-
   // ---- SAML workspace bindings (#725): the exact parallel of the OpenID bindings above ----
   view.querySelector("#saml-SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#saml-provider-name").value;
@@ -4704,6 +5032,73 @@ export default function initSsoConfigurationPage(view) {
     );
     ssoConfigurationPage.refreshReadiness(view, key);
   });
+  // The per-provider selectors, on both forms. The handler asks before the inline policy is discarded and
+  // then syncs the note and the disabled state, so the page reflects the choice immediately rather than
+  // only after the next load.
+  [
+    ["#ProvisioningProfile", ""],
+    ["#saml-ProvisioningProfile", "saml-"],
+  ].forEach(([selector, prefix]) => {
+    view
+      .querySelector(selector)
+      .addEventListener("change", () =>
+        ssoConfigurationPage.chooseProvisioningProfile(view, prefix),
+      );
+  });
+  // ---- Provider template pickers (#726) ----
+  ssoConfigurationPage.populatePresetPicker(view, "OidPreset", OIDC_PRESETS);
+  ssoConfigurationPage.populatePresetPicker(view, "saml-Preset", SAML_PRESETS);
+  view.querySelector("#OidPreset").addEventListener("change", (e) => {
+    ssoConfigurationPage.applyOidcPreset(view, e.target.value);
+  });
+  view.querySelector("#saml-Preset").addEventListener("change", (e) => {
+    ssoConfigurationPage.applySamlPreset(view, e.target.value);
+  });
+}
+
+/** The Accounts tab: who is linked, and the account-link transfer pair. */
+function initAccountsPage(view) {
+  initSharedPage(view);
+
+  // Account-link transfer (#1131): the exact parallel of the configuration pair above, against its own
+  // endpoints and its own status region, so one file's outcome never overwrites the other's.
+  view.querySelector("#ExportLinks").addEventListener("click", (e) => {
+    ssoConfigurationPage.exportLinks(view);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#ImportLinks").addEventListener("click", (e) => {
+    view.querySelector("#ImportLinksFile").click();
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#ImportLinksFile").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    // Clear the input so choosing the same file again re-triggers change.
+    e.target.value = "";
+    ssoConfigurationPage.importLinks(view, file);
+  });
+
+  // The linked-accounts panel (#1121). Read-only on arrival: the roster is fetched once when the page
+  // initialises, so an administrator sees who is linked without pressing anything, and the button re-reads
+  // it. The revoke is bound per row in renderLinkedAccountRow, because the row is what carries the username.
+  view
+    .querySelector("#RefreshLinkedAccounts")
+    .addEventListener("click", (e) => {
+      ssoConfigurationPage.loadLinkedAccounts(view);
+      e.preventDefault();
+      return false;
+    });
+
+  ssoConfigurationPage.loadLinkedAccounts(view);
+}
+
+/** The Policies tab: the named provisioning-profile editor. */
+function initPoliciesPage(view) {
+  initSharedPage(view);
+  bindTemplatePermissionAdders(view);
 
   // ---- Provisioning profiles (#1105) ----
   // The editor is filled by loadConfiguration, so nothing is populated here; these are the four acts and
@@ -4729,28 +5124,55 @@ export default function initSsoConfigurationPage(view) {
     .addEventListener("change", () =>
       ssoConfigurationPage.selectProvisioningProfile(view),
     );
+}
 
-  // The per-provider selectors, on both forms. The handler asks before the inline policy is discarded and
-  // then syncs the note and the disabled state, so the page reflects the choice immediately rather than
-  // only after the next load.
-  [
-    ["#ProvisioningProfile", ""],
-    ["#saml-ProvisioningProfile", "saml-"],
-  ].forEach(([selector, prefix]) => {
-    view
-      .querySelector(selector)
-      .addEventListener("change", () =>
-        ssoConfigurationPage.chooseProvisioningProfile(view, prefix),
-      );
+/** The Server tab: the server-wide switches and the configuration transfer pair. */
+function initServerPage(view) {
+  initSharedPage(view);
+
+  view.querySelector("#SaveLoginButtons").addEventListener("click", (e) => {
+    ssoConfigurationPage.saveLoginButtons(view);
+    e.preventDefault();
+    return false;
   });
 
-  // ---- Provider template pickers (#726) ----
-  ssoConfigurationPage.populatePresetPicker(view, "OidPreset", OIDC_PRESETS);
-  ssoConfigurationPage.populatePresetPicker(view, "saml-Preset", SAML_PRESETS);
-  view.querySelector("#OidPreset").addEventListener("change", (e) => {
-    ssoConfigurationPage.applyOidcPreset(view, e.target.value);
+  view.querySelector("#SaveSingleLogout").addEventListener("click", (e) => {
+    ssoConfigurationPage.saveSingleLogout(view);
+    e.preventDefault();
+    return false;
   });
-  view.querySelector("#saml-Preset").addEventListener("change", (e) => {
-    ssoConfigurationPage.applySamlPreset(view, e.target.value);
+  view.querySelector("#ExportConfig").addEventListener("click", (e) => {
+    ssoConfigurationPage.exportConfig(view);
+    e.preventDefault();
+    return false;
+  });
+
+  // The visible Import button drives the hidden file input; selecting a file runs the import.
+  view.querySelector("#ImportConfig").addEventListener("click", (e) => {
+    view.querySelector("#ImportConfigFile").click();
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#ImportConfigFile").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    // Clear the input so choosing the same file again re-triggers change.
+    e.target.value = "";
+    ssoConfigurationPage.importConfig(view, file);
   });
 }
+
+export default ssoConfigurationPage;
+
+/**
+ * The controller for each registered page, keyed by the name its markup asks for. A page's own module
+ * looks itself up here rather than importing a named function, so adding a tab is one entry and one
+ * thin module rather than an edit spread over both.
+ */
+export const pageControllers = {
+  overview: initOverviewPage,
+  providers: initProvidersPage,
+  accounts: initAccountsPage,
+  policies: initPoliciesPage,
+  server: initServerPage,
+};

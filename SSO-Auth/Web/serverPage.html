@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>SSO</title>
+  </head>
+  <body>
+    <div
+      id="sso-server-page"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage esqConfigurationPage"
+      data-controller="__plugin/SSO-Auth-server.js"
+    >
+      <div data-role="content">
+        <div class="content-primary sso-page">
+          <div class="sectionTitleContainer flex align-items-center">
+            <h2 class="sectionTitle" data-i18n="config.title">SSO Settings:</h2>
+            <a
+              is="emby-button"
+              class="raised button-alt headerHelpButton"
+              target="_blank"
+              rel="noopener noreferrer"
+              href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
+              data-i18n="link.help"
+              >Help</a
+            >
+          </div>
+
+          <!--
+            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
+            navigable before any controller runs and a page whose script failed to load still says where
+            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
+            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
+            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
+            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
+            there breaks the page.
+          -->
+          <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="4">
+            <div class="emby-tabs-slider">
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_overview"
+                data-index="0"
+                href="#/configurationpage?name=SSO-Auth"
+                ><div class="emby-button-foreground" data-i18n="tab.overview">
+                  Overview
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_providers"
+                data-index="1"
+                href="#/configurationpage?name=SSO-Auth-providers"
+                ><div class="emby-button-foreground" data-i18n="tab.providers">
+                  Providers
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_accounts"
+                data-index="2"
+                href="#/configurationpage?name=SSO-Auth-accounts"
+                ><div class="emby-button-foreground" data-i18n="tab.accounts">
+                  Accounts
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_policies"
+                data-index="3"
+                href="#/configurationpage?name=SSO-Auth-policies"
+                ><div class="emby-button-foreground" data-i18n="tab.policies">
+                  Policies
+                </div></a
+              >
+              <a
+                is="emby-linkbutton"
+                class="emby-tab-button SSOTAB_server emby-tab-button-active"
+                aria-current="page"
+                data-index="4"
+                href="#/configurationpage?name=SSO-Auth-server"
+                ><div class="emby-button-foreground" data-i18n="tab.server">
+                  Server
+                </div></a
+              >
+            </div>
+          </div>
+
+          <!--
+            The server could not read its stored configuration and is running on defaults (#1543). Hidden
+            until the server says so, and it says so until an administrator imports or saves one - so this
+            is the one statement on the page that is not about what the form in front of you contains, but
+            about whether the form is showing you your settings at all.
+          -->
+          <div
+            id="sso-unreadable-config"
+            class="fieldDescription sso-empty-state"
+            hidden
+          ></div>
+
+          <div class="sso-columns">
+            <div class="sso-column-main">
+              <!--
+            Config export / import (#161). Export downloads a REDACTED, importable document: the provider
+            secrets and the server-managed canonical-link maps are withheld by the server, so the file carries
+            no secret, encrypted envelope, or key. Import merges the document into THIS instance, keeping the
+            stored secret and account links of each unchanged provider (an OpenID provider whose endpoint or
+            client id the import changes has its links/secret cleared, the #186 repoint safety measure);
+            because secrets are redacted, they are re-entered on the target after an import. Both endpoints
+            require administrator privileges. The download is built from a Blob and the status is rendered with
+            textContent (never innerHTML), so no document value reaches the DOM as markup (#221).
+          -->
+              <form id="sso-config-transfer" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Export / Import Configuration"
+                >
+                  <div class="collapseContent">
+                    <div class="fieldDescription">
+                      Export downloads a redacted copy of this plugin's
+                      configuration (provider secrets and account links are
+                      never included). Import merges an exported file into this
+                      instance, keeping the stored secret and account links of
+                      each unchanged provider. If the import gives an OpenID
+                      provider a different discovery endpoint or client id, that
+                      provider's links and secret are cleared (a repoint safety
+                      measure), so review a file before importing it over a live
+                      provider. Re-enter each provider's secret here after
+                      importing. Requires administrator privileges.
+                    </div>
+
+                    <button
+                      id="ExportConfig"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit block emby-button"
+                    >
+                      <span>Export Configuration</span>
+                    </button>
+
+                    <input
+                      id="ImportConfigFile"
+                      type="file"
+                      accept="application/json,.json"
+                      style="display: none"
+                    />
+                    <button
+                      id="ImportConfig"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-alt block emby-button"
+                    >
+                      <span>Import Configuration</span>
+                    </button>
+
+                    <div id="ConfigTransferResult"></div>
+                  </div>
+                </div>
+              </form>
+
+              <!--
+            Login-page buttons (#722): GLOBAL setting. ManageLoginPageButtons lives on the root
+            PluginConfiguration, not on a provider, so it deliberately sits OUTSIDE both provider forms
+            and carries NO sso-* marker class: it is saved by its own handler (sso-core.js
+            saveLoginButtons), which re-posts the whole configuration with only this flag changed, and
+            loaded by loadConfiguration. The per-provider button settings (HideLoginButton,
+            LoginButtonText) are ordinary persisting provider-form fields in each editor below.
+          -->
+              <form id="sso-login-buttons" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Login Page Buttons"
+                >
+                  <div class="collapseContent">
+                    <div
+                      class="checkboxContainer checkboxContainer-withDescription"
+                    >
+                      <label>
+                        <input
+                          is="emby-checkbox"
+                          id="ManageLoginPageButtons"
+                          name="ManageLoginPageButtons"
+                          type="checkbox"
+                        />
+                        <span>Manage login buttons on the login page</span>
+                      </label>
+                      <div class="fieldDescription checkboxFieldDescription">
+                        Off by default: the plugin never touches the server's
+                        login branding unless you opt in here. When on, a
+                        managed "Sign in with …" block, one button per enabled
+                        provider, is spliced into the login page's branding
+                        disclaimer and refreshed whenever this plugin's
+                        configuration is saved (and at server start). When off,
+                        only that managed block is removed; any disclaimer
+                        content you wrote yourself is preserved either way. Each
+                        provider's editor below can hide its button or give it a
+                        custom label.
+                      </div>
+                    </div>
+
+                    <button
+                      id="SaveLoginButtons"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit block emby-button"
+                    >
+                      <span>Save</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <!--
+            Single Logout (#727): GLOBAL setting. EnableSingleLogout lives on the root PluginConfiguration,
+            not on a provider, so, like ManageLoginPageButtons above, it sits OUTSIDE both provider forms and
+            carries NO sso-* marker class: it is saved by its own handler (sso-core.js saveSingleLogout), which
+            re-posts the whole configuration with only this flag changed, and loaded by loadConfiguration. The
+            per-provider return URL (PostLogoutRedirectUri) is an ordinary persisting provider-form field in
+            each editor below.
+          -->
+              <form id="sso-single-logout" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Single Logout"
+                >
+                  <div class="collapseContent">
+                    <div
+                      class="checkboxContainer checkboxContainer-withDescription"
+                    >
+                      <label>
+                        <input
+                          is="emby-checkbox"
+                          id="EnableSingleLogout"
+                          name="EnableSingleLogout"
+                          type="checkbox"
+                        />
+                        <span>Enable Single Logout</span>
+                      </label>
+                      <div class="fieldDescription checkboxFieldDescription">
+                        Off by default. When on, each successful login stores
+                        the per-session state a logout needs, and two logout
+                        surfaces become active: the RP-initiated OpenID logout
+                        route (which ends the linked Jellyfin session and can
+                        redirect the browser on to the identity provider's
+                        end-session endpoint) and the inbound SAML LogoutRequest
+                        endpoint (which ends the Jellyfin session matched by the
+                        request). While off, no per-session logout state is
+                        captured and both surfaces reject; local Jellyfin logout
+                        is unaffected either way. Set each OpenID provider's
+                        optional post-logout redirect URL in its editor below.
+                      </div>
+                    </div>
+
+                    <button
+                      id="SaveSingleLogout"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit block emby-button"
+                    >
+                      <span>Save</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <aside class="sso-column-rail"></aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

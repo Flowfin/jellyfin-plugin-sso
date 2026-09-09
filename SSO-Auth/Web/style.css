@@ -446,3 +446,89 @@
     transition: none;
   }
 }
+
+/* ---- The five-page layout (#1527) ---- */
+
+/* Full width, and THE CAP IS ON THE FORM RATHER THAN ON THE PAGE. Read off jellyfin-web 10.11.11 rather
+   than guessed - `.content-primary` carries padding and no max-width at all, and what actually holds a
+   settings page to a column is
+
+     @media (min-width:50em){.readOnlyContent,form{max-width:54em}}
+
+   which is right for one long form and wrong for a two-column surface, because every section here sits
+   inside an `esqConfigurationForm`. So the cap is lifted from this plugin's own forms and the reading
+   measure is given back by the column tracks below, where it belongs: the fields keep a sane line length
+   and the rail beside them stops being pushed off the screen. Scoped to `.sso-page` so nothing outside
+   these five pages is touched.
+
+   ONLY THE CAP IS LIFTED and no width is declared: `.content-primary` carries horizontal padding, and a
+   width set beside padding is how an element ends up wider than the box it sits in. */
+.sso-page,
+.sso-page form {
+  max-width: none;
+}
+
+.sso-tabs {
+  margin-bottom: 1.5em;
+}
+
+/* Two columns on wide screens, one on narrow. Grid rather than flex, so the two tracks are declared once
+   and the narrow case is a single-column grid rather than a wrap nobody controls. */
+.sso-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(18em, 1fr);
+  gap: 2em;
+  align-items: start;
+}
+
+.sso-column-main,
+.sso-column-rail {
+  min-width: 0;
+}
+
+/* THE RAIL COMES FIRST WHEN THE COLUMNS COLLAPSE, and that is the decision the stage-0 walk left to this
+   stage. Stacking in source order puts the readiness checklist and the field help BELOW the save button
+   at 375 wide - which is to say it puts the answer to "can I use this yet" behind every field and behind
+   the button that commits them. The order is reversed instead: at one column the rail is read first and
+   the form follows it, which is the order the two are actually used in. */
+@media (max-width: 60em) {
+  .sso-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sso-column-rail {
+    order: -1;
+  }
+}
+
+/* An Overview card is a provider card that is not a button: it is read, never clicked. */
+.sso-overview-card {
+  display: block;
+  cursor: default;
+  margin-bottom: 0.75em;
+}
+
+.sso-overview-card:hover,
+.sso-overview-card:focus-visible {
+  cursor: default;
+}
+
+.sso-check-list {
+  list-style: none;
+  margin: 0.5em 0 0;
+  padding: 0;
+}
+
+/* The state of a status line is carried by a glyph as well as by colour, so it survives a reader who
+   cannot separate the two (#221 applies the same rule to the check rows). */
+.sso-check-list > li[data-state]::before {
+  margin-right: 0.5em;
+}
+
+.sso-check-list > li[data-state="ok"]::before {
+  content: "\2713";
+}
+
+.sso-check-list > li[data-state="bad"]::before {
+  content: "\26A0";
+}

@@ -47,6 +47,16 @@ jobs:
         cache-dependency-path: '**/packages.lock.json'
     - name: Jellyfin compatibility metadata check
       run: bash scripts/check-jellyfin-compat.sh
+    - name: Settings-page field and controller reconciliation
+      # The settings surface is five pages since #1527, and two properties hold it together that no
+      # C# rule can see: every one of the page's form controls is on the tab docs/ui/mock/FIELDS.md
+      # names for it, and each page's controller only reaches ids its own page declares. The second
+      # is the one that costs: the controllers register their handlers unguarded, so an id that
+      # moved to another tab is a TypeError that leaves the REST of that page's controls inert.
+      # Until this step the tool existed and nothing ran it, so both were prose (#1526 built it,
+      # #1527 widened it and gated it here). Node is preinstalled on the runner and the tool has no
+      # dependencies, so this adds no install.
+      run: node tools/ui-mock-fields.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

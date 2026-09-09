@@ -129,8 +129,8 @@ public partial class ArchitectureConformanceTests
         //    of its own, not even as a fallback - a fallback runs exactly when nobody is watching, so the
         //    second producer would come back at the worst moment;
         //  - the copy confirmation is announced through an aria-live region (not colour-only).
-        var html = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "configPage.html"));
-        var js = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Web", "config.js"));
+        var html = WebAssets.Markup();
+        var js = WebAssets.Script();
 
         var field = Regex.Match(html, "<input\\b[^>]*id=\"OidRedirectUri\"[^>]*>", RegexOptions.Singleline);
         Assert.True(field.Success, "The read-only #OidRedirectUri field must exist in configPage.html (#724).");

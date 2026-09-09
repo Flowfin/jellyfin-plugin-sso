@@ -568,6 +568,34 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The settings page is five pages (#1527).** One 222 KB page carrying all 123
+  controls became five, joined by the dashboard's own tab strip: **Overview**,
+  **Providers**, **Accounts**, **Policies** and **Server**. Nothing was added to
+  the settings and nothing was taken away - every one of the 123 controls keeps
+  its id, its marker classes and the save path it always had, and the `.NET`
+  workflow now runs `tools/ui-mock-fields.js`, which refuses a control that is on
+  no page, on two pages, on a page `docs/ui/mock/FIELDS.md` does not name for it,
+  or that has left the insecure or sensitive box its row declares. Two more
+  failures the split made possible are refused there too: a page controller that
+  reaches an id its own page does not carry, and a tab link, page controller or
+  core reference naming something the plugin does not register - which would
+  otherwise be four dead tabs and no route to the settings at all. **Overview is
+  new and holds no setting**: a card per provider saying whether it is offered at
+  the login page, whether its configuration is complete and when SSO last signed
+  somebody in through it, plus a what-to-do-next list derived from the same
+  aggregate check the Configuration check button runs. It reports no provider as
+  reachable, because the check it reads does not answer that - whether an
+  identity provider actually answers is still what Test Connection reports - and
+  a check that could not be read is said in words rather than shown as "nothing
+  configured". The Configuration check button itself is on **Providers**, beside
+  the field labels its answer names. The address an administrator has bookmarked
+  is unchanged: the plugin's page name still opens the plugin, and it opens on
+  Overview. `config.js` is gone as a file, split into a shared `sso-core.js` and
+  a ten-line module per page. **The columns collapse rail-first on a narrow
+  screen**, so the readiness panel and the field help are read before the form
+  and its Save rather than after them. Overview re-reads the server on every
+  visit; the four pages that hold controls do not, because re-reading them would
+  discard an edit made and not yet saved.
 - **The login audit line now names the Jellyfin account, and the
   provider-presented name beside it where the two differ (#1551).** The
   `[SSO Audit] Login succeeded` line carried the username the identity provider
