@@ -31,7 +31,7 @@
          build.yaml targetAbi floor to prove the used API surface also exists on the oldest claimed
          server (#142). The committed lockfile pins the default, so a locked-mode restore is unaffected. -->
     <JellyfinVersion Condition="'$(JellyfinVersion)' == '' and '$(TargetFramework)' == 'net9.0'">10.11.11</JellyfinVersion>
-    <JellyfinVersion Condition="'$(JellyfinVersion)' == '' and '$(TargetFramework)' == 'net10.0'">12.0.0-rc2</JellyfinVersion>
+    <JellyfinVersion Condition="'$(JellyfinVersion)' == '' and '$(TargetFramework)' == 'net10.0'">12.0.0</JellyfinVersion>
   </PropertyGroup>
 
   <ItemGroup>
