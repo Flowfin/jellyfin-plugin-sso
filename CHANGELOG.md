@@ -834,13 +834,30 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   the tree, so a line added later cannot arrive with the older sanitizer alone.
   Each of the four sites above is driven by a forging payload in the suite.
 
+  The review of this change found two more routes the rule cannot see, and
+  both are closed here with their own payload tests. The refusal written when a
+  discovery document names a member twice printed that member's name through
+  a control-character filter that let the bracket through; the name is
+  substituted the same way now, with the screen's own truncation marker joined
+  afterwards so it stays whole. And the avatar fetch handed its exception to
+  the log, which renders on the lines that follow the message and quotes the
+  remote host's HTTP reason phrase verbatim - a host the picture claim chose.
+  That entry now carries the exception type and its sanitized message inline
+  and no exception object, at the cost of the stack trace for a best-effort
+  fetch.
+
   **What this does NOT cover, stated plainly.** The rule reaches a value the
-  code has already marked foreign with the line-ending strip. A value logged
-  with no sanitizer at all is not this rule's subject and never was; that is
-  CodeQL's log-forging query, which is why both sanitizers stay written out at
-  the logging call. What an operator's own tooling does with the log file is
-  still that tooling's business. Anchoring a search at the start of a line was
-  sound before this and remains the sound way to read the trail.
+  code has already marked foreign with the line-ending strip; a foreign value
+  that reaches a log line by another route is caught by review and by a payload
+  test, as the two above were, not by the rule. A value logged with no
+  sanitizer at all is not this rule's subject and never was; that is CodeQL's
+  log-forging query, which is why both sanitizers stay written out at the
+  logging call. The substitution is byte-exact: a fullwidth bracket is not the
+  marker's byte and is left alone, so a tool that normalises text before
+  matching is outside what this can promise. What an operator's own tooling
+  does with the log file is still that tooling's business. Anchoring a search
+  at the start of a line was sound before this and remains the sound way to
+  read the trail.
 
   **If you parse plugin log lines, read this.** A foreign value that legitimately
   carries an opening square bracket - a provider name, a role, a relay state, a
