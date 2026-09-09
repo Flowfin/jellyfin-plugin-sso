@@ -1,10 +1,19 @@
 name: Nightly betas
 
 # Publish betas on a daily cadence instead of on every push (#632). GitHub `schedule` events only run
-# a workflow from the DEFAULT branch, so this single scheduler lives on main and dispatches both beta
-# legs: publish-beta.yml (JF10.11) and publish-jf12-beta.yml (JF12) - both from main since #954
-# consolidated the JF12/5.0 line onto the one multi-target codebase (the 4.2 branch is retired).
-# Each dispatched workflow has its own gate job that skips the build unless main has advanced since
+# a workflow from the DEFAULT branch, so this single scheduler lives on the default branch and
+# dispatches both beta legs: publish-beta.yml (JF10.11) and publish-jf12-beta.yml (JF12).
+#
+# THE TWO LEGS TAKE DIFFERENT REFS, and that is the whole point of this file (#1585). `main` is frozen
+# on the 4.3 stable candidate for its soak, and 4.3 is the LAST release for Jellyfin 10.11 - so the
+# JF10.11 leg keeps building from `main`, which is exactly the artifact the soak is about. The JF12
+# leg does not: the 5.0 line is developed here, and while this leg pointed at the frozen `main` it
+# published the same code every night with a rising build number while the work sat unreleased.
+#
+# So the JF12 ref is the DEVELOPMENT branch and the JF10.11 ref is `main`. If the development branch
+# is ever renamed, this line is the one that has to follow it, and nothing else here does.
+#
+# Each dispatched workflow has its own gate job that skips the build unless its ref has advanced since
 # that lineage's last beta, so an unchanged day mints nothing.
 on:
   schedule:
@@ -29,17 +38,23 @@ jobs:
     permissions:
       actions: write
     steps:
-      - name: Trigger the JF10.11 beta (main)
+      - name: Trigger the JF10.11 beta (the frozen 4.3 candidate on main)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: gh workflow run publish-beta.yml --repo "$REPO" --ref main
-      - name: Trigger the JF12 beta (main)
+      - name: Trigger the JF12 beta (the 5.0 development branch)
         # Dispatch the JF12 leg even if the JF10.11 dispatch above failed, so one API hiccup cannot
         # silently take out both generations' nightly build. The job still fails if either dispatch
         # failed, and "Publish failure alert" watches this workflow, so the failure is surfaced (#982).
+        #
+        # The ref is the development branch rather than `main`, for the reason in the header. The
+        # first run after this lands publishes: that leg's gate compares its ref's HEAD to the commit
+        # the newest 5.0.0-JF12-beta tag points at, they differ, and the gate's fail-open default is
+        # to build. That is the same shape as the #954 move off the 4.2 branch, which its own comment
+        # records.
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref main
+        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref 4.4
