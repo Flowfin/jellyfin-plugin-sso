@@ -216,7 +216,7 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         _logger.LogWarning(
             "Refused the OpenID {Document} for provider {Provider}: {Reason}{Member}{Cause}. The read fails closed rather than handing on a document whose meaning depends on which reader parses it.",
             DocumentKind(request),
-            _provider?.ReplaceLineEndings(string.Empty),
+            _provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reason,
             named,
             cause is null ? string.Empty : $" [{cause.GetType().Name}]");

@@ -213,7 +213,7 @@ internal sealed class SamlLoginService
         {
             _logger.LogInformation(
                 "SAML request has relayState of {RelayState}",
-                relayState?.ReplaceLineEndings(string.Empty));
+                relayState?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         // Bind SAMLResponse via [FromForm] rather than reading Request.Form directly: a non-form
@@ -248,8 +248,8 @@ internal sealed class SamlLoginService
             {
                 _logger.LogWarning(
                     "SAML user: {UserId} has insufficient roles: {@Roles}. Expected any one of: {@ExpectedRoles}",
-                    samlResponse.GetNameID()?.ReplaceLineEndings(string.Empty),
-                    assertionRoles.Select(r => r?.ReplaceLineEndings(string.Empty)),
+                    samlResponse.GetNameID()?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    assertionRoles.Select(r => r?.ReplaceLineEndings(string.Empty).Replace('[', '(')),
                     config.Roles);
             }
 
@@ -322,7 +322,7 @@ internal sealed class SamlLoginService
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("SAML login outcome refused for provider {Provider}: the per-client sub-cap or the outcome store is at capacity (warning throttled); the assertion was not consumed, so the login can be retried.", provider?.ReplaceLineEndings(string.Empty));
+                    _logger.LogWarning("SAML login outcome refused for provider {Provider}: the per-client sub-cap or the outcome store is at capacity (warning throttled); the assertion was not consumed, so the login can be retried.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
             }
 
@@ -450,7 +450,7 @@ internal sealed class SamlLoginService
                 {
                     if (_logger.IsEnabled(LogLevel.Warning))
                     {
-                        _logger.LogWarning("SAML request refused for provider {Provider}: the per-client sub-cap or the outstanding-request cache is at capacity (warning throttled).", provider?.ReplaceLineEndings(string.Empty));
+                        _logger.LogWarning("SAML request refused for provider {Provider}: the per-client sub-cap or the outstanding-request cache is at capacity (warning throttled).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                     }
                 }
 
@@ -479,7 +479,7 @@ internal sealed class SamlLoginService
             // material is not part of the message, so nothing sensitive is logged.
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("SAML challenge for provider {Provider} could not sign the AuthnRequest: {Reason}", provider?.ReplaceLineEndings(string.Empty), ex.Message);
+                _logger.LogError("SAML challenge for provider {Provider} could not sign the AuthnRequest: {Reason}", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; the SAML request signing key is misconfigured.");

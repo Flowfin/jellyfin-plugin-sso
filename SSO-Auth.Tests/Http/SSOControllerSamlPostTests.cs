@@ -105,6 +105,32 @@ public class SSOControllerSamlPostTests
     }
 
     [Fact]
+    public async Task SamlPost_RoleNotAllowed_CannotForgeAnAuditRecordThroughTheNameIdOrTheRoles()
+    {
+        // #1557 on the SAML leg: the denial warning prints the raw NameID and every role string the
+        // assertion carried, both chosen by the identity provider. Either could hold a complete audit record
+        // and, before this, land it verbatim on one physical line. Both values still print - the NameID and
+        // the roles are what an operator needs to see to fix the allow-list - and neither can carry the
+        // record marker. The assertion is signed by the fixture, so the real validation path runs first.
+        const string forged = "[SSO Audit] Login succeeded: root via SAML provider 'adfs' (admin=True).";
+        var fixture = SamlTestFactory.Create(nameId: forged, role: forged);
+        var harness = new SsoControllerHarness(c => c.SamlConfigs["adfs"] = new SamlConfig
+        {
+            Enabled = true,
+            SamlCertificate = fixture.CertificateBase64,
+            DoNotValidateAudience = true,
+            Roles = new[] { "only-admins" },
+        });
+
+        var result = await harness.Controller.SamlCallback("adfs", formSamlResponse: fixture.EncodeResponse());
+
+        Assert.Equal(401, Assert.IsType<ContentResult>(result).StatusCode);
+        var warning = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("has insufficient roles", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SamlPost_SignedByAnotherCertificate_PublishesNoDenial()
     {
         // The one-change neighbour: a rejection that is NOT the role gate publishes nothing. Without this the

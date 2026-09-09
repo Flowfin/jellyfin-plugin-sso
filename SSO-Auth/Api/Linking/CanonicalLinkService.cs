@@ -384,9 +384,9 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "OpenID login for {Name} via {Mode}/{Provider} refused: the account link's stored issuer does not match the login's issuer (the provider entry may have been repointed at a different identity provider). Re-establish the link via the admin endpoints.",
-                    username?.ReplaceLineEndings(string.Empty),
+                    username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             throw new AccountLinkForbiddenException("The account link was minted under a different issuer; refusing to resolve it after an apparent provider repoint.");
@@ -413,9 +413,9 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "SSO login for {Name} via {Mode}/{Provider} refused: a legacy username-keyed link points at an administrator account, which is not adopted by name. Link it explicitly via the admin endpoints.",
-                    username?.ReplaceLineEndings(string.Empty),
+                    username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             throw new AccountLinkForbiddenException();
@@ -435,7 +435,7 @@ internal sealed class CanonicalLinkService
             _logger.LogInformation(
                 "Migrated {Mode}/{Provider} canonical link from the legacy username key to the stable subject key.",
                 mode.ToToken(),
-                provider?.ReplaceLineEndings(string.Empty));
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         return migratedUserId;
@@ -482,7 +482,7 @@ internal sealed class CanonicalLinkService
                 _logger.LogWarning(
                     "SSO login via {Mode}/{Provider}: the identity provider's username is already held by a different Jellyfin account, so the linked account keeps its current name. Rename or merge the other account to let the sync proceed.",
                     mode.ToToken(),
-                    provider.ReplaceLineEndings(string.Empty));
+                    provider.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return userId;
@@ -531,7 +531,7 @@ internal sealed class CanonicalLinkService
                     ex,
                     "SSO login via {Mode}/{Provider}: renaming the linked account to follow the identity provider failed; it keeps its current name and the login continues.",
                     mode.ToToken(),
-                    provider.ReplaceLineEndings(string.Empty));
+                    provider.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return userId;
@@ -561,9 +561,9 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "SSO login for {Name} via {Mode}/{Provider} refused adoption of a pre-existing account: {Reason}.",
-                    username?.ReplaceLineEndings(string.Empty),
+                    username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty),
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     DescribeAdoptionRefusal(verdict));
             }
 
@@ -627,15 +627,15 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "SSO login for {Name} via {Mode}/{Provider}: a legacy username-keyed link exists but no live account bears the name (it was renamed on the Jellyfin side), so a fresh account is being provisioned and the original account is now orphaned. Re-link it to this subject via the admin endpoints.",
-                    username.ReplaceLineEndings(string.Empty),
+                    username.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider.ReplaceLineEndings(string.Empty));
+                    provider.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
         }
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
-            _logger.LogInformation("SSO user {Name} doesn't exist, creating...", provisionedName.ReplaceLineEndings(string.Empty));
+            _logger.LogInformation("SSO user {Name} doesn't exist, creating...", provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
@@ -789,7 +789,7 @@ internal sealed class CanonicalLinkService
         {
             _logger.LogWarning(
                 "SSO user {Name}: the provisioning template names a home-screen layout, but this path holds no display-preferences store, so none was written.",
-                provisionedName.ReplaceLineEndings(string.Empty));
+                provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -803,7 +803,7 @@ internal sealed class CanonicalLinkService
                 // own layout under a template naming one is not a mystery.
                 _logger.LogWarning(
                     "SSO user {Name}: the provisioning template's home-screen layout names a section that is not a HomeSectionType or lists more than {Slots} entries, so none was written; a save would have refused the same list.",
-                    provisionedName.ReplaceLineEndings(string.Empty),
+                    provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     HomeScreenPolicy.SlotCount);
             }
         }
@@ -816,7 +816,7 @@ internal sealed class CanonicalLinkService
             _logger.LogWarning(
                 ex,
                 "SSO user {Name}: the provisioning template's home-screen layout could not be written; the account was created without it.",
-                provisionedName.ReplaceLineEndings(string.Empty));
+                provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
     }
 
@@ -844,8 +844,8 @@ internal sealed class CanonicalLinkService
             _logger.LogWarning(
                 "SSO provisioning via {Mode}/{Provider}: provisioning profile {Profile} ({Source}) is not defined, so the new account was created with NO provisioning policy. The resolution deliberately does not fall back; define that profile or remove the reference.",
                 mode.ToToken(),
-                provider.ReplaceLineEndings(string.Empty),
-                resolution.UnresolvedProfile.ReplaceLineEndings(string.Empty),
+                provider.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                resolution.UnresolvedProfile.ReplaceLineEndings(string.Empty).Replace('[', '('),
                 resolution.SelectedByRole ? "selected by a role mapping" : "the provider default");
         }
 
@@ -884,7 +884,7 @@ internal sealed class CanonicalLinkService
                 _logger.LogWarning(
                     "SSO login via {Mode}/{Provider} refused: the identity provider's username has no character Jellyfin accepts in an account name, so no account can be provisioned for it.",
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             throw new AccountLinkForbiddenException("The SSO username contains no character Jellyfin accepts in an account name; refusing to provision an account under an invented name.");
@@ -909,10 +909,10 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "SSO login for {Name} via {Mode}/{Provider} refused: the name normalizes to {Provisioned}, which an existing Jellyfin account already bears. Rename that account or the identity provider's username.",
-                    username?.ReplaceLineEndings(string.Empty),
+                    username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty),
-                    provisionedName.ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             throw new AccountLinkForbiddenException("The sanitized SSO username is already taken by another Jellyfin account; refusing to adopt it by name.");
@@ -922,10 +922,10 @@ internal sealed class CanonicalLinkService
         {
             _logger.LogInformation(
                 "SSO username {Name} via {Mode}/{Provider} carries characters Jellyfin does not accept in an account name; provisioning as {Provisioned}. The account link is keyed on the provider subject, so the rename does not affect which account later logins resolve to.",
-                username?.ReplaceLineEndings(string.Empty),
+                username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                 mode.ToToken(),
-                provider?.ReplaceLineEndings(string.Empty),
-                provisionedName.ReplaceLineEndings(string.Empty));
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
 
         return provisionedName;
@@ -1136,7 +1136,7 @@ internal sealed class CanonicalLinkService
             _logger.LogWarning(
                 ex,
                 "[SSO] Could not record the last SSO login for provider {Provider}. The login itself succeeded; the roster timestamp is stale.",
-                provider?.ReplaceLineEndings(string.Empty));
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
     }
 
@@ -1295,9 +1295,9 @@ internal sealed class CanonicalLinkService
                 {
                     _logger.LogWarning(
                         "SSO login for {Name} via {Mode}/{Provider} refused: a legacy username-keyed link is pending but AllowExistingAccountLink is off and a live account still bears the name. Enable AllowExistingAccountLink (a short controlled window) or link the account via the admin endpoints to migrate it.",
-                        username?.ReplaceLineEndings(string.Empty),
+                        username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                         mode.ToToken(),
-                        provider?.ReplaceLineEndings(string.Empty));
+                        provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
                 }
             }
         }
@@ -1307,9 +1307,9 @@ internal sealed class CanonicalLinkService
             {
                 _logger.LogWarning(
                     "SSO login for {Name} via {Mode}/{Provider} refused: a pre-existing unlinked Jellyfin account exists and AllowExistingAccountLink is disabled for this provider.",
-                    username?.ReplaceLineEndings(string.Empty),
+                    username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
-                    provider?.ReplaceLineEndings(string.Empty));
+                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
         }
 

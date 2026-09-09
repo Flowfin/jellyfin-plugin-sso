@@ -168,6 +168,24 @@ public class AvatarServiceTests
     }
 
     [Fact]
+    public async Task TrySetAsync_PictureClaimCarryingAForgedRecord_CannotPlantTheMarkerInTheRefusal()
+    {
+        // #1557: the refusal names the rejected value, and it is reached precisely because the value is NOT
+        // a usable URL - so an identity provider (or a user allowed to edit their own picture claim) needs
+        // no parseable address to land a whole audit record on this line. The value still prints, because
+        // an operator debugging a missing avatar needs to see what was refused; the record marker does not.
+        var (service, providers, users, log) = Build();
+        const string forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
+
+        await service.TrySetAsync(TestUsers.Named("alice"), forged);
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        var refusal = Assert.Single(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("disallowed URL", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task StoreAsync_SaveFails_LeavesThePreviousAvatarUntouched()
     {
         // The #377 regression: a transient save failure must not downgrade the user from a working

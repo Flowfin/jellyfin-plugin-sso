@@ -274,6 +274,28 @@ public class SSOControllerOidPostTests
     }
 
     [Fact]
+    public async Task OidPost_IdpErrorRedirect_CannotForgeAnAuditRecordThroughTheWarningLine()
+    {
+        using var fixture = new OidcTokenFixture(Authority, "jf");
+        // #1557: the one forging surface reachable without any credential. OidCallback carries no [Authorize],
+        // and the error_description the callback logs server-side is parsed from the query, so a visitor who
+        // took a state and a cookie from the challenge leg returns with a whole plausible audit record in it.
+        // Before this, the warning rendered it verbatim on one physical line, and an unanchored search over
+        // the log file - grep -F "[SSO Audit] Login succeeded: root" - reported a login that never happened.
+        // The line still carries the description, because it is the troubleshooting content of the warning;
+        // what it cannot carry is the record marker, whose opening bracket now prints as a round one.
+        const string forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
+        var harness = ArrangeCallback(fixture, query: $"?error=access_denied&error_description={Uri.EscapeDataString(forged)}&state=state-1");
+
+        var result = await harness.Controller.OidCallback("kc", "state-1");
+
+        Assert.Equal(400, Assert.IsType<ContentResult>(result).StatusCode);
+        var warning = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("authorization-response processing failed", StringComparison.Ordinal));
+        Assert.Contains("(SSO Audit] Login succeeded: root", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Message.Contains("[SSO Audit] ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task OidPost_IdTokenWithoutSub_Returns401()
     {
         using var fixture = new OidcTokenFixture(Authority, "jf");

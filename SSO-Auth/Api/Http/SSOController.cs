@@ -516,7 +516,7 @@ public class SSOController : ControllerBase
                 // is logged.
                 if (_logger.IsEnabled(LogLevel.Error))
                 {
-                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty), ex.Message);
+                    _logger.LogError("SAML SP-initiated logout for provider {Provider} could not build the signed LogoutRequest: {Reason}; the local logout stands and the browser returns to this server.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
                 }
             }
         }
@@ -1252,7 +1252,7 @@ public class SSOController : ControllerBase
         {
             if (_logger.IsEnabled(LogLevel.Error))
             {
-                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty), ex.Message);
+                _logger.LogError("SAML inbound logout for provider {Provider} could not build the signed LogoutResponse: {Reason}; the revocation stands and the endpoint answers 200.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), ex.Message);
             }
         }
 
@@ -1910,7 +1910,7 @@ public class SSOController : ControllerBase
             // importer builds its refusals under.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty));
+                _logger.LogWarning("The account-link import was refused and nothing was restored: {Reason}", ex.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return BadRequest(ex.Message?.ReplaceLineEndings(string.Empty));
