@@ -37,7 +37,7 @@ GENERATION="${SERVER_GENERATION:-jf10.11}"
 # sibling would make an empty run look like a clean one.
 if [ "$GENERATION" = "jf12" ]; then
   ABI_PREFIX="12."
-  DEFAULT_IMAGE="12.0-rc2"
+  DEFAULT_IMAGE="12.0"
 else
   ABI_PREFIX="10.11"
   DEFAULT_IMAGE="10.11.11"

@@ -91,12 +91,12 @@ jobs:
   # build metadata and the server image together, and the three are derived rather than typed twice.
   #
   #     git grep -n 'metadata=build-jf12[.]yaml' -- .github/workflows/e2e-login.yml
-  #     .github/workflows/e2e-login.yml:140:            target=net10.0; metadata=build-jf12.yaml; image=12.0-rc2; needs_net10=yes
+  #     .github/workflows/e2e-login.yml:140:            target=net10.0; metadata=build-jf12.yaml; image=12.0; needs_net10=yes
   #
   # So a packaged load failure of the #181/#590 class - the thing a pass on the other target framework
   # could not see, because the two build metadata files ship different closures - is inside this pass.
   #
-  # WHAT IS STILL OUTSIDE IT, and it is a real bound rather than a formality. The server is 12.0-rc2, the
+  # WHAT IS STILL OUTSIDE IT, and it is a real bound rather than a formality. The server is 12.0, the
   # version SSO-Auth.csproj compiles net10.0 against, so the harness proves the artifact against the
   # server it was built for and against no later 12.0 build. rc3 onward and GA are untested here, and a
   # 12.0 server that has moved under the plugin would not be caught by this job. #1466 records that as
@@ -244,7 +244,7 @@ jobs:
             Install via the beta repository URL (a Jellyfin 12.0 server picks this build automatically by targetAbi):
             https://raw.githubusercontent.com/${{ github.repository }}/manifest-beta/manifest.json
 
-            Scope note (#743/#1466): the JF12/5.0 line has **had no manual Release-QA pass against a live Jellyfin 12.0 server** - no 12.0 GA server exists to run the E2E checklist against, and this line is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate. What it does carry since #1466 is the automated seven-stack provider matrix that gates this publish: it boots a live `jellyfin/jellyfin:12.0-rc2` server, installs the net10.0 artifact this release ships into it, and drives OIDC and SAML login round-trips against seven identity providers. That is the rc the net10.0 build compiles against and no later 12.0 build. The 5.0 line clears its own live-validation gate when a Jellyfin 12.0 GA build exists and the manual checklist has been run against it. Use these betas for testing, not production.
+            Scope note (#743/#1466): the JF12/5.0 line has **had no manual Release-QA pass against a live Jellyfin 12.0 server** - the checklist has not been run since 12.0 GA shipped on 2026-09-07, and this line is NOT part of the 4.x (Jellyfin 10.11) release-candidate gate. What it does carry since #1466 is the automated seven-stack provider matrix that gates this publish: it boots a live `jellyfin/jellyfin:12.0` server, installs the net10.0 artifact this release ships into it, and drives OIDC and SAML login round-trips against seven identity providers. That is the release the net10.0 build compiles against. The 5.0 line clears its own live-validation gate when the manual checklist has been run against a GA server; the GA build exists since 2026-09-07, so that run is the only condition left. Use these betas for testing, not production.
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish the draft release
