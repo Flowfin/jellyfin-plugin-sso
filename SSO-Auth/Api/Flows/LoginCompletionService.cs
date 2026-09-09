@@ -186,7 +186,17 @@ internal sealed class LoginCompletionService
             sessionParameters,
             remoteEndPointResolver,
             () => _canonicalLinks.IsIdentityStillLinked(identity.LinkMode, identity.Provider, identity.Subject, userId)).ConfigureAwait(false);
-        SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, identity.Username, identity.Admin);
+        // #1551: the line names the account the HOST is about to name in its own AuthenticationSuccess
+        // event, so an operator can line the two up. AuthenticateDirect builds that event's payload from
+        // THIS result - it publishes the same instance it returns - so User.Name is the host's own value
+        // rather than a second derivation of it that could drift. The provider-presented name is passed
+        // beside it and is logged only where the two differ, which happens for more than one reason: an
+        // existing link resolves an account under its own name with SyncUsernameFromProvider off, a created
+        // account was provisioned through Jellyfin's name allowlist, or a requested rename was declined. The
+        // fallback is reached only when the host returned no usable name; the line then names what it always
+        // named, and an audit line is never worth throwing a completed login away for.
+        var mintedUsername = MintedUsername(authenticationResult, identity);
+        SsoAudit.LoginSucceeded(_logger, identity.AuditProtocol, identity.Provider, mintedUsername, identity.Admin, identity.Username);
 
         // #1139: counted beside the audit line rather than at a new hook point, so the counter and the trail
         // cannot come apart. Here rather than in the status mapper because a success reaches the mapper too,
@@ -309,4 +319,15 @@ internal sealed class LoginCompletionService
             _logger.LogError(ex, "Failed to capture the Single Logout session state after a successful login; logout propagation will be unavailable for this session.");
         }
     }
+
+    // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
+    // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
+    // reading it here is reading the host's own value rather than deriving a second one beside it. The
+    // parameter is nullable and the presented name is the fallback because a name is all this line can
+    // correlate on: without one there is nothing to line the two records up by, so the pre-#1551 value is
+    // no worse than a blank, and an audit line is never worth throwing a completed login away for. Empty
+    // counts as absent for the same reason. The host publishes its event BEFORE returning, so a missing
+    // name does not mean a missing event - it means the correlation cannot be made from this end.
+    private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
+        => string.IsNullOrEmpty(authenticationResult?.User?.Name) ? identity.Username : authenticationResult.User.Name;
 }

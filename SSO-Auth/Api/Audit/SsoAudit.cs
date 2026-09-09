@@ -12,31 +12,112 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 /// successful logins, adoption of a pre-existing account, and provider configuration changes. Every
 /// entry shares the "[SSO Audit]" prefix so operators can filter the trail, and only non-sensitive
 /// fields are logged (never secrets or certificates). Identity-provider- and admin-supplied values
-/// are stripped of line endings inline before logging so they cannot forge or split an entry.
-/// Each call is guarded by <see cref="ILogger.IsEnabled(LogLevel)"/> so the inline line-ending
-/// sanitizer is not evaluated when the level is disabled (net10 CA1873, #566); the sanitizer stays
-/// at the logging call so CodeQL's log-forging taint tracking still sees it inline.
+/// are stripped of line endings AND have their opening square bracket replaced by a round one,
+/// inline before logging, so they can neither split an entry nor forge a second one inside the line
+/// they land on. The two halves answer two different attacks and the second is #1555: stripping the
+/// line endings stops a foreign value from producing a second PHYSICAL line, and nothing stopped it
+/// from producing a second plausible RECORD on the same line, which an unanchored search or a SIEM
+/// substring rule reports as a login that never happened. One character carries that repair, because
+/// the prefix every entry is filtered on can only begin with an opening square bracket, so a value
+/// that holds none can reproduce that prefix nowhere in the sentence it sits in.
+/// NOT AN ESCAPE AND NOT A DELETION, and both were tried before this. A backslash written in front
+/// of the bracket leaves the marker whole as a SUBSTRING, so every unanchored search this is about
+/// still matches it. Deleting the character closes that, and it makes two DIFFERENT values print
+/// the same - which matters at one place in this file, the comparison in
+/// <see cref="LoginSucceeded"/>, where a presented name differing from the account name only in a
+/// bracket would then be silently reported as no difference at all, an audit disclosure an identity
+/// provider could switch off by choosing the character. Substituting keeps every value distinct
+/// from every other, so no comparison here can be made to go quiet; the cost is that a value
+/// legitimately carrying an opening bracket prints a round one instead.
+/// WHAT IS DELIBERATELY NOT SUBSTITUTED is a filesystem path this server composed for itself - the
+/// configuration file, the copy beside it, the marker, and the mounted declarative source. Those are
+/// host-owned and reachable by no untrusted party, and the EXACT text is the actionable content of
+/// the line: the unreadable-configuration lines tell an operator which file to move out of the way,
+/// and a data directory whose name carries a bracket would be named as a path that does not exist,
+/// in the one line written for a total lockout. They keep the line-ending strip and nothing more.
+/// WHAT THIS DOES NOT REACH IS EVERY OTHER LOG LINE THE PLUGIN WRITES. The property is this
+/// emitter's, not the log file's: ordinary plugin lines elsewhere carry identity-provider values
+/// under the line-ending strip alone, so the marker text is still plantable through them and an
+/// unanchored search over the whole file is still not sound. That is #1557, and no sentence here or
+/// in the changelog may be read as claiming otherwise.
+/// Each call is guarded by <see cref="ILogger.IsEnabled(LogLevel)"/> so the inline sanitizers are
+/// not evaluated when the level is disabled (net10 CA1873, #566); both stay spelled out at the
+/// logging call, never handed down from a helper, so CodeQL's log-forging taint tracking still
+/// sees them inline.
 /// </summary>
 internal static class SsoAudit
 {
-    /// <summary>Records a successful login (a session was issued).</summary>
+    /// <summary>
+    /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
+    /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
+    /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
+    /// (#1551). The provider-presented name can differ from the account's for more than one reason - an
+    /// existing link resolves an account under whatever name it already carries and
+    /// <c>SyncUsernameFromProvider</c> is off by default; a created account was provisioned under the
+    /// host's own name allowlist, which drops characters the provider's name may carry; a requested rename
+    /// can have been declined - so the presented name is carried too, and only where the two differ.
+    /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
     /// <param name="provider">The provider name.</param>
-    /// <param name="username">The Jellyfin username the session was issued for.</param>
-    /// <param name="isAdmin">Whether the session was granted administrator rights.</param>
-    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin)
+    /// <param name="username">The Jellyfin account the session was issued for.</param>
+    /// <param name="isAdmin">
+    /// Whether the identity provider ASSERTED administrator rights on this login. It is the identity's claim
+    /// and not the state the mint granted: the permission write is skipped entirely when EnableAuthorization
+    /// is off, and the break-glass administrator is never demoted by it. The name beside it is the account's,
+    /// so the two halves of this line have different provenance - see #1554.
+    /// </param>
+    /// <param name="presentedUsername">
+    /// The username the identity provider presented on this login. Named in the line only where it differs
+    /// from <paramref name="username"/>; null suppresses the comparison entirely.
+    /// </param>
+    internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool isAdmin, string? presentedUsername = null)
     {
         if (!logger.IsEnabled(LogLevel.Information))
         {
             return;
         }
 
+        // The decision is taken on the values AS THEY WILL BE PRINTED, never on the raw ones. Both names are
+        // stripped of line endings on the way into the line, so a provider presenting "alice\r\n" against the
+        // account "alice" compares unequal raw and prints two identical names - a line asserting a difference
+        // its own evidence denies, which an identity provider can produce at will. The sanitizer is still
+        // spelled out inline at each logging call below rather than being passed down from here, because
+        // CodeQL's cs/log-forging taint tracking does not follow them across an assignment.
+        //
+        // AND THIS IS WHY THE BRACKET IS SUBSTITUTED RATHER THAN DELETED (#1555). Comparing printed values
+        // means any two values the sanitizers render alike are reported as no difference at all. Deleting
+        // the bracket does exactly that to a presented name that differs from the account name only in one,
+        // and that pair is not contrived: the bracket is one of the characters the host allowlist drops when
+        // it provisions an account, which is the second of the three reasons this clause exists. A provider
+        // could then switch the disclosure off by choosing the character. Substituting keeps every value
+        // distinct from every other, so nothing an identity provider sends can make this comparison quiet.
+        //
+        // ORDINAL, DELIBERATELY, though the host resolves a username case-insensitively. The rename this
+        // clause reports the absence of decides on the same basis - CanonicalLinkService compares the
+        // account name against the sanitized presented name with StringComparison.Ordinal - so a case-folding
+        // comparison here would stay silent about a difference the rename path would act on.
+        if (presentedUsername is not null
+            && !string.Equals(
+                presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                StringComparison.Ordinal))
+        {
+            logger.LogInformation(
+                "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}). The provider presented the name '{PresentedUsername}'.",
+                username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                protocol,
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                isAdmin,
+                presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            return;
+        }
+
         logger.LogInformation(
             "[SSO Audit] Login succeeded: {Username} via {Protocol} provider '{Provider}' (admin={IsAdmin}).",
-            username?.ReplaceLineEndings(string.Empty),
+            username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             isAdmin);
     }
 
@@ -59,9 +140,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Provisioning rolled back for {Protocol} provider '{Provider}': the account '{Username}' was created and then deleted again because the login could not be completed. Nothing was left behind, and the failure that stopped it is logged separately. The user can sign in once that failure is fixed.",
-            protocol?.ReplaceLineEndings(string.Empty),
-            provider?.ReplaceLineEndings(string.Empty),
-            username?.ReplaceLineEndings(string.Empty));
+            protocol?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -81,8 +162,8 @@ internal static class SsoAudit
 
         logger.LogError(
             "[SSO Audit] Provisioning could not be rolled back ({Reason}): the account '{Username}' was created for a login that then failed, and deleting it again did not work. It holds no SSO link and no usable password, and it will refuse that identity a fresh account under the same name - delete it manually.",
-            error?.Message?.ReplaceLineEndings(string.Empty),
-            username?.ReplaceLineEndings(string.Empty));
+            error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -102,9 +183,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] New account provisioned pending approval: '{Username}' via {Protocol} provider '{Provider}' was created disabled (ProvisionNewUsersDisabled); no session issued. Enable it in the Jellyfin dashboard to approve.",
-            username?.ReplaceLineEndings(string.Empty),
+            username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>Records an SSO identity being linked to a pre-existing account (the opt-in adoption path).</summary>
@@ -121,9 +202,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] SSO identity linked to existing account '{DisplayName}' via {Protocol} provider '{Provider}' (AllowExistingAccountLink).",
-            displayName?.ReplaceLineEndings(string.Empty),
+            displayName?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -131,7 +212,8 @@ internal static class SsoAudit
     /// the name an administrator sees in the Jellyfin dashboard and nothing else, so the trail has to say
     /// which name became which - without it, an account an operator is looking for has silently become a
     /// different row in the user list with no record of why. Both names are identity-provider-influenced,
-    /// so both are stripped of line endings inline at the call, like every other name this file logs.
+    /// so both carry the two inline sanitizers at the call, like every other foreign name this file logs:
+    /// the line-ending strip and the bracket substitution that keeps the record marker unforgeable (#1555).
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="protocol">The protocol (OpenID or SAML).</param>
@@ -147,10 +229,10 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Linked account renamed from '{PreviousName}' to '{NewName}' to follow {Protocol} provider '{Provider}' (SyncUsernameFromProvider).",
-            previousName?.ReplaceLineEndings(string.Empty),
-            newName?.ReplaceLineEndings(string.Empty),
+            previousName?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            newName?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -172,7 +254,7 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] Account disabled by login-time deprovisioning: an SSO login via {Protocol} provider '{Provider}' was denied by the role allow-list and the account was disabled (DisableAccountOnRoleDenied). Administrators are never disabled by this path.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -196,7 +278,7 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] Account disabled by account expiry: an SSO login via {Protocol} provider '{Provider}' carried an expiry instant at or before now, so the account was disabled and its tokens were revoked (AccountExpiryClaim). Administrators are never disabled by this path.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -220,7 +302,7 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] Account disabled by account expiry: the background expiry sweep found a stored deadline at or before now for a {Protocol} provider '{Provider}' link with no intervening login, so the account was disabled and its tokens were revoked (AccountExpiryClaim). Administrators are never disabled by this path.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -263,7 +345,7 @@ internal static class SsoAudit
         logger.LogInformation(
             "[SSO Audit] Provider configured: {Protocol} '{Provider}'.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>Records a provider being removed.</summary>
@@ -280,7 +362,7 @@ internal static class SsoAudit
         logger.LogInformation(
             "[SSO Audit] Provider removed: {Protocol} '{Provider}'.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -300,7 +382,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] A ConfigurationChanged subscriber failed after a completed configuration save ({Reason}). The save itself is stored and live; whatever that subscriber keeps in step with the configuration may not be.",
-            error?.Message?.ReplaceLineEndings(string.Empty));
+            error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -321,7 +403,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Configuration write proceeding without a rollback: the current configuration could not be serialized for one ({Reason}). If this write fails, the running server keeps the change while the file does not, until the next restart.",
-            error?.Message?.ReplaceLineEndings(string.Empty));
+            error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -341,7 +423,7 @@ internal static class SsoAudit
 
         logger.LogError(
             "[SSO Audit] Configuration write failed and could not be rolled back ({Reason}): the running server is carrying a change that is not in the file. Restart the server to put it back on the stored configuration.",
-            error?.Message?.ReplaceLineEndings(string.Empty));
+            error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -363,7 +445,7 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] Configuration save ignored for {Protocol} provider '{Provider}': it is managed by a declarative source, so the stored value was kept. Edit the source and restart the server to change it.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -383,7 +465,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Configuration save ignored for provisioning profile '{Profile}': it is defined by a declarative source, so the stored value was kept. Edit the source and restart the server to change it.",
-            profile?.ReplaceLineEndings(string.Empty));
+            profile?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -407,9 +489,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] {Door} refused for {Protocol} provider '{Provider}': it is managed by the declarative source {Source}, so nothing was written. Edit that source and restart the server to change it.",
-            door?.ReplaceLineEndings(string.Empty),
+            door?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             source?.ReplaceLineEndings(string.Empty));
     }
 
@@ -432,8 +514,8 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] {Door} refused for provisioning profile '{Profile}': it is defined by the declarative source {Source}, so nothing was written. Edit that source and restart the server to change it.",
-            door?.ReplaceLineEndings(string.Empty),
-            profile?.ReplaceLineEndings(string.Empty),
+            door?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            profile?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             source?.ReplaceLineEndings(string.Empty));
     }
 
@@ -449,7 +531,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] OpenID provider '{Provider}' does not advertise PKCE (S256) in its discovery document (code_challenge_methods_supported). PKCE is still sent, but a server that ignores it leaves cross-session authorization-code injection undetectable (RFC 9700 §2.1.1). Set RequirePkce to fail closed once the provider supports it.",
-            provider?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>Records an administrator importing a configuration document (#161).</summary>
@@ -488,9 +570,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Account-link backup restored by {Actor}: {TotalLinks} link(s) rebound to this instance's accounts, with no identity-provider response redeemed. Per provider: {PerProvider}.",
-            actor?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             totalLinks,
-            perProvider?.ReplaceLineEndings(string.Empty));
+            perProvider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -519,9 +601,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Canonical link pre-provisioned by {Actor}: {Protocol} '{Provider}' -> Jellyfin user {UserId}, with no identity-provider response redeemed.",
-            actor?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             jellyfinUserId);
     }
 
@@ -556,8 +638,8 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] Every canonical link on {Protocol} '{Provider}' removed by {Actor}: {RemovedLinks} link(s) gone, {UnlinkedAccounts} account(s) left with no SSO link, {SignedOut} of them signed out. No Jellyfin account, permission or password was changed.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
-            actor?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             removedLinks,
             unlinkedAccounts,
             signedOut);
@@ -583,8 +665,8 @@ internal static class SsoAudit
         => logger.LogError(
             "[SSO Audit] After emptying {Protocol} '{Provider}', these administrator account(s) have no way to sign in: {Administrators}. They were judged to have one when the run was checked, so something changed in between. Give one of them a usable password or re-link it.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
-            administrators?.ReplaceLineEndings(string.Empty));
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            administrators?.ReplaceLineEndings(string.Empty).Replace('[', '('));
 
     /// <summary>
     /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail
@@ -605,9 +687,9 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Bulk unlink REFUSED for {Actor} on {Protocol} '{Provider}' ({ReasonCode}). No link was removed.",
-            actor?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -625,8 +707,8 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] SSO-only login ENABLED by {Actor}: break-glass admin '{BreakGlassAdmin}' keeps password login; {RepointedCount} account(s) repointed to SSO-only.",
-            actor?.ReplaceLineEndings(string.Empty),
-            breakGlassAdmin?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            breakGlassAdmin?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             repointedCount);
     }
 
@@ -643,7 +725,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] SSO-only login DISABLED by {Actor}: native password routing restored for {RestoredCount} account(s); no password hash was reset.",
-            actor?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             restoredCount);
     }
 
@@ -664,7 +746,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] SSO-only login activation REFUSED for {Actor}: no surviving admin login path ({ReasonCode}). No change was made.",
-            actor?.ReplaceLineEndings(string.Empty),
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -681,8 +763,8 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] Break-glass admin designated by {Actor}: '{BreakGlassAdmin}' is now the account SSO-only login never repoints.",
-            actor?.ReplaceLineEndings(string.Empty),
-            breakGlassAdmin?.ReplaceLineEndings(string.Empty));
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            breakGlassAdmin?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>
@@ -703,7 +785,7 @@ internal static class SsoAudit
 
         logger.LogInformation(
             "[SSO Audit] SAML logout requested: a validated LogoutRequest for provider '{Provider}' revoked tokens for {UsersRevoked} user(s).",
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             usersRevoked);
     }
 
@@ -726,7 +808,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] SAML logout request REJECTED for provider '{Provider}' ({ReasonCode}). No session was terminated.",
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -750,7 +832,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] OpenID back-channel logout REJECTED for provider '{Provider}' ({ReasonCode}). No session was terminated.",
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -775,7 +857,7 @@ internal static class SsoAudit
 
         logger.LogError(
             "[SSO Audit] OpenID back-channel logout could NOT be performed for provider '{Provider}' ({ReasonCode}). The identity provider ordered a termination and no session was terminated, so a signed-out session may still be running.",
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -803,7 +885,7 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] OpenID provider '{Provider}': the configured role claim could not be read ({ReasonCode}), so this login was granted NO roles from it. Under a configured role allow-list that denies the login; check the role-claim path against what the provider actually emits.",
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             reasonCode);
     }
 
@@ -826,7 +908,7 @@ internal static class SsoAudit
         logger.LogWarning(
             "[SSO Audit] {Protocol} provider '{Provider}' saved with security checks disabled: {Options}. Each switches off a default-on protection on the login path (such as transport, issuer/audience, or endpoint binding); keep them only if the provider genuinely requires it.",
             protocol,
-            provider?.ReplaceLineEndings(string.Empty),
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             string.Join(", ", options));
     }
 

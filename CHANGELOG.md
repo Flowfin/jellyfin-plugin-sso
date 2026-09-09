@@ -568,6 +568,30 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The login audit line now names the Jellyfin account, and the
+  provider-presented name beside it where the two differ (#1551).** The
+  `[SSO Audit] Login succeeded` line carried the username the identity provider
+  presented. Jellyfin publishes its own `AuthenticationSuccess` event for the
+  same mint and names the **resolved account** in it, and the two are not always
+  the same name: an existing account link resolves an account under whatever
+  name it already carries and `SyncUsernameFromProvider` is off by default, a
+  created account was provisioned under Jellyfin's own name allowlist which drops
+  characters a provider's name may carry, and a requested rename can have been
+  declined - so the audit line could name somebody the server's own event never
+  mentioned.
+  Correlating the plugin's trail with the host's notification - which is the only
+  way to tell an SSO login from a password login at a notification destination -
+  was then not possible for exactly the accounts whose names had drifted. The
+  line now carries the name the host is about to carry, read off the very result
+  the host publishes rather than derived a second time beside it, and appends
+  `The provider presented the name '<name>'.` only where the presented name
+  differs, decided on the names as the line prints them rather than on the raw
+  values, so a provider cannot make the line assert a difference it then shows
+  two identical names for. A login whose names agree writes the line
+  byte-for-byte as before.
+  **A log parser matching the old line for the provider's username reads the
+  account's name instead.**
+
 - **Restoring an account-link backup now says how many links it restored
   (#1520).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
   button that posts to it, answered the same empty success whatever the number
@@ -825,6 +849,44 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   link, permanently and silently, and issuer validation is now off for everyone
   on that provider. It turns a loud refusal into the outcome the refusal exists
   to prevent.
+
+- **An identity-provider-supplied value can no longer forge a second audit
+  record inside an audit line (#1555).** Every foreign value the SSO audit
+  trail prints was already stripped of line endings, so none of them could
+  SPLIT an entry - and nothing bounded a value inside the sentence it landed
+  in, so a presented username could close the sentence and write a whole
+  second, plausible record on the same physical line. An unanchored search of
+  the log, or a SIEM rule matching the substring, then reports a login that
+  never happened, under any name the attacker chooses; the value is
+  attacker-supplied wherever the identity provider lets a person edit their own
+  `preferred_username`, which is most of them. Every foreign value the emitter
+  prints now also has its opening square bracket replaced by a round one at the
+  logging call, which is enough because the `[SSO Audit] ` prefix a trail is
+  filtered on can begin no other way. The repair is on the emitter rather than
+  on the login line, so it covers every audit entry that carries a foreign
+  value, and a conformance rule fails the build if a future entry arrives
+  without it.
+
+  **What this does NOT cover, stated plainly.** The property is the audit
+  emitter's, not the log file's. Ordinary plugin log lines elsewhere - the
+  OpenID callback error, the username-sanitization notice, the rejected avatar
+  URL, the SAML denial - still carry identity-provider text under the
+  line-ending strip alone, so the marker is still plantable through them and an
+  unanchored search over the whole log is still not sound. That is tracked as
+  #1557 and is not fixed here. Anchoring a search at the start of a line is,
+  and was already made sound for the first field by #1551.
+
+  **If you parse this trail, read this.** A name legitimately containing an
+  opening square bracket now prints a round one instead, as a name containing a
+  line ending already printed without it. The substitution is deliberately not
+  a deletion: deleting would make two different names print alike, and the
+  login line's presented-name clause - which fires only when the two names
+  differ - would then go silent for a difference the provider chose. Structured
+  sinks are unchanged in shape: the fields were separate template parameters
+  before and still are, and the value they receive is the substituted one, the
+  same value the rendered line shows. Filesystem paths this server composed for
+  itself are not foreign values and are printed exactly, because the
+  unreadable-configuration lines exist to name a file an operator has to find.
 
 - **An account the plugin creates is now stored with the password and the login
   routing it is given (#1440).** Both were written onto the account object the
