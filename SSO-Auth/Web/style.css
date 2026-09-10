@@ -578,3 +578,22 @@
 .sso-check-list > li[data-state="bad"]::before {
   content: "\26A0";
 }
+
+/* A LONG IDENTIFIER MAY NOT SET THE WIDTH OF THE PAGE (#1615). The help texts carry claim paths, type
+   names, URL templates and JSON fragments inline, and several of them have no break opportunity in them
+   at all: `Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider` is 66 characters of dots
+   and letters. With `white-space: normal` such a token cannot wrap, so it sets its line's width, and the
+   line sets the page's. Measured on a live Jellyfin 12.0 at a 375 viewport with a provider open in the
+   editor: `document.body.scrollWidth` was 448 on that one string, and the horizontal scroll it produced
+   was on the BODY, so every other control on the page moved with it.
+
+   The rule is on the two containers rather than on the five tokens that are long today, because the next
+   provider template brings more and nobody would remember. Breaking ANYWHERE rather than at the usual
+   opportunities is deliberate: these are strings to be read exactly and copied, not prose, so a break
+   mid-token costs nothing a reader relies on - and the copy button on the field beside them is what an
+   administrator actually uses. The stylesheet already takes the same decision for the provider card name
+   and the editor title above; this is the same problem arriving through the help text. */
+.fieldDescription code,
+.sso-callout code {
+  overflow-wrap: anywhere;
+}
