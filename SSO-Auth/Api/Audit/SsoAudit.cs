@@ -1126,4 +1126,38 @@ internal static class SsoAudit
     internal static void UnreadableConfigurationCleared(ILogger logger)
         => logger.LogWarning(
             "[SSO Audit] A configuration holding at least one provider was persisted; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
+
+    /// <summary>
+    /// Records a second copy of this plugin loaded into the same server (#1601), which costs the
+    /// configuration unless somebody removes one of them.
+    /// </summary>
+    /// <remarks>
+    /// It NAMES THE FILES, because the remedy is to delete a directory and an operator who is told there
+    /// are two copies but not where they are has been told half of it. The preserved copy is named for the
+    /// same reason the unreadable-configuration line names its own: it is the only artefact a repair can
+    /// work on, and a copy that could not be taken is stated rather than elided.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="installLocations">The file each loaded copy came from.</param>
+    /// <param name="preservedCopyPath">Where the configuration was copied, or <see langword="null"/> when it was not.</param>
+    internal static void DuplicateInstallFound(ILogger logger, string installLocations, string? preservedCopyPath)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+        {
+            return;
+        }
+
+        if (preservedCopyPath is null)
+        {
+            logger.LogError(
+                "[SSO Audit] This plugin is loaded TWICE in this server, from {InstallLocations}, and NO copy of the configuration was kept. Two copies register every route twice, so the settings page answers nothing, and the host cannot read a configuration back across them - it serves defaults and writes them over the file, destroying every provider it holds. Every configuration write from this plugin is refused while this lasts. Stop the server, keep exactly ONE plugin directory for this plugin under the plugins folder, delete the others, and start it again. A downgrade through the plugin catalog is what usually leaves two: it adds the older version beside the newer one instead of replacing it.",
+                installLocations?.ReplaceLineEndings(string.Empty));
+            return;
+        }
+
+        logger.LogError(
+            "[SSO Audit] This plugin is loaded TWICE in this server, from {InstallLocations}. The configuration was copied to {PreservedCopy} first, and that copy is what to restore from. Two copies register every route twice, so the settings page answers nothing, and the host cannot read a configuration back across them - it serves defaults and writes them over the file. Every configuration write from this plugin is refused while this lasts. Stop the server, keep exactly ONE plugin directory for this plugin under the plugins folder, delete the others, start it again, and put the copy back over SSO-Auth.xml if the providers are gone from it. A downgrade through the plugin catalog is what usually leaves two: it adds the older version beside the newer one instead of replacing it.",
+            installLocations?.ReplaceLineEndings(string.Empty),
+            preservedCopyPath?.ReplaceLineEndings(string.Empty));
+    }
 }
