@@ -276,7 +276,17 @@ internal sealed class OidcLoginService
             // the user-facing error page. Sanitized against log forging. Fail-closed is unchanged (400).
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                // IT NAMES THE REDIRECT URI (#1610). The provider's answer here is a bare code and a
+                // message that names nothing - `invalid_request - Failed to push authorization parameters`
+                // is the whole of it when the refusal is a URI the provider does not have registered - and
+                // with pushed authorization on, that exchange is server to server, so the administrator
+                // never reaches the provider's own error page where the URL WOULD be named. The plugin
+                // composed this string from the incoming request; withholding it here sent one reporter
+                // (#1608) through disabling pushed authorization, retrying, reading the provider's page and
+                // turning it back on, to learn a scheme this line already held.
+                // Sanitized both ways like everything beside it: the URI is composed from the request's
+                // host header, which is not this server's to vouch for.
+                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). The redirect URI sent was {RedirectUri}, which the provider must have registered exactly as written - scheme, host, port and path.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('), redirectUri?.ReplaceLineEndings(string.Empty).Replace('[', '('));
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
