@@ -62,6 +62,7 @@ const DEFAULT_PASSWORD_PROVIDER_ID =
 const OIDC_PRESETS = {
   keycloak: {
     label: "Keycloak",
+    noteKey: "config.preset_note_keycloak",
     note: "Keycloak realm client with the default mappers. Roles come from realm_access.roles (or resource_access.<clientId>.roles for client roles). Replace YOUR_REALM in the endpoint.",
     fields: {
       OidEndpoint:
@@ -74,6 +75,7 @@ const OIDC_PRESETS = {
   },
   authelia: {
     label: "Authelia",
+    noteKey: "config.preset_note_authelia",
     note: "Authelia OpenID Connect provider. Groups are exposed via the `groups` claim (add the `groups` scope in Authelia). Pushed Authorization Requests are disabled here because some Authelia versions do not support them.",
     fields: {
       OidEndpoint: "https://auth.example.com/.well-known/openid-configuration",
@@ -85,6 +87,7 @@ const OIDC_PRESETS = {
   },
   authentik: {
     label: "Authentik",
+    noteKey: "config.preset_note_authentik",
     note: "Authentik OAuth2/OpenID provider application. Groups are exposed via the `groups` claim. Replace YOUR_APP_SLUG in the endpoint with the application slug.",
     fields: {
       OidEndpoint:
@@ -97,6 +100,7 @@ const OIDC_PRESETS = {
   },
   zitadel: {
     label: "Zitadel",
+    noteKey: "config.preset_note_zitadel",
     note: "Zitadel project application. Its roles arrive as an OBJECT whose keys are the role names, so 'Role claim is an object map' is pre-checked; without it no role can ever match. The project must have 'Assert Roles on Authentication' on, and the application 'User roles inside ID Token', or the role claim is absent entirely. Replace YOUR_INSTANCE in the endpoint.",
     fields: {
       OidEndpoint:
@@ -109,6 +113,7 @@ const OIDC_PRESETS = {
   },
   entra: {
     label: "Microsoft Entra ID (Azure AD)",
+    noteKey: "config.preset_note_entra",
     note: "Entra ID app registration. App roles come from the `roles` claim (assign them under the app registration). Replace YOUR_TENANT_ID in the endpoint.",
     fields: {
       OidEndpoint:
@@ -121,6 +126,7 @@ const OIDC_PRESETS = {
   },
   google: {
     label: "Google",
+    noteKey: "config.preset_note_google",
     note: "Google issues no group or role claim, so Roles is left blank: grant access with folder/role mapping or leave it open. Endpoint validation is relaxed because Google's discovery document does not list every endpoint the strict check expects.",
     fields: {
       OidEndpoint:
@@ -133,6 +139,7 @@ const OIDC_PRESETS = {
   },
   auth0: {
     label: "Auth0",
+    noteKey: "config.preset_note_auth0",
     note: "Auth0 application. Roles require a custom claim added by an Auth0 Action/Rule under a namespace you choose. Set RoleClaim to that namespaced claim (e.g. https://your-app/roles). Replace YOUR_TENANT in the endpoint.",
     fields: {
       OidEndpoint:
@@ -145,6 +152,7 @@ const OIDC_PRESETS = {
   },
   okta: {
     label: "Okta",
+    noteKey: "config.preset_note_okta",
     note: "Okta OIDC app. Groups come from the `groups` claim (add a groups claim + the `groups` scope in the Okta authorization server). Replace YOUR_DOMAIN in the endpoint.",
     fields: {
       OidEndpoint:
@@ -157,6 +165,7 @@ const OIDC_PRESETS = {
   },
   gitlab: {
     label: "GitLab",
+    noteKey: "config.preset_note_gitlab",
     note: "GitLab as an OpenID provider. Direct group paths come from the `groups_direct` claim. For self-managed GitLab, replace gitlab.com in the endpoint with your host.",
     fields: {
       OidEndpoint: "https://gitlab.com/.well-known/openid-configuration",
@@ -167,7 +176,9 @@ const OIDC_PRESETS = {
     toggles: [],
   },
   "generic-oidc": {
+    labelKey: "config.preset_label_generic_oidc",
     label: "Generic OpenID Connect",
+    noteKey: "config.preset_note_generic_oidc",
     note: "A standards-compliant OpenID provider. Point the endpoint at its discovery document and set the role claim to whatever your IdP issues (often `groups` or `roles`).",
     fields: {
       OidEndpoint: "https://idp.example.com/.well-known/openid-configuration",
@@ -181,7 +192,9 @@ const OIDC_PRESETS = {
 
 const SAML_PRESETS = {
   "generic-saml": {
+    labelKey: "config.preset_label_generic_saml",
     label: "Generic SAML 2.0",
+    noteKey: "config.preset_note_generic_saml",
     note: "A generic SAML 2.0 identity provider. Use the metadata import below to fill the SSO endpoint and signing certificate from your IdP's metadata, then set the SAML Client ID (this service provider's entity id) and review before saving.",
     fields: {
       SamlEndpoint: "https://idp.example.com/sso/saml",
@@ -742,8 +755,10 @@ const ssoConfigurationPage = {
         const warn = document.createElement("span");
         warn.classList.add("sso-badge", "sso-badge-warn");
         warn.textContent = "Review";
-        warn.title =
-          "This provider has an active insecure or sensitive setting.";
+        warn.title = tr(
+          "config.insecure_option_active",
+          "This provider has an active insecure or sensitive setting.",
+        );
         card.append(warn);
       }
 
@@ -963,8 +978,8 @@ const ssoConfigurationPage = {
     options.hidden = !expanded;
     button.setAttribute("aria-expanded", String(expanded));
     button.querySelector("span").textContent = expanded
-      ? "Hide insecure options"
-      : "Show insecure options";
+      ? tr("config.insecure_hide", "Hide insecure options")
+      : tr("config.insecure_show", "Show insecure options");
   },
   // On-blur inline validation (#365). These are pre-emptive WARNINGS that mirror the server's fail-closed
   // checks, surfaced beside the field before the round-trip; they never block the save (the server remains
@@ -1000,7 +1015,9 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.setFieldError(
       page,
       id,
-      value ? "" : label + " is required.",
+      value
+        ? ""
+        : tr("config.validation_required", "{label} is required.", { label }),
     );
   },
   validateEndpoint: (page) => {
@@ -1009,7 +1026,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "OpenID Endpoint is required.",
+        tr(
+          "config.validation_endpoint_required",
+          "OpenID Endpoint is required.",
+        ),
       );
       return;
     }
@@ -1020,7 +1040,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Enter an absolute URL, e.g. https://id.example.com",
+        tr(
+          "config.validation_endpoint_absolute",
+          "Enter an absolute URL, e.g. https://id.example.com",
+        ),
       );
       return;
     }
@@ -1028,7 +1051,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
+        tr(
+          "config.validation_endpoint_insecure",
+          "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
+        ),
       );
       return;
     }
@@ -1036,7 +1062,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Use an https:// URL for the OpenID endpoint.",
+        tr(
+          "config.validation_endpoint_https",
+          "Use an https:// URL for the OpenID endpoint.",
+        ),
       );
       return;
     }
@@ -1056,7 +1085,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        tr(
+          "config.validation_base_origin_only",
+          "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        ),
       );
       return;
     }
@@ -1064,7 +1096,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com",
+        tr(
+          "config.validation_base_origin",
+          "Enter a full origin such as https://jellyfin.example.com",
+        ),
       );
       return;
     }
@@ -1073,7 +1108,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+        tr(
+          "config.validation_base_no_path",
+          "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+        ),
       );
       return;
     }
@@ -1085,7 +1123,7 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "A provider name is required.",
+        tr("config.validation_name_required", "A provider name is required."),
       );
       return;
     }
@@ -1099,7 +1137,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        tr(
+          "config.validation_name_control_chars",
+          "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        ),
       );
       return;
     }
@@ -1109,7 +1150,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "Remove backslash and URI-reserved characters (\\ / ? # %) from the name.",
+        tr(
+          "config.validation_name_reserved",
+          "Remove the backslash and the characters / ? # % from the name.",
+        ),
       );
       return;
     }
@@ -1997,7 +2041,10 @@ const ssoConfigurationPage = {
     source_select.replaceChildren();
     const empty = window.document.createElement("option");
     empty.value = "";
-    empty.textContent = "Nothing - start empty";
+    empty.textContent = tr(
+      "config.profile_none_start_empty",
+      "Nothing - start empty",
+    );
     source_select.appendChild(empty);
     sources.forEach((source) => {
       const option = window.document.createElement("option");
@@ -2035,7 +2082,10 @@ const ssoConfigurationPage = {
       () => {
         ssoConfigurationPage.provisioningProfileStatus(
           page,
-          "Could not load the profile you chose. The fields below still show the previous one, so nothing will be saved until the page is reloaded.",
+          tr(
+            "config.profile_load_failed",
+            "Could not load the profile you chose. The fields below still show the previous one, so nothing will be saved until the page is reloaded.",
+          ),
         );
         return false;
       },
@@ -2079,7 +2129,10 @@ const ssoConfigurationPage = {
       () => {
         ssoConfigurationPage.provisioningProfileStatus(
           page,
-          "The server refused the saved configuration, so nothing was changed. A profile is checked by exactly the rules an inline starting policy is: the administrator, all-folders and Live TV permissions keep their own settings on a provider and are not written from here, and no account can be created disabled from here. Reload the page and try again.",
+          tr(
+            "config.profile_refused",
+            "The server refused the saved configuration, so nothing was changed. A profile is checked by exactly the rules an inline starting policy is: the administrator, all-folders and Live TV permissions keep their own settings on a provider and are not written from here, and no account can be created disabled from here. Reload the page and try again.",
+          ),
         );
       },
     ),
@@ -2088,7 +2141,10 @@ const ssoConfigurationPage = {
     if (name === "") {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        "Type the name the new profile should have. A name is the only thing a provider can point at, so an unnamed profile could never be selected.",
+        tr(
+          "config.profile_name_needed",
+          "Type the name the new profile should have. A name is the only thing a provider can point at, so an unnamed profile could never be selected.",
+        ),
       );
       return;
     }
@@ -2146,7 +2202,10 @@ const ssoConfigurationPage = {
     if (from === "") {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        "Choose the profile to rename first.",
+        tr(
+          "config.profile_choose_to_rename",
+          "Choose the profile to rename first.",
+        ),
       );
       return;
     }
@@ -2165,7 +2224,10 @@ const ssoConfigurationPage = {
     if (to === "" || to === from) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        "Type the new name in Profile name. A rename needs a name that is not the current one.",
+        tr(
+          "config.profile_rename_needs_new_name",
+          "Type the new name in Profile name. A rename needs a name that is not the current one.",
+        ),
       );
       return;
     }
@@ -2240,7 +2302,10 @@ const ssoConfigurationPage = {
     if (name === "") {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        "Choose the profile to delete first.",
+        tr(
+          "config.profile_choose_to_delete",
+          "Choose the profile to delete first.",
+        ),
       );
       return;
     }
@@ -2296,7 +2361,10 @@ const ssoConfigurationPage = {
     if (name === "") {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
-        "Choose a profile above, or add one, before saving. This section edits a named profile; it is not a provider's own starting policy.",
+        tr(
+          "config.profile_choose_before_saving",
+          "Choose a profile above, or add one, before saving. This section edits a named profile; it is not a provider's own starting policy.",
+        ),
       );
       return;
     }
@@ -2318,7 +2386,10 @@ const ssoConfigurationPage = {
         if (filled === false) {
           ssoConfigurationPage.provisioningProfileStatus(
             page,
-            "The fields below do not show the profile you chose, because loading it failed, so nothing was saved. Reload the page and try again.",
+            tr(
+              "config.profile_fields_stale",
+              "The fields below do not show the profile you chose, because loading it failed, so nothing was saved. Reload the page and try again.",
+            ),
           );
           return undefined;
         }
@@ -2705,12 +2776,18 @@ const ssoConfigurationPage = {
     }
 
     if (!name) {
-      field.placeholder = "Enter a provider name above to see the redirect URI";
+      field.placeholder = tr(
+        "config.redirect_uri_needs_name",
+        "Enter a provider name above to see the redirect URI",
+      );
       ssoConfigurationPage.refreshReadiness(page, "oid");
       return;
     }
 
-    field.placeholder = "Loading the redirect URI…";
+    field.placeholder = tr(
+      "config.redirect_uri_loading",
+      "Loading the redirect URI…",
+    );
     ssoConfigurationPage.redirectUriTimer = setTimeout(() => {
       ApiClient.getJSON(
         ApiClient.getUrl("sso/OID/RedirectUri/" + encodeURIComponent(name)),
@@ -2730,8 +2807,10 @@ const ssoConfigurationPage = {
             return;
           }
           field.value = "";
-          field.placeholder =
-            "Save this provider to see its exact redirect URI";
+          field.placeholder = tr(
+            "config.redirect_uri_needs_save",
+            "Save this provider to see its exact redirect URI",
+          );
           ssoConfigurationPage.refreshReadiness(page, "oid");
         },
       );
@@ -2751,8 +2830,20 @@ const ssoConfigurationPage = {
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(
-        () => announce("Redirect URI copied to the clipboard."),
-        () => announce("Copy failed. Select the field and copy it manually."),
+        () =>
+          announce(
+            tr(
+              "config.redirect_uri_copied",
+              "Redirect URI copied to the clipboard.",
+            ),
+          ),
+        () =>
+          announce(
+            tr(
+              "config.copy_failed",
+              "Copy failed. Select the field and copy it manually.",
+            ),
+          ),
       );
       return;
     }
@@ -2768,8 +2859,14 @@ const ssoConfigurationPage = {
     field.setAttribute("readonly", "");
     announce(
       ok
-        ? "Redirect URI copied to the clipboard."
-        : "Copy failed. Select the field and copy it manually.",
+        ? tr(
+            "config.redirect_uri_copied",
+            "Redirect URI copied to the clipboard.",
+          )
+        : tr(
+            "config.copy_failed",
+            "Copy failed. Select the field and copy it manually.",
+          ),
     );
   },
   deleteProvider: (page, provider_name) => {
@@ -3036,7 +3133,11 @@ const ssoConfigurationPage = {
             // URI-reserved or control characters, #336/#360), so the message the caller renders names both
             // checks instead of blaming one.
             function () {
-              reject(new Error("Provider save failed"));
+              reject(
+                new Error(
+                  tr("config.provider_save_failed", "Provider save failed"),
+                ),
+              );
             },
           );
         })
@@ -3047,7 +3148,13 @@ const ssoConfigurationPage = {
         // the one failure a page can make that reads exactly like a save that worked. It also settles a
         // throw from inside the fill above, which would otherwise hang in the same way. A reject after a
         // resolve is a no-op, so the success path is untouched.
-        .catch(() => reject(new Error("Provider save failed")));
+        .catch(() =>
+          reject(
+            new Error(
+              tr("config.provider_save_failed", "Provider save failed"),
+            ),
+          ),
+        );
     });
   },
   // Test-connection (#163). Calls the elevation-gated OID/Test endpoint for the SAVED provider and renders
@@ -3061,7 +3168,10 @@ const ssoConfigurationPage = {
     if (!provider_name) {
       ssoConfigurationPage.renderTestMessage(
         container,
-        "Enter a provider name and save it first, then test.",
+        tr(
+          "config.test_needs_saved_provider",
+          "Enter a provider name and save it first, then test.",
+        ),
       );
       return Promise.resolve();
     }
@@ -3084,7 +3194,10 @@ const ssoConfigurationPage = {
       () => {
         ssoConfigurationPage.renderTestMessage(
           container,
-          "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
+          tr(
+            "config.test_failed",
+            "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
+          ),
         );
         ssoConfigurationPage.recordTestOutcome(page, "oid", false);
       },
@@ -3537,13 +3650,19 @@ const ssoConfigurationPage = {
         URL.revokeObjectURL(url);
         ssoConfigurationPage.renderTransferMessage(
           container,
-          "Exported. Provider secrets and account links are redacted from the file.",
+          tr(
+            "config.config_exported",
+            "Exported. Provider secrets and account links are redacted from the file.",
+          ),
         );
       },
       () =>
         ssoConfigurationPage.renderTransferMessage(
           container,
-          "Could not export the configuration. Make sure you are signed in as an administrator, then try again.",
+          tr(
+            "config.config_export_failed",
+            "Could not export the configuration. Make sure you are signed in as an administrator, then try again.",
+          ),
         ),
     );
   },
@@ -3580,7 +3699,10 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.loadConfiguration(page);
         ssoConfigurationPage.renderTransferMessage(
           container,
-          "Imported. Re-enter each provider's secret and save it; secrets are never included in an export.",
+          tr(
+            "config.config_imported",
+            "Imported. Re-enter each provider's secret and save it; secrets are never included in an export.",
+          ),
         );
       })
       .catch((e) => {
@@ -3588,8 +3710,14 @@ const ssoConfigurationPage = {
         // session) are both fail-closed here: the message is generic and never reflects a server value.
         const message =
           e && e.message === "not-json"
-            ? "That file is not valid JSON. Choose a configuration file exported from this plugin."
-            : "Could not import the configuration. The file was rejected by the server, or you are not signed in as an administrator.";
+            ? tr(
+                "config.config_import_not_json",
+                "That file is not valid JSON. Choose a configuration file exported from this plugin.",
+              )
+            : tr(
+                "config.config_import_failed",
+                "Could not import the configuration. The file was rejected by the server, or you are not signed in as an administrator.",
+              );
         ssoConfigurationPage.renderTransferMessage(container, message);
       });
   },
@@ -4027,6 +4155,18 @@ const ssoConfigurationPage = {
       const option = document.createElement("option");
       option.value = key;
       option.textContent = presets[key].label;
+      // A MARKER RATHER THAN A tr() CALL, and the difference is timing (#1602). This picker is filled
+      // once, during init, while the catalog is still arriving on localize()'s own promise - so a lookup
+      // here reads the English and keeps it for the life of the page, which is exactly what the first
+      // draft of this did. The marker rides the pass that retranslates the markup when the catalog lands
+      // (i18n.applyTo), which is the mechanism the rest of the page already uses, and the English sits
+      // there until it does.
+      // Only the DESCRIPTIVE labels carry a key. A product name is the same string in every language, and
+      // a catalog row saying Microsoft Entra ID in every locale is a row nobody could ever change.
+      if (presets[key].labelKey) {
+        option.setAttribute("data-i18n", presets[key].labelKey);
+      }
+
       select.appendChild(option);
     });
   },
@@ -4074,7 +4214,11 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.syncDependentFields(page);
     ssoConfigurationPage.updateRedirectUri(page);
-    ssoConfigurationPage.renderPresetNote(page, "OidPreset-note", preset.note);
+    ssoConfigurationPage.renderPresetNote(
+      page,
+      "OidPreset-note",
+      tr(preset.noteKey, preset.note),
+    );
   },
   // The SAML counterpart. Field ids are "saml-" + the SamlConfig property; toggles likewise. Same
   // clear-then-apply discipline, and syncSamlDependentFields surfaces a pre-enabled insecure toggle.
@@ -4111,7 +4255,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.renderPresetNote(
       page,
       "saml-Preset-note",
-      preset.note,
+      tr(preset.noteKey, preset.note),
     );
   },
 
@@ -4193,8 +4337,10 @@ const ssoConfigurationPage = {
         const warn = document.createElement("span");
         warn.classList.add("sso-badge", "sso-badge-warn");
         warn.textContent = "Review";
-        warn.title =
-          "This provider has an active insecure or sensitive setting.";
+        warn.title = tr(
+          "config.insecure_option_active",
+          "This provider has an active insecure or sensitive setting.",
+        );
         card.append(warn);
       }
 
@@ -4354,8 +4500,8 @@ const ssoConfigurationPage = {
     options.hidden = !expanded;
     button.setAttribute("aria-expanded", String(expanded));
     button.querySelector("span").textContent = expanded
-      ? "Hide insecure options"
-      : "Show insecure options";
+      ? tr("config.insecure_hide", "Hide insecure options")
+      : tr("config.insecure_show", "Show insecure options");
   },
   // The SAML save contract, made explicit (mirrors listArgumentsByType): every input in
   // #sso-new-saml-provider that persists carries an sso-* marker class AND a "saml-"+property id. The
@@ -4499,13 +4645,19 @@ const ssoConfigurationPage = {
       acs.value = name ? base + "/sso/SAML/post/" + name : "";
       acs.placeholder = name
         ? ""
-        : "Enter a provider name above to see the ACS URL";
+        : tr(
+            "config.acs_url_needs_name",
+            "Enter a provider name above to see the ACS URL",
+          );
     }
     if (metadata) {
       metadata.value = name ? base + "/sso/SAML/metadata/" + name : "";
       metadata.placeholder = name
         ? ""
-        : "Enter a provider name above to see the metadata URL";
+        : tr(
+            "config.metadata_url_needs_name",
+            "Enter a provider name above to see the metadata URL",
+          );
     }
     const status = page.querySelector("#saml-url-copied");
     if (status) {
@@ -4530,7 +4682,13 @@ const ssoConfigurationPage = {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(
         () => announce(label + " copied to the clipboard."),
-        () => announce("Copy failed. Select the field and copy it manually."),
+        () =>
+          announce(
+            tr(
+              "config.copy_failed",
+              "Copy failed. Select the field and copy it manually.",
+            ),
+          ),
       );
       return;
     }
@@ -4546,7 +4704,10 @@ const ssoConfigurationPage = {
     announce(
       ok
         ? label + " copied to the clipboard."
-        : "Copy failed. Select the field and copy it manually.",
+        : tr(
+            "config.copy_failed",
+            "Copy failed. Select the field and copy it manually.",
+          ),
     );
   },
   // Import IdP metadata (#735) from a URL (fetched server-side through the SSRF-hardened outbound client) or
@@ -4567,8 +4728,8 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.renderTransferMessage(
         status,
         source === "url"
-          ? "Enter a metadata URL first."
-          : "Paste the metadata XML first.",
+          ? tr("config.metadata_needs_url", "Enter a metadata URL first.")
+          : tr("config.metadata_needs_xml", "Paste the metadata XML first."),
       );
       return Promise.resolve();
     }
@@ -4599,23 +4760,31 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.validateSamlCertificate(
           page,
           "saml-SamlCertificate",
-          "IdP Signing Certificate",
+          tr("config.idp_signing_certificate", "IdP Signing Certificate"),
         );
         // EntityId is reference-only: shown as inert text, never written into a field.
         const entity = result && result.EntityId ? result.EntityId : "";
         ssoConfigurationPage.renderTransferMessage(
           status,
           entity
-            ? "Imported the endpoint and certificate. The provider's entity id is " +
-                entity +
-                " (reference only; set the SAML Client ID yourself). Review the fields and Save."
-            : "Imported the endpoint and certificate. Review the fields and Save.",
+            ? tr(
+                "config.metadata_imported_with_entity",
+                "Imported the endpoint and certificate. The provider's entity id is {entity} (reference only; set the SAML Client ID yourself). Review the fields and Save.",
+                { entity },
+              )
+            : tr(
+                "config.metadata_imported",
+                "Imported the endpoint and certificate. Review the fields and Save.",
+              ),
         );
       },
       () =>
         ssoConfigurationPage.renderTransferMessage(
           status,
-          "Could not import the metadata. Check the URL or XML, make sure you are signed in as an administrator, and that the address is reachable and not a private/loopback host.",
+          tr(
+            "config.metadata_import_failed",
+            "Could not import the metadata. Check the URL or XML, make sure you are signed in as an administrator, and that the address is reachable and not a private/loopback host.",
+          ),
         ),
     );
   },
@@ -4648,7 +4817,7 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-provider-name",
-        "A provider name is required.",
+        tr("config.validation_name_required", "A provider name is required."),
       );
       return;
     }
@@ -4660,7 +4829,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-provider-name",
-        "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        tr(
+          "config.validation_name_control_chars",
+          "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        ),
       );
       return;
     }
@@ -4669,7 +4841,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-provider-name",
-        "Remove backslash and URI-reserved characters (\\ / ? # %) from the name.",
+        tr(
+          "config.validation_name_reserved",
+          "Remove the backslash and the characters / ? # % from the name.",
+        ),
       );
       return;
     }
@@ -4680,7 +4855,9 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.setFieldError(
       page,
       id,
-      value ? "" : label + " is required.",
+      value
+        ? ""
+        : tr("config.validation_required", "{label} is required.", { label }),
     );
   },
   validateSamlEndpoint: (page) => {
@@ -4689,7 +4866,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-SamlEndpoint",
-        "SAML SSO Endpoint is required.",
+        tr(
+          "config.validation_saml_endpoint_required",
+          "SAML SSO Endpoint is required.",
+        ),
       );
       return;
     }
@@ -4700,7 +4880,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-SamlEndpoint",
-        "Enter an absolute URL, e.g. https://idp.example.com/sso",
+        tr(
+          "config.validation_saml_endpoint_absolute",
+          "Enter an absolute URL, e.g. https://idp.example.com/sso",
+        ),
       );
       return;
     }
@@ -4708,7 +4891,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-SamlEndpoint",
-        "Uses http://, so the redirect would be unencrypted. Prefer an https:// endpoint.",
+        tr(
+          "config.validation_saml_endpoint_insecure",
+          "Uses http://, so the redirect would be unencrypted. Prefer an https:// endpoint.",
+        ),
       );
       return;
     }
@@ -4716,7 +4902,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-SamlEndpoint",
-        "Use an https:// URL for the SAML endpoint.",
+        tr(
+          "config.validation_saml_endpoint_https",
+          "Use an https:// URL for the SAML endpoint.",
+        ),
       );
       return;
     }
@@ -4735,7 +4924,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        tr(
+          "config.validation_base_origin_only",
+          "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        ),
       );
       return;
     }
@@ -4743,7 +4935,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com",
+        tr(
+          "config.validation_base_origin",
+          "Enter a full origin such as https://jellyfin.example.com",
+        ),
       );
       return;
     }
@@ -4751,7 +4946,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-BaseUrlOverride",
-        "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... ACS URL.",
+        tr(
+          "config.validation_base_no_path_saml",
+          "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... ACS URL.",
+        ),
       );
       return;
     }
@@ -4914,13 +5112,23 @@ const ssoConfigurationPage = {
               resolve();
             },
             function () {
-              reject(new Error("Provider save failed"));
+              reject(
+                new Error(
+                  tr("config.provider_save_failed", "Provider save failed"),
+                ),
+              );
             },
           );
         })
         // The same reason saveProvider states above (#1577): the arm inside belongs to the write, and a
         // failed READ would otherwise leave this promise unsettled and the pressed Save silent.
-        .catch(() => reject(new Error("Provider save failed")));
+        .catch(() =>
+          reject(
+            new Error(
+              tr("config.provider_save_failed", "Provider save failed"),
+            ),
+          ),
+        );
     });
   },
   // Test-connection for a SAVED SAML provider (#163). Calls the elevation-gated SAML/Test endpoint, which
@@ -4931,7 +5139,10 @@ const ssoConfigurationPage = {
     if (!provider_name) {
       ssoConfigurationPage.renderTestMessage(
         container,
-        "Enter a provider name and save it first, then test.",
+        tr(
+          "config.test_needs_saved_provider",
+          "Enter a provider name and save it first, then test.",
+        ),
       );
       return Promise.resolve();
     }
@@ -4952,7 +5163,10 @@ const ssoConfigurationPage = {
       () => {
         ssoConfigurationPage.renderTestMessage(
           container,
-          "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
+          tr(
+            "config.test_failed",
+            "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
+          ),
         );
         ssoConfigurationPage.recordTestOutcome(page, "saml", false);
       },
@@ -5369,7 +5583,10 @@ function initProvidersPage(view) {
       () =>
         ssoConfigurationPage.renderSaveStatus(
           view,
-          "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+          tr(
+            "config.provider_save_refused",
+            "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+          ),
           false,
         ),
     );
@@ -5529,7 +5746,10 @@ function initProvidersPage(view) {
       () =>
         ssoConfigurationPage.renderSamlSaveStatus(
           view,
-          "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+          tr(
+            "config.provider_save_refused",
+            "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+          ),
           false,
         ),
     );
@@ -5634,7 +5854,7 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateSamlCertificate(
         view,
         "saml-SamlCertificate",
-        "IdP Signing Certificate",
+        tr("config.idp_signing_certificate", "IdP Signing Certificate"),
       ),
     );
   view
@@ -5643,7 +5863,10 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateSamlCertificate(
         view,
         "saml-SamlSecondaryCertificate",
-        "Secondary IdP Signing Certificate",
+        tr(
+          "config.idp_signing_certificate_secondary",
+          "Secondary IdP Signing Certificate",
+        ),
       ),
     );
   view

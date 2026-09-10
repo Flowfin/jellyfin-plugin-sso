@@ -47,14 +47,26 @@ public class LocalizationCatalogTests
     // `data-i18n="key"` and the allowlisted attribute form `data-i18n-title="key"`.
     private static readonly Regex MarkupKeyPattern = new(@"data-i18n(?:-[a-z-]+)?=""(?<key>[^""]+)""", RegexOptions.Compiled);
 
-    // t("key", …) / tr("key", …) - the lookbehind keeps it off identifiers that merely end in t (parseInt(…)).
-    private static readonly Regex ScriptKeyPattern = new(@"(?<![A-Za-z0-9_.])tr?\(\s*""(?<key>[^""]+)""", RegexOptions.Compiled);
+    // A key a script names, in the two call shapes plus the DECLARED one (#1602). The lookbehind keeps
+    // t("key", …) / tr("key", …) off identifiers that merely end in t (parseInt(…)). The provider templates
+    // are object literals built when the module loads, before the localization module has resolved, so a
+    // call there would freeze the English default into the object for the life of the page. Each template
+    // carries its key beside the English instead - `noteKey` next to `note` - and the lookup happens where
+    // the template is rendered, which is a reference this pattern has to be able to see.
+    private static readonly Regex ScriptKeyPattern = new(
+        @"(?<![A-Za-z0-9_.])tr?\(\s*""(?<key>[^""]+)""" +
+        @"|\w+Key\s*:\s*""(?<key>[a-z0-9_]+\.[a-z0-9_.]+)""",
+        RegexOptions.Compiled);
 
     // The inline English default each script call carries: tr("key", "English", …) puts it second, while
-    // t("key", params, "English") puts it third (after a params object or `undefined`).
+    // t("key", params, "English") puts it third (after a params object or `undefined`). The declared shape
+    // puts it in the property beside the key, and it is included here rather than left out: the default is
+    // a second copy of the wording wherever it lives, and the drift this rule exists to refuse does not
+    // care which shape carried it.
     private static readonly Regex ScriptDefaultPattern = new(
         @"(?<![A-Za-z0-9_.])(?:tr\(\s*""(?<key>[^""]+)""\s*,\s*""(?<english>[^""]*)""" +
-        @"|t\(\s*""(?<key>[^""]+)""\s*,\s*(?:\{[^}]*\}|undefined)\s*,\s*""(?<english>[^""]*)"")",
+        @"|t\(\s*""(?<key>[^""]+)""\s*,\s*(?:\{[^}]*\}|undefined)\s*,\s*""(?<english>[^""]*)"")" +
+        @"|\w+Key\s*:\s*""(?<key>[a-z0-9_]+\.[a-z0-9_.]+)""\s*,\s*\w+\s*:\s*""(?<english>[^""]*)""",
         RegexOptions.Compiled);
 
     // A marked element's built-in text: everything from the marker's closing '>' to the next tag. Prettier
