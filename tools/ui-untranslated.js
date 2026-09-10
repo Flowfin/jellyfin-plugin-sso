@@ -6,12 +6,12 @@
  * Counts the English sentences the settings surface writes without going through
  * the catalog, and refuses the number moving in either direction (#1602).
  *
- * WHY A COUNT AND NOT A REFUSAL. `de.json` and `en.json` carry the same 216 keys
- * and nothing is missing from either, so every check the localization has is
- * green while a `de-DE` administrator reads a page that is half English. The
- * reason is not the catalogs: a sentence written as a literal in the bundle
- * never reaches them, so it cannot be reported as absent from something it was
- * never in. The gap is invisible to a completeness check by construction.
+ * WHY A COUNT AND NOT A LIST. `de.json` and `en.json` carry the same keys and
+ * nothing is missing from either, so every check the localization has is green
+ * while a `de-DE` administrator reads a page that is half English. The reason is
+ * not the catalogs: a sentence written as a literal in the bundle never reaches
+ * them, so it cannot be reported as absent from something it was never in. The
+ * gap is invisible to a completeness check by construction.
  *
  * What it is NOT invisible to is a count, and the count is what this pins. It
  * refuses an increase, which is the drift - one more literal is one more
@@ -19,6 +19,12 @@
  * pedantry: a tranche that wraps ten of them and leaves the pin alone would let
  * the next ten arrive unseen behind the slack it left. The pin moves in the same
  * commit as the work, and that is what makes it a ratchet rather than a number.
+ *
+ * THE PIN IS ZERO NOW, so in practice this refuses the next literal outright.
+ * The ratchet shape is kept rather than replaced by a flat "none allowed": the
+ * exemptions below are what "none" actually means, and a future sentence that
+ * genuinely cannot reach a catalog belongs in that list with its reason beside
+ * it, not in a number nobody can read a reason out of.
  *
  * WHAT COUNTS. A double-quoted literal of twenty characters or more, opening
  * with a capital and containing a space, that is not the English default of a
@@ -44,9 +50,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as sentences are wrapped, in the same commit
-// that wraps them, and it never goes up. 83 on 2026-09-10, over the six page
-// controllers and the core.
-const PINNED = 83;
+// that wraps them, and it never goes up. ZERO since 2026-09-11: every sentence the
+// settings surface writes goes through the catalog, and the two that stay literal are
+// named in EXEMPT below with the reason each cannot.
+const PINNED = 0;
 
 // Files that are not this plugin's prose: the vendored API client, and the
 // translator itself, which cannot translate through the thing it is.
@@ -67,6 +74,13 @@ const EXEMPT = [
       "import of the core did not arrive, and the localization module is loaded by the core through " +
       "the same route - so at the moment this sentence is needed there is no translator to ask. A " +
       "catalog lookup here would fail in the same way the page just did.",
+  },
+  {
+    text: "Microsoft Entra ID (Azure AD)",
+    why:
+      "A product name, and the same string in every language. The template label beside it that " +
+      "DESCRIBES rather than names - 'Generic OpenID Connect' - carries a key and is translated; this " +
+      "one would be a catalog row nobody could ever change, saying Microsoft Entra ID in every locale.",
   },
 ];
 
@@ -133,9 +147,27 @@ function withoutComments(source) {
 
 const SENTENCE = /"([A-Z][^"]{19,})"/g;
 
-// The English default of a catalog call, in both spellings this tree uses: `tr(` is the
-// core's own wrapper, `t(` is what i18n.js exports and the linking page imports.
-const AS_DEFAULT = /\btr?\(\s*"[a-z0-9_.]+"\s*,\s*$/;
+// The English default of a catalog call, in the two shapes this tree uses. `tr(key, english)`
+// is the core's own wrapper, which puts the default second. `t(key, params, english)` is what
+// i18n.js exports and the linking page calls directly, and it puts the default THIRD, behind
+// the parameter object - so a regex that only knew the first shape counted a translated string
+// as untranslated. The object is matched without nesting on purpose: a parameter bag here is a
+// flat map of names to values, and accepting a nested one would start excusing anything that
+// merely looked like a call.
+//
+// The THIRD shape is for text that cannot be wrapped where it is written. The provider
+// templates are object literals built when the module loads, which is before the
+// localization module has resolved, so a tr() call there would freeze the English
+// default into the object once and for good. Each template therefore carries its KEY
+// beside the English - `noteKey` next to `note`, `labelKey` next to `label` - and the
+// catalog lookup happens where the template is rendered. The English is still the
+// fallback, still one copy, and ScriptEnglishDefaults_MatchTheCatalog still pins it
+// equal to the catalog, so the property this tool exists for is unchanged.
+const AS_DEFAULT = [
+  /\btr?\(\s*"[a-z0-9_.]+"\s*,\s*$/,
+  /\bt\(\s*"[a-z0-9_.]+"\s*,\s*\{[^{}]*\}\s*,\s*$/,
+  /\w+Key:\s*"[a-z0-9_.]+"\s*,\s*\w+:\s*$/,
+];
 
 /*
  * Reads the WHOLE file rather than a line at a time, and that is not a detail. The
@@ -165,7 +197,8 @@ function findIn(file) {
     }
     // Anchored at the end, so it reads the text immediately before the literal, across
     // any newlines and indentation the formatter put there.
-    if (AS_DEFAULT.test(source.slice(0, match.index))) {
+    const before = source.slice(0, match.index);
+    if (AS_DEFAULT.some((shape) => shape.test(before))) {
       continue;
     }
     const line = source.slice(0, match.index).split("\n").length;
