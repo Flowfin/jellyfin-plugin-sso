@@ -214,5 +214,16 @@
   "config.server_settings_read_failed": "Could not read the stored configuration, so nothing was saved and neither switch was changed. Reload the page and try again.",
   "config.provider_removed": "Provider removed.",
   "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
-  "config.config_read_failed": "Could not read the stored configuration, so nothing was changed. Reload the page and try again."
+  "config.config_read_failed": "Could not read the stored configuration, so nothing was changed. Reload the page and try again.",
+  "config.validation_required": "{label} is required.",
+  "config.validation_endpoint_required": "OpenID Endpoint is required.",
+  "config.validation_endpoint_absolute": "Enter an absolute URL, e.g. https://id.example.com",
+  "config.validation_endpoint_insecure": "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
+  "config.validation_endpoint_https": "Use an https:// URL for the OpenID endpoint.",
+  "config.validation_base_origin_only": "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+  "config.validation_base_origin": "Enter a full origin such as https://jellyfin.example.com",
+  "config.validation_base_no_path": "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+  "config.validation_name_required": "A provider name is required.",
+  "config.validation_name_control_chars": "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+  "config.validation_name_reserved": "Remove backslash and URI-reserved characters (\\ / ? # %) from the name."
 }

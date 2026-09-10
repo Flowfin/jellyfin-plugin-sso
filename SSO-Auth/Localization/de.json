@@ -214,5 +214,16 @@
   "config.server_settings_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts gespeichert und keiner der beiden Schalter geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
   "config.provider_removed": "Anbieter entfernt.",
   "config.provider_remove_failed": "Der Anbieter konnte nicht entfernt werden: Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
-  "config.config_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut."
+  "config.config_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
+  "config.validation_required": "{label} ist erforderlich.",
+  "config.validation_endpoint_required": "Der OpenID-Endpunkt ist erforderlich.",
+  "config.validation_endpoint_absolute": "Geben Sie eine absolute URL an, z. B. https://id.example.com",
+  "config.validation_endpoint_insecure": "Verwendet http://, die Erkundung liefe also unverschlüsselt. Bevorzugen Sie einen https://-Endpunkt.",
+  "config.validation_endpoint_https": "Verwenden Sie für den OpenID-Endpunkt eine https://-URL.",
+  "config.validation_base_origin_only": "Geben Sie einen vollständigen Ursprung an, z. B. https://jellyfin.example.com (nur Schema und Host).",
+  "config.validation_base_origin": "Geben Sie einen vollständigen Ursprung an, z. B. https://jellyfin.example.com",
+  "config.validation_base_no_path": "Geben Sie nur die Basis-URL ohne Pfad an, z. B. https://jellyfin.example.com, nicht die /sso/...-Rückleitungsadresse.",
+  "config.validation_name_required": "Ein Anbietername ist erforderlich.",
+  "config.validation_name_control_chars": "Entfernen Sie Steuerzeichen aus dem Namen, etwa Tabulator oder Zeilenumbruch, die beim Kopieren oft hineingeraten.",
+  "config.validation_name_reserved": "Entfernen Sie den umgekehrten Schrägstrich und die URI-reservierten Zeichen (\\ / ? # %) aus dem Namen."
 }

@@ -1000,7 +1000,9 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.setFieldError(
       page,
       id,
-      value ? "" : label + " is required.",
+      value
+        ? ""
+        : tr("config.validation_required", "{label} is required.", { label }),
     );
   },
   validateEndpoint: (page) => {
@@ -1009,7 +1011,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "OpenID Endpoint is required.",
+        tr(
+          "config.validation_endpoint_required",
+          "OpenID Endpoint is required.",
+        ),
       );
       return;
     }
@@ -1020,7 +1025,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Enter an absolute URL, e.g. https://id.example.com",
+        tr(
+          "config.validation_endpoint_absolute",
+          "Enter an absolute URL, e.g. https://id.example.com",
+        ),
       );
       return;
     }
@@ -1028,7 +1036,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
+        tr(
+          "config.validation_endpoint_insecure",
+          "Uses http://, so discovery would be unencrypted. Prefer an https:// endpoint.",
+        ),
       );
       return;
     }
@@ -1036,7 +1047,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidEndpoint",
-        "Use an https:// URL for the OpenID endpoint.",
+        tr(
+          "config.validation_endpoint_https",
+          "Use an https:// URL for the OpenID endpoint.",
+        ),
       );
       return;
     }
@@ -1056,7 +1070,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        tr(
+          "config.validation_base_origin_only",
+          "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+        ),
       );
       return;
     }
@@ -1064,7 +1081,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter a full origin such as https://jellyfin.example.com",
+        tr(
+          "config.validation_base_origin",
+          "Enter a full origin such as https://jellyfin.example.com",
+        ),
       );
       return;
     }
@@ -1073,7 +1093,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
-        "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+        tr(
+          "config.validation_base_no_path",
+          "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+        ),
       );
       return;
     }
@@ -1085,7 +1108,7 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "A provider name is required.",
+        tr("config.validation_name_required", "A provider name is required."),
       );
       return;
     }
@@ -1099,7 +1122,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        tr(
+          "config.validation_name_control_chars",
+          "Remove control characters (such as a tab or newline, often introduced by copy-paste) from the name.",
+        ),
       );
       return;
     }
@@ -1109,7 +1135,10 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.setFieldError(
         page,
         "OidProviderName",
-        "Remove backslash and URI-reserved characters (\\ / ? # %) from the name.",
+        tr(
+          "config.validation_name_reserved",
+          "Remove backslash and URI-reserved characters (\\ / ? # %) from the name.",
+        ),
       );
       return;
     }
