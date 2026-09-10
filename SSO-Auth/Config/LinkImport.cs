@@ -38,6 +38,12 @@ internal readonly record struct LinkImportCount(string Protocol, string Provider
 /// refused rather than overwritten, because otherwise a crafted backup file is a primitive for remapping
 /// an identity-provider subject onto an administrator's account. An administrator unlinks first and then
 /// re-imports, which is one deliberate act rather than a side effect of a restore.</item>
+/// <item>No new binding onto an administrator. The repoint rule above compares the file against something
+/// this instance ALREADY HOLDS, and a rebuilt migration target holds nothing - so on the server this whole
+/// helper exists for, that rule does not fire at all (#1559). An entry naming an administrator account and
+/// a canonical name this instance does not already link to it is refused, whatever else it carries. What
+/// it would otherwise write is future login capability for a subject the operator never chose, buried in
+/// one row of a file they were handed.</item>
 /// </list>
 /// The import never creates a Jellyfin account, never creates a provider, and never invents a user id. It
 /// only rebinds what both sides already hold, which is what keeps a backup file from being a way to bring
@@ -61,16 +67,24 @@ internal static class LinkImport
     /// Resolves a Jellyfin username to the id this instance holds for it, or null when no such account
     /// exists. The controller supplies one backed by <c>IUserManager</c>.
     /// </param>
+    /// <param name="isAdministrator">
+    /// Whether an account holds administrator rights. A separate seam rather than a property of the
+    /// resolver, so this helper keeps knowing nothing about Jellyfin's user types, and REQUIRED rather
+    /// than optional with a permissive default: a security rule that quietly does nothing when a caller
+    /// forgets it is worse than no rule, because the tests still pass (#1559).
+    /// </param>
     /// <returns>How many links each provider got back, for the audit line. Empty when the document carried none.</returns>
     /// <exception cref="ArgumentException">The document version is unsupported, or an entry names a protocol, provider, canonical name or username this instance cannot restore, or the document contradicts itself or the stored link table.</exception>
     internal static IReadOnlyList<LinkImportCount> Apply(
         PluginConfiguration live,
         LinkExportDocument document,
-        Func<string, Guid?> resolveUserId)
+        Func<string, Guid?> resolveUserId,
+        Func<Guid, bool> isAdministrator)
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(resolveUserId);
+        ArgumentNullException.ThrowIfNull(isAdministrator);
 
         if (document.FormatVersion != LinkExport.FormatVersion)
         {
@@ -82,14 +96,15 @@ internal static class LinkImport
         // below are about entries that cannot be restored; a document with no entries contradicts nothing
         // and leaves nothing half-done, and the count the caller audits says plainly that zero links came
         // back - which an operator who applied the wrong file reads immediately.
-        var resolved = Resolve(live, document, resolveUserId);
+        var resolved = Resolve(live, document, resolveUserId, isAdministrator);
         return Write(resolved);
     }
 
     private static List<ResolvedLink> Resolve(
         PluginConfiguration live,
         LinkExportDocument document,
-        Func<string, Guid?> resolveUserId)
+        Func<string, Guid?> resolveUserId,
+        Func<Guid, bool> isAdministrator)
     {
         var refusals = new List<string>();
         var resolved = new List<ResolvedLink>();
@@ -156,6 +171,30 @@ internal static class LinkImport
             if (config.CanonicalLinks.TryGetValue(entry.CanonicalName!, out var held) && held != userId)
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already links that identity to a different account; unlink it first"));
+                continue;
+            }
+
+            // DIRECTLY BEHIND THE RULE WHOSE GAP IT CLOSES (#1559). The repoint rule above compares the
+            // file against a link this instance already holds, and a rebuilt migration target - the server
+            // this whole helper exists for - holds none, so on that server it does not fire. Neither does
+            // the issuer guard, which keys off a field the entry can simply omit. What is left is an entry
+            // naming an administrator account and any canonical name at all, and writing it grants that
+            // subject the administrator's account at its next login: the resolve arm that consumes a stored
+            // link carries no administrator gate, unlike the adoption and legacy-migrate arms beside it.
+            //
+            // Refused rather than gated at login, because the file is the untrusted thing and the import is
+            // where a human is present to read why. The rule is "not already linked to that account", not
+            // "no administrator", so re-running an import onto a server that still holds the same mapping
+            // stays a success and a partial migration can be repeated - the same shape the repoint rule
+            // takes, for the same reason.
+            //
+            // The deliberate act it names exists and is one call: Links/Preprovision binds a canonical name
+            // to an account explicitly, under elevation, with the operator choosing that pairing on its own
+            // rather than finding it in row 4,001 of a file somebody sent them. After it, this rule sees a
+            // link this instance already holds and the import passes.
+            if (isAdministrator(userId) && !config.CanonicalLinks.ContainsKey(entry.CanonicalName!))
+            {
+                refusals.Add(Describe(index, entry.Protocol, entry.Provider, "that account is an administrator and this instance does not already link that identity to it; pre-provision the link deliberately, then import"));
                 continue;
             }
 

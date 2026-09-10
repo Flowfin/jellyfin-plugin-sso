@@ -193,6 +193,19 @@ these are the ones a migration runs into.
   Both refusals exist so a backup file cannot silently remap an
   identity-provider subject onto another account. Unlink the existing link
   first, then re-import.
+- **A new identity bound to an administrator.** The entry names an administrator
+  account and a canonical name this instance does not already link to it -
+  `that account is an administrator and this instance does not already link that identity to it; pre-provision the link deliberately, then import`.
+  The two refusals above compare the file against a link this server already
+  holds, and a rebuilt target holds none, so on the very server this page is
+  about they do not fire. What the entry would write is future login capability
+  for an identity-provider subject, on an administrator's account, out of one row
+  of a file. Bind it deliberately first with
+  `POST /sso/Links/Preprovision/{mode}/{provider}/{jellyfinUserId}`, which
+  requires elevation and names that one pairing on its own, and then re-import:
+  the link exists by then, so the entry restores like any other. Ordinary
+  accounts are untouched by this rule, and re-importing a file onto a server that
+  already holds the same administrator mapping is still a success.
 - **An issuer this provider could not have issued.** The entry names an OpenID
   issuer that is not what the provider on this instance is configured to issue:
   `the entry's issuer ... is not what this provider is configured to issue

@@ -1897,7 +1897,16 @@ public class SSOController : ControllerBase
             .Where(entry => !string.IsNullOrWhiteSpace(entry?.Username))
             .Select(entry => entry.Username!)
             .Distinct(StringComparer.Ordinal)
-            .ToDictionary(username => username, username => _userManager.GetUserByName(username)?.Id, StringComparer.Ordinal);
+            .ToDictionary(username => username, username => _userManager.GetUserByName(username), StringComparer.Ordinal);
+
+        // Which of those accounts hold administrator rights, read in the SAME pre-pass and for the same
+        // reason (#1559): the rule that uses it runs inside MutateConfiguration, and asking the user
+        // manager from in there would hold the global configuration lock across one call per named
+        // account, blocking every login for the duration. A set, so the rule is a membership test.
+        var administrators = directory.Values
+            .Where(user => user is not null && user.HasPermission(PermissionKind.IsAdministrator))
+            .Select(user => user!.Id)
+            .ToHashSet();
 
         IReadOnlyList<LinkImportCount> restored;
         try
@@ -1905,7 +1914,11 @@ public class SSOController : ControllerBase
             // Validate-then-write lives in the Config helper; the mutation persists only if it returns
             // without throwing, so a rejected document leaves the stored link table untouched.
             restored = SSOPlugin.Instance.MutateConfiguration(
-                configuration => LinkImport.Apply(configuration, document, username => directory.GetValueOrDefault(username)));
+                configuration => LinkImport.Apply(
+                    configuration,
+                    document,
+                    username => directory.GetValueOrDefault(username)?.Id,
+                    administrators.Contains));
         }
         catch (ArgumentException ex)
         {
