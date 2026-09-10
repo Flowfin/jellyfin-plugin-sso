@@ -845,6 +845,53 @@ async function main() {
     }
   }
 
+  // ---- Arm: one workspace at a time, so the page never carries two Saves (#1527) ----
+  {
+    // The Providers page is the only one with two editors and the only one that can break stage 1's
+    // central promise of one Save per page. The walk found it doing exactly that: opening a SAML provider
+    // and then an OpenID one left both editors on the screen with a Save each. Both directions are asked,
+    // because the defect was symmetric and a fix applied to one show path only would pass a one-way test.
+    const page = providersPageFixture();
+    wire(core, page);
+    const oid = page.querySelector("#sso-editor");
+    const saml = page.querySelector("#saml-editor");
+    if (oid.hidden !== true || saml.hidden !== true) {
+      refuse(
+        "one-workspace",
+        "the fixture starts with an editor already open, so this arm proves nothing",
+      );
+    }
+
+    core.showSamlEditor(page);
+    core.showEditor(page);
+    if (saml.hidden !== true) {
+      refuse(
+        "one-workspace",
+        "opening the OpenID editor left the SAML one open, so the page carries two Save buttons under one unsaved-changes notice that cannot say which is which",
+      );
+    }
+    if (oid.hidden === true) {
+      refuse(
+        "one-workspace",
+        "the OpenID editor did not open at all, so closing its sibling cost the thing it was opened for",
+      );
+    }
+
+    core.showSamlEditor(page);
+    if (oid.hidden !== true) {
+      refuse(
+        "one-workspace",
+        "opening the SAML editor left the OpenID one open, which is the same two-Save page from the other direction",
+      );
+    }
+    if (saml.hidden === true) {
+      refuse(
+        "one-workspace",
+        "the SAML editor did not open at all, so closing its sibling cost the thing it was opened for",
+      );
+    }
+  }
+
   // ---- The managed set survives a failed read (#1589) ----
   //
   // WHAT THIS ARM CAN AND CANNOT SAY, and the bound is the same one this file's header states. It judges
@@ -1057,7 +1104,7 @@ async function main() {
   }
 
   console.log(
-    "unsaved state:     sixteen arms run against the shipped sso-core.js and the pages it serves",
+    "unsaved state:     seventeen arms run against the shipped sso-core.js and the pages it serves",
   );
   console.log(
     "  untouched        a page nobody typed into is clean, shows nothing, and its Save is open",
@@ -1106,6 +1153,9 @@ async function main() {
   );
   console.log(
     "  refresh-ordinary a save, delete or import still replaces the page whatever state it is in",
+  );
+  console.log(
+    "  one-workspace    opening either protocol editor closes the other, so one Save is on the page",
   );
   console.log(
     "  managed-report-failure a failed managed-set read keeps the last set it read and says it failed",
