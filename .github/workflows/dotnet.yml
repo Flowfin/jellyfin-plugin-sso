@@ -73,6 +73,15 @@ jobs:
       # the shipped sso-core.js against both client shapes and refuses each arm by name. Same runtime and
       # same absence of dependencies as the two steps above.
       run: node tools/ui-folder-checklist.js
+    - name: Sentences that bypass the translation catalog
+      # de.json and en.json carry the same keys and nothing is missing from either, so every check the
+      # localization has is green while a de-DE administrator reads a page that is half English (#1602). A
+      # sentence written as a literal in the bundle never reaches a catalog, so it cannot be reported as
+      # absent from something it was never in - the gap is invisible to a completeness check by
+      # construction. This pins the COUNT instead, and refuses it moving either way: up is the drift, and
+      # down without lowering the pin leaves slack the next one hides in. Same runtime and same absence of
+      # dependencies as the three steps above.
+      run: node tools/ui-untranslated.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
