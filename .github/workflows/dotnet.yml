@@ -64,6 +64,15 @@ jobs:
       # (#1572). This runs the shipped sso-core.js against the shipped serverPage.html and refuses each
       # arm by name. Same runtime and same absence of dependencies as the step above.
       run: node tools/ui-unsaved-state.js
+    - name: Library checklists on both client shapes
+      # The two steps above read the assets or drive the unsaved-changes state; neither can say whether a
+      # LIST DRAWS, and that is where #1607 sat. `createElement("input", { is: ... })` is correct on 10.11
+      # and throws on the Jellyfin 12 client, which registers no emby-* customized built-in and refuses the
+      # options argument outright, so the provider page's library checklists came up empty on a server with
+      # libraries and the next save wrote that emptiness over the provider's folder restriction. This runs
+      # the shipped sso-core.js against both client shapes and refuses each arm by name. Same runtime and
+      # same absence of dependencies as the two steps above.
+      run: node tools/ui-folder-checklist.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

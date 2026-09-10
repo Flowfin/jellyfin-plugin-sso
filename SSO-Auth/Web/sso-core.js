@@ -16,6 +16,22 @@ function tr(key, englishDefault, params) {
 // this module's bookkeeping and not a fact about the page.
 const pageBaselines = new WeakMap();
 
+// Builds a customized built-in the way BOTH clients accept (#1607). The options form is what upgrades
+// the element on 10.11, and the Jellyfin 12 client REFUSES that argument outright: createElement throws
+// `t.toLowerCase is not a function` for any `is` value, a registered name and an invented one alike, and
+// that client registers no emby-* element at all. The throw landed before the first row existed, so every
+// library checklist on the provider page came up empty and a save then wrote the empty set over the
+// provider's folder restriction. The fallback carries the `is` attribute, which both clients take and
+// which every call site sets on the next line anyway; what it gives up on 10.11 is nothing, because the
+// upgrading form is tried first and only a client that refuses it ever reaches the second line.
+function customizedBuiltIn(tag, is) {
+  try {
+    return document.createElement(tag, { is });
+  } catch {
+    return document.createElement(tag);
+  }
+}
+
 // Settles a promise without deciding anything about it. Used where a load has to WAIT for a request
 // whose failure it deliberately does not act on - the checklist fills the baseline waits for, and the
 // configuration read of a refresh, which leaves the page showing what it last read.
@@ -1422,12 +1438,20 @@ const ssoConfigurationPage = {
       e.checked = folder_list.includes(e.dataset.id);
     });
   },
+  // NO ROWS IS NOT AN EMPTY SELECTION (#1607). An administrator who clears the list leaves the rows on
+  // screen and unticked; a container holding no rows at all is one the fill never reached - the client
+  // refused the row construction, or Library/MediaFolders did not answer. Writing that as "no libraries"
+  // while EnableAllFolders is off is the save this file already names as the worst outcome on this
+  // surface, in the refresh guards above: SessionMinter then writes the empty set on every login and
+  // every user of the provider loses library access at their next sign-in. So the two cases are told
+  // apart here and the caller decides; null means the question could not be answered.
   serializeEnabledFolders: (container) => {
-    return [...container.querySelectorAll(".folder-checkbox")]
-      .filter((e) => e.checked)
-      .map((e) => {
-        return e.dataset.id;
-      });
+    const rows = [...container.querySelectorAll(".folder-checkbox")];
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return rows.filter((e) => e.checked).map((e) => e.dataset.id);
   },
   populateFolders: (container) => {
     return ApiClient.getJSON(
@@ -1457,9 +1481,10 @@ const ssoConfigurationPage = {
       // emby-checkbox upgrade to add it; otherwise folder IDs could be duplicated on re-populate.
       out.classList.add("emby-checkbox-label");
 
-      // createElement's `is` option upgrades the customized built-in; the attribute is set as well
-      // so CSS attribute selectors and the web-components polyfill see it.
-      const checkbox = document.createElement("input", { is: "emby-checkbox" });
+      // The `is` option upgrades the customized built-in where the client accepts it, and is refused
+      // outright on Jellyfin 12 (#1607) - see customizedBuiltIn. The attribute is set either way, so
+      // CSS attribute selectors and the web-components polyfill see it.
+      const checkbox = customizedBuiltIn("input", "emby-checkbox");
       checkbox.setAttribute("is", "emby-checkbox");
       checkbox.classList.add("folder-checkbox", "chkFolder");
       checkbox.type = "checkbox";
@@ -1543,9 +1568,14 @@ const ssoConfigurationPage = {
         const role = elem.querySelector(".sso-role-mapping-name").value;
         const checklist = elem.querySelector(".sso-folder-list");
 
+        // A row whose checklist never drew is written as the empty set rather than skipped (#1607).
+        // The two are different failures and the smaller one is chosen deliberately: an empty mapping
+        // grants that role no libraries, which the administrator sees on the row in front of them,
+        // while dropping the row would silently delete a mapping they never touched.
         out.push({
           Role: role,
-          Folders: ssoConfigurationPage.serializeEnabledFolders(checklist),
+          Folders:
+            ssoConfigurationPage.serializeEnabledFolders(checklist) || [],
         });
       },
     );
@@ -2955,8 +2985,13 @@ const ssoConfigurationPage = {
 
           form_elements.folder_list_fields.forEach((id) => {
             const elem = page.querySelector(`#${id}`);
-            current_config[id] =
-              ssoConfigurationPage.serializeEnabledFolders(elem);
+            const folders = ssoConfigurationPage.serializeEnabledFolders(elem);
+            // A checklist that never drew leaves the stored restriction alone rather than replacing it
+            // with nothing (#1607). The key is left off the object entirely, so the stored value is what
+            // the server keeps; assigning null here would be the same destructive write in another shape.
+            if (folders !== null) {
+              current_config[id] = folders;
+            }
           });
 
           form_elements.role_map_fields.forEach((id) => {
