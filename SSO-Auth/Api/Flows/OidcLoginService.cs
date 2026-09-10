@@ -86,6 +86,11 @@ internal sealed class OidcLoginService
     // live inside; see OidcStateStore). One process-wide instance, like the SAML caches the controller keeps.
     private static readonly OidcStateStore StateStore = new();
 
+    // The two scopes every OpenID request carries whatever the provider is configured with. Separate
+    // tokens rather than one "openid profile" string, so the union below can see that a configured
+    // "openid" is the same scope and not a different one (#1612).
+    private static readonly string[] BaseScopes = { "openid", "profile" };
+
     // The shared login-completion tail (#160): resolve/adopt the link, build the session parameters, mint
     // under the revocation gate, audit, map to a LoginOutcome. Both protocols funnel their verified identity
     // into it, so it is a shared collaborator this service holds a reference to rather than owning.
@@ -672,16 +677,49 @@ internal sealed class OidcLoginService
     // doubled or trailing separator (#407). Shared by both sites.
 
     /// <summary>
-    /// Builds the space-delimited OpenID scope string, always leading with the base "openid profile" and
-    /// dropping null/empty/whitespace entries so a persisted bad scope cannot inject a doubled or trailing
-    /// separator (#407) or throw on a provider stored without scopes (#368).
+    /// Builds the space-delimited OpenID scope string, always leading with the base scopes and carrying
+    /// each further scope once.
     /// </summary>
-    /// <param name="config">The provider configuration whose <c>OidScopes</c> are appended.</param>
+    /// <remarks>
+    /// <para>
+    /// The base leads because <c>openid</c> missing is not an OpenID request at all, and that is worth
+    /// guaranteeing rather than trusting to a stored value. It is a UNION and not a prepend (#1612): every
+    /// provider template this plugin ships, and the wiki, tell an administrator to configure
+    /// <c>openid profile email</c>, so prepending sent <c>openid profile openid profile email</c> on every
+    /// login of every installation. Servers read scope as a set and accepted it, which is why it stood; what
+    /// it cost was the authorize URL and the provider's audit log saying this plugin asks twice, and a
+    /// server that validates the parameter rather than parsing it answering <c>invalid_scope</c> with a
+    /// message as opaque as the one #1608 arrived with.
+    /// </para>
+    /// <para>
+    /// Entries are split on whitespace before the union, so an administrator who typed several scopes into
+    /// one field gets each of them once rather than one nonsense token. Null, empty and whitespace entries
+    /// are dropped, which is what keeps a persisted bad scope from injecting a doubled or trailing
+    /// separator (#407) and a provider stored without scopes from throwing (#368). Comparison is ordinal:
+    /// scope values are case-sensitive, so <c>Email</c> and <c>email</c> are two scopes and collapsing them
+    /// would be this method deciding something about a provider it does not know.
+    /// </para>
+    /// </remarks>
+    /// <param name="config">The provider configuration whose <c>OidScopes</c> join the base.</param>
     /// <returns>The normalized scope string.</returns>
     internal static string BuildScopeString(OidConfig config)
-        => string.Join(" ", (config.OidScopes ?? Array.Empty<string>())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Prepend("openid profile"));
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var scopes = new List<string>();
+
+        foreach (var scope in BaseScopes
+            .Concat(config?.OidScopes ?? Array.Empty<string>())
+            .Where(entry => !string.IsNullOrWhiteSpace(entry))
+            .SelectMany(entry => entry!.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+        {
+            if (seen.Add(scope))
+            {
+                scopes.Add(scope);
+            }
+        }
+
+        return string.Join(" ", scopes);
+    }
 
     // Reads a provider's config under the config lock, so an anonymous login-path lookup does not race an
     // admin Add/Del mutating the live provider dictionary in place - a Dictionary read-during-write is
