@@ -45,6 +45,9 @@ public class LinkImportTests
         "this instance already links that identity to a different account; unlink it first";
     private const string AlreadyBoundToAnotherIssuer =
         "this instance already binds that link to a different issuer; unlink it first";
+    private const string WouldBindAnAdministrator =
+        "that account is an administrator and this instance does not already link that identity to it; "
+        + "pre-provision the link deliberately, then import";
 
     [Fact]
     public void ExportOnOneServer_ImportsOntoAnother_ReboundToTheTargetsOwnIds()
@@ -52,7 +55,7 @@ public class LinkImportTests
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        var restored = LinkImport.Apply(target, document, TargetDirectory);
+        var restored = LinkImport.Apply(target, document, TargetDirectory, NobodyIsAdministrator);
 
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(TargetBob, target.OidConfigs["idp"].CanonicalLinks["sub-bob"]);
@@ -78,7 +81,7 @@ public class LinkImportTests
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, document, TargetDirectory);
+        LinkImport.Apply(target, document, TargetDirectory, NobodyIsAdministrator);
 
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -89,7 +92,7 @@ public class LinkImportTests
         var document = LinkExport.Build(SourceConfiguration(), SourceDirectory);
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, document, TargetDirectory);
+        LinkImport.Apply(target, document, TargetDirectory, NobodyIsAdministrator);
 
         Assert.False(target.OidConfigs["idp"].CanonicalLinkIssuers.ContainsKey("sub-bob"));
     }
@@ -101,7 +104,7 @@ public class LinkImportTests
         // conjure a map for a protocol that does not use it.
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, Document(Entry("SAML", "adfs", "nameid-alice", "alice", "https://forged.example.test")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("SAML", "adfs", "nameid-alice", "alice", "https://forged.example.test")), TargetDirectory, NobodyIsAdministrator);
 
         Assert.Equal(TargetAlice, target.SamlConfigs["adfs"].CanonicalLinks["nameid-alice"]);
         Assert.IsNotType<OidConfig>(target.SamlConfigs["adfs"]);
@@ -114,7 +117,7 @@ public class LinkImportTests
         var document = Document(Entry("OpenID", "idp", "sub-alice", "alice"));
         document.FormatVersion = LinkExport.FormatVersion + 1;
 
-        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(target, document, TargetDirectory));
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(target, document, TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains("Unsupported link export format version", refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -126,7 +129,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "some-other-idp", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -141,7 +144,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "adfs", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "adfs", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator));
 
         AssertNoLinksWereWritten(target);
     }
@@ -154,7 +157,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains(NoSuchAccount, refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -170,7 +173,7 @@ public class LinkImportTests
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetMallory;
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains(AlreadyLinkedElsewhere, refusal.Message, StringComparison.Ordinal);
         Assert.Equal(TargetMallory, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
@@ -189,7 +192,8 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://forged.example.test")),
-            TargetDirectory));
+            TargetDirectory,
+            NobodyIsAdministrator));
 
         Assert.Contains(AlreadyBoundToAnotherIssuer, refusal.Message, StringComparison.Ordinal);
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
@@ -211,7 +215,8 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "http://idp.lan")),
-            TargetDirectory));
+            TargetDirectory,
+            NobodyIsAdministrator));
 
         // Both issuers are named, which is what makes the refusal actionable rather than merely correct:
         // the operator re-points the provider or re-keys the links, in the open, instead of guessing.
@@ -233,7 +238,8 @@ public class LinkImportTests
         LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test/")),
-            TargetDirectory);
+            TargetDirectory,
+            NobodyIsAdministrator);
 
         Assert.Equal("https://idp.example.test/", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -252,7 +258,8 @@ public class LinkImportTests
         LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://tenant-7.idp.example.test")),
-            TargetDirectory);
+            TargetDirectory,
+            NobodyIsAdministrator);
 
         Assert.Equal("https://tenant-7.idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -269,7 +276,8 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice", "https://idp.example.test")),
-            TargetDirectory));
+            TargetDirectory,
+            NobodyIsAdministrator));
 
         Assert.Contains("is not a usable URL", refusal.Message, StringComparison.Ordinal);
         Assert.Empty(target.OidConfigs["idp"].CanonicalLinks);
@@ -284,7 +292,7 @@ public class LinkImportTests
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetAlice;
         target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"] = "https://idp.example.test";
 
-        LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator);
 
         Assert.Equal("https://idp.example.test", target.OidConfigs["idp"].CanonicalLinkIssuers["sub-alice"]);
     }
@@ -298,7 +306,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
         target.OidConfigs["idp"].CanonicalLinks["sub-alice"] = TargetAlice;
 
-        var restored = LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory);
+        var restored = LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator);
 
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
         Assert.Equal(1, restored.Single().Links);
@@ -314,7 +322,8 @@ public class LinkImportTests
         var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
             target,
             Document(Entry("OpenID", "idp", "sub-alice", "alice"), Entry("OpenID", "idp", "sub-alice", "bob")),
-            TargetDirectory));
+            TargetDirectory,
+            NobodyIsAdministrator));
 
         Assert.Contains("maps this identity to two different accounts", refusal.Message, StringComparison.Ordinal);
         AssertNoLinksWereWritten(target);
@@ -334,7 +343,8 @@ public class LinkImportTests
                 Entry("OpenID", "idp", "sub-alice", "alice"),
                 Entry("SAML", "adfs", "nameid-alice", "alice"),
                 Entry("OpenID", "idp", "sub-bob", "nobody")),
-            TargetDirectory));
+            TargetDirectory,
+            NobodyIsAdministrator));
 
         AssertNoLinksWereWritten(target);
     }
@@ -348,7 +358,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "sub-alice", "nobody")), TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains("entry #0 (OpenID/idp)", refusal.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("sub-alice", refusal.Message, StringComparison.Ordinal);
@@ -360,7 +370,7 @@ public class LinkImportTests
         var target = TargetConfiguration();
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "   ", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "idp", "   ", "alice")), TargetDirectory, NobodyIsAdministrator));
 
         AssertNoLinksWereWritten(target);
     }
@@ -375,7 +385,7 @@ public class LinkImportTests
         target.OidConfigs["broken"] = null!;
 
         var refusal = Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "broken", "sub-alice", "alice")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "broken", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator));
 
         Assert.Contains(NoSuchProvider, refusal.Message, StringComparison.Ordinal);
     }
@@ -387,7 +397,7 @@ public class LinkImportTests
         // what tells an operator who applied the wrong file that nothing came back.
         var target = TargetConfiguration();
 
-        var restored = LinkImport.Apply(target, Document(), TargetDirectory);
+        var restored = LinkImport.Apply(target, Document(), TargetDirectory, NobodyIsAdministrator);
 
         Assert.Empty(restored);
         AssertNoLinksWereWritten(target);
@@ -401,14 +411,115 @@ public class LinkImportTests
         // accepting a different casing here would restore links onto a provider no login resolves.
         var target = TargetConfiguration();
 
-        LinkImport.Apply(target, Document(Entry("openid", "idp", "sub-alice", "alice")), TargetDirectory);
+        LinkImport.Apply(target, Document(Entry("openid", "idp", "sub-alice", "alice")), TargetDirectory, NobodyIsAdministrator);
         Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
 
         Assert.Throws<ArgumentException>(() =>
-            LinkImport.Apply(target, Document(Entry("OpenID", "IDP", "sub-bob", "bob")), TargetDirectory));
+            LinkImport.Apply(target, Document(Entry("OpenID", "IDP", "sub-bob", "bob")), TargetDirectory, NobodyIsAdministrator));
     }
 
     // --- helpers ---
+
+    [Fact]
+    public void ANewIdentityBoundToAnAdministrator_IsRefusedOnARebuiltTarget()
+    {
+        // The document from #1559, verbatim in shape. On a rebuilt target every rule beside this one passes:
+        // the repoint rule has no stored link to compare against, the account rule passes because the
+        // administrator exists, and the issuer guard is never reached because the entry simply omits the
+        // field it keys off. What that used to write was future login capability for a subject nobody chose.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-attacker", "admin")),
+            TargetDirectory,
+            AdminIsAdministrator));
+
+        Assert.Contains(WouldBindAnAdministrator, refusal.Message, StringComparison.Ordinal);
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void ARestoreOfALinkTheTargetAlreadyHolds_IsStillAllowedForAnAdministrator()
+    {
+        // The rule is "not already linked to that account", not "no administrator", and the difference is
+        // what keeps a partial migration repeatable. A server that already holds the mapping is not being
+        // asked to grant anything it has not already granted.
+        var target = TargetConfiguration();
+        target.OidConfigs["idp"].CanonicalLinks["sub-admin"] = TargetAdmin;
+
+        LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-admin", "admin")),
+            TargetDirectory,
+            AdminIsAdministrator);
+
+        Assert.Equal(TargetAdmin, target.OidConfigs["idp"].CanonicalLinks["sub-admin"]);
+    }
+
+    [Fact]
+    public void ANewIdentityBoundToAnOrdinaryAccount_IsUntouchedByTheRule()
+    {
+        // The narrowness is the point. A migration restoring an ordinary user's links onto a rebuilt server
+        // is the case this whole helper exists for, and a rule that refused it would have made the guard
+        // more expensive than what it guards.
+        var target = TargetConfiguration();
+
+        LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-alice", "alice")),
+            TargetDirectory,
+            AdminIsAdministrator);
+
+        Assert.Equal(TargetAlice, target.OidConfigs["idp"].CanonicalLinks["sub-alice"]);
+    }
+
+    [Fact]
+    public void OneAdministratorEntryRejectsTheWholeDocument()
+    {
+        // Validate-then-write, on this rule as on the others. A file whose thousand ordinary rows are fine
+        // and whose one row binds an administrator restores NOTHING, because a half-applied link table
+        // looks restored and silently is not.
+        var target = TargetConfiguration();
+
+        Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(
+                Entry("OpenID", "idp", "sub-alice", "alice"),
+                Entry("OpenID", "idp", "sub-attacker", "admin"),
+                Entry("SAML", "adfs", "nameid-alice", "alice")),
+            TargetDirectory,
+            AdminIsAdministrator));
+
+        AssertNoLinksWereWritten(target);
+    }
+
+    [Fact]
+    public void TheAdministratorRefusalNamesTheDeliberateAct()
+    {
+        // A refusal that names no way forward turns a migration into a support thread. The act it names is
+        // one call - Links/Preprovision, under elevation - and after it this rule sees a link the instance
+        // already holds, so the same import passes. That is checked here rather than assumed.
+        var target = TargetConfiguration();
+
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-admin", "admin")),
+            TargetDirectory,
+            AdminIsAdministrator));
+
+        Assert.Contains("pre-provision the link deliberately, then import", refusal.Message, StringComparison.Ordinal);
+
+        target.OidConfigs["idp"].CanonicalLinks["sub-admin"] = TargetAdmin;
+
+        LinkImport.Apply(
+            target,
+            Document(Entry("OpenID", "idp", "sub-admin", "admin")),
+            TargetDirectory,
+            AdminIsAdministrator);
+
+        Assert.Equal(TargetAdmin, target.OidConfigs["idp"].CanonicalLinks["sub-admin"]);
+    }
 
     private static void AssertNoLinksWereWritten(PluginConfiguration target)
     {
@@ -468,11 +579,22 @@ public class LinkImportTests
     private static string? SourceDirectory(Guid userId) =>
         userId == SourceAlice ? "alice" : userId == SourceBob ? "bob" : null;
 
+    // The administrator on the rebuilt target, and the only account these cases treat as one.
+    private static readonly Guid TargetAdmin = Guid.Parse("7a19e700-0000-0000-0000-0000000000ad");
+
+    private static bool AdminIsAdministrator(Guid userId) => userId == TargetAdmin;
+
+    // The cases in this file are about the other rules, and on their target nobody is an administrator.
+    // A named helper rather than a bare lambda at each call, so a case that DOES mean an administrator has
+    // to say so and cannot be mistaken for one of these (#1559).
+    private static bool NobodyIsAdministrator(Guid userId) => false;
+
     private static Guid? TargetDirectory(string username) => username switch
     {
         "alice" => TargetAlice,
         "bob" => TargetBob,
         "mallory" => TargetMallory,
+        "admin" => TargetAdmin,
         _ => null,
     };
 }

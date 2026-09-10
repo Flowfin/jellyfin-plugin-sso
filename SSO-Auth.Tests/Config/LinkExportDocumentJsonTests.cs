@@ -38,6 +38,10 @@ public class LinkExportDocumentJsonTests
     private static readonly Guid SourceBob = Guid.Parse("b0b00000-0000-0000-0000-000000000002");
     private static readonly Guid TargetBob = Guid.Parse("7a19e700-0000-0000-0000-00000000000b");
 
+    // These cases are about the JSON on the wire, not about who the account is; on their target nobody
+    // holds administrator rights (#1559).
+    private static bool NobodyIsAdministrator(Guid userId) => false;
+
     /// <summary>
     /// The whole migration in one property: export on the source, send it as JSON exactly as the endpoint
     /// receives it, and restore on the target. Deleting the creation-handling attribute on
@@ -54,7 +58,7 @@ public class LinkExportDocumentJsonTests
         Assert.Single(received!.Links);
 
         var target = Target();
-        LinkImport.Apply(target, received, username => username == "bob" ? TargetBob : null);
+        LinkImport.Apply(target, received, username => username == "bob" ? TargetBob : null, NobodyIsAdministrator);
 
         Assert.Equal(TargetBob, target.OidConfigs["idp"].CanonicalLinks["sub-bob"]);
     }
@@ -73,7 +77,7 @@ public class LinkExportDocumentJsonTests
 
         var received = JsonSerializer.Deserialize<LinkExportDocument>(Json, JsonDefaults.Options);
 
-        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(Target(), received!, _ => null));
+        var refusal = Assert.Throws<ArgumentException>(() => LinkImport.Apply(Target(), received!, _ => null, NobodyIsAdministrator));
         Assert.Contains("no Jellyfin account is named 'nobody' on this instance", refusal.Message, StringComparison.Ordinal);
     }
 
