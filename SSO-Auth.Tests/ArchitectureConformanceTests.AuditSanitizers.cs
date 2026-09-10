@@ -38,6 +38,7 @@ public partial class ArchitectureConformanceTests
         "markerPath",
         "source",
         "sourcePath",
+        "installLocations",
         "composedRefusal",
     };
 

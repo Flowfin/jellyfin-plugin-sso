@@ -94,6 +94,29 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
             ServingDefaultConfiguration = false;
         }
 
+        // #1601, and it belongs beside the screen above rather than after it for the same reason: the
+        // moment before anything reads Configuration is the only moment the file on disk is still the
+        // operator's. Two copies of this plugin loaded at once make the host unable to read a
+        // configuration back across them, and its answer is to serve defaults and write them over the
+        // file. This cannot prevent that write. What it does is take the copy first, and then refuse
+        // every write of our own so the plugin adds nothing to the damage.
+        // Order against the screen above does not matter - neither touches Configuration - and it is
+        // second only because the screen has to stay the first thing this constructor does.
+        // Wrapped for the reason everything on this path is: a check that throws would fail the plugin
+        // load, and the state it exists to report is one an operator repairs by hand anyway.
+        try
+        {
+            var duplicated = DuplicateInstall.Detect(ConfigurationFilePath, DateTime.UtcNow);
+            LoadedMoreThanOnce = duplicated.IsDuplicated;
+            DuplicateInstall.Announce(duplicated, logger);
+        }
+#pragma warning disable CA1031, RCS1075 // a check that could not run must not be the reason the plugin does not load
+        catch (Exception)
+#pragma warning restore CA1031, RCS1075
+        {
+            LoadedMoreThanOnce = false;
+        }
+
         // Handing out `() => Configuration` here is safe: BasePlugin's constructor only records the
         // config path and loads the configuration lazily on first access, so nothing calls back into
         // UpdateConfiguration (and thus ConfigStore) before this assignment completes.
@@ -147,6 +170,15 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the store that owns every configuration read and write (#318).
     /// </summary>
     internal ProviderConfigStore ConfigStore { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether a second copy of this plugin is loaded into this server (#1601).
+    /// While it is set, every configuration write from this plugin is refused: the two copies cannot
+    /// round-trip a configuration between them, and a write attempted anyway is how the providers on disk
+    /// get replaced by defaults. Set once, in the constructor, and never cleared - the repair is to remove
+    /// a plugin directory and restart, which this process does not survive to see.
+    /// </summary>
+    internal bool LoadedMoreThanOnce { get; }
 
     /// <summary>
     /// Gets a value indicating whether the stored configuration could not be read at start, so what is
@@ -286,6 +318,18 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // saving a provider, importing one, or removing the marker, which is what the banner says.
     private void PersistBase(BasePluginConfiguration configuration)
     {
+        // FIRST, before the type check below and before anything reaches the base class (#1601). With two
+        // copies of this plugin loaded, that check is itself part of the fault: a configuration produced
+        // by the other copy is not this copy's PluginConfiguration, so it falls through to the base class
+        // unchanged and the host writes it - which is the shape that empties the file. Refusing loudly
+        // costs the caller a 500 on a server whose SSO routes are already ambiguous and answering nothing;
+        // writing costs the operator every provider they have.
+        if (LoadedMoreThanOnce)
+        {
+            throw new InvalidOperationException(
+                "This plugin is loaded twice in this server, so its configuration cannot be written without destroying it. Keep exactly one plugin directory for this plugin under the plugins folder, delete the others, and restart the server. The plugin log names the directories and where the configuration was copied.");
+        }
+
         if (configuration is not PluginConfiguration incoming)
         {
             // Not this plugin's configuration type, so there is nothing to encrypt and nothing this
