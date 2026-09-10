@@ -207,11 +207,17 @@ const ssoConfigLinking = {
 
       // The canonical name is identity-provider-controlled - assigning it via dataset/textContent
       // (never innerHTML) keeps a hostile linked-account name inert on this page.
-      // createElement's `is` option upgrades the customized built-in; the attribute is set as well
-      // so CSS attribute selectors and the web-components polyfill see it.
-      const checkbox = document.createElement("input", {
-        is: "emby-checkbox",
-      });
+      // The `is` option upgrades the customized built-in where the client accepts it. The Jellyfin 12
+      // client refuses that argument outright and throws for any value (#1607), which would take this
+      // list the way it took the provider page's library checklists, so the construction falls back to
+      // the attribute alone. The attribute is set either way, so CSS attribute selectors and the
+      // web-components polyfill see it.
+      let checkbox;
+      try {
+        checkbox = document.createElement("input", { is: "emby-checkbox" });
+      } catch {
+        checkbox = document.createElement("input");
+      }
       checkbox.setAttribute("is", "emby-checkbox");
       checkbox.classList.add("sso-link-checkbox");
       checkbox.type = "checkbox";
