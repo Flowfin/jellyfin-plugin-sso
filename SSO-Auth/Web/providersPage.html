@@ -2399,9 +2399,19 @@
 
                   <!-- Sticky save footer (Fitts): the primary action stays reachable at the bottom edge. -->
                   <div class="sso-save-footer">
-                    <div class="fieldDescription sso-restart-reminder">
-                      Saving requires a restart of Jellyfin to take effect.
-                    </div>
+                    <!--
+                      NO RESTART NOTE HERE, AND ITS ABSENCE IS THE DECISION (#1573). The footer used to
+                      say that saving requires a restart of Jellyfin to take effect. It does not, and the
+                      reading that settles it is on that issue: nothing in this plugin holds a
+                      configuration snapshot - no field anywhere is of that type, and the thirty-eight
+                      call sites fetch the live object at the moment they need it or take it as a
+                      parameter - while a save writes the file and then mutates that live object in
+                      place. The one component that reaches into Jellyfin's own state, the login-page
+                      branding, is subscribed to the configuration-changed event rather than read at
+                      startup. So there is no setting on the restart side of the line.
+                      What the sentence cost was not nothing: a Jellyfin restart drops every playing
+                      session and every connected client, and it was being asked for after every save.
+                    -->
                     <!--
                       The save outcome sits WITH the button (#1572), not in the editor header where it
                       used to. The footer is sticky, so this is on screen whenever the editor is; the
@@ -4111,9 +4121,19 @@
                   </div>
 
                   <div class="sso-save-footer">
-                    <div class="fieldDescription sso-restart-reminder">
-                      Saving requires a restart of Jellyfin to take effect.
-                    </div>
+                    <!--
+                      NO RESTART NOTE HERE, AND ITS ABSENCE IS THE DECISION (#1573). The footer used to
+                      say that saving requires a restart of Jellyfin to take effect. It does not, and the
+                      reading that settles it is on that issue: nothing in this plugin holds a
+                      configuration snapshot - no field anywhere is of that type, and the thirty-eight
+                      call sites fetch the live object at the moment they need it or take it as a
+                      parameter - while a save writes the file and then mutates that live object in
+                      place. The one component that reaches into Jellyfin's own state, the login-page
+                      branding, is subscribed to the configuration-changed event rather than read at
+                      startup. So there is no setting on the restart side of the line.
+                      What the sentence cost was not nothing: a Jellyfin restart drops every playing
+                      session and every connected client, and it was being asked for after every save.
+                    -->
                     <!--
                       The save outcome sits WITH the button (#1572), not in the editor header where it
                       used to. The footer is sticky, so this is on screen whenever the editor is; the

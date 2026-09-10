@@ -401,11 +401,6 @@
   background: rgba(20, 20, 20, 0.94);
 }
 
-.sso-restart-reminder {
-  flex: 1 1 auto;
-  margin: 0;
-}
-
 .sso-save-button {
   flex: 0 0 auto;
   min-width: 10em;
