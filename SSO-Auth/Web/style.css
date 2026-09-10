@@ -502,18 +502,48 @@
   min-width: 0;
 }
 
-/* THE RAIL COMES FIRST WHEN THE COLUMNS COLLAPSE, and that is the decision the stage-0 walk left to this
-   stage. Stacking in source order puts the readiness checklist and the field help BELOW the save button
-   at 375 wide - which is to say it puts the answer to "can I use this yet" behind every field and behind
-   the button that commits them. The order is reversed instead: at one column the rail is read first and
-   the form follows it, which is the order the two are actually used in. */
+/* WHICH COLUMN COMES FIRST WHEN THEY COLLAPSE DEPENDS ON WHAT THE RAIL IS, and one rule for all five
+   pages was wrong in both directions before it was right in one.
+
+   The stage-0 walk found that source order puts the readiness checklist BELOW the save button at 375 -
+   the answer to "can I use this yet" behind every field and behind the button that commits them. So the
+   rail was reversed for every page. The stage-1 walk on a live server then found what that costs on the
+   four pages whose rail is not a checklist: on Overview the rail is reference prose, and reversing it put
+   the page's own first question at y=832 on an 812-tall screen. One pixel below the fold, behind a wall
+   of documentation, on the page that exists to answer it.
+
+   Both walks were right about their own page. The rail is a readiness checklist tied to a form on
+   Providers, and reference prose everywhere else, so the reversal belongs to the page rather than to the
+   layout: source order by default, opted out of where the rail earns going first. */
 @media (max-width: 60em) {
   .sso-columns {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sso-column-rail {
+  .sso-columns--rail-first .sso-column-rail {
     order: -1;
+  }
+}
+
+/* THE TAB STRIP WRAPS AT NARROW WIDTHS RATHER THAN SCROLLING, because scrolling here is invisible.
+   Measured on a live Jellyfin at 375: the five tabs need 539px and the strip has 346, so Policies and
+   Server sit past the right edge. They are reachable - the container is `overflow-x: auto` - but Jellyfin
+   puts `hiddenScrollX` on it, so there is no scrollbar, no arrow, no fade and no partial tab wide enough
+   to read as one. Two fifths of the surface is present and undiscoverable, and the two that fall off are
+   where the SSO-only switch lives.
+
+   An affordance would have been the smaller change and it would still ask the reader to find it. Wrapping
+   asks nothing: at 375 the strip becomes two rows, all five labels visible, overflow zero. It costs one
+   row of height, which the rail order above gives back many times over. */
+@media (max-width: 60em) {
+  .sso-tabs {
+    overflow-x: visible;
+  }
+
+  .sso-tabs .emby-tabs-slider {
+    display: flex;
+    flex-wrap: wrap;
+    white-space: normal;
   }
 }
 
