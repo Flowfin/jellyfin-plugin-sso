@@ -278,5 +278,7 @@
   "config.preset_note_generic_oidc": "Ein standardkonformer OpenID-Anbieter. Richten Sie den Endpunkt auf sein Erkundungsdokument und setzen Sie den Rollen-Claim auf das, was Ihr Identitätsanbieter ausgibt (oft `groups` oder `roles`).",
   "config.preset_note_generic_saml": "Ein allgemeiner SAML-2.0-Identitätsanbieter. Füllen Sie den SSO-Endpunkt und das Signaturzertifikat über die Metadaten-Einfuhr unten aus den Metadaten Ihres Identitätsanbieters, setzen Sie dann die SAML-Client-Kennung (die Entitätskennung dieses Dienstanbieters) und prüfen Sie, bevor Sie speichern.",
   "config.preset_label_generic_oidc": "Allgemeines OpenID Connect",
-  "config.preset_label_generic_saml": "Allgemeines SAML 2.0"
+  "config.preset_label_generic_saml": "Allgemeines SAML 2.0",
+  "config.sso_only_recovery_title": "Die Wiederherstellung nach einer totalen Aussperrung gelingt von der Festplatte aus.",
+  "config.sso_only_recovery": "{0} Wenn Sie jemals vollständig ausgesperrt sind, halten Sie Jellyfin an, bearbeiten Sie die {1} des Plugins, setzen Sie {2} zurück auf {3} und starten Sie neu. Beim Start gleicht das Plugin die Benutzerdatenbank mit dem Schalter ab — die Konten, die der Modus umgeleitet hat, werden auf den eingebauten Passwortanbieter zurückgestellt (Passwort-Hashes bleiben unberührt), sodass die Passwortanmeldung wieder funktioniert. Wiederhergestellt werden nur Konten, die der Modus selbst verschoben hat; per SSO angelegte Konten behalten ihre reine SSO-Leitung."
 }

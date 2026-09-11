@@ -90,6 +90,15 @@ jobs:
       # show without a marker, and ratchets them the same way. Same runtime and same absence of
       # dependencies as the four steps above.
       run: node tools/ui-untranslated-markup.js
+    - name: A sentence that holds markup
+      # The C# rules over the catalogs read TEXT, and they can say that a parts value names the same slots
+      # the element has children. What they cannot say is what happens when it does not, and that is the
+      # whole safety of the mechanism: the applier must leave the English sentence whole rather than
+      # assemble a partial one, because a sentence missing the `<code>` sample out of instructions for
+      # recovering from a lockout is worse than a sentence in the wrong language (#1529). A live server
+      # cannot answer it either, since its catalog comes from the server and the refusal cases would need a
+      # broken one shipped to reach them. Same runtime and same absence of dependencies as the steps above.
+      run: node tools/ui-sentence-parts.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

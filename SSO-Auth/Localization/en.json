@@ -278,5 +278,7 @@
   "config.preset_note_generic_oidc": "A standards-compliant OpenID provider. Point the endpoint at its discovery document and set the role claim to whatever your IdP issues (often `groups` or `roles`).",
   "config.preset_note_generic_saml": "A generic SAML 2.0 identity provider. Use the metadata import below to fill the SSO endpoint and signing certificate from your IdP's metadata, then set the SAML Client ID (this service provider's entity id) and review before saving.",
   "config.preset_label_generic_oidc": "Generic OpenID Connect",
-  "config.preset_label_generic_saml": "Generic SAML 2.0"
+  "config.preset_label_generic_saml": "Generic SAML 2.0",
+  "config.sso_only_recovery_title": "Total-lockout recovery works from disk.",
+  "config.sso_only_recovery": "{0} If you are ever fully locked out, stop Jellyfin, edit the plugin's {1}, set {2} back to {3}, and restart. On startup the plugin reconciles the user database to the flag — the accounts the mode repointed are restored to the built-in password provider (password hashes untouched), so native login works again. Only accounts the mode itself moved are restored; accounts created by SSO keep their SSO-only routing."
 }

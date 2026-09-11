@@ -78,7 +78,7 @@ const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as runs are keyed, in the same commit that keys
 // them, and it never goes up.
-const PINNED = 348;
+const PINNED = 343;
 const PINNED_ATTRIBUTES = 23;
 
 // The six templates a reader of this plugin actually sees: the five dashboard
@@ -160,6 +160,9 @@ function scan(file) {
     const text = html.slice(textStart, match.index).replace(/\s+/g, " ").trim();
     if (text && /[A-Za-z]{2}/.test(text)) {
       const parent = open[open.length - 1];
+      // Either marker covers the run. `data-i18n` replaces the element's whole content, so the
+      // run IS what it replaces. `data-i18n-parts` rewrites the sentence AROUND the children,
+      // and the text between them is precisely that sentence (#1529).
       const marked = parent ? parent.marker !== null : false;
       const opaque = parent ? OPAQUE.has(parent.name) : false;
       const declared =
@@ -195,7 +198,9 @@ function scan(file) {
       if (!selfClosing) {
         open.push({
           name,
-          marker: attributeOf(match[2], "data-i18n"),
+          marker:
+            attributeOf(match[2], "data-i18n") ??
+            attributeOf(match[2], "data-i18n-parts"),
           value: attributeOf(match[2], "value"),
         });
       }
