@@ -3935,23 +3935,37 @@ const ssoConfigurationPage = {
   // administrator opens.
   loadLinkedAccounts: (page) => {
     const container = page.querySelector("#LinkedAccountsResult");
+    // The pending list (#1529) is a second view of the SAME roster read, never a second request: the
+    // roster is elevation-gated and rate-limited, and the two panels answer one question each about one
+    // document. Both containers are written on both arms, so neither panel is left showing "loading"
+    // when the other has an answer.
+    const pending = page.querySelector("#PendingApprovalsResult");
     ssoConfigurationPage.renderTransferMessage(
       container,
       tr("config.linked_accounts_loading", "Loading the linked accounts…"),
     );
+    ssoConfigurationPage.renderTransferMessage(
+      pending,
+      tr(
+        "config.pending_approvals_loading",
+        "Loading the accounts waiting for approval…",
+      ),
+    );
 
     return ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).then(
-      (roster) =>
-        ssoConfigurationPage.renderLinkedAccounts(page, container, roster),
+      (roster) => {
+        ssoConfigurationPage.renderLinkedAccounts(page, container, roster);
+        ssoConfigurationPage.renderPendingApprovals(page, pending);
+      },
       // Generic and input-independent, like the neighbouring admin actions: it never reflects a server value.
-      () =>
-        ssoConfigurationPage.renderTransferMessage(
-          container,
-          tr(
-            "config.linked_accounts_failed",
-            "Could not load the linked accounts. Make sure you are signed in as an administrator, then try again.",
-          ),
-        ),
+      () => {
+        const failed = tr(
+          "config.linked_accounts_failed",
+          "Could not load the linked accounts. Make sure you are signed in as an administrator, then try again.",
+        );
+        ssoConfigurationPage.renderTransferMessage(container, failed);
+        ssoConfigurationPage.renderTransferMessage(pending, failed);
+      },
     );
   },
   // THE ROSTER IS KEPT so the filter can re-render without asking the server again (#1529). Held on the
@@ -4213,6 +4227,228 @@ const ssoConfigurationPage = {
             "Could not revoke the SSO links. Make sure you are signed in as an administrator, then try again.",
           ),
         ),
+    );
+  },
+  // THE BOUND on the pending list (#1529). A provider whose audience is wider than the one meant for
+  // Jellyfin - the case the feature exists for - fills this list as fast as it can log in, and a table
+  // of ten thousand rows is the page that breaks under the load it was built to absorb. So the first
+  // hundred are drawn and a line says what was cut; nothing is hidden silently.
+  PENDING_APPROVALS_BOUND: 100,
+  // Every link the server reports as waiting, as (account, link) pairs in roster order. The SERVER
+  // decides what waiting means - this plugin's own record of having provisioned the account inert, still
+  // naming the account the link points at, on an account that is still disabled - and this reads only
+  // the one field that carries its answer. Nothing here infers a pending account from a disabled flag,
+  // because the flag does not say who set it, and the account somebody disabled on purpose is exactly
+  // the row this list must not contain.
+  pendingApprovals: (roster) => {
+    const accounts =
+      roster && Array.isArray(roster.Accounts) ? roster.Accounts : [];
+    return accounts.flatMap((account) =>
+      (account && Array.isArray(account.Links) ? account.Links : [])
+        .filter((link) => link && link.PendingApprovalSinceUtc)
+        .map((link) => ({ account, link })),
+    );
+  },
+  renderPendingApprovals: (page, container) => {
+    const waiting = ssoConfigurationPage.pendingApprovals(
+      ssoConfigurationPage.linkedAccountRoster,
+    );
+    container.replaceChildren();
+
+    // Its own sentence, and not the linked-accounts one: "no account holds a link" and "no account is
+    // waiting" are different facts about the server, and a reader who came to approve somebody must not
+    // be told the links are gone.
+    if (waiting.length === 0) {
+      ssoConfigurationPage.renderTransferMessage(
+        container,
+        tr(
+          "config.pending_approvals_empty",
+          "No account is waiting for approval.",
+        ),
+      );
+      return;
+    }
+
+    const shown = waiting.slice(
+      0,
+      ssoConfigurationPage.PENDING_APPROVALS_BOUND,
+    );
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const head_row = document.createElement("tr");
+    [
+      tr("config.linked_accounts_column_account", "Account"),
+      tr("config.pending_approvals_column_identity", "Identity"),
+      tr("config.pending_approvals_column_since", "Waiting since"),
+      tr("config.linked_accounts_column_action", "Action"),
+    ].forEach((label) => {
+      const cell = document.createElement("th");
+      cell.textContent = label;
+      head_row.appendChild(cell);
+    });
+    head.appendChild(head_row);
+    table.appendChild(head);
+
+    const body = document.createElement("tbody");
+    shown.forEach(({ account, link }) => {
+      body.appendChild(
+        ssoConfigurationPage.renderPendingApprovalRow(page, account, link),
+      );
+    });
+    table.appendChild(body);
+    container.appendChild(table);
+
+    if (shown.length !== waiting.length) {
+      const note = document.createElement("div");
+      note.className = "fieldDescription";
+      note.textContent = tr(
+        "config.pending_approvals_truncated",
+        "Showing the first {shown} of {total} accounts waiting for approval. Approve or revoke some to see the rest.",
+        { shown: String(shown.length), total: String(waiting.length) },
+      );
+      container.appendChild(note);
+    }
+  },
+  renderPendingApprovalRow: (page, account, link) => {
+    const row = document.createElement("tr");
+    const username =
+      account && account.Username ? String(account.Username) : "";
+
+    // Every value on a row is attacker-influenced - the subject is whatever the identity provider put in
+    // its claim - so the whole row is textContent, the same line the linked-accounts table holds (#221).
+    const name_cell = document.createElement("td");
+    name_cell.textContent = username;
+    row.appendChild(name_cell);
+
+    const identity_cell = document.createElement("td");
+    identity_cell.textContent = tr(
+      "config.pending_approvals_identity_line",
+      "{provider} ({protocol}) - {canonical}",
+      {
+        provider: String((link && link.Provider) || ""),
+        protocol: String((link && link.Protocol) || ""),
+        canonical: String((link && link.CanonicalName) || ""),
+      },
+    );
+    row.appendChild(identity_cell);
+
+    // The PROVISIONING instant, which is what the column heading says: how long somebody has been
+    // waiting is the question this list is opened with.
+    const since_cell = document.createElement("td");
+    since_cell.textContent = ssoConfigurationPage.formatLastSsoLogin(
+      link && link.PendingApprovalSinceUtc,
+    );
+    row.appendChild(since_cell);
+
+    // Always a button: the server withholds the pending instant from an orphan row and from an account
+    // that is already enabled, so a row that reaches here is one the approve action will accept.
+    const action_cell = document.createElement("td");
+    const button = document.createElement("button");
+    button.setAttribute("is", "emby-button");
+    button.setAttribute("type", "button");
+    button.classList.add("raised", "button-submit", "emby-button");
+    button.textContent = tr("config.pending_approvals_approve", "Approve");
+    button.addEventListener("click", (e) => {
+      ssoConfigurationPage.approvePendingAccount(page, username, link);
+      e.preventDefault();
+      return false;
+    });
+    action_cell.appendChild(button);
+    row.appendChild(action_cell);
+
+    return row;
+  },
+  // The approve (#1529). It drives POST sso/Links/Approve/{mode}/{provider} exactly as it stands - the
+  // elevation policy, the link rate-limit class, the record check, the administrator refusal and the
+  // audit line are all the endpoint's, and none of them is re-implemented or bypassed here. The
+  // confirmation NAMES what the button does and what it does not: the account is enabled, and nothing
+  // else about it changes.
+  approvePendingAccount: (page, username, link) => {
+    const result = page.querySelector("#PendingApprovalsActionResult");
+    const provider = String((link && link.Provider) || "");
+    if (
+      !window.confirm(
+        tr(
+          "config.pending_approvals_confirm",
+          "Approve {user}? This enables the account so it can sign in through {provider}. Nothing else changes: its permissions stay as the provisioning set them.",
+          { user: username, provider },
+        ),
+      )
+    ) {
+      return Promise.resolve();
+    }
+
+    ssoConfigurationPage.renderTransferMessage(
+      result,
+      tr("config.pending_approvals_approving", "Approving {user}…", {
+        user: username,
+      }),
+    );
+
+    // The route's mode token is the protocol's short name, not the roster's display name; the canonical
+    // name travels in the body because a subject may contain a slash.
+    const mode = link && link.Protocol === "SAML" ? "SAML" : "OID";
+    return ApiClient.fetch({
+      type: "POST",
+      url: ApiClient.getUrl(
+        "sso/Links/Approve/" + mode + "/" + encodeURIComponent(provider),
+      ),
+      data: JSON.stringify(String((link && link.CanonicalName) || "")),
+      contentType: "application/json",
+    }).then(
+      () =>
+        // Re-read rather than editing the rendered table: the roster is the server's answer, and the row
+        // must disappear because the server no longer reports it, not because the page assumed so.
+        ssoConfigurationPage
+          .loadLinkedAccounts(page)
+          .then(() =>
+            ssoConfigurationPage.renderTransferMessage(
+              result,
+              tr(
+                "config.pending_approvals_approved",
+                "Approved. {user} can sign in now.",
+                { user: username },
+              ),
+            ),
+          ),
+      (e) => {
+        // ApiClient.fetch rejects with the Response on a non-2xx status. Two refusals mean something to
+        // the reader and get their own sentence; everything else is the generic one, which never reflects
+        // a server value. The administrator refusal is told apart from an elevation refusal - both are
+        // 403 - by the body the endpoint writes for it, which an elevation refusal leaves empty.
+        const status = e && typeof e.status === "number" ? e.status : 0;
+        const body =
+          e && typeof e.text === "function"
+            ? Promise.resolve(e.text()).catch(() => "")
+            : Promise.resolve("");
+        return body.then((text) => {
+          const administrator =
+            status === 403 && /administrator/i.test(String(text || ""));
+          const stale = status === 404;
+          const message = administrator
+            ? tr(
+                "config.pending_approvals_refused_administrator",
+                "That account is an administrator and is not approved from here. Enable it in the Jellyfin dashboard.",
+              )
+            : stale
+              ? tr(
+                  "config.pending_approvals_not_pending",
+                  "That account is no longer waiting for approval. The list has been re-read.",
+                )
+              : tr(
+                  "config.pending_approvals_failed",
+                  "Could not approve the account. Make sure you are signed in as an administrator, then try again.",
+                );
+          // A stale row is re-read rather than left standing: the server no longer offers it, and a
+          // list that kept showing it would offer the same press again.
+          const refresh = stale
+            ? ssoConfigurationPage.loadLinkedAccounts(page)
+            : Promise.resolve();
+          const say = () =>
+            ssoConfigurationPage.renderTransferMessage(result, message);
+          return refresh.then(say, say);
+        });
+      },
     );
   },
   renderTransferMessage: (container, message) => {

@@ -515,5 +515,20 @@
   "config.linked_accounts_filter_placeholder": "account, provider or subject",
   "config.linked_accounts_filter_help": "Narrows the table to the rows whose account name, provider, protocol or identity-provider subject contains what you type. It filters what is already loaded and asks the server for nothing.",
   "config.linked_accounts_filter_empty": "No linked account matches the filter. {total} are loaded.",
-  "config.linked_accounts_filter_count": "Showing {shown} of {total} linked accounts."
+  "config.linked_accounts_filter_count": "Showing {shown} of {total} linked accounts.",
+  "config.pending_approvals_title": "Waiting for Approval",
+  "config.pending_approvals_help": "Accounts this plugin created disabled because their provider provisions new users disabled, and that are still waiting. Approving enables the account and changes nothing else: its permissions are the ones the provisioning gave it. An account that an administrator disabled is not listed here, whatever its state, and is enabled in the Jellyfin dashboard. Read together with the linked accounts above; Refresh Linked Accounts re-reads both.",
+  "config.pending_approvals_loading": "Loading the accounts waiting for approval…",
+  "config.pending_approvals_empty": "No account is waiting for approval.",
+  "config.pending_approvals_column_identity": "Identity",
+  "config.pending_approvals_column_since": "Waiting since",
+  "config.pending_approvals_identity_line": "{provider} ({protocol}) - {canonical}",
+  "config.pending_approvals_truncated": "Showing the first {shown} of {total} accounts waiting for approval. Approve or revoke some to see the rest.",
+  "config.pending_approvals_approve": "Approve",
+  "config.pending_approvals_confirm": "Approve {user}? This enables the account so it can sign in through {provider}. Nothing else changes: its permissions stay as the provisioning set them.",
+  "config.pending_approvals_approving": "Approving {user}…",
+  "config.pending_approvals_approved": "Approved. {user} can sign in now.",
+  "config.pending_approvals_refused_administrator": "That account is an administrator and is not approved from here. Enable it in the Jellyfin dashboard.",
+  "config.pending_approvals_not_pending": "That account is no longer waiting for approval. The list has been re-read.",
+  "config.pending_approvals_failed": "Could not approve the account. Make sure you are signed in as an administrator, then try again."
 }

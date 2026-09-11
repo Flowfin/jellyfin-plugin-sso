@@ -338,7 +338,7 @@ public class PendingApprovalRecordTests
         config.CanonicalLinks["sub-ordinary"] = User;
         config.CanonicalLinkPendingApprovals["sub-pending"] = Record(User);
 
-        var document = LinkRoster.Build(configuration, _ => "alice");
+        var document = LinkRoster.Build(configuration, _ => new LinkedAccountState("alice", true));
 
         var links = Assert.Single(document.Accounts).Links;
         Assert.Equal(Now, Assert.Single(links, l => l.CanonicalName == "sub-pending").PendingApprovalSinceUtc);
@@ -359,7 +359,7 @@ public class PendingApprovalRecordTests
         config.CanonicalLinks["sub-1"] = User;
         config.CanonicalLinkPendingApprovals["sub-1"] = Record(Other);
 
-        var document = LinkRoster.Build(configuration, _ => "alice");
+        var document = LinkRoster.Build(configuration, _ => new LinkedAccountState("alice", true));
 
         Assert.Null(Assert.Single(Assert.Single(document.Accounts).Links).PendingApprovalSinceUtc);
     }

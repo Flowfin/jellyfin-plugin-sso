@@ -108,6 +108,15 @@ jobs:
       # shipped renderer and refuses both by name. Same runtime and same absence of dependencies as the
       # steps above.
       run: node tools/ui-account-filter.js
+    - name: The pending-approvals panel
+      # The panel decides which accounts an administrator is offered to ENABLE, and every property that
+      # matters is a decision rather than a string (#1529): which rows are built, what the button sends,
+      # and what the page says when the server refuses. A row the server did not report would be an
+      # offer to enable an account nobody provisioned inert; a body that lost a slash would refuse the
+      # subject that carries one; a bare 403 read as the administrator refusal would send a signed-out
+      # reader to the dashboard for the wrong reason. This drives the shipped panel against a recording
+      # ApiClient and refuses each by name. Same runtime and same absence of dependencies as the steps above.
+      run: node tools/ui-pending-approvals.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

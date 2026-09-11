@@ -515,5 +515,20 @@
   "config.linked_accounts_filter_placeholder": "Konto, Anbieter oder Subjekt",
   "config.linked_accounts_filter_help": "Engt die Tabelle auf die Zeilen ein, deren Kontoname, Anbieter, Protokoll oder Subjekt beim Identitätsanbieter enthält, was Sie eingeben. Gefiltert wird, was bereits geladen ist; der Server wird dabei nicht gefragt.",
   "config.linked_accounts_filter_empty": "Kein verknüpftes Konto passt zum Filter. Geladen sind {total}.",
-  "config.linked_accounts_filter_count": "Gezeigt werden {shown} von {total} verknüpften Konten."
+  "config.linked_accounts_filter_count": "Gezeigt werden {shown} von {total} verknüpften Konten.",
+  "config.pending_approvals_title": "Warten auf Freigabe",
+  "config.pending_approvals_help": "Konten, die dieses Plugin deaktiviert angelegt hat, weil ihr Anbieter neue Benutzer deaktiviert anlegt, und die noch warten. Die Freigabe aktiviert das Konto und ändert sonst nichts: Seine Berechtigungen sind die, die es beim Anlegen bekommen hat. Ein Konto, das ein Administrator deaktiviert hat, erscheint hier nicht, in welchem Zustand auch immer, und wird im Jellyfin-Dashboard aktiviert. Wird zusammen mit den verknüpften Konten oben gelesen; Verknüpfte Konten neu laden liest beides neu.",
+  "config.pending_approvals_loading": "Die wartenden Konten werden geladen…",
+  "config.pending_approvals_empty": "Kein Konto wartet auf Freigabe.",
+  "config.pending_approvals_column_identity": "Identität",
+  "config.pending_approvals_column_since": "Wartet seit",
+  "config.pending_approvals_identity_line": "{provider} ({protocol}) - {canonical}",
+  "config.pending_approvals_truncated": "Gezeigt werden die ersten {shown} von {total} wartenden Konten. Geben Sie einige frei oder widerrufen Sie sie, um die übrigen zu sehen.",
+  "config.pending_approvals_approve": "Freigeben",
+  "config.pending_approvals_confirm": "{user} freigeben? Das aktiviert das Konto, sodass es sich über {provider} anmelden kann. Sonst ändert sich nichts: Die Berechtigungen bleiben so, wie das Anlegen sie gesetzt hat.",
+  "config.pending_approvals_approving": "{user} wird freigegeben…",
+  "config.pending_approvals_approved": "Freigegeben. {user} kann sich jetzt anmelden.",
+  "config.pending_approvals_refused_administrator": "Dieses Konto ist ein Administrator und wird nicht von hier freigegeben. Aktivieren Sie es im Jellyfin-Dashboard.",
+  "config.pending_approvals_not_pending": "Dieses Konto wartet nicht mehr auf Freigabe. Die Liste wurde neu gelesen.",
+  "config.pending_approvals_failed": "Das Konto konnte nicht freigegeben werden. Stellen Sie sicher, dass Sie als Administrator angemeldet sind, und versuchen Sie es erneut."
 }
