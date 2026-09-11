@@ -714,6 +714,35 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records the links of a deleted Jellyfin account being removed with it (#1649), on the host's own
+    /// deletion event. Warned rather than informed, because it is the line that replaces the roster's orphan
+    /// row: an operator who used to find a dead link on the Accounts page finds this instead.
+    /// </summary>
+    /// <remarks>
+    /// The providers are named and the subject is not (T-I1): protocol and provider say where the account
+    /// was linked, the id says which account, and the subject is the one value that names a person at the
+    /// identity provider. The account's username is not carried either; the account is gone, and the id is
+    /// what every other line about it used.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="jellyfinUserId">The deleted account.</param>
+    /// <param name="removed">How many links were removed.</param>
+    /// <param name="providers">The providers that held them, each labelled by protocol.</param>
+    internal static void DeletedAccountUnlinked(ILogger logger, Guid jellyfinUserId, int removed, IReadOnlyList<string> providers)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Jellyfin user {UserId} was deleted; removed its {Count} SSO link(s) from {Providers}. Any deadline, last-login stamp and pending-approval record went with them.",
+            jellyfinUserId,
+            removed,
+            string.Join(", ", providers ?? Array.Empty<string>()).ReplaceLineEndings(string.Empty).Replace('[', '('));
+    }
+
+    /// <summary>
     /// Records an administrator removing every canonical link one provider holds (#1519). One line for the
     /// act, at Warning, because a bulk removal of a thousand links must not reach an operator as a thousand
     /// indistinguishable per-user lines with no statement of what was done - the per-account detail is

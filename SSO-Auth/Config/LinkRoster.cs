@@ -24,9 +24,11 @@ internal readonly record struct LinkedAccountState(string Username, bool IsDisab
 /// It walks the same <see cref="LinkExport.Rows"/> sequence the portable export does, so the two cannot
 /// disagree about which providers are readable or which links exist. What differs is what each does with a
 /// link whose user id resolves to no account: the export drops it, because nothing could restore it, and
-/// this keeps it, because an orphaned link is exactly what an administrator opens the roster to find. As
-/// with the export, no provider configuration field is copied, so no client secret, signing key or
-/// certificate can reach the output by construction.
+/// this keeps it, because an orphaned link is exactly what an administrator opens the roster to find. Since
+/// #1649 such a link is removed the moment the host reports the account deleted and the fact goes to the
+/// audit trail, so an orphan row appears only for an account deleted while the plugin was not loaded - and
+/// then it is still the row to find. As with the export, no provider configuration field is copied, so no
+/// client secret, signing key or certificate can reach the output by construction.
 /// </remarks>
 internal static class LinkRoster
 {
