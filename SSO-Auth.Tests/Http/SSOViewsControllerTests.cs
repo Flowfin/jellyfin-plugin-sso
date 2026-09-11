@@ -37,7 +37,11 @@ public class SSOViewsControllerTests
         var xml = Substitute.For<IXmlSerializer>();
         // Constructing the plugin sets the static SSOPlugin.Instance the controller reads for GetViews().
         _ = new SSOPlugin(appPaths, xml, Substitute.For<ILogger<SSOPlugin>>());
-        return new SSOViewsController(Substitute.For<ILogger<SSOViewsController>>());
+        return new SSOViewsController(Substitute.For<ILogger<SSOViewsController>>())
+        {
+            // The action writes a response header (#1627), so it needs a response to write it on.
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
     }
 
     // The version-derived ETag the action stamps on every asset, recomputed here from the same source the
@@ -48,6 +52,20 @@ public class SSOViewsControllerTests
         var fileVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(
             typeof(SSOPlugin).Assembly.Location).FileVersion;
         return "\"" + fileVersion + "\"";
+    }
+
+    [Fact]
+    public void GetView_KnownView_SaysABrowserMustAskBeforeReusingIt()
+    {
+        // The tag alone left the decision to the browser's heuristics (#1627): a client that never asked
+        // could run a previous release's asset for as long as it liked. no-cache is what makes it ask,
+        // and with the tag the answer is a 304 until the plugin changes.
+        var controller = CreateController();
+
+        var result = controller.GetView("style.css");
+
+        Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("no-cache", controller.Response.Headers.CacheControl.ToString());
     }
 
     [Fact]

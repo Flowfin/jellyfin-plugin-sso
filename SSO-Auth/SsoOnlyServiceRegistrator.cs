@@ -3,6 +3,7 @@
 
 using System.Threading;
 using Jellyfin.Data.Events.Users;
+using Jellyfin.Plugin.SSO_Auth.Api.Http;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
@@ -10,6 +11,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.SSO_Auth;
@@ -50,6 +52,15 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // consumer of the closed event type from the container, which is why this is a registration and
         // not a subscription.
         serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, DeletedAccountLinkPruner>();
+
+        // Gives the plugin's pages and page scripts, which the host serves from its own action with no
+        // validator and no lifetime, the version tag and no-cache the plugin's own asset route carries, and
+        // a 304 for a browser that holds the current version (#1627). Registered with the host's MVC
+        // options because that is the one seam a plugin has into an action it does not own; the filter
+        // acts on that action and this plugin's own names only, and leaves every other response as the
+        // host built it. Resolved from the container per request, so it carries a logger of its own.
+        serviceCollection.AddSingleton<PluginPageCacheFilter>();
+        serviceCollection.Configure<MvcOptions>(options => options.Filters.AddService<PluginPageCacheFilter>());
 
         // Keeps the login-page "Sign in with …" buttons (#722) in sync with the configured providers by
         // splicing a managed block into the server's branding login disclaimer on every config change.
