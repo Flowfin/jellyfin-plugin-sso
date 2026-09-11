@@ -65,6 +65,11 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         // caller's, every one of them at once, and it is the only route here that can take a whole server
         // off SSO in one call. There is no single subject a per-user authorization check could name.
         "PurgeProviderLinks",
+        // The approve action (#1529): it ENABLES a Jellyfin account, which is a grant of access to somebody
+        // other than the caller. It acts only on this plugin's own record of having provisioned that account
+        // inert, and refuses an administrator outright, but the grant itself is why it sits here rather than
+        // behind a bare [Authorize] - there is no user whose own account this is.
+        "ApproveProvisionedAccount",
         // The mappable permission vocabulary (#1484): read-only and installation-independent, and
         // elevation-gated because the config page is the only caller it exists for - an anonymous route
         // would be a new unauthenticated surface bought for nothing.

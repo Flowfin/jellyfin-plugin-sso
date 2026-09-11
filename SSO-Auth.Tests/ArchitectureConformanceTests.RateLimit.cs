@@ -64,6 +64,10 @@ public partial class ArchitectureConformanceTests
         // link writes above, in bulk - and here every REFUSAL pays that persist too, because the count
         // comparison and the removal are one transaction, so an unthrottled caller could drive the disk
         // write with nothing but wrong counts.
+        // The approve action (#1529): a config-XML persist under the global lock like the link writes above,
+        // and its 404 is an existence answer about an identity this plugin provisioned - an unthrottled
+        // caller could drive it as an oracle for which subjects were created inert here.
+        "Links/Approve/{mode}/{provider}",
         "{mode}/Links/{provider}/{expectedLinkCount}",
     };
 
@@ -322,6 +326,7 @@ public partial class ArchitectureConformanceTests
         "{mode}/Link/{provider}/{jellyfinUserId}", "{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}", // link write against a stored, enabled provider
         "Links/Preprovision/{mode}/{provider}/{jellyfinUserId}", // pre-provision write against a stored, enabled provider (#1133)
         "{mode}/Links/{provider}/{expectedLinkCount}", // bulk unlink of a STORED provider, 400 on a miss (#1519)
+        "Links/Approve/{mode}/{provider}", // approve against a STORED provider, 400 on a miss (#1529)
 
         // Not an SSO provider name at all: Unregister's body parameter happens to be called `provider` and
         // carries a JELLYFIN AuthenticationProviderId, written to the user record so the account falls back

@@ -2193,6 +2193,60 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Approves an account this plugin provisioned disabled and awaiting an administrator (#1529): enables
+    /// that one account and changes nothing else. Requires administrator privileges.
+    /// </summary>
+    /// <remarks>
+    /// It acts only on this plugin's own RECORD of having provisioned the account inert, never on the
+    /// account's disabled flag. The flag is a Jellyfin permission and does not say who set it or why, so a
+    /// page that read it would offer to undo an administrator's sanction from a page about SSO. An identity
+    /// this plugin did not provision inert is a 404 here, whatever state its account is in.
+    /// <para>
+    /// The canonical name travels in the BODY rather than in the route, like the pre-provision write beside
+    /// it: an OpenID subject or a SAML NameID may contain a slash, and a route segment would refuse exactly
+    /// those identities.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">The mode of the function; SAML or OID.</param>
+    /// <param name="provider">The provider the account was provisioned from.</param>
+    /// <param name="canonicalName">The provider-side identity key: the OpenID stable subject claim, or the SAML NameID.</param>
+    /// <returns>No content when the account was enabled, or when the record was stale and was cleared; 400 on an unknown provider, 404 when this plugin holds no such record, 403 when the recorded account is an administrator.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Links/Approve/{mode}/{provider}")]
+    [Consumes(MediaTypeNames.Application.Json)]
+    public async Task<ActionResult> ApproveProvisionedAccount([FromRoute] string mode, [FromRoute] string provider, [FromBody] string canonicalName)
+    {
+        // Throttle after the elevation guard, before any work (#382, #516), in the same bucket as the link
+        // writes: this drives the same config-XML persist under the global lock, and it is an existence
+        // oracle for provisioned identities in exactly the way the unlink beside it is.
+        if (RateLimitCheck(SsoRateLimitClass.Link) is { } throttled)
+        {
+            return throttled;
+        }
+
+        if (RefuseUnknownMode(mode, out var parsed) is { } unknownMode)
+        {
+            return unknownMode;
+        }
+
+        var (outcome, userId) = await _canonicalLinks.ApproveProvisionedAccountAsync(parsed, provider, canonicalName).ConfigureAwait(false);
+        if (outcome == PendingApprovalResult.Approved)
+        {
+            // Audited only on the arm that actually granted something. The two arms that merely cleared a
+            // record changed no access, and a line for them would put "account approved" in the trail for an
+            // account nobody approved.
+            SsoAudit.AccountApproved(
+                _logger,
+                await ResolveActorAsync().ConfigureAwait(false),
+                parsed == ProviderMode.Oid ? OpenIdProtocol : SamlProtocol,
+                provider,
+                userId);
+        }
+
+        return FlowResponses.MapPendingApproval(outcome);
+    }
+
+    /// <summary>
     /// Turns SSO-only login on (#165), designating <paramref name="breakGlassAdminUsername"/> as the account
     /// whose native password login is never disabled. Requires administrator privileges. Fail-closed: the
     /// last-admin guard runs first, and unless the designated account is an existing, enabled administrator

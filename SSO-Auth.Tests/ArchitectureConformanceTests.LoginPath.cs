@@ -88,29 +88,59 @@ public partial class ArchitectureConformanceTests
     {
         // Locked in by #737. IsDisabled is a lockout vector: the plugin deliberately never disabled an
         // account until the pending-approval provisioning feature, and it is barred from SSO role mapping
-        // (PermissionRolePolicy) so no login can disable an EXISTING account. The one sanctioned write -
-        // provisioning a BRAND-NEW account inert for admin approval - must stay confined to
-        // CanonicalLinkService (the single create seam). A source scan pins that: any future
-        // SetPermission(PermissionKind.IsDisabled, ...) elsewhere (a mint path, a role mapper, a controller)
-        // would reopen the "an SSO login disabled my account" surface and fails here instead of shipping.
+        // (PermissionRolePolicy) so no login can disable an EXISTING account. The sanctioned writes must
+        // stay confined to CanonicalLinkService (the single seam that owns the flag). A source scan pins
+        // that: any future SetPermission(PermissionKind.IsDisabled, ...) elsewhere (a mint path, a role
+        // mapper, a controller) would reopen the "an SSO login disabled my account" surface and fails here
+        // instead of shipping.
+        //
+        // THE COUNT IS PART OF THE RULE since #1529 put the first ENABLING write on that seam. Two writes
+        // set the flag - the arm that provisions a brand-new account inert (#737), and the one shared
+        // disable that login-time deprovisioning (#831) and account expiry (#1144) both call, which carries
+        // the administrator exemption (T-D1) they depend on. Exactly one write clears it: the approve path,
+        // which acts on this plugin's own record of having provisioned the account inert. A further write of
+        // either value is what this pins - another disabler would be another lockout vector, and another
+        // enabler would be a second route by which an account can be admitted without passing the record
+        // check that keeps an administrator's sanction out of reach.
         var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
+        var seam = Path.Combine("Linking", "CanonicalLinkService.cs");
         var offenders = new List<string>();
+        var disables = 0;
+        var enables = 0;
         foreach (var src in Directory.EnumerateFiles(apiRoot, "*.cs", SearchOption.AllDirectories))
         {
             var lines = File.ReadAllLines(src);
             for (var i = 0; i < lines.Length; i++)
             {
-                if (lines[i].Contains("SetPermission(PermissionKind.IsDisabled", StringComparison.Ordinal)
-                    && !src.EndsWith(Path.Combine("Linking", "CanonicalLinkService.cs"), StringComparison.Ordinal))
+                if (!lines[i].Contains("SetPermission(PermissionKind.IsDisabled", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!src.EndsWith(seam, StringComparison.Ordinal))
                 {
                     offenders.Add($"{Path.GetFileName(src)}:{i + 1}");
+                }
+                else if (lines[i].Contains("IsDisabled, true", StringComparison.Ordinal))
+                {
+                    disables++;
+                }
+                else if (lines[i].Contains("IsDisabled, false", StringComparison.Ordinal))
+                {
+                    enables++;
+                }
+                else
+                {
+                    offenders.Add($"{Path.GetFileName(src)}:{i + 1} (writes IsDisabled from a value this rule cannot read)");
                 }
             }
         }
 
         Assert.True(
             offenders.Count == 0,
-            "IsDisabled may be written only on CanonicalLinkService's new-account provisioning arm (#737). Writing it elsewhere can disable an existing account via SSO - a lockout vector. Offending sites: " + string.Join(", ", offenders));
+            "IsDisabled may be written only on CanonicalLinkService's provisioning and approve arms (#737, #1529). Writing it elsewhere can disable an existing account via SSO - a lockout vector. Offending sites: " + string.Join(", ", offenders));
+        Assert.Equal(2, disables);
+        Assert.Equal(1, enables);
     }
 
     [Fact]
