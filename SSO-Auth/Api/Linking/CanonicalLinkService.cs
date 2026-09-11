@@ -60,6 +60,9 @@ internal enum CanonicalLinkRemoveResult
 
     /// <summary>No provider of that mode/name exists; nothing was removed.</summary>
     UnknownProvider,
+
+    /// <summary>The link carries a provisioned access deadline and the caller is not an administrator; nothing was removed (#1647).</summary>
+    TimeLimited,
 }
 
 /// <summary>
@@ -1610,8 +1613,9 @@ internal sealed class CanonicalLinkService
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="canonicalName">The provider-side identity key whose link is removed.</param>
     /// <param name="jellyfinUserId">The Jellyfin user the link must belong to.</param>
+    /// <param name="callerIsAdministrator">Whether the caller is an administrator, read from the resolved account (#1647). A link that carries a provisioned access deadline is removed only when this is true; the default refuses, so a caller that does not say is treated as the holder.</param>
     /// <returns>The remove outcome, plus whether the user retains any other link (#468).</returns>
-    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId)
+    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false)
     {
         // Kept as ONE Mutate (find, ownership check, remove, and the last-link check cannot interleave). A
         // no-result outcome still persists the unchanged config. For NotFound / Mismatch that already
@@ -1640,6 +1644,22 @@ internal sealed class CanonicalLinkService
             if (linkedId != jellyfinUserId)
             {
                 return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.Mismatch, UserRetainsAnyLink: false);
+            }
+
+            // A TIME-LIMITED LINK IS NOT ITS HOLDER'S TO REMOVE (#1647). The provisioned access deadline
+            // (#1146) lives on the link, and the unlink prunes it with the link; a re-login then adopts the
+            // account by name with no duration wherever the provider allows adoption. Left open, the self-
+            // service unlink was a guest's exit from the very limit that admitted them: unlink, sign in
+            // again, unlimited. So a link that carries a deadline is removed only on an administrator's
+            // word; the holder is refused before anything is touched, and the refusal is its own answer so
+            // the caller is told why rather than shown a link that will not go. Decided in the same
+            // transaction as the removal, because a deadline written between a read and this write is the
+            // one this rule exists for.
+            if (!callerIsAdministrator
+                && TryGetProvider(configuration, mode, provider, out var config)
+                && config.CanonicalLinkDeadlines.ContainsKey(canonicalName))
+            {
+                return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.TimeLimited, UserRetainsAnyLink: false);
             }
 
             links.Remove(canonicalName);

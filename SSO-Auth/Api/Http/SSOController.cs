@@ -2408,7 +2408,13 @@ public class SSOController : ControllerBase
             return unknownMode;
         }
 
-        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId);
+        // Whether the caller is an administrator decides one thing inside the removal (#1647): a link that
+        // carries a provisioned access deadline is removed only on an administrator's word, because the
+        // holder's own unlink followed by a re-login is otherwise an exit from the limit that admitted
+        // them. Read from the resolved account, never from the request, and passed in rather than decided
+        // here so the check sits in the same transaction as the removal it gates.
+        var callerIsAdministrator = await RequestHelpers.IsAdministrator(_authContext, HttpContext.Request).ConfigureAwait(false);
+        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator);
 
         // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
         // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
@@ -2439,6 +2445,7 @@ public class SSOController : ControllerBase
             CanonicalLinkRemoveResult.NotFound => NotFound("No SSO link is registered for that canonical name."),
             CanonicalLinkRemoveResult.Mismatch => StatusCode(StatusCodes.Status409Conflict, "jellyfin UID does not match id registered to that canonical name."),
             CanonicalLinkRemoveResult.UnknownProvider => BadRequest(NoMatchingProviderMessage),
+            CanonicalLinkRemoveResult.TimeLimited => StatusCode(StatusCodes.Status403Forbidden, "This SSO link carries an access deadline and can be removed only by an administrator."),
             _ => throw new InvalidOperationException($"Unhandled canonical-link remove result: {removal.Result}"),
         };
     }
