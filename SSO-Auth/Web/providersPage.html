@@ -492,6 +492,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="OidProviderName"
+                          data-i18n-parts="config.oid_name_label"
                           >Name of OpenID Provider:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -516,7 +517,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.oid_name_help"
+                        >
                           The name used by Jellyfin to identify the OpenID
                           provider.
                           <br />
@@ -569,7 +573,11 @@
                           role="status"
                           aria-live="polite"
                         ></div>
-                        <div class="fieldDescription" id="OidRedirectUri-help">
+                        <div
+                          class="fieldDescription"
+                          id="OidRedirectUri-help"
+                          data-i18n-parts="config.oid_redirect_uri_help"
+                        >
                           The exact redirect URI the login uses. Register it
                           verbatim at your identity provider. The server builds
                           it and this field shows what the server answered, so
@@ -577,14 +585,17 @@
                           copy of it. Save the provider first: an unsaved one
                           has nothing for the server to answer for. It is built
                           from the
-                          <strong>Base URL Override</strong> (in the Advanced
-                          section) when set, otherwise this server's address; if
-                          you sit behind a reverse proxy, set that override and
-                          save, so this matches what the login actually sends.
-                          Users who still start at the legacy
-                          <code>/sso/OID/p/&lt;name&gt;</code> route send the
-                          legacy <code>/sso/OID/r/&lt;name&gt;</code> spelling
-                          instead; register that one too if any of them do.
+                          <strong data-i18n="config.base_url_override_name"
+                            >Base URL Override</strong
+                          >
+                          (in the Advanced section) when set, otherwise this
+                          server's address; if you sit behind a reverse proxy,
+                          set that override and save, so this matches what the
+                          login actually sends. Users who still start at the
+                          legacy <code>/sso/OID/p/&lt;name&gt;</code> route send
+                          the legacy
+                          <code>/sso/OID/r/&lt;name&gt;</code> spelling instead;
+                          register that one too if any of them do.
                         </div>
                       </div>
 
@@ -592,6 +603,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="OidEndpoint"
+                          data-i18n-parts="config.oid_endpoint_label"
                           >OpenID Endpoint:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -624,6 +636,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="OidClientId"
+                          data-i18n-parts="config.oid_client_id_label"
                           >OpenID Client ID:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -643,11 +656,17 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.oid_client_id_help"
+                        >
                           The OpenID client ID, for this media server instance.
                           This is configured on the OIDC provider to uniquely
                           identify
-                          <strong>this</strong> Jellyfin instance.
+                          <strong data-i18n="config.oid_client_id_this"
+                            >this</strong
+                          >
+                          Jellyfin instance.
                         </div>
                       </div>
 
@@ -655,6 +674,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="OidSecret"
+                          data-i18n-parts="config.oid_secret_label"
                           >OpenID client secret:
                           <span
                             class="sso-optional"
@@ -686,6 +706,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="OidScopes"
+                          data-i18n-parts="config.oid_scopes_label"
                           >Request Additional Scopes:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -705,7 +726,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.oid_scopes_help"
+                        >
                           Specify additional scopes to include in the OIDC
                           request.
                           <br />
@@ -775,6 +799,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="LoginButtonText"
+                          data-i18n-parts="config.login_button_text_label"
                           >Login button text:
                           <span
                             class="sso-optional"
@@ -805,6 +830,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="PostLogoutRedirectUri"
+                          data-i18n-parts="config.post_logout_redirect_label"
                           >Post-logout redirect URL:
                           <span
                             class="sso-optional"
@@ -860,7 +886,10 @@
                             >Enable Authorization by Plugin</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n-parts="config.enable_authorization_help"
+                        >
                           Determines if the plugin sets permissions for the
                           user.
                           <br />
@@ -876,6 +905,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="DefaultUsernameClaim"
+                          data-i18n-parts="config.default_username_claim_label"
                           >Set default username claim:
                           <span
                             class="sso-optional"
@@ -890,7 +920,10 @@
                           class="sso-text"
                           placeholder="preferred_username"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.default_username_claim_help"
+                        >
                           The default username claim to use from OpenID by
                           default. If it is not set, it defaults to
                           <code>preferred_username</code>.
@@ -901,6 +934,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="DefaultProvider"
+                          data-i18n-parts="config.default_provider_label"
                           >Set default Provider:
                           <span
                             class="sso-optional"
@@ -914,7 +948,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.default_provider_help"
+                        >
                           The set provider then gets assigned to the user after
                           they have logged in. If it is not set, nothing is
                           changed. With this, a user can login with SSO but is
@@ -931,6 +968,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="AvatarUrlFormat"
+                          data-i18n-parts="config.avatar_url_format_label"
                           >Set avatar url format
                           <span
                             class="sso-optional"
@@ -944,7 +982,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.avatar_url_format_help"
+                        >
                           The url of the avatar with sso variable format:
                           example :
                           <code>https://example.com/@{user_id}.png</code>
@@ -967,7 +1008,10 @@
                             >Disable avatar from the OIDC picture claim</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n-parts="config.avatar_no_fetch_help"
+                        >
                           With no avatar url format above, the standard OIDC
                           <code>picture</code> claim is used automatically.
                           Check this to opt out of that fetch entirely.
@@ -978,6 +1022,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="RoleClaim"
+                          data-i18n-parts="config.role_claim_label"
                           >Role Claim:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -997,7 +1042,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.role_claim_help"
+                        >
                           This is the value in the OpenID response to check for
                           roles. The first element is the claim type, the
                           subsequent values are to parse the JSON of the claim
@@ -1031,10 +1079,16 @@
                             >Role claim is an object map</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                          Read the roles from the property <em>names</em> of a
-                          JSON object instead of from a list of strings. Zitadel
-                          needs this: it emits
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n-parts="config.role_claim_object_help"
+                        >
+                          Read the roles from the property
+                          <em data-i18n="config.role_claim_names_emphasis"
+                            >names</em
+                          >
+                          of a JSON object instead of from a list of strings.
+                          Zitadel needs this: it emits
                           <code
                             >{"jellyfin-access": {"&lt;orgId&gt;":
                             "&lt;domain&gt;"}}</code
@@ -1106,6 +1160,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="ProvisioningProfile"
+                          data-i18n="config.provisioning_profile_label"
                           >Named provisioning profile:</label
                         >
                         <select
@@ -1114,7 +1169,10 @@
                           name="ProvisioningProfile"
                           class="sso-tmpl-profile emby-select-withcolor emby-select"
                         ></select>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.provisioning_profile_help"
+                        >
                           Take the starting policy from a profile defined in
                           Provisioning Profiles above, instead of from the
                           fields below. The two are mutually exclusive: a
