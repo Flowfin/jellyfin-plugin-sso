@@ -90,7 +90,7 @@ const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as runs are keyed, in the same commit that keys
 // them, and it never goes up.
-const PINNED = 99;
+const PINNED = 58;
 const PINNED_ATTRIBUTES = 0;
 
 // The six templates a reader of this plugin actually sees: the five dashboard
