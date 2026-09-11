@@ -3936,7 +3936,7 @@ const ssoConfigurationPage = {
   loadLinkedAccounts: (page) => {
     const container = page.querySelector("#LinkedAccountsResult");
     // The pending list (#1529) is a second view of the SAME roster read, never a second request: the
-    // roster is elevation-gated and rate-limited, and the two panels answer one question each about one
+    // roster is elevation-gated, and the two panels answer one question each about one
     // document. Both containers are written on both arms, so neither panel is left showing "loading"
     // when the other has an answer.
     const pending = page.querySelector("#PendingApprovalsResult");
@@ -3952,10 +3952,15 @@ const ssoConfigurationPage = {
       ),
     );
 
+    // Resolves to whether the roster was actually read, because a caller that re-reads after an action
+    // must not word its result off the OLD held roster when the re-read failed: the panels then show the
+    // failure sentence, and the action's own line has to agree with them rather than claim a state it
+    // could not confirm.
     return ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).then(
       (roster) => {
         ssoConfigurationPage.renderLinkedAccounts(page, container, roster);
         ssoConfigurationPage.renderPendingApprovals(page, pending);
+        return true;
       },
       // Generic and input-independent, like the neighbouring admin actions: it never reflects a server value.
       () => {
@@ -3965,12 +3970,13 @@ const ssoConfigurationPage = {
         );
         ssoConfigurationPage.renderTransferMessage(container, failed);
         ssoConfigurationPage.renderTransferMessage(pending, failed);
+        return false;
       },
     );
   },
   // THE ROSTER IS KEPT so the filter can re-render without asking the server again (#1529). Held on the
   // module rather than on the page because the page is a DOM node the client may replace, and a filter
-  // keystroke must not turn into a request: the roster is elevation-gated and rate-limited, and typing six
+  // keystroke must not turn into a request: the roster is elevation-gated and read under the config lock, and typing six
   // characters would spend six calls on data that has not changed.
   linkedAccountRoster: null,
   // Everything on one row that a reader might search by. The Jellyfin username, the provider name, the
@@ -4243,11 +4249,16 @@ const ssoConfigurationPage = {
   pendingApprovals: (roster) => {
     const accounts =
       roster && Array.isArray(roster.Accounts) ? roster.Accounts : [];
-    return accounts.flatMap((account) =>
-      (account && Array.isArray(account.Links) ? account.Links : [])
-        .filter((link) => link && link.PendingApprovalSinceUtc)
-        .map((link) => ({ account, link })),
-    );
+    return accounts.flatMap((account) => {
+      // ONE ROW PER ACCOUNT, on its first waiting link, so the count the panel reports is a count of
+      // accounts - which is what its sentences say. An account cannot in practice carry two records,
+      // because a record is written only by the create arm and an account is created once; the dedupe
+      // is what keeps the sentence true even if that ever changed.
+      const waiting = (
+        account && Array.isArray(account.Links) ? account.Links : []
+      ).find((link) => link && link.PendingApprovalSinceUtc);
+      return waiting ? [{ account, link: waiting }] : [];
+    });
   },
   renderPendingApprovals: (page, container) => {
     const waiting = ssoConfigurationPage.pendingApprovals(
@@ -4349,7 +4360,7 @@ const ssoConfigurationPage = {
     button.classList.add("raised", "button-submit", "emby-button");
     button.textContent = tr("config.pending_approvals_approve", "Approve");
     button.addEventListener("click", (e) => {
-      ssoConfigurationPage.approvePendingAccount(page, username, link);
+      ssoConfigurationPage.approvePendingAccount(page, account, link);
       e.preventDefault();
       return false;
     });
@@ -4363,8 +4374,11 @@ const ssoConfigurationPage = {
   // audit line are all the endpoint's, and none of them is re-implemented or bypassed here. The
   // confirmation NAMES what the button does and what it does not: the account is enabled, and nothing
   // else about it changes.
-  approvePendingAccount: (page, username, link) => {
+  approvePendingAccount: (page, account, link) => {
     const result = page.querySelector("#PendingApprovalsActionResult");
+    const username =
+      account && account.Username ? String(account.Username) : "";
+    const userId = account && account.UserId;
     const provider = String((link && link.Provider) || "");
     if (
       !window.confirm(
@@ -4399,23 +4413,52 @@ const ssoConfigurationPage = {
       () =>
         // Re-read rather than editing the rendered table: the roster is the server's answer, and the row
         // must disappear because the server no longer reports it, not because the page assumed so.
-        ssoConfigurationPage
-          .loadLinkedAccounts(page)
-          .then(() =>
+        ssoConfigurationPage.loadLinkedAccounts(page).then((read) => {
+          // A re-read that failed leaves the OLD roster held, and a sentence chosen from it would claim a
+          // state nobody confirmed - for a 204 that cleared a record because the account had gone, it
+          // would say a deleted account can sign in. The panels show the failure; this line agrees.
+          if (!read) {
             ssoConfigurationPage.renderTransferMessage(
               result,
               tr(
-                "config.pending_approvals_approved",
-                "Approved. {user} can sign in now.",
-                { user: username },
+                "config.linked_accounts_failed",
+                "Could not load the linked accounts. Make sure you are signed in as an administrator, then try again.",
               ),
-            ),
-          ),
+            );
+            return;
+          }
+
+          // A 204 is also the endpoint's answer for a record it cleared because the account had gone,
+          // and the reader must not be told a deleted account can sign in. The re-read roster is the
+          // server's word on whether the account still exists, so the sentence is chosen from it.
+          const held = ssoConfigurationPage.linkedAccountRoster;
+          const rows =
+            held && Array.isArray(held.Accounts) ? held.Accounts : [];
+          const gone = rows.some(
+            (row) =>
+              row && row.UserId === userId && row.AccountExists === false,
+          );
+          ssoConfigurationPage.renderTransferMessage(
+            result,
+            gone
+              ? tr(
+                  "config.pending_approvals_account_gone",
+                  "That account no longer exists, so nothing was enabled. The list has been re-read.",
+                )
+              : tr(
+                  "config.pending_approvals_approved",
+                  "Approved. {user} can sign in now.",
+                  { user: username },
+                ),
+          );
+        }),
       (e) => {
         // ApiClient.fetch rejects with the Response on a non-2xx status. Two refusals mean something to
         // the reader and get their own sentence; everything else is the generic one, which never reflects
         // a server value. The administrator refusal is told apart from an elevation refusal - both are
-        // 403 - by the body the endpoint writes for it, which an elevation refusal leaves empty.
+        // 403 - by the sentence the endpoint writes for it, matched on its own words rather than on the
+        // bare word: an elevation refusal leaves the body empty, and a proxy's own 403 page can say
+        // "administrator" about something else entirely.
         const status = e && typeof e.status === "number" ? e.status : 0;
         const body =
           e && typeof e.text === "function"
@@ -4423,7 +4466,7 @@ const ssoConfigurationPage = {
             : Promise.resolve("");
         return body.then((text) => {
           const administrator =
-            status === 403 && /administrator/i.test(String(text || ""));
+            status === 403 && /is an administrator/i.test(String(text || ""));
           const stale = status === 404;
           const message = administrator
             ? tr(

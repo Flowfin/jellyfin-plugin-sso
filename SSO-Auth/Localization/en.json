@@ -528,6 +528,7 @@
   "config.pending_approvals_confirm": "Approve {user}? This enables the account so it can sign in through {provider}. Nothing else changes: its permissions stay as the provisioning set them.",
   "config.pending_approvals_approving": "Approving {user}…",
   "config.pending_approvals_approved": "Approved. {user} can sign in now.",
+  "config.pending_approvals_account_gone": "That account no longer exists, so nothing was enabled. The list has been re-read.",
   "config.pending_approvals_refused_administrator": "That account is an administrator and is not approved from here. Enable it in the Jellyfin dashboard.",
   "config.pending_approvals_not_pending": "That account is no longer waiting for approval. The list has been re-read.",
   "config.pending_approvals_failed": "Could not approve the account. Make sure you are signed in as an administrator, then try again."
