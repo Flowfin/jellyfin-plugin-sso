@@ -117,6 +117,18 @@ jobs:
       # reader to the dashboard for the wrong reason. This drives the shipped panel against a recording
       # ApiClient and refuses each by name. Same runtime and same absence of dependencies as the steps above.
       run: node tools/ui-pending-approvals.js
+    - name: The help census
+      # Stage 2 of the 4.4 surface moves every help text these five pages show - a first sentence under
+      # the field, the whole text behind a `<details>`, the same text in the rail - and promises that
+      # nothing is deleted, only moved (#1661). Nothing could check that promise. The C# rules in
+      # LocalizationCatalogTests are key-wise over ALL assets pooled together, so a key that survives on
+      # one page covers its own deletion from another: drop the `config.template_bitrate_help` field from
+      # the Policies page and every one of them stays green, because the Providers page still names that
+      # key twice. This reconciles docs/ui/HELP-CENSUS.md against the pages in both directions, per page
+      # and per field, and counts the prose itself - missing is a deletion, twice is a copy left standing,
+      # elsewhere is a move to the wrong field. Same runtime and same absence of dependencies as the
+      # steps above.
+      run: node tools/ui-help-census.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
