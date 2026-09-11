@@ -3857,6 +3857,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-Roles"
+                          data-i18n-parts="config.oid_roles_label"
                           >Roles:
                           <span
                             class="sso-optional"
@@ -3870,7 +3871,10 @@
                           type="text"
                           class="sso-line-list emby-textarea"
                         ></textarea>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_roles_help"
+                        >
                           One role per line. A login must carry at least one of
                           these roles (in the assertion's Role attribute) to be
                           allowed in. Leave blank to allow any authenticated
@@ -3882,6 +3886,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-AdminRoles"
+                          data-i18n-parts="config.admin_roles_label"
                           >Admin Roles:
                           <span
                             class="sso-optional"
@@ -3895,14 +3900,22 @@
                           type="text"
                           class="sso-line-list emby-textarea"
                         ></textarea>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_admin_roles_help"
+                        >
                           One role per line. A login carrying any of these roles
                           is granted administrator rights.
                         </div>
                       </div>
 
                       <div class="sso-subgroup">
-                        <p class="sso-subgroup-title">Library access</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.provider_library_access_group"
+                        >
+                          Library access
+                        </p>
 
                         <div
                           class="checkboxContainer checkboxContainer-withDescription"
@@ -3916,10 +3929,14 @@
                               class="sso-toggle"
                               aria-controls="saml-EnabledFolders-group"
                             />
-                            <span>Enable All Folders</span>
+                            <span
+                              data-i18n="config.provider_enable_all_folders_label"
+                              >Enable All Folders</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.saml_enable_all_folders_help"
                           >
                             If enabled, all libraries are accessible to any user
                             that logs in through this provider.
@@ -3933,13 +3950,17 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-EnabledFolders"
+                            data-i18n="config.provider_enabled_folders_label"
                             >Enabled Folders:</label
                           >
                           <div
                             id="saml-EnabledFolders"
                             class="checkboxList paperList checkboxList-paperList sso-folder-list sso-bordered-list"
                           ></div>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.saml_enabled_folders_help"
+                          >
                             Which libraries are accessible to a user that logs
                             in through this provider. No effect when "Enable All
                             Folders" is checked.
@@ -3958,10 +3979,14 @@
                               class="sso-toggle"
                               aria-controls="saml-FolderRoleMapping-group"
                             />
-                            <span>Enable Role-Based Folder Access:</span>
+                            <span
+                              data-i18n="config.provider_enable_folder_roles_label"
+                              >Enable Role-Based Folder Access:</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.saml_enable_folder_roles_help"
                           >
                             Determines if user roles should control library
                             access.
@@ -3975,6 +4000,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-FolderRoleMapping"
+                            data-i18n="config.provider_folder_role_mapping_label"
                             >Folder Role Mapping:</label
                           >
                           <button
@@ -3996,7 +4022,10 @@
                             id="saml-FolderRoleMapping"
                             class="sso-role-map"
                           ></div>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.saml_folder_role_mapping_help"
+                          >
                             Map roles to lists of libraries. A user holding a
                             given role gets access to its mapped libraries.
                           </div>
@@ -4025,9 +4054,15 @@
                             class="sso-toggle"
                             aria-controls="saml-LiveTvRoles-group"
                           />
-                          <span>Enable Role-Based Live TV Access</span>
+                          <span
+                            data-i18n="config.saml_enable_livetv_roles_label"
+                            >Enable Role-Based Live TV Access</span
+                          >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.saml_enable_livetv_roles_help"
+                        >
                           Determines if user roles should control Live TV
                           access.
                         </div>
@@ -4040,6 +4075,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-LiveTvRoles"
+                          data-i18n="config.saml_livetv_roles_label"
                           >Live TV Roles:</label
                         >
                         <textarea
@@ -4051,6 +4087,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-LiveTvManagementRoles"
+                          data-i18n="config.saml_livetv_management_roles_label"
                           >Live TV Management Roles:</label
                         >
                         <textarea
@@ -4059,7 +4096,10 @@
                           type="text"
                           class="sso-line-list emby-textarea"
                         ></textarea>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_livetv_roles_help"
+                        >
                           One role per line. Grants Live TV access / management
                           to logins carrying a listed role.
                         </div>
@@ -4076,7 +4116,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Enable Live TV Access (all users)</span>
+                          <span data-i18n="config.saml_enable_livetv_label"
+                            >Enable Live TV Access (all users)</span
+                          >
                         </label>
                       </div>
 
@@ -4091,7 +4133,10 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Enable Live TV Management (all users)</span>
+                          <span
+                            data-i18n="config.saml_enable_livetv_management_label"
+                            >Enable Live TV Management (all users)</span
+                          >
                         </label>
                       </div>
                     </div>
@@ -4109,6 +4154,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SchemeOverride"
+                          data-i18n-parts="config.saml_scheme_override_label"
                           >Scheme Override:
                           <span
                             class="sso-optional"
@@ -4122,7 +4168,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_scheme_override_help"
+                        >
                           Force the scheme (http/https) used when building the
                           ACS and metadata URLs. Prefer the Base URL Override
                           below.
@@ -4133,6 +4182,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-PortOverride"
+                          data-i18n-parts="config.saml_port_override_label"
                           >Port Override:
                           <span
                             class="sso-optional"
@@ -4146,7 +4196,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_port_override_help"
+                        >
                           Force the port used when building the ACS and metadata
                           URLs. Prefer the Base URL Override below.
                         </div>
@@ -4156,6 +4209,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-BaseUrlOverride"
+                          data-i18n-parts="config.saml_base_url_override_label"
                           >Base URL Override:
                           <span
                             class="sso-optional"
@@ -4179,6 +4233,7 @@
                         <div
                           class="sso-callout sso-callout-warning"
                           role="note"
+                          data-i18n-parts="config.saml_base_url_override_help"
                         >
                           ⚠ Recommended. The canonical external base URL of this
                           server, e.g.
@@ -4202,7 +4257,12 @@
                   >
                     <div class="collapseContent">
                       <div class="sso-security-block">
-                        <p class="sso-subgroup-title">Assertion validation</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.saml_assertion_validation_heading"
+                        >
+                          Assertion validation
+                        </p>
 
                         <div
                           class="checkboxContainer checkboxContainer-withDescription"
@@ -4215,10 +4275,14 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span>Validate Recipient</span>
+                            <span
+                              data-i18n="config.saml_validate_recipient_label"
+                              >Validate Recipient</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n-parts="config.saml_validate_recipient_help"
                           >
                             Additionally require the assertion's
                             <code>Recipient</code> to equal this SP's ACS URL (a
@@ -4239,10 +4303,14 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span>Validate InResponseTo</span>
+                            <span
+                              data-i18n="config.saml_validate_inresponseto_label"
+                              >Validate InResponseTo</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n-parts="config.saml_validate_inresponseto_help"
                           >
                             Require the response's <code>InResponseTo</code> to
                             match an AuthnRequest this SP issued (rejects
@@ -4253,12 +4321,18 @@
                       </div>
 
                       <div class="sso-security-block">
-                        <p class="sso-subgroup-title">Audience</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.saml_audience_heading"
+                        >
+                          Audience
+                        </p>
 
                         <div class="inputContainer">
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlAudience"
+                            data-i18n-parts="config.saml_audience_label"
                             >SAML Audience:
                             <span
                               class="sso-optional"
@@ -4272,7 +4346,10 @@
                             type="text"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.saml_audience_help"
+                          >
                             The expected <code>AudienceRestriction</code> in the
                             assertion. When blank, the SAML Client ID is used.
                             Ignored when "Do Not Validate Audience" is set.
@@ -4281,7 +4358,12 @@
                       </div>
 
                       <div class="sso-security-block">
-                        <p class="sso-subgroup-title">Request signing</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.saml_request_signing_heading"
+                        >
+                          Request signing
+                        </p>
 
                         <div
                           class="checkboxContainer checkboxContainer-withDescription"
@@ -4294,10 +4376,13 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span>Sign AuthnRequests</span>
+                            <span data-i18n="config.saml_sign_authn_label"
+                              >Sign AuthnRequests</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.saml_sign_authn_help"
                           >
                             Sign outgoing SAML AuthnRequests with the SP signing
                             key below. Off by default; when on, a valid Signing
@@ -4309,6 +4394,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlSigningKeyPfx"
+                            data-i18n-parts="config.saml_signing_key_label"
                             >SP Signing Key (PFX/PKCS#12, Base64):
                             <span
                               class="sso-optional"
@@ -4325,7 +4411,10 @@
                             data-i18n-placeholder="config.placeholder_keep_key"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.saml_signing_key_help"
+                          >
                             This service provider's PRIVATE signing key, as a
                             Base64 PKCS#12 (PFX) blob. For security it is never
                             sent back to this page: leave blank to keep the
@@ -4337,6 +4426,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlRolloverSigningKeyPfx"
+                            data-i18n-parts="config.saml_rollover_signing_key_label"
                             >SP Rollover Signing Key (PFX/PKCS#12, Base64):
                             <span
                               class="sso-optional"
@@ -4353,7 +4443,10 @@
                             data-i18n-placeholder="config.placeholder_keep_key"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.saml_rollover_signing_key_help"
+                          >
                             An OPTIONAL second SP signing key for a rollover
                             overlap: the SP metadata advertises both public
                             certificates so the IdP trusts either. AuthnRequests
@@ -4364,7 +4457,10 @@
                       </div>
 
                       <div class="sso-security-block sso-sensitive-region">
-                        <p class="sso-subgroup-title">
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.saml_inbound_rotation_heading"
+                        >
                           Inbound certificate rotation
                         </p>
 
@@ -4372,6 +4468,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlSecondaryCertificate"
+                            data-i18n-parts="config.saml_secondary_certificate_label"
                             >Secondary IdP Signing Certificate:
                             <span
                               class="sso-optional"
@@ -4391,7 +4488,10 @@
                             role="alert"
                             hidden
                           ></div>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.saml_secondary_certificate_help"
+                          >
                             An OPTIONAL second IdP PUBLIC signing certificate
                             accepted during an inbound signing-key rotation: a
                             response verifying against EITHER this or the
@@ -4402,10 +4502,16 @@
                       </div>
 
                       <div class="sso-security-block sso-danger-zone">
-                        <p class="sso-subgroup-title sso-danger-title">
+                        <p
+                          class="sso-subgroup-title sso-danger-title"
+                          data-i18n="config.security_insecure_heading"
+                        >
                           Insecure options
                         </p>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_insecure_options_help"
+                        >
                           These options disable SAML security defenses. Enable
                           one only if your provider genuinely requires it; each
                           is recorded as an audit warning.
@@ -4418,7 +4524,9 @@
                           aria-expanded="false"
                           aria-controls="saml-insecure-options"
                         >
-                          <span>Show insecure options</span>
+                          <span data-i18n="config.insecure_show"
+                            >Show insecure options</span
+                          >
                         </button>
 
                         <div
@@ -4437,10 +4545,14 @@
                                 type="checkbox"
                                 class="sso-toggle"
                               />
-                              <span>Do Not Validate Audience (Insecure)</span>
+                              <span
+                                data-i18n="config.saml_no_validate_audience_label"
+                                >Do Not Validate Audience (Insecure)</span
+                              >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n-parts="config.saml_no_validate_audience_help"
                             >
                               ⚠ Insecure: disables the
                               <code>AudienceRestriction</code> check, so an
@@ -4466,12 +4578,18 @@
                         >Test Connection</span
                       >
                     </button>
-                    <div class="fieldDescription">
-                      Validates the <strong>saved</strong> provider: parses the
-                      stored IdP signing certificate and reports its non-secret
-                      facts (subject, issuer, validity, thumbprint). Save the
-                      provider first. Requires administrator privileges; no
-                      signing key is shown.
+                    <div
+                      class="fieldDescription"
+                      data-i18n-parts="config.saml_test_help"
+                    >
+                      Validates the
+                      <strong data-i18n="config.test_saved_emphasis"
+                        >saved</strong
+                      >
+                      provider: parses the stored IdP signing certificate and
+                      reports its non-secret facts (subject, issuer, validity,
+                      thumbprint). Save the provider first. Requires
+                      administrator privileges; no signing key is shown.
                     </div>
                     <div id="saml-TestResult"></div>
                   </div>
