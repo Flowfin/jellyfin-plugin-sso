@@ -29,7 +29,7 @@
  * editor - each one a `title=` - are among the largest untranslated surfaces on
  * the page.
  *
- * WHAT DOES NOT COUNT. Four of the five exemptions are STRUCTURAL - a property of
+ * WHAT DOES NOT COUNT. Three of the four exemptions are STRUCTURAL - a property of
  * the element rather than of its text - because a property cannot be granted to a
  * string that later changes under it.
  *
@@ -52,17 +52,25 @@
  * A run with fewer than two letters is not text: it is the comma between two
  * links, or an entity, or whitespace the formatter left behind.
  *
- * THE FIFTH EXEMPTION IS A LIST, and it is a list because the property it stands
- * for cannot be read off the element. A heading whose text the SCRIPT owns is
- * marked nowhere and looks exactly like one nobody has keyed yet - the editor
- * title is the case, and the markup beside it says at length why a marker there
- * would let a late catalog pass overwrite a loaded provider's name with the word
- * "New provider". Such text IS translated, at its source, through the tr() call
- * that writes it. What keeps this list from ageing the way a list of strings
- * usually does is that it is matched on the EXACT text and a stale entry is
- * refused: a wording that changes loses its exemption and comes back into the
- * count, which is the moment somebody has to look again. Same shape and same
- * reason as the exemption list in tools/ui-untranslated.js.
+ * THE LAST EXEMPTION IS A LIST, and it is a list because what it stands for
+ * cannot be read off the element. Two texts are in it, for two different reasons
+ * that a property cannot express.
+ *
+ * A heading whose text the SCRIPT owns is marked nowhere and looks exactly like
+ * one nobody has keyed yet. The editor title is the case, and the markup beside
+ * it says at length why a marker there would let a late catalog pass overwrite a
+ * loaded provider's name with the word "New provider". Such text IS translated,
+ * at its source, through the tr() call that writes it.
+ *
+ * A PRODUCT NAME is the same string in every language, and a catalogue row for it
+ * would be a row nobody could ever change. Nothing about the element says which
+ * of its words is a product, which is why the script-side counter carries the
+ * same kind of entry for "Microsoft Entra ID (Azure AD)".
+ *
+ * What keeps this list from ageing the way a list of strings usually does is that
+ * it is matched on the EXACT text and a stale entry is refused: a wording that
+ * changes loses its exemption and comes back into the count, which is the moment
+ * somebody has to look again.
  *
  * THE RATCHET, same shape and same reason as the script-side counter. It refuses
  * an increase, which is the drift. It refuses a decrease too, because a tranche
@@ -90,7 +98,7 @@ const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as runs are keyed, in the same commit that keys
 // them, and it never goes up.
-const PINNED = 58;
+const PINNED = 0;
 const PINNED_ATTRIBUTES = 0;
 
 // The six templates a reader of this plugin actually sees: the five dashboard
@@ -115,6 +123,14 @@ const EXEMPT = [
       "beside it explains the rest: the script writes the LOADED provider's name here, so a marker " +
       'would let a late applyTo() overwrite "keycloak-prod" with the blank-editor wording over an ' +
       "editor that has a provider in it, and the Save path targets that provider by name.",
+  },
+  {
+    text: "authelia",
+    why:
+      "A product name, and the same string in every language. It is the label of the link in the " +
+      "scopes help that points at the issue where Authelia's extra scope requirement was worked out. " +
+      "A catalogue row for it would be a row nobody could ever change, which is the same reason " +
+      'tools/ui-untranslated.js exempts "Microsoft Entra ID (Azure AD)" on the script side.',
   },
 ];
 
