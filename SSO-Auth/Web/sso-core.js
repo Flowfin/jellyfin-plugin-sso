@@ -5,8 +5,30 @@ let i18n = null;
 
 // Localized text for a catalog key, falling back to the English default the call site carries. The
 // default is the same wording the static markup holds, so a JS-set string and its HTML twin cannot drift.
+//
+// THE FALLBACK SUBSTITUTES TOO, and that is a fix rather than a flourish (#1529). It used to return the
+// default verbatim, so every parameterised call rendered its braces: before the catalog arrived, and
+// permanently on a server whose fetch fails, a reader saw "Deleted account ({id})" and "Showing {shown} of
+// {total} linked accounts." The default is the SAME string the catalog carries, placeholders included, so
+// the only question was whether anything filled them, and on this path nothing did. Found by the arm in
+// tools/ui-account-filter.js, which drives the renderer with no localization module loaded at all - which
+// is precisely the state this branch describes.
+//
+// The substitution is written here rather than imported because this is the branch where the module is
+// ABSENT; reaching into it for the helper is the one thing this path cannot do. An absent parameter is
+// left as it stands, exactly as i18n.js does, so a mismatched call never drops text.
 function tr(key, englishDefault, params) {
-  return i18n ? i18n.t(key, params, englishDefault) : englishDefault;
+  if (i18n) {
+    return i18n.t(key, params, englishDefault);
+  }
+
+  if (!params) {
+    return englishDefault;
+  }
+
+  return String(englishDefault).replace(/\{(\w+)\}/g, (match, name) =>
+    Object.prototype.hasOwnProperty.call(params, name) ? params[name] : match,
+  );
 }
 
 // What the tracked controls of a page held the last time it was read (#1572), keyed on the page element.
@@ -3932,9 +3954,53 @@ const ssoConfigurationPage = {
         ),
     );
   },
+  // THE ROSTER IS KEPT so the filter can re-render without asking the server again (#1529). Held on the
+  // module rather than on the page because the page is a DOM node the client may replace, and a filter
+  // keystroke must not turn into a request: the roster is elevation-gated and rate-limited, and typing six
+  // characters would spend six calls on data that has not changed.
+  linkedAccountRoster: null,
+  // Everything on one row that a reader might search by. The Jellyfin username, the provider name, the
+  // protocol, and the identity-provider subject - which is the one an administrator usually arrives with,
+  // because it is what the provider's own console shows them.
+  linkedAccountHaystack: (account) =>
+    [
+      account && account.Username,
+      account && account.UserId,
+      ...(account && Array.isArray(account.Links) ? account.Links : []).flatMap(
+        (link) => [
+          link && link.Provider,
+          link && link.Protocol,
+          link && link.CanonicalName,
+        ],
+      ),
+    ]
+      .filter((part) => part !== null && part !== undefined)
+      .join(" ")
+      .toLowerCase(),
+  filteredLinkedAccounts: (accounts, needle) => {
+    const wanted = String(needle || "")
+      .trim()
+      .toLowerCase();
+    if (wanted === "") {
+      return accounts;
+    }
+
+    return accounts.filter((account) =>
+      ssoConfigurationPage.linkedAccountHaystack(account).includes(wanted),
+    );
+  },
   renderLinkedAccounts: (page, container, roster) => {
-    const accounts =
-      roster && Array.isArray(roster.Accounts) ? roster.Accounts : [];
+    if (roster !== undefined) {
+      ssoConfigurationPage.linkedAccountRoster = roster;
+    }
+
+    const held = ssoConfigurationPage.linkedAccountRoster;
+    const accounts = held && Array.isArray(held.Accounts) ? held.Accounts : [];
+    const filter = page.querySelector("#LinkedAccountsFilter");
+    const shown = ssoConfigurationPage.filteredLinkedAccounts(
+      accounts,
+      filter && filter.value,
+    );
     container.replaceChildren();
 
     // The empty state is a sentence rather than an empty table: a blank panel reads as a failed fetch, and
@@ -3945,6 +4011,21 @@ const ssoConfigurationPage = {
         tr(
           "config.linked_accounts_empty",
           "No Jellyfin account holds an SSO link on this server.",
+        ),
+      );
+      return;
+    }
+
+    // A FILTER THAT MATCHES NOTHING IS ITS OWN SENTENCE, and not the one above. "No account holds a link"
+    // is a statement about the server; "nothing matches what you typed" is a statement about the box. A
+    // reader who saw the first one after typing would conclude the links were gone.
+    if (shown.length === 0) {
+      ssoConfigurationPage.renderTransferMessage(
+        container,
+        tr(
+          "config.linked_accounts_filter_empty",
+          "No linked account matches the filter. {total} are loaded.",
+          { total: String(accounts.length) },
         ),
       );
       return;
@@ -3966,13 +4047,28 @@ const ssoConfigurationPage = {
     table.appendChild(head);
 
     const body = document.createElement("tbody");
-    accounts.forEach((account) => {
+    shown.forEach((account) => {
       body.appendChild(
         ssoConfigurationPage.renderLinkedAccountRow(page, account),
       );
     });
     table.appendChild(body);
     container.appendChild(table);
+
+    // THE COUNT LINE IS WHAT MAKES A FILTERED TABLE HONEST. Without it a narrowed table looks exactly like
+    // a complete one, and an administrator counting rows to answer "how many accounts are linked" gets the
+    // filter's answer instead of the server's. Rendered only while a filter is narrowing something, so an
+    // unfiltered table gains no furniture.
+    if (shown.length !== accounts.length) {
+      const count = document.createElement("div");
+      count.className = "fieldDescription";
+      count.textContent = tr(
+        "config.linked_accounts_filter_count",
+        "Showing {shown} of {total} linked accounts.",
+        { shown: String(shown.length), total: String(accounts.length) },
+      );
+      container.appendChild(count);
+    }
   },
   renderLinkedAccountRow: (page, account) => {
     const row = document.createElement("tr");
@@ -6009,6 +6105,19 @@ function initAccountsPage(view) {
       e.preventDefault();
       return false;
     });
+
+  // The filter re-renders from the roster already held and asks the server for nothing (#1529). Bound on
+  // `input` rather than on `change` so the table narrows while the reader types: `change` on a search box
+  // waits for a blur or an Enter, which reads as a filter that does not work.
+  //
+  // `container` is looked up per event rather than captured, because the region is replaced on every load
+  // and a captured node would be one that is no longer in the page.
+  view.querySelector("#LinkedAccountsFilter").addEventListener("input", () => {
+    ssoConfigurationPage.renderLinkedAccounts(
+      view,
+      view.querySelector("#LinkedAccountsResult"),
+    );
+  });
 
   ssoConfigurationPage.loadLinkedAccounts(view);
 

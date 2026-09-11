@@ -99,6 +99,15 @@ jobs:
       # cannot answer it either, since its catalog comes from the server and the refusal cases would need a
       # broken one shipped to reach them. Same runtime and same absence of dependencies as the steps above.
       run: node tools/ui-sentence-parts.js
+    - name: The linked-accounts filter
+      # A filter is not a string, so no rule that reads these assets can judge it, and both ways it goes
+      # wrong are silent (#1529). A narrowed table that does not say it is narrowed looks exactly like a
+      # complete one, and an administrator counting rows to answer "how many accounts are linked" gets the
+      # filter's answer. A filter with no match that says "no account holds a link" is a statement about
+      # the server rather than about the box, on a page whose other button revokes links. This drives the
+      # shipped renderer and refuses both by name. Same runtime and same absence of dependencies as the
+      # steps above.
+      run: node tools/ui-account-filter.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

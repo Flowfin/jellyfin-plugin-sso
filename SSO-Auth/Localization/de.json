@@ -510,5 +510,10 @@
   "config.saml_insecure_options_help": "Diese Optionen schalten Schutzmechanismen von SAML ab. Schalten Sie eine nur ein, wenn Ihr Anbieter sie wirklich verlangt; jede wird als Prüfwarnung aufgezeichnet.",
   "config.saml_no_validate_audience_label": "Audience nicht prüfen (unsicher)",
   "config.saml_no_validate_audience_help": "⚠ Unsicher: Schaltet die Prüfung {0} ab, sodass eine Assertion, die für einen anderen Dienstanbieter ausgestellt wurde, hier wiedereingespielt werden könnte. Nur wenn Ihr Identitätsanbieter die Audience nicht richtig setzen kann. Das Einschalten wird als Prüfwarnung aufgezeichnet.",
-  "config.saml_test_help": "Prüft den {0} Anbieter: Er liest das gespeicherte Signaturzertifikat des Identitätsanbieters und meldet dessen nicht geheime Angaben (Inhaber, Aussteller, Gültigkeit, Fingerabdruck). Speichern Sie den Anbieter zuerst. Erfordert Administratorrechte; kein Signaturschlüssel wird gezeigt."
+  "config.saml_test_help": "Prüft den {0} Anbieter: Er liest das gespeicherte Signaturzertifikat des Identitätsanbieters und meldet dessen nicht geheime Angaben (Inhaber, Aussteller, Gültigkeit, Fingerabdruck). Speichern Sie den Anbieter zuerst. Erfordert Administratorrechte; kein Signaturschlüssel wird gezeigt.",
+  "config.linked_accounts_filter_label": "Filter:",
+  "config.linked_accounts_filter_placeholder": "Konto, Anbieter oder Subjekt",
+  "config.linked_accounts_filter_help": "Engt die Tabelle auf die Zeilen ein, deren Kontoname, Anbieter, Protokoll oder Subjekt beim Identitätsanbieter enthält, was Sie eingeben. Gefiltert wird, was bereits geladen ist; der Server wird dabei nicht gefragt.",
+  "config.linked_accounts_filter_empty": "Kein verknüpftes Konto passt zum Filter. Geladen sind {total}.",
+  "config.linked_accounts_filter_count": "Gezeigt werden {shown} von {total} verknüpften Konten."
 }
