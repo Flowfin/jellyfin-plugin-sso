@@ -58,21 +58,26 @@
             the page and try again.
           </div>
           <p>
-            Use the
-            <span class="fab" aria-hidden="true">
-              <span class="material-icons add" aria-hidden="true"></span>
-            </span>
-            button to create a new link for the given provider.
+            <span data-i18n-parts="link.add_hint"
+              >Use the
+              <span class="fab" aria-hidden="true">
+                <span class="material-icons add" aria-hidden="true"></span>
+              </span>
+              button to create a new link for the given provider.</span
+            >
             <br />
-            You may remove existing links by selecting them and pressing the
-            "Delete" button.
+            <span data-i18n="link.remove_hint"
+              >You may remove existing links by selecting them and pressing the
+              "Delete" button.</span
+            >
           </p>
-          <p>
+          <p data-i18n-parts="link.more_information">
             See the
             <a
               is="emby-linkbutton"
               href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
               class="button-link"
+              data-i18n="link.homepage"
               >homepage</a
             >
             and
@@ -80,8 +85,9 @@
               is="emby-linkbutton"
               href="https://github.com/Flowfin/jellyfin-plugin-sso/issues"
               class="button-link"
-              >issue tracker
-            </a>
+              data-i18n="link.issue_tracker"
+              >issue tracker</a
+            >
             for more information.
           </p>
           <label class="checkbox-wrapper">
@@ -93,10 +99,14 @@
           <h1 class="sectionTitle" data-i18n="link.section_link_provider">
             Link a provider
           </h1>
-          <div class="verticalSection" title="Link a provider">
-            <h2 class="sectionTitle">SAML</h2>
+          <div
+            class="verticalSection"
+            title="Link a provider"
+            data-i18n-title="link.section_link_provider"
+          >
+            <h2 class="sectionTitle" data-i18n="link.protocol_saml">SAML</h2>
             <div id="sso-provider-list-saml" data-id="saml"></div>
-            <h2 class="sectionTitle">OID</h2>
+            <h2 class="sectionTitle" data-i18n="link.protocol_oid">OID</h2>
             <div id="sso-provider-list-oid" data-id="oid"></div>
           </div>
           <button

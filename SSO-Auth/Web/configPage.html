@@ -166,10 +166,11 @@
                 class="verticalSection"
                 is="emby-collapse"
                 title="About this plugin"
+                data-i18n-title="config.about_section"
               >
                 <div class="collapseContent">
                   <p>
-                    <i>Note:</i>
+                    <i data-i18n="config.about_note_label">Note:</i>
                     <span data-i18n="config.username_normalization_note"
                       >A provider username carrying characters Jellyfin does not
                       accept in an account name is normalized before a new
@@ -181,52 +182,66 @@
                       a later login resolves to.</span
                     >
                     <br />
-                    This plug-in is at the Release Candidate stage of its
-                    maturity ladder (In-Development &rarr; Alpha &rarr; Beta
-                    &rarr; Release Candidate &rarr; Full Release); not all
-                    configuration options are exposed in the UI yet.
-                    <br />
-                    See the
-                    <a
-                      is="emby-linkbutton"
-                      href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
-                      class="button-link"
-                      >help page</a
+                    <span data-i18n="config.about_maturity"
+                      >This plug-in is at the Release Candidate stage of its
+                      maturity ladder (In-Development &rarr; Alpha &rarr; Beta
+                      &rarr; Release Candidate &rarr; Full Release); not all
+                      configuration options are exposed in the UI yet.</span
                     >
-                    ,
-                    <a
-                      is="emby-linkbutton"
-                      href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code"
-                      class="button-link"
-                      >config as code</a
-                    >
-                    for declaring providers in a mounted file or in environment
-                    variables, and
-                    <a
-                      is="emby-linkbutton"
-                      href="https://github.com/users/iderex/projects/1"
-                      class="button-link"
-                      >roadmap
-                    </a>
-                    for more information.
                     <br />
-                    To allow users to manage their own SSO accounts, including
-                    linking SSO providers, and removing existing links, they
-                    need to visit
-                    <a
-                      is="emby-linkbutton"
-                      id="sso-self-service-link"
-                      class="button-link"
-                      >the self service page </a
-                    >. <br />
-                    You can use
-                    <a
-                      is="emby-linkbutton"
-                      href="https://jellyfin.org/docs/general/clients/web-config.html#custom-menu-links"
-                      class="button-link"
-                      >custom menu links
-                    </a>
-                    to accomplish this.
+                    <span data-i18n-parts="config.about_links"
+                      >See the
+                      <a
+                        is="emby-linkbutton"
+                        href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
+                        class="button-link"
+                        data-i18n="config.about_link_help"
+                        >help page</a
+                      >
+                      ,
+                      <a
+                        is="emby-linkbutton"
+                        href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code"
+                        class="button-link"
+                        data-i18n="config.about_link_config_as_code"
+                        >config as code</a
+                      >
+                      for declaring providers in a mounted file or in
+                      environment variables, and
+                      <a
+                        is="emby-linkbutton"
+                        href="https://github.com/users/iderex/projects/1"
+                        class="button-link"
+                        data-i18n="config.about_link_roadmap"
+                        >roadmap</a
+                      >
+                      for more information.</span
+                    >
+                    <br />
+                    <span data-i18n-parts="config.about_self_service"
+                      >To allow users to manage their own SSO accounts,
+                      including linking SSO providers, and removing existing
+                      links, they need to visit
+                      <a
+                        is="emby-linkbutton"
+                        id="sso-self-service-link"
+                        class="button-link"
+                        data-i18n="config.about_link_self_service"
+                        >the self service page</a
+                      >.</span
+                    >
+                    <br />
+                    <span data-i18n-parts="config.about_menu_links"
+                      >You can use
+                      <a
+                        is="emby-linkbutton"
+                        href="https://jellyfin.org/docs/general/clients/web-config.html#custom-menu-links"
+                        class="button-link"
+                        data-i18n="config.about_link_menu_links"
+                        >custom menu links</a
+                      >
+                      to accomplish this.</span
+                    >
                   </p>
                 </div>
               </div>
@@ -238,26 +253,31 @@
                   >
                 </summary>
                 <div class="fieldDescription">
-                  <p>
+                  <p data-i18n-parts="config.sso_only_intro">
                     An opt-in mode (<code>DisablePasswordLogin</code>) can
                     disable native username/password login so users must sign in
                     through SSO. Read these honest limits before enabling it:
                   </p>
                   <ul>
-                    <li>
-                      <strong>There is no global Jellyfin kill-switch.</strong>
+                    <li data-i18n-parts="config.sso_only_no_killswitch">
+                      <strong data-i18n="config.sso_only_no_killswitch_title"
+                        >There is no global Jellyfin kill-switch.</strong
+                      >
                       Jellyfin core has no server-wide "disable password login"
                       setting, and this plugin cannot intercept its password
-                      endpoint. The mode is enforced <em>per account</em> by
-                      repointing each user's authentication provider away from
-                      the built-in password provider. It is therefore
-                      <em
+                      endpoint. The mode is enforced
+                      <em data-i18n="config.sso_only_per_account"
+                        >per account</em
+                      >
+                      by repointing each user's authentication provider away
+                      from the built-in password provider. It is therefore
+                      <em data-i18n="config.sso_only_quoted_scope"
                         >"SSO-only for every account except a designated
                         break-glass admin"</em
                       >, not an absolute password kill-switch.
                     </li>
-                    <li>
-                      <strong
+                    <li data-i18n-parts="config.sso_only_breakglass">
+                      <strong data-i18n="config.sso_only_breakglass_title"
                         >A break-glass admin always keeps password
                         login.</strong
                       >
@@ -266,11 +286,14 @@
                       repointed, so it can always log in with a password even if
                       the identity provider is unreachable. Keep its password
                       strong and stored offline &mdash; it is the org's root of
-                      recovery. Enabling the mode is <em>refused</em> unless
-                      such an admin is provable.
+                      recovery. Enabling the mode is
+                      <em data-i18n="config.sso_only_refused">refused</em>
+                      unless such an admin is provable.
                     </li>
-                    <li>
-                      <strong>The mode is reversible without SSO.</strong>
+                    <li data-i18n-parts="config.sso_only_reversible">
+                      <strong data-i18n="config.sso_only_reversible_title"
+                        >The mode is reversible without SSO.</strong
+                      >
                       Turning it off restores native password routing for the
                       accounts the mode repointed and never resets or reveals
                       any password.
@@ -290,16 +313,19 @@
                       restored; accounts created by SSO keep their SSO-only
                       routing.
                     </li>
-                    <li>
-                      <strong>No separation of duties.</strong> Jellyfin has a
-                      single admin role, so one administrator can both design
-                      and activate this mode; the plugin cannot manufacture dual
-                      control. The toggle and the break-glass designation are
-                      elevation-gated and written to the ordinary Jellyfin log
-                      (which is not a tamper-evident audit trail).
+                    <li data-i18n-parts="config.sso_only_duties">
+                      <strong data-i18n="config.sso_only_duties_title"
+                        >No separation of duties.</strong
+                      >
+                      Jellyfin has a single admin role, so one administrator can
+                      both design and activate this mode; the plugin cannot
+                      manufacture dual control. The toggle and the break-glass
+                      designation are elevation-gated and written to the
+                      ordinary Jellyfin log (which is not a tamper-evident audit
+                      trail).
                     </li>
                   </ul>
-                  <p>
+                  <p data-i18n-parts="config.sso_only_endpoints">
                     The mode, its break-glass designation, and the reversible
                     off-switch are driven by the elevation-gated
                     <code>SSO-Only/Enable</code>, <code>SSO-Only/Disable</code>,
