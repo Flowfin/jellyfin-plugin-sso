@@ -138,7 +138,7 @@ public class AccountExpiryDeadlineStoreTests
         config.CanonicalLinkDeadlines["sub-1"] = Deadline;
         var service = LinkService(configuration);
 
-        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User);
+        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User, callerIsAdministrator: true);
 
         Assert.Empty(config.CanonicalLinkDeadlines);
     }
@@ -212,7 +212,7 @@ public class AccountExpiryDeadlineStoreTests
         service.RecordAccountDeadline(ProviderMode.Saml, "idp", "nameid-1", Deadline);
         Assert.Equal(Deadline, config.CanonicalLinkDeadlines["nameid-1"]);
 
-        service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", User);
+        service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", User, callerIsAdministrator: true);
         Assert.Empty(config.CanonicalLinkDeadlines);
     }
 

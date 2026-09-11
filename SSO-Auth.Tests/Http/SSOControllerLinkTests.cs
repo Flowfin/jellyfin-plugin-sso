@@ -65,6 +65,66 @@ public class SSOControllerLinkTests
     }
 
     [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfATimeLimitedLink_IsRefused_AndKeepsTheLink()
+    {
+        // #1647. The deadline lives on the link and the unlink prunes it with the link; a re-login then
+        // adopts the account by name with no duration wherever adoption is allowed. So the holder's own
+        // unlink was an exit from the very limit that admitted them, and it is refused with its reason,
+        // before anything is touched: no link removed, no deadline dropped, no token revoked.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: TimeLimited);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, refused.StatusCode);
+        Assert.Contains("deadline", Assert.IsType<string>(refused.Value), StringComparison.OrdinalIgnoreCase);
+        var config = harness.Configuration.OidConfigs["keycloak"];
+        Assert.Equal(Target, config.CanonicalLinks["sub-1"]);
+        Assert.True(config.CanonicalLinkDeadlines.ContainsKey("sub-1"));
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_AnAdministrator_RemovesATimeLimitedLink()
+    {
+        // The administrator keeps the route the holder lost: the refusal is about who asks, not about the
+        // link, and an administrator ending a guest's access early is the ordinary use of the unlink.
+        var harness = ForCaller(isAdmin: true, callerId: Other, configure: TimeLimited);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        Assert.IsType<OkResult>(result);
+        var config = harness.Configuration.OidConfigs["keycloak"];
+        Assert.False(config.CanonicalLinks.ContainsKey("sub-1"));
+        Assert.Empty(config.CanonicalLinkDeadlines);
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfAnOrdinaryLink_StillRemovesIt()
+    {
+        // The bound of #1647: a link with no deadline is the holder's to remove, exactly as before.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: c =>
+        {
+            TimeLimited(c);
+            c.OidConfigs["keycloak"].CanonicalLinkDeadlines.Clear();
+        });
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        Assert.IsType<OkResult>(result);
+        Assert.False(harness.Configuration.OidConfigs["keycloak"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    // One provider holding Target's link with a provisioned access deadline still ahead of it.
+    private static void TimeLimited(PluginConfiguration configuration)
+    {
+        var config = new OidConfig { Enabled = true };
+        config.CanonicalLinks["sub-1"] = Target;
+        config.CanonicalLinkDeadlines["sub-1"] = DateTime.UtcNow.AddHours(4);
+        configuration.OidConfigs["keycloak"] = config;
+    }
+
+    [Fact]
     public async Task AddCanonicalLink_AdminWithoutPreferenceAccess_Returns403()
     {
         // Pins the EnableUserPreferenceAccess term of AssertCanUpdateUser (#397 folded it from an

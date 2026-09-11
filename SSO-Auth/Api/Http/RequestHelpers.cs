@@ -54,4 +54,24 @@ internal static class RequestHelpers
         return (userId.Equals(auth.UserId) || authenticatedUser.HasPermission(PermissionKind.IsAdministrator))
             && authenticatedUser.EnableUserPreferenceAccess;
     }
+
+    /// <summary>
+    /// Whether the caller behind the request is an administrator, read from the resolved account and never
+    /// from anything the request asserts about itself (#1647). Fail-closed on an unresolved caller, for the
+    /// same reason <see cref="AssertCanUpdateUser"/> is: the answer gates a removal a non-administrator may
+    /// not make, so an ambiguous caller is not one.
+    /// </summary>
+    /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
+    /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
+    /// <returns>A <see cref="bool"/> whether the caller holds <see cref="PermissionKind.IsAdministrator"/>.</returns>
+    internal static async Task<bool> IsAdministrator(IAuthorizationContext authContext, HttpRequest requestContext)
+    {
+        if (authContext is null)
+        {
+            return false;
+        }
+
+        var auth = await authContext.GetAuthorizationInfo(requestContext).ConfigureAwait(false);
+        return auth?.User is { } authenticatedUser && authenticatedUser.HasPermission(PermissionKind.IsAdministrator);
+    }
 }
