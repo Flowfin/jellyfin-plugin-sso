@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Threading;
+using Jellyfin.Data.Events.Users;
+using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -39,6 +42,14 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // (#1145). Login-time enforcement (#1144) never fires for a guest who simply stops coming back, so
         // without a timer the deadline binds only those who return.
         serviceCollection.AddHostedService<AccountExpirySweepService>();
+
+        // Takes a deleted Jellyfin account's links with it, on the host's own deletion event (#1649). A
+        // link whose account is gone counts as absent, and the next login for its subject wrote the key
+        // again at another account with whatever the key still carried; removing the links at the source
+        // removes the state that made that possible. The host's event manager resolves every registered
+        // consumer of the closed event type from the container, which is why this is a registration and
+        // not a subscription.
+        serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, DeletedAccountLinkPruner>();
 
         // Keeps the login-page "Sign in with …" buttons (#722) in sync with the configured providers by
         // splicing a managed block into the server's branding login disclaimer on every config change.

@@ -1739,21 +1739,30 @@ internal sealed class CanonicalLinkService
     /// of links removed.
     /// </summary>
     /// <param name="userId">The Jellyfin user whose links are revoked.</param>
+    /// <param name="removedFrom">When given, receives every provider a link was removed from, labelled by protocol. Filled inside the same lock as the removal, so a line built from it names what this call removed and nothing a read before it saw (#1649).</param>
     /// <returns>The number of links removed.</returns>
-    internal int RemoveUserEverywhere(Guid userId)
+    internal int RemoveUserEverywhere(Guid userId, ICollection<string>? removedFrom = null)
     {
         return _configStore.Mutate(configuration =>
         {
             int removed = 0;
 
-            // One loop over both protocols' providers (covariant Concat over the shared base). Skip a
-            // provider stored with a null config object (reachable via #350); it holds no links to revoke,
-            // and dereferencing it would NRE into a 500 - the same fail-closed skip TryGetLinks uses.
-            foreach (var config in configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values))
+            // One loop over both protocols' providers, each with its name and protocol so the caller's audit
+            // line can say where a link was removed from. Skip a provider stored with a null config object
+            // (reachable via #350); it holds no links to revoke, and dereferencing it would NRE into a 500 -
+            // the same fail-closed skip TryGetLinks uses.
+            var providers = configuration.SamlConfigs.Select(p => (p.Key, Protocol: "SAML", Config: (ProviderConfigBase?)p.Value))
+                .Concat(configuration.OidConfigs.Select(p => (p.Key, Protocol: "OpenID", Config: (ProviderConfigBase?)p.Value)));
+            foreach (var (name, protocol, config) in providers)
             {
                 if (config?.CanonicalLinks is { } links)
                 {
-                    removed += CanonicalLinkRevoker.RemoveUser(links, userId);
+                    var here = CanonicalLinkRevoker.RemoveUser(links, userId);
+                    removed += here;
+                    if (here > 0)
+                    {
+                        removedFrom?.Add(protocol + " '" + name + "'");
+                    }
                 }
 
                 // Prune orphaned OpenID issuer entries (#186): after the revoke, any issuer keyed on a sub
