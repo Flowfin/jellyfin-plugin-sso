@@ -765,7 +765,24 @@ const ssoConfigurationPage = {
       list.appendChild(card);
     });
   },
+  // ONE WORKSPACE AT A TIME (#1527), and the two lines that enforce it are here and at showSamlEditor.
+  //
+  // This page carries two protocol editors side by side and each one has its own Save. Opening one while
+  // the other is open put BOTH on the screen, under a single page-wide unsaved-changes notice that cannot
+  // say which of the two it is about - so the reader is shown two buttons and told, once, that something
+  // is unsaved. Read off a live Jellyfin 12 during the stage-1 walk: an OpenID provider opened beside a
+  // SAML one gave a 21163px page carrying #SaveProvider and #saml-SaveProvider at the same time.
+  //
+  // CLOSING THE OTHER ONE RATHER THAN REFUSING TO OPEN THIS ONE, because opening an editor is ALREADY an
+  // act that discards: openProvider and addProvider both call resetEditor before they fill, so switching
+  // provider within a protocol drops whatever was typed and marks the page clean again. Crossing the
+  // protocol boundary is the same act and now behaves the same way, rather than being the one direction
+  // that quietly keeps a second form alive.
+  //
+  // Both editors ship in the same markup - providersPage.html is the only page that declares either - so
+  // the sibling lookup is as safe as the one on the line below it, and a page missing one is missing both.
   showEditor: (page) => {
+    ssoConfigurationPage.hideSamlEditor(page);
     page.querySelector("#sso-editor").hidden = false;
   },
   hideEditor: (page) => {
@@ -4347,7 +4364,9 @@ const ssoConfigurationPage = {
       list.appendChild(card);
     });
   },
+  // The other half of the one-workspace rule stated at showEditor (#1527).
   showSamlEditor: (page) => {
+    ssoConfigurationPage.hideEditor(page);
     page.querySelector("#saml-editor").hidden = false;
   },
   hideSamlEditor: (page) => {
