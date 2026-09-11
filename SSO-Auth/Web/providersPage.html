@@ -2028,7 +2028,12 @@
                   >
                     <div class="collapseContent">
                       <div class="sso-security-block">
-                        <p class="sso-subgroup-title">Hardening</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.security_hardening_heading"
+                        >
+                          Hardening
+                        </p>
                         <div
                           class="checkboxContainer checkboxContainer-withDescription"
                         >
@@ -2040,10 +2045,13 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span>Require PKCE (S256)</span>
+                            <span data-i18n="config.require_pkce_label"
+                              >Require PKCE (S256)</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.require_pkce_help"
                           >
                             Refuse login unless the provider's discovery
                             document advertises PKCE (S256) in
@@ -2055,11 +2063,17 @@
                       </div>
 
                       <div class="sso-security-block">
-                        <p class="sso-subgroup-title">Step-up / MFA</p>
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.security_stepup_heading"
+                        >
+                          Step-up / MFA
+                        </p>
                         <div class="inputContainer">
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="AcrValues"
+                            data-i18n="config.acr_values_label"
                             >Acr Values:</label
                           >
                           <input
@@ -2068,7 +2082,10 @@
                             type="text"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n="config.acr_values_help"
+                          >
                             Space-separated acr_values sent on the authorization
                             request (OIDC Core §3.1.2.1), most-preferred first:
                             the requested authentication-context references
@@ -2082,6 +2099,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="Prompt"
+                            data-i18n="config.prompt_label"
                             >Prompt:</label
                           >
                           <input
@@ -2090,7 +2108,10 @@
                             type="text"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.prompt_help"
+                          >
                             OIDC prompt parameter, e.g. <code>login</code> to
                             force re-authentication or <code>consent</code>.
                             Leave blank to omit it.
@@ -2100,6 +2121,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="MaxAge"
+                            data-i18n="config.max_age_label"
                             >Max Age (seconds):</label
                           >
                           <input
@@ -2109,7 +2131,10 @@
                             min="0"
                             class="sso-text"
                           />
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.max_age_help"
+                          >
                             OIDC max_age: the maximum time (seconds) since the
                             user's last active authentication;
                             <code>0</code> forces re-authentication. Leave blank
@@ -2127,10 +2152,13 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span>Require Acr (enforce step-up / MFA)</span>
+                            <span data-i18n="config.require_acr_label"
+                              >Require Acr (enforce step-up / MFA)</span
+                            >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.require_acr_help"
                           >
                             Refuse any login whose verified id_token does not
                             return an acr within Acr Values above: a fail-closed
@@ -2143,7 +2171,10 @@
                       </div>
 
                       <div class="sso-security-block sso-sensitive-region">
-                        <p class="sso-subgroup-title">
+                        <p
+                          class="sso-subgroup-title"
+                          data-i18n="config.security_adoption_heading"
+                        >
                           Account adoption (sensitive)
                         </p>
                         <div
@@ -2157,13 +2188,14 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span
+                            <span data-i18n="config.allow_adoption_label"
                               >Allow Adopting Existing Accounts
                               (Sensitive)</span
                             >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n-parts="config.allow_adoption_help"
                           >
                             ⚠ Sensitive: lets a first SSO login adopt (take
                             over) a pre-existing, unlinked Jellyfin account
@@ -2175,6 +2207,7 @@
                               is="emby-linkbutton"
                               href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
                               class="button-link"
+                              data-i18n="config.link_wiki"
                               >wiki</a
                             >, then turn it back off. A name-matched
                             administrator account is never adopted regardless of
@@ -2194,27 +2227,30 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span
+                            <span data-i18n="config.provision_disabled_label"
                               >Provision New Users Disabled (Pending
                               Approval)</span
                             >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n-parts="config.provision_disabled_help"
                           >
                             When the identity provider's audience is broader
                             than your intended Jellyfin audience: an unknown
                             identity's first successful SSO login creates its
                             account
-                            <strong>disabled, with no permissions</strong>, and
-                            the login is refused with an "awaiting administrator
-                            approval" message instead of a session. Approve the
-                            account by enabling it in the Jellyfin dashboard
-                            (Administration → Users). Off by default (new
-                            accounts are created enabled). This never disables
-                            an existing or adopted account, only a brand-new
-                            one, and each deferred provisioning is recorded as
-                            an audit event.
+                            <strong
+                              data-i18n="config.provision_disabled_emphasis"
+                              >disabled, with no permissions</strong
+                            >, and the login is refused with an "awaiting
+                            administrator approval" message instead of a
+                            session. Approve the account by enabling it in the
+                            Jellyfin dashboard (Administration → Users). Off by
+                            default (new accounts are created enabled). This
+                            never disables an existing or adopted account, only
+                            a brand-new one, and each deferred provisioning is
+                            recorded as an audit event.
                           </div>
                         </div>
 
@@ -2229,28 +2265,30 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span
+                            <span data-i18n="config.follow_renames_label"
                               >Follow Username Renames From The Provider</span
                             >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n-parts="config.follow_renames_help"
                           >
                             When someone is renamed at the identity provider,
                             rename their Jellyfin account to match on their next
                             SSO login. Off by default, in which case the
                             Jellyfin name stays as it was and the two drift
                             apart. This changes the
-                            <strong>display name only</strong>: the account is
-                            found by its stable subject identifier either way,
-                            so turning this on cannot change which account a
-                            login reaches. The new name is cleaned up the same
-                            way a newly created one is. If another Jellyfin
-                            account already holds the name, the rename is
-                            skipped and both accounts keep their names. A rename
-                            that fails for any other reason is logged and the
-                            login still succeeds. Each rename is recorded as an
-                            audit event.
+                            <strong data-i18n="config.follow_renames_emphasis"
+                              >display name only</strong
+                            >: the account is found by its stable subject
+                            identifier either way, so turning this on cannot
+                            change which account a login reaches. The new name
+                            is cleaned up the same way a newly created one is.
+                            If another Jellyfin account already holds the name,
+                            the rename is skipped and both accounts keep their
+                            names. A rename that fails for any other reason is
+                            logged and the login still succeeds. Each rename is
+                            recorded as an audit event.
                           </div>
                         </div>
 
@@ -2266,12 +2304,14 @@
                               class="sso-toggle"
                             />
                             <span
+                              data-i18n="config.require_verified_email_adoption_label"
                               >Require Verified Email For Adoption
                               (Sensitive)</span
                             >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.require_verified_email_adoption_help"
                           >
                             ⚠ Sensitive: only meaningful with Allow Adopting
                             Existing Accounts above. Additionally requires the
@@ -2299,12 +2339,14 @@
                               class="sso-toggle"
                             />
                             <span
+                              data-i18n="config.require_verified_email_login_label"
                               >Require Verified Email For Login
                               (Sensitive)</span
                             >
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
+                            data-i18n="config.require_verified_email_login_help"
                           >
                             ⚠ Sensitive: requires every OpenID login for this
                             provider to carry a provider-verified email
@@ -2325,10 +2367,16 @@
                       </div>
 
                       <div class="sso-security-block sso-danger-zone">
-                        <p class="sso-subgroup-title sso-danger-title">
+                        <p
+                          class="sso-subgroup-title sso-danger-title"
+                          data-i18n="config.security_insecure_heading"
+                        >
                           Insecure options
                         </p>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.insecure_options_help"
+                        >
                           These options disable OpenID Connect security
                           defenses. Enable one only if your provider genuinely
                           requires it; each is recorded as an audit warning.
@@ -2341,7 +2389,9 @@
                           aria-expanded="false"
                           aria-controls="sso-insecure-options"
                         >
-                          <span>Show insecure options</span>
+                          <span data-i18n="config.insecure_show"
+                            >Show insecure options</span
+                          >
                         </button>
 
                         <div
@@ -2360,12 +2410,13 @@
                                 type="checkbox"
                                 class="sso-toggle"
                               />
-                              <span
+                              <span data-i18n="config.disable_https_label"
                                 >Disable OpenID HTTPS Discovery (Insecure)</span
                               >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n="config.disable_https_help"
                             >
                               ⚠ Insecure: drops TLS on the discovery, JWKS and
                               token endpoints, so the id_token signing keys can
@@ -2385,7 +2436,7 @@
                                 type="checkbox"
                                 class="sso-toggle"
                               />
-                              <span
+                              <span data-i18n="config.disable_par_label"
                                 >Disable Pushed Authorization (Insecure). May be
                                 needed for Authelia.</span
                               >
@@ -2407,12 +2458,14 @@
                                 class="sso-toggle"
                               />
                               <span
+                                data-i18n="config.no_validate_endpoints_label"
                                 >Do Not Validate OpenID Endpoints
                                 (Insecure)</span
                               >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n="config.no_validate_endpoints_help"
                             >
                               ⚠ Insecure: disables endpoint-origin validation (a
                               mix-up defense). May be required for Google
@@ -2433,12 +2486,14 @@
                                 class="sso-toggle"
                               />
                               <span
+                                data-i18n="config.allow_private_network_label"
                                 >Allow Private Network Addresses
                                 (Insecure)</span
                               >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n="config.allow_private_network_help"
                             >
                               ⚠ Insecure: relaxes the outbound SSRF / DNS-rebind
                               guard for this provider, allowing connection to an
@@ -2462,13 +2517,14 @@
                                 type="checkbox"
                                 class="sso-toggle"
                               />
-                              <span
+                              <span data-i18n="config.no_validate_issuer_label"
                                 >Do Not Validate OpenID Issuer Name
                                 (Insecure)</span
                               >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n="config.no_validate_issuer_help"
                             >
                               ⚠ Insecure: disables matching the discovery
                               issuer, a mix-up defense. Only for a provider that
@@ -2490,12 +2546,14 @@
                                 class="sso-toggle"
                               />
                               <span
+                                data-i18n="config.no_validate_response_issuer_label"
                                 >Do Not Validate Authorization-Response Issuer
                                 (Insecure)</span
                               >
                             </label>
                             <div
                               class="fieldDescription checkboxFieldDescription"
+                              data-i18n-parts="config.no_validate_response_issuer_help"
                             >
                               ⚠ Insecure: disables the RFC 9207 <code>iss</code>
                               check, an OpenID Connect mix-up defense. Only for
@@ -2526,13 +2584,19 @@
                         >Test Connection</span
                       >
                     </button>
-                    <div class="fieldDescription">
-                      Validates the <strong>saved</strong> provider: the server
-                      fetches the OpenID discovery document over the same
-                      hardened, HTTPS-checked path the login uses and reports
-                      the issuer, endpoints and JWKS reachability. Save the
-                      provider first. Requires administrator privileges; the
-                      client secret is never shown.
+                    <div
+                      class="fieldDescription"
+                      data-i18n-parts="config.oid_test_help"
+                    >
+                      Validates the
+                      <strong data-i18n="config.test_saved_emphasis"
+                        >saved</strong
+                      >
+                      provider: the server fetches the OpenID discovery document
+                      over the same hardened, HTTPS-checked path the login uses
+                      and reports the issuer, endpoints and JWKS reachability.
+                      Save the provider first. Requires administrator
+                      privileges; the client secret is never shown.
                     </div>
                     <div id="TestResult"></div>
                   </div>
