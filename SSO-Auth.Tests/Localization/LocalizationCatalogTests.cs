@@ -132,25 +132,49 @@ public class LocalizationCatalogTests
      * result is trimmed, because the markup's own indentation before the first child and after the last is
      * not part of the sentence.
      *
-     * `nested` names a direct child that itself contains an element. Such a child is not wrong for the
-     * APPLIER - it moves whole nodes and never looks inside one - but it is wrong for a translator, who
-     * gets a slot whose content they cannot see and cannot reorder within. The rule below refuses it, and
-     * this walk is what lets it say which child.
+     * `unreachable` names a direct child that holds BOTH markup of its own AND text. Such a child is not
+     * wrong for the APPLIER - it moves whole nodes and never looks inside one - but its text cannot be
+     * translated by anything: a text marker on it is refused by the rule below this one, because that
+     * marker assigns textContent and would delete the markup, and a parts marker on it would have to be
+     * placed by someone who can see it from outside, which is the position this rule exists to prevent.
+     *
+     * A child holding markup and NO text is fine and is deliberately allowed: the self-service page puts
+     * an icon in the middle of a sentence, and an icon is two nested spans with nothing to read. A slot a
+     * translator cannot see inside is only a problem when there is something inside to see.
      */
-    private static (string Assembled, int Slots, List<string> Nested) AssembleParts(string content, int contentStart, string outerTag)
+    private static (string Assembled, int Slots, List<string> Unreachable) AssembleParts(string content, int contentStart, string outerTag)
     {
         var assembled = new System.Text.StringBuilder();
-        var nested = new List<string>();
+        var unreachable = new List<string>();
         var depth = 0;
         var slots = 0;
         var at = contentStart;
         string? openChild = null;
+        var childHasMarkup = false;
+        var childHasText = false;
+
+        void CloseChild()
+        {
+            if (openChild is not null && childHasMarkup && childHasText)
+            {
+                unreachable.Add(openChild);
+            }
+
+            openChild = null;
+            childHasMarkup = false;
+            childHasText = false;
+        }
 
         foreach (Match tag in AnyTagPattern.Matches(content, contentStart))
         {
+            var between = content[at..tag.Index];
             if (depth == 0)
             {
-                assembled.Append(Regex.Replace(content[at..tag.Index], @"\s+", " "));
+                assembled.Append(Regex.Replace(between, @"\s+", " "));
+            }
+            else if (between.Trim().Length > 0)
+            {
+                childHasText = true;
             }
 
             at = tag.Index + tag.Length;
@@ -170,7 +194,7 @@ public class LocalizationCatalogTests
                 depth--;
                 if (depth == 0)
                 {
-                    openChild = null;
+                    CloseChild();
                 }
             }
             else if (selfClosing)
@@ -178,6 +202,10 @@ public class LocalizationCatalogTests
                 if (depth == 0)
                 {
                     assembled.Append('{').Append(slots++).Append('}');
+                }
+                else
+                {
+                    childHasMarkup = true;
                 }
             }
             else
@@ -187,17 +215,16 @@ public class LocalizationCatalogTests
                     assembled.Append('{').Append(slots++).Append('}');
                     openChild = name;
                 }
-                else if (openChild is not null)
+                else
                 {
-                    nested.Add(openChild);
-                    openChild = null;
+                    childHasMarkup = true;
                 }
 
                 depth++;
             }
         }
 
-        return (DecodeEntities(CollapseWhitespace(assembled.ToString())), slots, nested);
+        return (DecodeEntities(CollapseWhitespace(assembled.ToString())), slots, unreachable);
     }
 
     // The assets that CONSUME the catalog. Excluded are the vendored Jellyfin client bundles (third-party
@@ -372,19 +399,22 @@ public class LocalizationCatalogTests
         // markup's own English is the offline rendering and a drift means two readers see two sentences.
         // Every child must be named exactly once, because a value naming fewer leaves a `<code>` out of
         // the translated sentence and a value naming more asks for a node that does not exist - in both
-        // cases applyParts refuses and the whole sentence silently stays English. And no child may itself
-        // contain an element, because a slot a translator cannot see inside is a slot they cannot place.
+        // cases applyParts refuses and the whole sentence silently stays English. And no child may hold
+        // markup AND text at once, because nothing could then translate that text: a text marker on it is
+        // refused for deleting the markup, and a parts marker on it cannot be placed from outside. Markup
+        // with no text is fine and is allowed on purpose - the self-service page puts an icon in the middle
+        // of a sentence, and an icon is nested spans with nothing to read.
         var english = ReadCatalog(EnglishResource);
         var problems = new List<string>();
 
         foreach (var (resource, content, match) in ScanHtmlAssets(PartsElementPattern, "parts-marker"))
         {
             var key = match.Groups["key"].Value;
-            var (assembled, slots, nested) = AssembleParts(content, match.Index + match.Length, match.Groups["tag"].Value);
+            var (assembled, slots, unreachable) = AssembleParts(content, match.Index + match.Length, match.Groups["tag"].Value);
 
-            if (nested.Count > 0)
+            if (unreachable.Count > 0)
             {
-                problems.Add($"{resource}: '{key}' - the child <{string.Join(">, <", nested)}> holds markup of its own, so its slot cannot be read or placed by a translator");
+                problems.Add($"{resource}: '{key}' - the child <{string.Join(">, <", unreachable)}> holds markup AND text of its own, so nothing can translate that text: a text marker there would delete the markup and a parts marker there cannot be placed from outside");
             }
 
             if (!english.TryGetValue(key, out var catalogValue))
