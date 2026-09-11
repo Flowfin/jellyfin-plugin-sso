@@ -82,6 +82,14 @@ jobs:
       # down without lowering the pin leaves slack the next one hides in. Same runtime and same absence of
       # dependencies as the three steps above.
       run: node tools/ui-untranslated.js
+    - name: Template text that bypasses the translation catalog
+      # The step above reached zero and asks only about the SCRIPTS. Text written between two tags is not
+      # a literal in a bundle, so no amount of scanning JavaScript finds it, and the walk of 2026-09-11
+      # read a de-DE client showing five pages of mixed language while every localization check in the
+      # tree was green (#1529). This counts the TEXT RUNS and the localizable attributes the six templates
+      # show without a marker, and ratchets them the same way. Same runtime and same absence of
+      # dependencies as the four steps above.
+      run: node tools/ui-untranslated-markup.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
