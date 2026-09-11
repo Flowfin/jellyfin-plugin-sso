@@ -1565,7 +1565,15 @@ internal sealed class CanonicalLinkService
             // controls, so the pre-provision entry point refuses it and leaves the existing link intact.
             // Repeating the SAME mapping is not a rebind and stays a success, so a tool that retries a
             // request whose response it never saw does not have to distinguish the two.
-            if (refuseRebind && links.TryGetValue(providerUserId, out var held) && held != jellyfinUserId)
+            // WHETHER THE KEY CHANGES HANDS is read once, before the write, and decides two things below: the
+            // rebind refusal, and what the write leaves of the entries the key carried. A repeat of the SAME
+            // mapping - the pre-provision retry after a lost response, or a user re-linking their own
+            // subject to their own account from the self-service page - changes nothing about who holds
+            // the key, and must not be told apart from a repoint by what it takes away.
+            var holds = links.TryGetValue(providerUserId, out var held);
+            var sameHolder = holds && held == jellyfinUserId;
+
+            if (refuseRebind && holds && !sameHolder)
             {
                 return CanonicalLinkWriteResult.ConflictingUser;
             }
@@ -1573,12 +1581,21 @@ internal sealed class CanonicalLinkService
             links[providerUserId] = jellyfinUserId;
             StampIssuerInPlace(configuration, mode, provider, providerUserId, issuer);
 
-            // A manual link is not this plugin provisioning an account inert, so any pending-approval
-            // record under this key is about the account the key held before and goes with it (#1529).
-            // TryCreateLink repoints on purpose, so this is the one of the two entry points that can land
-            // on a key that carries one; the clear is written for both, because a rule that only holds on
-            // the arm somebody remembered is not a rule.
-            RemovePendingApproval(configuration, mode, provider, providerUserId);
+            // THE ENTRIES THE KEY CARRIED GO ONLY WHEN THE KEY CHANGES HANDS (#1529, #1638). A repoint puts a
+            // different account behind the key, and whatever the key held was the previous account's: a
+            // pending-approval record about it, a deadline that would have the sweep disable the newly
+            // linked account at the previous holder's expiry, a last-login stamp that would put the previous
+            // holder's sign-in on the new account's roster row. A same-mapping write keeps all three, because
+            // they are this account's - and the deadline in particular is the one thing a time-limited user
+            // must not be able to shed by re-linking themselves. TryCreateLink repoints on purpose, so it is
+            // the entry point that can land on another account's entries; the rule is written for both.
+            if (!sameHolder)
+            {
+                RemovePendingApproval(configuration, mode, provider, providerUserId);
+                RemoveDeadline(configuration, mode, provider, providerUserId);
+                RemoveLastSsoLogin(configuration, mode, provider, providerUserId);
+            }
+
             return CanonicalLinkWriteResult.Created;
         });
     }
@@ -2120,7 +2137,14 @@ internal sealed class CanonicalLinkService
                 // link, never re-enters this branch, and leaves the recorded deadline exactly where it is. A
                 // sliding deadline is the one defect this direction of the feature can have, and this is the
                 // single place it is prevented rather than a rule restated at each caller.
-                StampProvisionedDeadlineInPlace(configuration, mode, provider, canonicalKey, provisionedAccessDuration);
+                RecordProvisionedDeadlineInPlace(configuration, mode, provider, canonicalKey, provisionedAccessDuration);
+
+                // And the last-SSO-login stamp goes (#1638), for the same reason the deadline is a set-or-clear:
+                // a key written here held no live link, so a stamp still under it is the previous holder's,
+                // and the roster would show that account's last sign-in on the row of the account that just
+                // arrived - one account's data on another's row. The link written here has had no login yet;
+                // the stamp is written after the mint, by the login that earns it.
+                RemoveLastSsoLogin(configuration, mode, provider, canonicalKey);
 
                 // A link written by a login that provisioned its account INERT carries the pending-approval
                 // record (#1529), written in the same transaction as the link for the same reason the
@@ -2185,6 +2209,15 @@ internal sealed class CanonicalLinkService
                 // account inert, which is the only thing that may leave a record behind.
                 RemovePendingApproval(configuration, mode, provider, canonicalKey);
                 RemovePendingApproval(configuration, mode, provider, legacyKey);
+
+                // The deadline and the last-login stamp as well, on both keys (#1638). The subject key is
+                // overwritten here only when it dangles, so anything under it was a deleted account's; the
+                // legacy key has no link left to explain an entry, and a deadline stranded there would be
+                // inert only until something wrote that key again.
+                RemoveDeadline(configuration, mode, provider, canonicalKey);
+                RemoveDeadline(configuration, mode, provider, legacyKey);
+                RemoveLastSsoLogin(configuration, mode, provider, canonicalKey);
+                RemoveLastSsoLogin(configuration, mode, provider, legacyKey);
                 return legacyUserId;
             }
 
@@ -2424,19 +2457,30 @@ internal sealed class CanonicalLinkService
     // and a value hand-edited into the config XML reaches this line without passing the save path at all. A
     // duration outside the bounds stamps NOTHING rather than throwing, so the login still succeeds and the
     // account simply carries no deadline - which is exactly what the same provider does today.
-    private void StampProvisionedDeadlineInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, TimeSpan? provisionedAccessDuration)
+    private void RecordProvisionedDeadlineInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, TimeSpan? provisionedAccessDuration)
     {
-        if (provisionedAccessDuration is not { } duration
-            || duration <= TimeSpan.Zero
-            || duration > TimeSpan.FromHours(GuestAccessDurationRoleMap.MaxDurationHours))
+        if (!TryGetProvider(configuration, mode, provider, out var config))
         {
             return;
         }
 
-        if (TryGetProvider(configuration, mode, provider, out var config))
+        // A SET-OR-CLEAR, not a stamp (#1638). This runs inside the branch that has just written the link,
+        // and a link is written over a key only when the key held no LIVE link - which includes a link whose
+        // account was deleted. That account's deadline is still in the map, and left there a login that
+        // carried no duration would inherit it: the sweep reads a deadline's account off the CURRENT link
+        // map, so the next tick would disable an account that is minutes old for an expiry nobody granted
+        // it. A write with no usable duration therefore removes what it found, and a write with one
+        // replaces it; a second login of a linked account never reaches this branch and leaves the recorded
+        // deadline exactly where it is.
+        if (provisionedAccessDuration is not { } duration
+            || duration <= TimeSpan.Zero
+            || duration > TimeSpan.FromHours(GuestAccessDurationRoleMap.MaxDurationHours))
         {
-            config.CanonicalLinkDeadlines[canonicalKey] = _clock().ToUniversalTime() + duration;
+            config.CanonicalLinkDeadlines.Remove(canonicalKey);
+            return;
         }
+
+        config.CanonicalLinkDeadlines[canonicalKey] = _clock().ToUniversalTime() + duration;
     }
 
     // Drops an OpenID link's issuer entry within the caller's already-held config transaction (#186), called
