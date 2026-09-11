@@ -129,9 +129,13 @@
                   class="verticalSection"
                   is="emby-collapse"
                   title="Export / Import Configuration"
+                  data-i18n-title="config.server_transfer_section"
                 >
                   <div class="collapseContent">
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.server_transfer_help"
+                    >
                       Export downloads a redacted copy of this plugin's
                       configuration (provider secrets and account links are
                       never included). Import merges an exported file into this
@@ -150,7 +154,9 @@
                       type="button"
                       class="raised button-submit block emby-button"
                     >
-                      <span>Export Configuration</span>
+                      <span data-i18n="config.server_export"
+                        >Export Configuration</span
+                      >
                     </button>
 
                     <input
@@ -165,7 +171,9 @@
                       type="button"
                       class="raised button-alt block emby-button"
                     >
-                      <span>Import Configuration</span>
+                      <span data-i18n="config.server_import"
+                        >Import Configuration</span
+                      >
                     </button>
 
                     <div id="ConfigTransferResult"></div>
@@ -186,6 +194,7 @@
                   class="verticalSection"
                   is="emby-collapse"
                   title="Login Page Buttons"
+                  data-i18n-title="config.server_login_buttons_section"
                 >
                   <div class="collapseContent">
                     <div
@@ -198,9 +207,14 @@
                           name="ManageLoginPageButtons"
                           type="checkbox"
                         />
-                        <span>Manage login buttons on the login page</span>
+                        <span data-i18n="config.server_login_buttons_label"
+                          >Manage login buttons on the login page</span
+                        >
                       </label>
-                      <div class="fieldDescription checkboxFieldDescription">
+                      <div
+                        class="fieldDescription checkboxFieldDescription"
+                        data-i18n="config.server_login_buttons_help"
+                      >
                         Off by default: the plugin never touches the server's
                         login branding unless you opt in here. When on, a
                         managed "Sign in with …" block, one button per enabled
@@ -229,6 +243,7 @@
                   class="verticalSection"
                   is="emby-collapse"
                   title="Single Logout"
+                  data-i18n-title="config.server_slo_section"
                 >
                   <div class="collapseContent">
                     <div
@@ -241,9 +256,14 @@
                           name="EnableSingleLogout"
                           type="checkbox"
                         />
-                        <span>Enable Single Logout</span>
+                        <span data-i18n="config.server_slo_label"
+                          >Enable Single Logout</span
+                        >
                       </label>
-                      <div class="fieldDescription checkboxFieldDescription">
+                      <div
+                        class="fieldDescription checkboxFieldDescription"
+                        data-i18n="config.server_slo_help"
+                      >
                         Off by default. When on, each successful login stores
                         the per-session state a logout needs, and two logout
                         surfaces become active: the RP-initiated OpenID logout
