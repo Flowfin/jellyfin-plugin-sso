@@ -91,6 +91,28 @@ public class LocalizationCatalogTests
     // A numbered slot in a parts value, which is what distinguishes one from an ordinary catalog entry.
     private static readonly Regex PlaceholderIndexPattern = new(@"\{(?<index>\d+)\}", RegexOptions.Compiled);
 
+    // Pairs where one English value contains another and does NOT name it as a label, each with the
+    // reason (#1529). Read by ATranslationNamesALabelByItsOwnTranslatedName, which would otherwise
+    // require the translations to nest the same way the English happens to.
+    private static readonly (string Naming, string Label, string Why)[] NotAReference =
+    [
+        (
+            "config.redirect_uri_copied",
+            "config.readiness_redirect_row",
+            "\"Redirect URI copied to the clipboard.\" is about the VALUE that was copied, not about the readiness row that happens to be headed with the same two words. The German calls the value a Rueckleitungsadresse throughout and the row keeps the spelling an identity provider's own console uses."
+        ),
+        (
+            "config.readiness_test_pass",
+            "config.test_connection",
+            "\"The last Test Connection reached this provider.\" reports what a past run DID; it does not send anybody to the button. German turns the act into a noun there - der letzte Verbindungstest - and requiring the imperative button name inside it would produce a sentence no German speaker writes."
+        ),
+        (
+            "config.readiness_test_fail",
+            "config.test_connection",
+            "The same sentence in the negative, and the same reason."
+        ),
+    ];
+
     // A script element with its content, so markup can be inspected without reading JavaScript.
     private static readonly Regex ScriptBlockPattern = new(@"<script\b[^>]*>.*?</script>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
@@ -621,6 +643,74 @@ public class LocalizationCatalogTests
             .ToList();
 
         Assert.True(duplicates.Count == 0, "duplicate English values: " + string.Join(" | ", duplicates));
+    }
+
+    [Fact]
+    public void ATranslationNamesALabelByItsOwnTranslatedName()
+    {
+        /*
+         * A help text that tells the reader to press a button must call that button what the button
+         * calls itself (#1529). Eight rows told a German reader to use "Verbindung testen" while the
+         * button said "Verbindung pruefen", two sent them to a picker under a name it no longer had, and
+         * a preset note quoted a checkbox by the wrong word. Every one of those passed every check this
+         * file had: the key sets matched, no value was blank, no English value was duplicated. What no
+         * rule asked was whether the catalogue AGREES WITH ITSELF.
+         *
+         * THE REFERENCE IS FOUND IN THE ENGLISH, which is what makes this checkable at all. If one
+         * English value contains another whole English value, the second is a label the first names -
+         * and then the translation of the first has to contain the translation of the second. The
+         * German is free to move it, inflect around it or quote it; it is not free to invent a second
+         * name for the same control.
+         *
+         * TWO BOUNDS KEEP IT FROM CRYING WOLF, and both are about telling a REFERENCE from a
+         * coincidence. A label under twelve characters is too short to be named on purpose - "Save"
+         * appears inside prose that is not about the Save button. And the naming text must be at least
+         * three times the length of the label, because two titles that share a word are not a reference:
+         * "Export / Import Configuration" contains "Import Configuration" and neither names the other.
+         *
+         * WHAT IS LEFT OVER IS A LIST, because a sentence can legitimately contain a label's words
+         * without naming the label. Each entry says which pair and why.
+         */
+        var english = ReadCatalog(EnglishResource);
+        var problems = new List<string>();
+
+        foreach (var culture in CommittedCultures.Where(name => !string.Equals(name, "en", System.StringComparison.Ordinal)))
+        {
+            var other = ReadCatalog(ResourcePrefix + culture + ResourceSuffix);
+
+            foreach (var (labelKey, labelEnglish) in english)
+            {
+                if (labelEnglish.Length < 12 || labelEnglish.Length > 60)
+                {
+                    continue;
+                }
+
+                foreach (var (namingKey, namingEnglish) in english)
+                {
+                    if (string.Equals(namingKey, labelKey, System.StringComparison.Ordinal)
+                        || namingEnglish.Length < 3 * labelEnglish.Length
+                        || !namingEnglish.Contains(labelEnglish, System.StringComparison.Ordinal)
+                        || NotAReference.Any(pair => pair.Naming == namingKey && pair.Label == labelKey))
+                    {
+                        continue;
+                    }
+
+                    if (!other.TryGetValue(namingKey, out var namingTranslated)
+                        || !other.TryGetValue(labelKey, out var labelTranslated))
+                    {
+                        // A missing key is the key-set rule's finding, not this one's.
+                        continue;
+                    }
+
+                    if (!namingTranslated.Contains(labelTranslated, System.StringComparison.Ordinal))
+                    {
+                        problems.Add($"{culture}: '{namingKey}' names '{labelKey}', which reads \"{labelTranslated}\", but says something else");
+                    }
+                }
+            }
+        }
+
+        Assert.True(problems.Count == 0, "These translations name a label by a name it does not have: " + string.Join(" | ", problems));
     }
 
     [Fact]
