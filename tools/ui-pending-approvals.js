@@ -414,6 +414,81 @@ function render(roster) {
   }
 }
 
+// ---- Arm: one row per account, whatever the links say ----
+{
+  const twice = {
+    Accounts: [
+      {
+        Username: "dora",
+        UserId: "4",
+        AccountExists: true,
+        Links: [
+          link("keycloak", "OpenID", "dora@example.com", true),
+          link("adfs", "SAML", "S-1-5-21/dora", true),
+        ],
+      },
+    ],
+  };
+  const { rows } = render(twice);
+  if (rows.length !== 1) {
+    refuse(
+      "one-per-account",
+      `${rows.length} rows drawn for one account waiting through two providers; the panel counts accounts, and its sentences say so`,
+    );
+  }
+}
+
+// ---- Arm: a 403 with some other body is NOT the administrator refusal ----
+{
+  answers.fetch = () =>
+    Promise.reject({
+      status: 403,
+      text: () =>
+        Promise.resolve(
+          "Forbidden by policy: the administrator of this proxy has blocked the request.",
+        ),
+    });
+  const { rows, nodes } = render(ROSTER);
+  rows[0].all("button")[0].click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const said = nodes.PendingApprovalsActionResult.textContent;
+  if (/is an administrator/i.test(said)) {
+    refuse(
+      "other-403",
+      `a 403 whose body merely contains the word was reported as the endpoint's administrator refusal: "${said}"`,
+    );
+  }
+}
+
+// ---- Arm: a 204 for an account that is gone is not reported as an approval ----
+{
+  const reads = [];
+  globalThis.ApiClient.getJSON = () => {
+    reads.push(1);
+    return Promise.resolve({
+      Accounts: [
+        {
+          Username: null,
+          UserId: "1",
+          AccountExists: false,
+          Links: [link("keycloak", "OpenID", "alice@example.com", false)],
+        },
+      ],
+    });
+  };
+  answers.fetch = () => Promise.resolve();
+  const { rows, nodes } = render(ROSTER);
+  rows[0].all("button")[0].click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const said = nodes.PendingApprovalsActionResult.textContent;
+  if (/can sign in now/i.test(said) || !/no longer exists/i.test(said)) {
+    refuse(
+      "gone",
+      `a 204 for an account the re-read reports as deleted must say so and never that it can sign in; the page said "${said}"`,
+    );
+  }
+}
+
 // ---- Arm: a success re-reads the roster and reports the approval ----
 {
   const reads = [];
@@ -458,7 +533,13 @@ if (faults.length) {
 }
 
 console.log(
-  "pending approvals: ten arms run against the shipped sso-core.js panel",
+  "pending approvals: thirteen arms run against the shipped sso-core.js panel",
+);
+console.log(
+  "  one-per-account  one row per account, however many links are waiting",
+);
+console.log(
+  "  other-403 / gone a 403 with another body stays generic, and a 204 for a deleted account is not an approval",
 );
 console.log(
   "  rows             a row for exactly the links the server reports as waiting, naming provider and subject",

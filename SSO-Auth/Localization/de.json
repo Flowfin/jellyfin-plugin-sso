@@ -528,6 +528,7 @@
   "config.pending_approvals_confirm": "{user} freigeben? Das aktiviert das Konto, sodass es sich über {provider} anmelden kann. Sonst ändert sich nichts: Die Berechtigungen bleiben so, wie das Anlegen sie gesetzt hat.",
   "config.pending_approvals_approving": "{user} wird freigegeben…",
   "config.pending_approvals_approved": "Freigegeben. {user} kann sich jetzt anmelden.",
+  "config.pending_approvals_account_gone": "Dieses Konto existiert nicht mehr, es wurde also nichts aktiviert. Die Liste wurde neu gelesen.",
   "config.pending_approvals_refused_administrator": "Dieses Konto ist ein Administrator und wird nicht von hier freigegeben. Aktivieren Sie es im Jellyfin-Dashboard.",
   "config.pending_approvals_not_pending": "Dieses Konto wartet nicht mehr auf Freigabe. Die Liste wurde neu gelesen.",
   "config.pending_approvals_failed": "Das Konto konnte nicht freigegeben werden. Stellen Sie sicher, dass Sie als Administrator angemeldet sind, und versuchen Sie es erneut."
