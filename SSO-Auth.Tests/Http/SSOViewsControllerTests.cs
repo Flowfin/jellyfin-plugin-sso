@@ -18,10 +18,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Tests for <see cref="SSOViewsController.GetView"/> - the endpoint that serves the plugin's embedded
 /// view assets (the linking page, its stylesheet and scripts). The action itself resolves the requested
 /// name against <see cref="SSOPlugin.GetViews"/>, streams the matching embedded resource, and tags the
-/// response with the version-derived <c>AssetETag</c> so clients can 304-revalidate (#253). These tests
+/// response with the version-derived tag of <c>PluginAssetVersion</c> so clients can 304-revalidate (#253)
+/// and, since #1627, with no-cache so that they ask. These tests
 /// pin exactly that action-level behavior: an unknown name 404s, a known name streams the resource with
 /// the content type derived from the embedded resource path and the version ETag. The conditional
-/// <c>If-None-Match</c> → 304 negotiation is ASP.NET middleware, not this action, so it is out of scope.
+/// <c>If-None-Match</c> → 304 negotiation is MVC's file-result executor, not this action, so it is out of scope.
 ///
 /// Constructing an <see cref="SSOPlugin"/> sets the static <see cref="SSOPlugin.Instance"/> the
 /// controller reads, so these run in the non-parallel <c>SSOController</c> collection.
@@ -37,7 +38,11 @@ public class SSOViewsControllerTests
         var xml = Substitute.For<IXmlSerializer>();
         // Constructing the plugin sets the static SSOPlugin.Instance the controller reads for GetViews().
         _ = new SSOPlugin(appPaths, xml, Substitute.For<ILogger<SSOPlugin>>());
-        return new SSOViewsController(Substitute.For<ILogger<SSOViewsController>>());
+        return new SSOViewsController(Substitute.For<ILogger<SSOViewsController>>())
+        {
+            // The action writes a response header (#1627), so it needs a response to write it on.
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
     }
 
     // The version-derived ETag the action stamps on every asset, recomputed here from the same source the
@@ -48,6 +53,20 @@ public class SSOViewsControllerTests
         var fileVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(
             typeof(SSOPlugin).Assembly.Location).FileVersion;
         return "\"" + fileVersion + "\"";
+    }
+
+    [Fact]
+    public void GetView_KnownView_SaysABrowserMustAskBeforeReusingIt()
+    {
+        // The tag alone left the decision to the browser's heuristics (#1627): a client that never asked
+        // could run a previous release's asset for as long as it liked. no-cache is what makes it ask,
+        // and with the tag the answer is a 304 until the plugin changes.
+        var controller = CreateController();
+
+        var result = controller.GetView("style.css");
+
+        Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("no-cache", controller.Response.Headers.CacheControl.ToString());
     }
 
     [Fact]
@@ -154,7 +173,7 @@ public class SSOViewsControllerTests
     {
         var controller = CreateController();
 
-        // The comment on AssetETag documents that one tag for every asset is intentional: a client sends
+        // The remarks on PluginAssetVersion document that one tag for every asset is intentional: a client sends
         // back the tag it cached for a given URL and the server compares it against that URL's tag.
         var html = Assert.IsType<FileStreamResult>(controller.GetView("linking"));
         var css = Assert.IsType<FileStreamResult>(controller.GetView("style.css"));
