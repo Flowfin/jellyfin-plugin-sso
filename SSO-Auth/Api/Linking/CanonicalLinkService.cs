@@ -63,6 +63,35 @@ internal enum CanonicalLinkRemoveResult
 }
 
 /// <summary>
+/// The outcome of approving an account this plugin provisioned inert (#1529). Closed by convention (the
+/// controller's mapper throws on an unhandled arm).
+/// </summary>
+/// <remarks>
+/// The three refusals are deliberately distinct rather than one "no": each says something different to the
+/// administrator holding the mouse, and only one of them means they should go and do it elsewhere.
+/// </remarks>
+internal enum PendingApprovalResult
+{
+    /// <summary>The account was enabled and its record removed.</summary>
+    Approved,
+
+    /// <summary>No provider of that mode/name exists; nothing was changed.</summary>
+    UnknownProvider,
+
+    /// <summary>This plugin holds no live record that it provisioned that identity's account inert; nothing was changed.</summary>
+    NotPending,
+
+    /// <summary>The recorded account is an administrator and is not approvable here; the record was left as it is.</summary>
+    Administrator,
+
+    /// <summary>The recorded account is already enabled; the record it had outlived was removed and nothing else changed.</summary>
+    AlreadyEnabled,
+
+    /// <summary>The recorded account no longer exists; the record was removed and nothing else changed.</summary>
+    AccountGone,
+}
+
+/// <summary>
 /// The issuer binding of a resolved subject-keyed OpenID link against the current login's issuer (#186).
 /// SAML (any non-OpenID mode) and a login with no resolved subject link are <see cref="NotBound"/>.
 /// </summary>
@@ -962,6 +991,138 @@ internal sealed class CanonicalLinkService
     {
         var user = _userManager.GetUserById(userId);
         return user is not null && user.HasPermission(PermissionKind.IsAdministrator);
+    }
+
+    /// <summary>
+    /// Approves an account this plugin provisioned inert (#1529): enables it, and does nothing else.
+    /// </summary>
+    /// <remarks>
+    /// WHAT IT MAY ACT ON is the whole of the safety here, and it is one question asked of the record
+    /// rather than of the account: only an identity this plugin's own create arm recorded as provisioned
+    /// disabled, whose record still names the account the link points at. A disabled account with no such
+    /// record was disabled by somebody else, for a reason this plugin does not know, and is invisible to
+    /// this path - which is what keeps an administrator's sanction out of reach of a page about SSO.
+    /// <para>
+    /// WHAT IT DOES is one permission, written on the seam that already owns it. No role, no folder, no
+    /// library and no policy: the provisioning decided those when it created the account, and an approval
+    /// that also granted would make the approve button a second, quieter provisioning policy. An
+    /// administrator account is refused outright, on the same reasoning that keeps adoption away from them
+    /// (T-D1): this route asks for an administrator credential and nothing else, and re-admitting an
+    /// administrator is the one mistake here that cannot be walked back by the same button.
+    /// </para>
+    /// <para>
+    /// THE STATE IS RE-READ HERE rather than trusted from the page that offered the row. A record says what
+    /// was true at provisioning; between the page load and the click the account may have been enabled by
+    /// hand, deleted, or promoted. Each of those has its own arm, and the two that prove the record false
+    /// take it away rather than leaving a row that would be offered again on the next read.
+    /// </para>
+    /// <para>
+    /// The enable is persisted BEFORE the record is removed. The other order loses the account from the
+    /// list on a failed write, leaving it disabled with nothing left to say why; this order can at worst
+    /// leave a record on an account that is already enabled, which the next read refuses on its own.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">The protocol the provider speaks.</param>
+    /// <param name="provider">The provider the link belongs to.</param>
+    /// <param name="canonicalName">The identity key whose account is approved.</param>
+    /// <returns>What happened, and the account it happened to, so the caller can audit the grant by the account it granted rather than by the subject that names a person.</returns>
+    internal async Task<(PendingApprovalResult Outcome, Guid UserId)> ApproveProvisionedAccountAsync(ProviderMode mode, string provider, string? canonicalName)
+    {
+        // Read under the lock, decided by the one rule the roster reads with: an unknown provider and a key
+        // that names no live record are different answers, because the first is a request against something
+        // that does not exist and the second is a request against something that is not this plugin's to act
+        // on. Collapsing them would make the endpoint an existence oracle for provider names.
+        var known = _configStore.Read(configuration =>
+            TryGetProvider(configuration, mode, provider, out var config)
+                ? (Provider: true, User: (Guid?)PendingApproval.Live(config, canonicalName)?.UserId)
+                : (Provider: false, User: null));
+
+        if (!known.Provider)
+        {
+            return (PendingApprovalResult.UnknownProvider, Guid.Empty);
+        }
+
+        if (known.User is not { } userId)
+        {
+            return (PendingApprovalResult.NotPending, Guid.Empty);
+        }
+
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            // The account went away under a record that outlived it. Nothing to enable, and the record is
+            // now describing nothing at all, so it goes with the answer rather than staying to be offered
+            // again.
+            RemovePendingApprovalOutsideLock(mode, provider, canonicalName!);
+            return (PendingApprovalResult.AccountGone, userId);
+        }
+
+        if (user.HasPermission(PermissionKind.IsAdministrator))
+        {
+            // The record is TRUE - this plugin really did provision that account inert - so it is left
+            // exactly where it is. What is refused is this route acting on it: an administrator account is
+            // enabled in the Jellyfin dashboard, by somebody who went there to do it.
+            return (PendingApprovalResult.Administrator, userId);
+        }
+
+        if (!user.HasPermission(PermissionKind.IsDisabled))
+        {
+            // Enabled by somebody else since it was provisioned, which is the one thing that makes the
+            // record false without any link having moved. Taking it away here is the only place this plugin
+            // ever observes that, and leaving it would keep a working account on a list of accounts that
+            // cannot sign in.
+            RemovePendingApprovalOutsideLock(mode, provider, canonicalName!);
+            return (PendingApprovalResult.AlreadyEnabled, userId);
+        }
+
+        user.SetPermission(PermissionKind.IsDisabled, false);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        RemovePendingApprovalOutsideLock(mode, provider, canonicalName!);
+        return (PendingApprovalResult.Approved, userId);
+    }
+
+    /// <summary>
+    /// Drops a link's pending-approval record after a login that actually minted a session (#1637). A login
+    /// past the pending-approval gate proves the account is not inert, so a record still standing on it is
+    /// false: the account was enabled outside this plugin, which is the one transition nothing else here
+    /// observes. Bounded like the last-login stamp beside it - the common case is a locked read that finds
+    /// no record and writes nothing.
+    /// </summary>
+    /// <param name="mode">The provider protocol.</param>
+    /// <param name="provider">The provider name.</param>
+    /// <param name="canonicalKey">The identity's stable subject key.</param>
+    internal void ClearPendingApprovalAfterLogin(ProviderMode mode, string provider, string? canonicalKey)
+    {
+        if (string.IsNullOrWhiteSpace(canonicalKey))
+        {
+            return;
+        }
+
+        var standing = _configStore.Read(configuration =>
+            TryGetProvider(configuration, mode, provider, out var config)
+            && config.CanonicalLinkPendingApprovals.ContainsKey(canonicalKey));
+
+        if (!standing)
+        {
+            return;
+        }
+
+        // AVAILABILITY, for the same reason the last-login stamp states it: this runs after the session has
+        // been minted, so a configuration persist that throws must not turn a login that already succeeded
+        // into an error the reader sees. The cost of swallowing it is a stale row on an administrator's
+        // list, which the approve action refuses on its own when somebody presses it.
+        try
+        {
+            _configStore.Mutate(configuration => RemovePendingApproval(configuration, mode, provider, canonicalKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "[SSO] Could not clear the pending-approval record for provider {Provider}. The login itself succeeded; the account may still be listed as waiting.",
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+        }
     }
 
     /// <summary>
@@ -2151,6 +2312,14 @@ internal sealed class CanonicalLinkService
             config.CanonicalLinkPendingApprovals.Remove(canonicalKey);
         }
     }
+
+    // The same removal for a caller that holds no transaction of its own (#1529): the approve path, which
+    // has to write the account through the user manager between reading the record and dropping it, and so
+    // cannot hold the config lock across the whole act. Its own named step rather than an inline Mutate,
+    // because every one of its three callers is removing a record for a different reason and the reasons
+    // belong beside them.
+    private void RemovePendingApprovalOutsideLock(ProviderMode mode, string provider, string canonicalKey)
+        => _configStore.Mutate(configuration => RemovePendingApproval(configuration, mode, provider, canonicalKey));
 
     // Classifies an OpenID subject link's issuer binding against the login's issuer, read under the caller's
     // config lock (#186). SAML (and any non-OID mode) is NotBound - issuer binding is OpenID only. For OID:

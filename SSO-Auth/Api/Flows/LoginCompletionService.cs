@@ -223,6 +223,14 @@ internal sealed class LoginCompletionService
         // established user's repeat login still pays no configuration persist.
         _canonicalLinks.RecordLastSsoLogin(identity.LinkMode, identity.Provider, identity.Subject);
 
+        // And drop any pending-approval record this link still carries (#1529, #1637). A session was minted,
+        // so the account is past the pending-approval gate above and is demonstrably not inert - the record
+        // is false, and this is the only moment this plugin ever learns that an account it provisioned
+        // disabled was enabled somewhere else. Left standing it would keep a working account on the approval
+        // list, and would offer it again if an administrator later disabled that account deliberately.
+        // Bounded the same way the stamp above is: no record, no write.
+        _canonicalLinks.ClearPendingApprovalAfterLogin(identity.LinkMode, identity.Provider, identity.Subject);
+
         CaptureLogoutState(identity, userId, logoutContext, authenticationResult);
 
         return LoginStatusMapper.ToActionResult(new LoginOutcome.Success(authenticationResult));
