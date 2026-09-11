@@ -496,11 +496,17 @@ function sitesOf(source, page, catalog) {
     const { scope, field } = fieldOf(source, marker, key);
     let text = catalog[key];
     if (match[1]) {
+      // Each child is read by the SAME reader as the page it has to be found
+      // in, rather than by a tag-stripping replace of its own. Two readers for
+      // one question drift, the strip handled no entity, and a single-pass
+      // strip is `js/incomplete-multi-character-sanitization` to CodeQL - a
+      // sanitizer is not what this is, and code that looks like a broken one is
+      // its own defect.
       const children = childrenOf(
         source,
         marker.contentStart,
         marker.contentEnd,
-      ).map((child) => collapse(decodeEntities(child.replace(/<[^>]*>/g, ""))));
+      ).map((child) => flatten(child).text);
       text = text.replace(/\{(\d+)\}/g, (whole, slot) =>
         children[Number(slot)] === undefined ? whole : children[Number(slot)],
       );
