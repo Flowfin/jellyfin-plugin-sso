@@ -122,6 +122,13 @@ internal static class ServerManagedFields
         // provider no longer knows, with no administrator route left to erase it.
         incoming.CanonicalLinkLastLogins = endpointUnchanged ? live.CanonicalLinkLastLogins : new SerializableDictionary<string, DateTime>();
 
+        // The pending-approval marks ride with the links on both arms as well (#1529), and the DROP arm is
+        // again the one that decides something: a repoint re-identifies the provider, so a mark carried
+        // across it would say this plugin provisioned an account inert for an identity the new provider has
+        // never seen - and that mark is what makes an account approvable from the accounts page. Dropped
+        // with its link, the account simply stops being offered for approval, which is the safe direction.
+        incoming.CanonicalLinkPendingApprovals = endpointUnchanged ? live.CanonicalLinkPendingApprovals : new SerializableDictionary<string, PendingApproval>();
+
         incoming.OidSecret = ResolveUpdatedSecret(incoming, live);
     }
 
@@ -157,6 +164,12 @@ internal static class ServerManagedFields
         // with the map empty and re-injecting the live one is what stops an unrelated settings change silently
         // resetting every "last SSO login" in the roster to never.
         incoming.CanonicalLinkLastLogins = live.CanonicalLinkLastLogins;
+
+        // Same shape again for the pending-approval marks (#1529), and the same consequence if it is left
+        // out: withheld from JSON, so an ordinary settings save arrives with the map empty, and without this
+        // line every account waiting for approval would quietly stop being offered for one - the list would
+        // empty itself on a save that had nothing to do with it.
+        incoming.CanonicalLinkPendingApprovals = live.CanonicalLinkPendingApprovals;
         incoming.SamlSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlSigningKeyPfx, live.SamlSigningKeyPfx);
         incoming.SamlRolloverSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlRolloverSigningKeyPfx, live.SamlRolloverSigningKeyPfx);
     }

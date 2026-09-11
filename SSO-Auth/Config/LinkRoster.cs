@@ -62,6 +62,7 @@ internal static class LinkRoster
                 Provider = row.Provider,
                 CanonicalName = row.CanonicalName,
                 LastSsoLoginUtc = row.LastSsoLoginUtc,
+                PendingApprovalSinceUtc = row.PendingApprovalSinceUtc,
             });
         }
 

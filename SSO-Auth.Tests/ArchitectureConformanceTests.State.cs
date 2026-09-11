@@ -63,6 +63,14 @@ public partial class ArchitectureConformanceTests
         //   ONE shape this rule has to keep out: a per-login event log would need a cap and a sweep, and the
         //   reason this needs neither is the bound, so the exemption is granted to the bounded design and not
         //   to the subject matter.
+        // - ProviderConfigBase._canonicalLinkPendingApprovals: the persisted per-link pending-approval
+        //   records (#1529), bounded by the link map exactly as the two above are - written only beside a
+        //   link this plugin's own create arm wrote, removed with the link on every route that removes one,
+        //   and cleared by every route that writes the same key for any other reason. The bound is what is
+        //   exempted here and not the subject: this map decides whether an account is OFFERED FOR APPROVAL,
+        //   so an entry that outlived its link would be an offer to enable an account with no SSO route
+        //   left. Its value names the account it was written about, so the bound holds over the ACCOUNT and
+        //   not merely over the key, which a subject whose account was deleted does not keep.
         // - DeclarativeManagedProviders._profiles: the provisioning-profile-name-to-source map (#1102), the
         //   same immutable shape as the two below and exempt for the same reason, on the object a managed
         //   provider provisions THROUGH rather than on the provider.
@@ -76,7 +84,7 @@ public partial class ArchitectureConformanceTests
         //   fields were HashSets until a refusal had to say WHICH source owns a provider, so what changed is
         //   the value beside each name, not where the state lives or how long it lives.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
-        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
+        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "ProviderConfigBase._canonicalLinkPendingApprovals", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
 
         var offenders = PluginClasses
             .Where(t => !storeLike.Any(s => SimpleName(t).EndsWith(s, StringComparison.Ordinal)))

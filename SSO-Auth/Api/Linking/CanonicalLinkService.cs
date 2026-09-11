@@ -731,7 +731,7 @@ internal sealed class CanonicalLinkService
             // call actually wrote the link, in the same transaction. That placement is the whole guarantee: the
             // #133 race loser writes no link and therefore stamps no deadline over the winner's, and a deadline
             // can only ever come into existence beside a live link, which is what bounds the map.
-            var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration);
+            var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration, provisionDisabled);
 
             // The race loser is the one case that reaches here having written no link and still keeps its
             // account: LinkCanonicalIfAbsent returns the winner's id rather than throwing, so the guard
@@ -1403,6 +1403,13 @@ internal sealed class CanonicalLinkService
 
             links[providerUserId] = jellyfinUserId;
             StampIssuerInPlace(configuration, mode, provider, providerUserId, issuer);
+
+            // A manual link is not this plugin provisioning an account inert, so any pending-approval
+            // record under this key is about the account the key held before and goes with it (#1529).
+            // TryCreateLink repoints on purpose, so this is the one of the two entry points that can land
+            // on a key that carries one; the clear is written for both, because a rule that only holds on
+            // the arm somebody remembered is not a rule.
+            RemovePendingApproval(configuration, mode, provider, providerUserId);
             return CanonicalLinkWriteResult.Created;
         });
     }
@@ -1465,6 +1472,12 @@ internal sealed class CanonicalLinkService
             // history retained for a subject the server no longer knows, and a re-link of the same subject
             // would report a "last SSO login" that belongs to the previous holder of the key.
             RemoveLastSsoLogin(configuration, mode, provider, canonicalName);
+
+            // Drop the pending-approval mark alongside the link (#1529). The mark says this plugin created
+            // the account inert and it is waiting for an administrator; once the link is gone that sentence
+            // is no longer true of anything, and a mark that outlived it would keep an account on the
+            // approval list with no SSO route behind it.
+            RemovePendingApproval(configuration, mode, provider, canonicalName);
 
             // Whether the user keeps any other canonical link across ALL providers, read in the SAME
             // transaction as the removal (#468): computing it here rather than in a second lock acquisition
@@ -1567,6 +1580,15 @@ internal sealed class CanonicalLinkService
                     foreach (var staleKey in config.CanonicalLinkLastLogins.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
                     {
                         config.CanonicalLinkLastLogins.Remove(staleKey);
+                    }
+
+                    // And the pending-approval marks (#1529), on both protocols and for a reason of its own:
+                    // a mark left behind here would keep offering an account for approval after the link
+                    // that explains why it is inert was revoked. The approve action would then enable an
+                    // account whose SSO route no longer exists - a grant of access nobody asked for.
+                    foreach (var staleKey in config.CanonicalLinkPendingApprovals.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
+                    {
+                        config.CanonicalLinkPendingApprovals.Remove(staleKey);
                     }
                 }
             }
@@ -1759,6 +1781,7 @@ internal sealed class CanonicalLinkService
             {
                 config.CanonicalLinkDeadlines.Clear();
                 config.CanonicalLinkLastLogins.Clear();
+                config.CanonicalLinkPendingApprovals.Clear();
                 if (config is OidConfig oid)
                 {
                     oid.CanonicalLinkIssuers.Clear();
@@ -1896,7 +1919,7 @@ internal sealed class CanonicalLinkService
     // reports WroteLink=false (so the caller does not re-emit the adoption audit). The link write goes
     // straight into the config (no discarded ActionResult), so a failure to persist propagates rather
     // than falling through as a successful adoption.
-    private (Guid EffectiveUserId, bool WroteLink) LinkCanonicalIfAbsent(ProviderMode mode, string provider, string canonicalKey, Guid candidateUserId, string? issuer, TimeSpan? provisionedAccessDuration = null)
+    private (Guid EffectiveUserId, bool WroteLink) LinkCanonicalIfAbsent(ProviderMode mode, string provider, string canonicalKey, Guid candidateUserId, string? issuer, TimeSpan? provisionedAccessDuration = null, bool provisionedPendingApproval = false)
     {
         return _configStore.Mutate(configuration =>
         {
@@ -1929,6 +1952,18 @@ internal sealed class CanonicalLinkService
                 // sliding deadline is the one defect this direction of the feature can have, and this is the
                 // single place it is prevented rather than a rule restated at each caller.
                 StampProvisionedDeadlineInPlace(configuration, mode, provider, canonicalKey, provisionedAccessDuration);
+
+                // A link written by a login that provisioned its account INERT carries the pending-approval
+                // record (#1529), written in the same transaction as the link for the same reason the
+                // deadline is: the #133 race loser writes no link and must therefore leave no record, or it
+                // would offer an administrator an account it abandoned. The adopt arm never reaches here
+                // with the flag set, because adoption takes over an account that already exists and is not
+                // this plugin's to declare pending.
+                //
+                // Passed the id the link now holds, and a SET-OR-CLEAR: this is the branch that repoints a
+                // key whose previous account was deleted, and the record it may be repointing away from was
+                // written about that account. Clearing it here is what stops an adoption from inheriting it.
+                RecordPendingApprovalInPlace(configuration, mode, provider, canonicalKey, effectiveUserId, provisionedPendingApproval);
             }
 
             return (effectiveUserId, wroteLink);
@@ -1974,6 +2009,13 @@ internal sealed class CanonicalLinkService
                 // issuer (#186). The legacy key carried no issuer (it predates the store); the new key is
                 // bound to the login that migrated it, matching the create/adopt write paths.
                 StampIssuerInPlace(configuration, mode, provider, canonicalKey, issuer);
+
+                // Both keys lose any pending-approval record (#1529). The subject key is only overwritten
+                // here when it DANGLES, so a record under it was written about an account that is gone; the
+                // legacy key has no link left to explain one. Neither is this plugin provisioning an
+                // account inert, which is the only thing that may leave a record behind.
+                RemovePendingApproval(configuration, mode, provider, canonicalKey);
+                RemovePendingApproval(configuration, mode, provider, legacyKey);
                 return legacyUserId;
             }
 
@@ -2062,6 +2104,51 @@ internal sealed class CanonicalLinkService
         if (TryGetProvider(configuration, mode, provider, out var config))
         {
             config.CanonicalLinkLastLogins.Remove(canonicalKey);
+        }
+    }
+
+    // Records that THIS login provisioned the linked account disabled and awaiting an administrator
+    // (#1529), within the caller's already-held config transaction. The record names the account it was
+    // written for and the instant of the PROVISIONING, not of the approval, so the accounts page can say
+    // how long somebody has been waiting - which is the whole question an administrator opens that list
+    // with.
+    //
+    // A SET-OR-CLEAR rather than a stamp, and that is the security half of it. Every OTHER write of the
+    // same key is by definition not this plugin provisioning an account inert: it is an adoption, a manual
+    // link, or a re-key. Returning early there would leave the previous holder's record standing over a key
+    // that now names somebody else's account, which is a record of what the plugin did decaying into the
+    // guess this map exists to replace. Called from inside the link write, so the clear lands in the same
+    // transaction as the link that invalidated the record.
+    private void RecordPendingApprovalInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, Guid userId, bool provisionedPendingApproval)
+    {
+        if (!TryGetProvider(configuration, mode, provider, out var config))
+        {
+            return;
+        }
+
+        if (!provisionedPendingApproval)
+        {
+            config.CanonicalLinkPendingApprovals.Remove(canonicalKey);
+            return;
+        }
+
+        config.CanonicalLinkPendingApprovals[canonicalKey] = new PendingApproval
+        {
+            UserId = userId,
+            SinceUtc = _clock().ToUniversalTime(),
+        };
+    }
+
+    // Drops a link's pending-approval mark within the caller's already-held config transaction (#1529),
+    // called alongside a link removal. Its own named step beside the two above, because it is removed for a
+    // third reason: an orphan deadline is bookkeeping the sweep would act on and an orphan stamp is retained
+    // personal data, while an orphan MARK is an offer to enable an account - the only one of the three that
+    // grants anything.
+    private static void RemovePendingApproval(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
+    {
+        if (TryGetProvider(configuration, mode, provider, out var config))
+        {
+            config.CanonicalLinkPendingApprovals.Remove(canonicalKey);
         }
     }
 

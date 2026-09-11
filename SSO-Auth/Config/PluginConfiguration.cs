@@ -283,6 +283,7 @@ public abstract class ProviderConfigBase
     private SerializableDictionary<string, Guid>? _canonicalLinks;
     private SerializableDictionary<string, DateTime>? _canonicalLinkDeadlines;
     private SerializableDictionary<string, DateTime>? _canonicalLinkLastLogins;
+    private SerializableDictionary<string, PendingApproval>? _canonicalLinkPendingApprovals;
 
     /// <summary>
     /// Gets or sets the canonical external base URL for this provider, e.g.
@@ -711,6 +712,54 @@ public abstract class ProviderConfigBase
     {
         get => _canonicalLinkLastLogins ??= new SerializableDictionary<string, DateTime>();
         set => _canonicalLinkLastLogins = value;
+    }
+
+    /// <summary>
+    /// Gets or sets, per canonical link, the record that THIS PLUGIN provisioned the linked account
+    /// disabled and awaiting an administrator (#1529): the account and the instant. Written only on the
+    /// create arm under <see cref="ProviderConfigBase.ProvisionNewUsersDisabled"/>, and only by the login
+    /// that actually wrote the link; cleared by any other write of the same key, and removed when the link
+    /// is. It is NOT yet removed when an account is enabled, because nothing in this plugin enables one: a
+    /// record therefore says what was true at provisioning, and the surface that comes to read it owes its
+    /// reader a check of what is true now (#1529).
+    /// <para>
+    /// It exists because a disabled account is a Jellyfin PERMISSION and the permission does not say who set
+    /// it or why. Three accounts wear the same flag: one this plugin created inert seconds ago, one an
+    /// administrator disabled deliberately as a sanction, and one disabled long ago and forgotten. A surface
+    /// that offered to approve "the disabled accounts" would offer to undo the second, from a page about
+    /// something else - which is a privilege escalation with no attacker in it, and therefore the kind that
+    /// happens. This map is the difference between what the plugin DID and what the plugin can GUESS, and
+    /// only the first is safe to act on.
+    /// </para>
+    /// <para>
+    /// Keyed by the same stable subject as <see cref="ProviderConfigBase.CanonicalLinks"/>, so its
+    /// cardinality is bounded by the link map rather than growing on its own, and an entry cannot outlive
+    /// the link that gives it meaning. An account approved, revoked or unlinked loses its entry; a
+    /// configuration that predates this map simply has none, and the pending list starts empty and fills as
+    /// new accounts arrive rather than claiming a history it never recorded.
+    /// </para>
+    /// <para>
+    /// The value names its account (<see cref="PendingApproval.UserId"/>) and not only the instant, because
+    /// the KEY is bounded by the link map while the account behind that key is not: a link whose target was
+    /// deleted counts as absent, so the next login for the same subject writes the key again at a different
+    /// account. Every reader compares the recorded account against the link's current target and treats a
+    /// mismatch as no mark at all, which is what makes a write path that forgets to clear a stale entry a
+    /// tidiness defect rather than an offer to enable somebody else's account.
+    /// </para>
+    /// </summary>
+    // Server-managed exactly like CanonicalLinks and the two maps above: written by logins, never
+    // admin-edited, persisted in the config XML but withheld from every JSON response ([JsonIgnore]).
+    // The JsonIgnore is load-bearing HERE in a way it is not on the neighbours: a config PUT that could
+    // forge an entry would make an account APPROVABLE from the accounts page that this plugin never
+    // provisioned - which is exactly the escalation the map exists to prevent, arrived at from the other
+    // side. Preserved on save by ServerManagedFields.Preserve. Self-healing lazy init, so a direct index
+    // assignment persists into the stored map.
+    [XmlElement("CanonicalLinkPendingApprovals")]
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SerializableDictionary<string, PendingApproval> CanonicalLinkPendingApprovals
+    {
+        get => _canonicalLinkPendingApprovals ??= new SerializableDictionary<string, PendingApproval>();
+        set => _canonicalLinkPendingApprovals = value;
     }
 }
 
