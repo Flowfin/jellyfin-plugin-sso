@@ -40,4 +40,39 @@ public class PendingApproval
     /// approval list is opened with.
     /// </summary>
     public DateTime SinceUtc { get; set; }
+
+    /// <summary>
+    /// The record this provider holds for one canonical link, or null when it holds none that still
+    /// describes the account the link points at (#1529).
+    /// </summary>
+    /// <remarks>
+    /// ONE HOME FOR THE RULE, because two readers act on it and they must not be able to disagree: the
+    /// roster decides from it which rows to present as waiting, and the approve action decides from it
+    /// which account it may enable. A page offering a row the action would refuse, or an action enabling
+    /// an account the page never showed, is the same defect from either side.
+    /// <para>
+    /// The comparison against the link is what makes this a record rather than a rumour. A link whose
+    /// target account was deleted counts as absent, so the key is written again at another account, and a
+    /// write path that forgot to clear the entry would otherwise hand its account over with it.
+    /// </para>
+    /// </remarks>
+    /// <param name="config">The provider configuration holding both maps.</param>
+    /// <param name="canonicalName">The identity key the link is stored under.</param>
+    /// <returns>The live record, or <see langword="null"/>.</returns>
+    internal static PendingApproval? Live(ProviderConfigBase config, string? canonicalName)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        if (string.IsNullOrEmpty(canonicalName))
+        {
+            return null;
+        }
+
+        return config.CanonicalLinkPendingApprovals.TryGetValue(canonicalName, out var record)
+            && record is not null
+            && config.CanonicalLinks.TryGetValue(canonicalName, out var linked)
+            && record.UserId == linked
+                ? record
+                : null;
+    }
 }

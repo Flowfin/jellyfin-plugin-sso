@@ -158,4 +158,70 @@ public class FlowResponsesTests
         Assert.Throws<InvalidOperationException>(() =>
             FlowResponses.MapCanonicalLinkWrite((CanonicalLinkWriteResult)999));
     }
+
+    [Fact]
+    public void MapPendingApproval_TheArmsThatLeaveNothingToDo_AreA204()
+    {
+        // The two arms that changed no access answer like the one that did (#1529): both leave the caller's
+        // goal satisfied or unreachable for a reason no retry changes, both removed the record they found,
+        // and a page that reloads the roster after a 204 will simply not show the row again. One row rather
+        // than a theory, because the result type is internal and a theory's parameter cannot be.
+        foreach (var outcome in new[] { PendingApprovalResult.Approved, PendingApprovalResult.AlreadyEnabled, PendingApprovalResult.AccountGone })
+        {
+            Assert.Equal(204, Assert.IsType<NoContentResult>(FlowResponses.MapPendingApproval(outcome)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public void MapPendingApproval_UnknownProvider_IsA400WithTheSharedProviderMessage()
+    {
+        var result = FlowResponses.MapPendingApproval(PendingApprovalResult.UnknownProvider);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(400, badRequest.StatusCode);
+        Assert.Equal(LoginStatusMapper.NoMatchingProviderMessage, badRequest.Value);
+    }
+
+    [Fact]
+    public void MapPendingApproval_NotPending_IsA404ThatSaysWhereADisabledAccountIsEnabled()
+    {
+        // The 404 is the answer for a disabled account with no record - the one an administrator disabled
+        // deliberately - so its body has to say where THAT account is enabled, or the reader is left with a
+        // refusal and no route.
+        var result = FlowResponses.MapPendingApproval(PendingApprovalResult.NotPending);
+
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal(404, notFound.StatusCode);
+        Assert.Contains("Jellyfin dashboard", Assert.IsType<string>(notFound.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MapPendingApproval_Administrator_IsA403WithABodyThatNamesTheRefusal()
+    {
+        // A 403 with a body, deliberately: the elevation policy's own refusal is a bare 403, and the page
+        // tells the two apart by this sentence. An empty body here would send a signed-out reader to the
+        // dashboard for the wrong reason.
+        var result = FlowResponses.MapPendingApproval(PendingApprovalResult.Administrator);
+
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Contains("administrator", Assert.IsType<string>(forbidden.Value), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MapPendingApproval_EveryDefinedResult_MapsWithoutThrowing()
+    {
+        // Totality guard: a new PendingApprovalResult member without a mapping arm fails here.
+        foreach (var value in Enum.GetValues<PendingApprovalResult>())
+        {
+            Assert.NotNull(FlowResponses.MapPendingApproval(value));
+        }
+    }
+
+    [Fact]
+    public void MapPendingApproval_UnhandledResult_ThrowsInsteadOfDefaultAccepting()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            FlowResponses.MapPendingApproval((PendingApprovalResult)999));
+    }
 }
