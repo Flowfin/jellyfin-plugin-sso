@@ -2684,7 +2684,10 @@
                     >
                       No SAML providers yet
                     </p>
-                    <p class="fieldDescription">
+                    <p
+                      class="fieldDescription"
+                      data-i18n="config.saml_empty_help"
+                    >
                       Add a SAML 2.0 provider to let users sign in through your
                       identity provider. You can import the endpoint and signing
                       certificate straight from your IdP's metadata below.
@@ -2764,7 +2767,10 @@
                     role="list"
                   ></div>
 
-                  <label for="saml-selectProvider" class="sso-visually-hidden"
+                  <label
+                    for="saml-selectProvider"
+                    class="sso-visually-hidden"
+                    data-i18n="config.saml_loaded_provider"
                     >Loaded SAML provider</label
                   >
                   <select
@@ -2780,7 +2786,11 @@
                 <div class="sso-editor" id="saml-editor" hidden>
                   <div class="sso-editor-header">
                     <!-- No data-i18n marker, for the reason spelled out on the OpenID editor heading above. -->
-                    <h3 class="sso-editor-title" id="saml-editor-title">
+                    <h3
+                      class="sso-editor-title"
+                      id="saml-editor-title"
+                      data-i18n="config.new_provider"
+                    >
                       New provider
                     </h3>
                     <div class="sso-editor-header-actions">
@@ -2903,6 +2913,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-provider-name"
+                          data-i18n-parts="config.saml_name_label"
                           >Name of SAML Provider:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -2922,7 +2933,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_name_help"
+                        >
                           The name Jellyfin uses to identify this SAML provider.
                           A new provider is created if the name is new; an
                           existing one is updated.
@@ -2938,6 +2952,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-metadata-url"
+                          data-i18n-parts="config.saml_metadata_import_label"
                           >Import from IdP metadata
                           <span
                             class="sso-optional"
@@ -2958,7 +2973,9 @@
                             id="saml-ImportMetadataUrl"
                             class="raised button-alt"
                           >
-                            <span>Import URL</span>
+                            <span data-i18n="config.saml_import_url_button"
+                              >Import URL</span
+                            >
                           </button>
                         </div>
                         <textarea
@@ -2974,7 +2991,9 @@
                           id="saml-ImportMetadataXml"
                           class="raised button-alt"
                         >
-                          <span>Import pasted XML</span>
+                          <span data-i18n="config.saml_import_paste_button"
+                            >Import pasted XML</span
+                          >
                         </button>
                         <div
                           id="saml-metadata-status"
@@ -2982,7 +3001,10 @@
                           role="status"
                           aria-live="polite"
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_metadata_import_help"
+                        >
                           Fetches the SSO endpoint and signing certificate(s)
                           from your identity provider's SAML metadata and fills
                           them in below for review. It never fills the SAML
@@ -2995,6 +3017,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SamlEndpoint"
+                          data-i18n-parts="config.saml_endpoint_label"
                           >SAML SSO Endpoint:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -3014,7 +3037,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_endpoint_help"
+                        >
                           The identity provider's Single Sign-On URL, where the
                           browser is redirected to authenticate.
                         </div>
@@ -3024,6 +3050,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SamlSloEndpoint"
+                          data-i18n="config.saml_slo_endpoint_label"
                           >SAML SLO Endpoint:</label
                         >
                         <input
@@ -3039,7 +3066,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_slo_endpoint_help"
+                        >
                           The identity provider's Single-Logout (SLO) URL, a
                           distinct endpoint from the SSO endpoint above, where
                           the browser is redirected with a signed SP-initiated
@@ -3054,6 +3084,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SamlClientId"
+                          data-i18n-parts="config.saml_client_id_label"
                           >SAML Client ID (SP entity id):
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -3073,7 +3104,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_client_id_help"
+                        >
                           This service provider's entity id: the value the
                           plugin sends as the AuthnRequest issuer and expects as
                           the audience. You choose it and register it at the
@@ -3085,6 +3119,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SamlCertificate"
+                          data-i18n-parts="config.saml_certificate_label"
                           >IdP Signing Certificate:
                           <span class="sso-required" aria-hidden="true"
                             >*</span
@@ -3102,7 +3137,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.saml_certificate_help"
+                        >
                           The identity provider's PUBLIC signing certificate as
                           Base64 (DER): the value between the PEM
                           <code>BEGIN/END CERTIFICATE</code> lines, or the whole
@@ -3120,6 +3158,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-AcsUrl"
+                          data-i18n="config.saml_acs_url_label"
                           >ACS URL (register this at your IdP):</label
                         >
                         <div class="sso-redirect-uri-row">
@@ -3135,10 +3174,13 @@
                             id="saml-CopyAcsUrl"
                             class="raised button-alt"
                           >
-                            <span>Copy</span>
+                            <span data-i18n="config.copy_button">Copy</span>
                           </button>
                         </div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.saml_acs_url_help"
+                        >
                           The Assertion Consumer Service URL the IdP POSTs the
                           SAML response to. Updates as you type the provider
                           name. Derived from the Base URL Override (Advanced
@@ -3152,6 +3194,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-MetadataUrl"
+                          data-i18n="config.saml_metadata_url_label"
                           >SP metadata URL (hand this to your IdP):</label
                         >
                         <div class="sso-redirect-uri-row">
@@ -3167,7 +3210,7 @@
                             id="saml-CopyMetadataUrl"
                             class="raised button-alt"
                           >
-                            <span>Copy</span>
+                            <span data-i18n="config.copy_button">Copy</span>
                           </button>
                         </div>
                         <div
@@ -3176,7 +3219,10 @@
                           role="status"
                           aria-live="polite"
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_metadata_url_help"
+                        >
                           This service provider's metadata document. Many IdPs
                           can import it by URL instead of hand-configuring the
                           ACS and entityID. The SP entityID it advertises is the
@@ -3195,7 +3241,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Enabled</span>
+                          <span data-i18n="config.provider_enabled_label"
+                            >Enabled</span
+                          >
                         </label>
                       </div>
 
@@ -3210,9 +3258,15 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Hide from managed login-page buttons</span>
+                          <span
+                            data-i18n="config.provider_hide_login_button_label"
+                            >Hide from managed login-page buttons</span
+                          >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.provider_hide_login_button_help"
+                        >
                           Excludes this provider from the managed "Sign in with
                           …" block on the login page while keeping it usable
                           through its direct start URL. Only takes effect while
@@ -3226,6 +3280,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-LoginButtonText"
+                          data-i18n-parts="config.login_button_text_label"
                           >Login button text:
                           <span
                             class="sso-optional"
@@ -3239,7 +3294,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.provider_login_button_text_help"
+                        >
                           Custom label for this provider's managed login-page
                           button. Leave blank to use the provider name. Only
                           takes effect while the global "Manage login buttons on
@@ -3271,9 +3329,15 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Enable Authorization by Plugin</span>
+                          <span
+                            data-i18n="config.provider_enable_authorization_label"
+                            >Enable Authorization by Plugin</span
+                          >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.saml_enable_authorization_help"
+                        >
                           Determines if the plugin sets permissions for the
                           user. If off, the user starts with no permissions and
                           an administrator adds them. Existing users'
@@ -3285,6 +3349,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-DefaultProvider"
+                          data-i18n-parts="config.default_provider_label"
                           >Set default Provider:
                           <span
                             class="sso-optional"
@@ -3298,7 +3363,10 @@
                           type="text"
                           class="sso-text"
                         />
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.saml_default_provider_help"
+                        >
                           Assigned to the user after they log in. If unset,
                           nothing changes and the user can still log in via
                           other providers.
@@ -3316,11 +3384,14 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span
+                          <span data-i18n="config.allow_adoption_label"
                             >Allow Adopting Existing Accounts (Sensitive)</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.saml_allow_adoption_help"
+                        >
                           ⚠ Sensitive: lets a first SAML login adopt a
                           pre-existing, unlinked Jellyfin account whose username
                           matches the SAML NameID, instead of rejecting it. Off
@@ -3340,12 +3411,15 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span
+                          <span data-i18n="config.provision_disabled_label"
                             >Provision New Users Disabled (Pending
                             Approval)</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.saml_provision_disabled_help"
+                        >
                           An unknown identity's first login creates its account
                           disabled, with no permissions, and is refused with an
                           "awaiting administrator approval" message until an
@@ -3366,9 +3440,14 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span>Follow Username Renames From The Provider</span>
+                          <span data-i18n="config.follow_renames_label"
+                            >Follow Username Renames From The Provider</span
+                          >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n="config.saml_follow_renames_help"
+                        >
                           When someone is renamed at the identity provider,
                           rename their Jellyfin account to match on their next
                           SSO login. Off by default. Display name only: the
@@ -3439,6 +3518,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="saml-ProvisioningProfile"
+                          data-i18n="config.provisioning_profile_label"
                           >Named provisioning profile:</label
                         >
                         <select
@@ -3447,7 +3527,10 @@
                           name="saml-ProvisioningProfile"
                           class="sso-tmpl-profile emby-select-withcolor emby-select"
                         ></select>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n="config.provisioning_profile_help"
+                        >
                           Take the starting policy from a profile defined in
                           Provisioning Profiles above, instead of from the
                           fields below. The two are mutually exclusive: a
