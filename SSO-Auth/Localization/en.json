@@ -510,5 +510,10 @@
   "config.saml_insecure_options_help": "These options disable SAML security defenses. Enable one only if your provider genuinely requires it; each is recorded as an audit warning.",
   "config.saml_no_validate_audience_label": "Do Not Validate Audience (Insecure)",
   "config.saml_no_validate_audience_help": "⚠ Insecure: disables the {0} check, so an assertion minted for a different service provider could be replayed here. Only if your IdP cannot set the audience correctly. Enabling it is recorded as an audit warning.",
-  "config.saml_test_help": "Validates the {0} provider: parses the stored IdP signing certificate and reports its non-secret facts (subject, issuer, validity, thumbprint). Save the provider first. Requires administrator privileges; no signing key is shown."
+  "config.saml_test_help": "Validates the {0} provider: parses the stored IdP signing certificate and reports its non-secret facts (subject, issuer, validity, thumbprint). Save the provider first. Requires administrator privileges; no signing key is shown.",
+  "config.linked_accounts_filter_label": "Filter:",
+  "config.linked_accounts_filter_placeholder": "account, provider or subject",
+  "config.linked_accounts_filter_help": "Narrows the table to the rows whose account name, provider, protocol or identity-provider subject contains what you type. It filters what is already loaded and asks the server for nothing.",
+  "config.linked_accounts_filter_empty": "No linked account matches the filter. {total} are loaded.",
+  "config.linked_accounts_filter_count": "Showing {shown} of {total} linked accounts."
 }

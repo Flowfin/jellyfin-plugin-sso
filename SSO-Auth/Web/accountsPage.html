@@ -151,6 +151,39 @@
                       >
                     </button>
 
+                    <!--
+                  The filter (#1529). NOT a persisting field: it carries no sso-* marker class and no id
+                  matching any configuration property, so listArgumentsByType never picks it up and a save
+                  cannot write it anywhere. It narrows what the roster renders, and the count line below the
+                  table says how many of how many are shown - a table that silently shows a subset is a
+                  table an administrator draws the wrong conclusion from.
+                -->
+                    <div class="inputContainer">
+                      <label
+                        class="inputLabel inputLabelUnfocused"
+                        for="LinkedAccountsFilter"
+                        data-i18n="config.linked_accounts_filter_label"
+                        >Filter:</label
+                      >
+                      <input
+                        is="emby-input"
+                        id="LinkedAccountsFilter"
+                        type="search"
+                        autocomplete="off"
+                        placeholder="account, provider or subject"
+                        data-i18n-placeholder="config.linked_accounts_filter_placeholder"
+                      />
+                      <div
+                        class="fieldDescription"
+                        data-i18n="config.linked_accounts_filter_help"
+                      >
+                        Narrows the table to the rows whose account name,
+                        provider, protocol or identity-provider subject contains
+                        what you type. It filters what is already loaded and
+                        asks the server for nothing.
+                      </div>
+                    </div>
+
                     <div id="LinkedAccountsRevokeResult"></div>
                     <div id="LinkedAccountsResult"></div>
                   </div>

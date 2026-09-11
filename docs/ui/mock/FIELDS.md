@@ -14,12 +14,12 @@ The count is read off the pages rather than written here:
 $ node tools/ui-mock-fields.js
 configPage.html:     0 form controls outside HTML comments
 providersPage.html:107 form controls outside HTML comments
-accountsPage.html:   1 form controls outside HTML comments
+accountsPage.html:   2 form controls outside HTML comments
 policiesPage.html:  12 form controls outside HTML comments
 serverPage.html:     3 form controls outside HTML comments
-the five pages:    123 in total
-FIELDS.md:         123 rows
-fields.js:         123 entries
+the five pages:    124 in total
+FIELDS.md:         124 rows
+fields.js:         124 entries
 controllers:         5 page controllers checked against the ids their page declares
 page names:         14 registered by SSOPlugin.GetPages, checked against every tab link, controller and core reference
 every field has one row, no row names a field the pages lost, every field is on the page and inside the risk region its row names, no controller reaches off its own page, and every link names a page the plugin registers
@@ -77,11 +77,12 @@ section below.
 ## What is not a field
 
 Four rows are the mechanism of a button rather than a setting, and they are in
-the table anyway, because a table four short of the number cannot be reconciled
+the table anyway, because a table five short of the number cannot be reconciled
 against it:
 
 - `ImportConfigFile` - the file picker behind Import configuration, not a setting
 - `ImportLinksFile` - the file picker behind Import account links, not a setting
+- `LinkedAccountsFilter` - the filter over the linked-accounts table, not a setting
 - `selectProvider` - hidden state holder the save path reads back, not a setting
 - `saml-selectProvider` - hidden state holder the save path reads back, not a setting
 
@@ -203,6 +204,7 @@ from the server rather than set, so no row lands there. That follows the plan in
 | `DoNotValidateIssuerName`                 | checkbox | Security & hardening             | Providers | Insecure              | insecure  |                                                                                      |
 | `DoNotValidateResponseIssuer`             | checkbox | Security & hardening             | Providers | Insecure              | insecure  |                                                                                      |
 | `saml-DoNotValidateAudience`              | checkbox | Security & hardening             | Providers | Insecure              | insecure  |                                                                                      |
+| `LinkedAccountsFilter`                    | search   | Linked Accounts                  | Accounts  | Linked accounts       | -         | the filter over the linked-accounts table, not a setting                             |
 | `ImportLinksFile`                         | file     | Export / Import Configuration    | Accounts  | Export and import     | -         | the file picker behind Import account links, not a setting                           |
 | `selectProvisioningProfile`               | select   | Provisioning Profiles            | Policies  | Profile editor        | -         |                                                                                      |
 | `ProvisioningProfileName`                 | text     | Provisioning Profiles            | Policies  | Profile editor        | -         |                                                                                      |

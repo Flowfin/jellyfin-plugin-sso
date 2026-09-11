@@ -24,6 +24,15 @@ window.SSO_MOCK_FIELDS = [
     note: "the file picker behind Import configuration, not a setting",
   },
   {
+    id: "LinkedAccountsFilter",
+    type: "search",
+    risk: "",
+    block: "Linked Accounts",
+    tab: "Accounts",
+    accordion: "Linked accounts",
+    note: "the filter over the linked-accounts table, not a setting",
+  },
+  {
     id: "ImportLinksFile",
     type: "file",
     risk: "",
