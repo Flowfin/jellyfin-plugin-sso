@@ -18,7 +18,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Config;
 /// <param name="UserId">The Jellyfin user id the link points at, which may no longer resolve to an account.</param>
 /// <param name="Issuer">The issuer this OpenID link is bound to (#186), or null for SAML and for links written before the binding existed.</param>
 /// <param name="LastSsoLoginUtc">The instant of the last successful SSO login through this link (#1120), or null when none has been stamped since the field existed.</param>
-internal readonly record struct CanonicalLinkRow(string Protocol, string Provider, string CanonicalName, Guid UserId, string? Issuer, DateTime? LastSsoLoginUtc);
+/// <param name="PendingApprovalSinceUtc">The instant this plugin provisioned the linked account disabled and awaiting an administrator (#1529), or null when it did not - which is every link but the ones its own create arm recorded, and every recorded one whose account is no longer the account the link points at.</param>
+internal readonly record struct CanonicalLinkRow(string Protocol, string Provider, string CanonicalName, Guid UserId, string? Issuer, DateTime? LastSsoLoginUtc, DateTime? PendingApprovalSinceUtc);
 
 /// <summary>
 /// Builds the portable account-link snapshot (#1126). It reads the two link maps and resolves each
@@ -69,7 +70,8 @@ internal static class LinkExport
                     link.Key,
                     link.Value,
                     config.CanonicalLinkIssuers.TryGetValue(link.Key, out var issuer) ? issuer : null,
-                    LastSsoLogin(config, link.Key));
+                    LastSsoLogin(config, link.Key),
+                    PendingApprovalSince(config, link.Key, link.Value));
             }
         }
 
@@ -77,7 +79,7 @@ internal static class LinkExport
         {
             foreach (var link in config.CanonicalLinks)
             {
-                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null, LastSsoLogin(config, link.Key));
+                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null, LastSsoLogin(config, link.Key), PendingApprovalSince(config, link.Key, link.Value));
             }
         }
     }
@@ -135,6 +137,24 @@ internal static class LinkExport
     private static DateTime? LastSsoLogin(ProviderConfigBase config, string canonicalName) =>
         config.CanonicalLinkLastLogins.TryGetValue(canonicalName, out var stamped)
             ? stamped.ToUniversalTime()
+            : null;
+
+    // The pending-approval record for one link (#1529), keyed by the same canonical name and carried on
+    // both protocols. Null is the answer for EVERY link this plugin did not provision inert itself, which
+    // is almost all of them: the record says what the plugin did, and is never an inference from the
+    // account's disabled flag. Normalized to UTC like its neighbours.
+    //
+    // AND NULL AGAIN WHEN THE RECORD NAMES A DIFFERENT ACCOUNT than the link now points at. The key is a
+    // subject and a subject can change hands: a link whose target account was deleted counts as absent, so
+    // the next login writes the key at another account, by adoption or by a fresh provisioning. The write
+    // paths clear the record when that happens, and this comparison is what makes a path that forgets a
+    // tidiness defect instead of a page offering to enable an account nobody provisioned inert. Fail closed
+    // is the cheap direction here: the cost of refusing a stale record is an administrator enabling an
+    // account by hand, the cost of honouring one is undoing somebody's sanction from a page about
+    // something else.
+    private static DateTime? PendingApprovalSince(ProviderConfigBase config, string canonicalName, Guid linkedUserId) =>
+        config.CanonicalLinkPendingApprovals.TryGetValue(canonicalName, out var record) && record?.UserId == linkedUserId
+            ? record.SinceUtc.ToUniversalTime()
             : null;
 
     // A provider stored with a null config object is reachable through a null-bodied add (#350), and the

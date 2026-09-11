@@ -89,4 +89,18 @@ public class LinkedAccountEntry
     /// </para>
     /// </summary>
     public DateTime? LastSsoLoginUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the instant at which this plugin provisioned the linked account disabled and awaiting an
+    /// administrator (#1529), in UTC, or null when it did not. Null is the answer for every link but the ones
+    /// this plugin's own create arm recorded, and that is the point: a disabled account whose link carries no
+    /// record was disabled by somebody else, for a reason this plugin does not know and must not undo. Null
+    /// again when the record names an account other than the one the link now points at, because a subject
+    /// whose account was deleted is re-linked at another account and the record is about neither.
+    /// <para>
+    /// It is the PROVISIONING instant rather than the approval's, so a reader can see how long somebody has
+    /// been waiting - which is the question an approval list is opened with.
+    /// </para>
+    /// </summary>
+    public DateTime? PendingApprovalSinceUtc { get; set; }
 }
