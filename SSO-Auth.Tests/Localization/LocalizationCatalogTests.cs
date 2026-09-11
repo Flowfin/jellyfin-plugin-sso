@@ -77,6 +77,20 @@ public class LocalizationCatalogTests
     // A text-marked element together with its tag name, so the element's own content can be located.
     private static readonly Regex MarkedElementPattern = new(@"<(?<tag>[a-z0-9]+)(?:\s[^>]*?)?\sdata-i18n=""(?<key>[^""]+)""[^>]*>", RegexOptions.Compiled);
 
+    // A parts-marked element together with its tag name (#1529). Same shape as the text marker above; the
+    // content behind it is walked rather than matched, because a sentence that holds markup is exactly the
+    // case `[^<]*` cannot describe.
+    private static readonly Regex PartsElementPattern = new(@"<(?<tag>[a-z0-9]+)(?:\s[^>]*?)?\sdata-i18n-parts=""(?<key>[^""]+)""[^>]*>", RegexOptions.Compiled);
+
+    // Any tag, so the content of a parts element can be walked with a depth counter.
+    private static readonly Regex AnyTagPattern = new(@"<(?<closing>/?)(?<tag>[a-z0-9]+)(?<attrs>[^>]*?)(?<selfClosing>/?)>", RegexOptions.Compiled);
+
+    // The elements that never close, so a walk must not expect a closing tag for them.
+    private static readonly string[] VoidElements = ["br", "hr", "img", "input", "link", "meta", "wbr", "source", "area", "base", "col", "embed", "param", "track"];
+
+    // A numbered slot in a parts value, which is what distinguishes one from an ordinary catalog entry.
+    private static readonly Regex PlaceholderIndexPattern = new(@"\{(?<index>\d+)\}", RegexOptions.Compiled);
+
     // A script element with its content, so markup can be inspected without reading JavaScript.
     private static readonly Regex ScriptBlockPattern = new(@"<script\b[^>]*>.*?</script>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
@@ -89,6 +103,102 @@ public class LocalizationCatalogTests
     private const string ResourcePrefixWeb = "Jellyfin.Plugin.SSO_Auth.Web.";
 
     private static string CollapseWhitespace(string text) => Regex.Replace(text, @"\s+", " ").Trim();
+
+    /*
+     * Turns the named entities this markup uses into the characters a browser would show.
+     *
+     * The catalogs hold TEXT, because the applier writes through createTextNode and a catalog row saying
+     * `&mdash;` would put those eight characters on the screen. The markup holds ENTITIES, because that is
+     * how an em dash has always been written here. So the two are only comparable once one side is
+     * decoded, and decoding the markup is the side that does not change what ships.
+     *
+     * `&amp;` is decoded LAST and that order is the whole correctness of this: decoding it first would
+     * turn `&amp;lt;` into `&lt;` and then into `<`, inventing markup out of text that said the opposite.
+     * The table is the five entities these templates actually use rather than a general decoder, because a
+     * general one is a dependency and a wrong general one is worse than none.
+     */
+    private static string DecodeEntities(string text) => text
+        .Replace("&lt;", "<", System.StringComparison.Ordinal)
+        .Replace("&gt;", ">", System.StringComparison.Ordinal)
+        .Replace("&mdash;", "—", System.StringComparison.Ordinal)
+        .Replace("&rarr;", "→", System.StringComparison.Ordinal)
+        .Replace("&amp;", "&", System.StringComparison.Ordinal);
+
+    /*
+     * Reads a parts element the way `applyParts` in i18n.js sees it, and reports what it found.
+     *
+     * The assembled string is what the catalog value has to equal: every direct child element becomes
+     * `{n}` in document order, and the text between them is kept with its whitespace collapsed. The whole
+     * result is trimmed, because the markup's own indentation before the first child and after the last is
+     * not part of the sentence.
+     *
+     * `nested` names a direct child that itself contains an element. Such a child is not wrong for the
+     * APPLIER - it moves whole nodes and never looks inside one - but it is wrong for a translator, who
+     * gets a slot whose content they cannot see and cannot reorder within. The rule below refuses it, and
+     * this walk is what lets it say which child.
+     */
+    private static (string Assembled, int Slots, List<string> Nested) AssembleParts(string content, int contentStart, string outerTag)
+    {
+        var assembled = new System.Text.StringBuilder();
+        var nested = new List<string>();
+        var depth = 0;
+        var slots = 0;
+        var at = contentStart;
+        string? openChild = null;
+
+        foreach (Match tag in AnyTagPattern.Matches(content, contentStart))
+        {
+            if (depth == 0)
+            {
+                assembled.Append(Regex.Replace(content[at..tag.Index], @"\s+", " "));
+            }
+
+            at = tag.Index + tag.Length;
+            var name = tag.Groups["tag"].Value;
+            var closing = tag.Groups["closing"].Value.Length > 0;
+            var selfClosing = tag.Groups["selfClosing"].Value.Length > 0 || VoidElements.Contains(name);
+
+            if (closing)
+            {
+                if (depth == 0)
+                {
+                    // The outer element's own closing tag: the content ends here.
+                    Assert.Equal(outerTag, name);
+                    break;
+                }
+
+                depth--;
+                if (depth == 0)
+                {
+                    openChild = null;
+                }
+            }
+            else if (selfClosing)
+            {
+                if (depth == 0)
+                {
+                    assembled.Append('{').Append(slots++).Append('}');
+                }
+            }
+            else
+            {
+                if (depth == 0)
+                {
+                    assembled.Append('{').Append(slots++).Append('}');
+                    openChild = name;
+                }
+                else if (openChild is not null)
+                {
+                    nested.Add(openChild);
+                    openChild = null;
+                }
+
+                depth++;
+            }
+        }
+
+        return (DecodeEntities(CollapseWhitespace(assembled.ToString())), slots, nested);
+    }
 
     // The assets that CONSUME the catalog. Excluded are the vendored Jellyfin client bundles (third-party
     // code that never carries our markers, and a minified bundle only invites false positives) and i18n.js
@@ -204,10 +314,22 @@ public class LocalizationCatalogTests
 
         Assert.Equal(new[] { "aria-label", "placeholder", "title" }, allowed.OrderBy(name => name, System.StringComparer.Ordinal));
 
+        // `data-i18n-parts` borrows the SHAPE of an attribute marker and is not one: it names no attribute,
+        // it is handled by its own branch of the applier, and the scan below would otherwise read it as a
+        // request to localize an attribute called "parts" (#1529). Excluded here by name, and the gap that
+        // opens is closed immediately afterwards rather than trusted: the branch that handles it must set no
+        // attribute at all, and it must build nothing from the catalog except a text node.
+        const string PartsMarker = "parts";
+        var partsBranch = Regex.Match(applier, @"function applyParts\b(?<body>[\s\S]*?)\n\}");
+        Assert.True(partsBranch.Success, "i18n.js must declare applyParts, which the parts marker is excluded on the strength of");
+        Assert.DoesNotContain("setAttribute", partsBranch.Groups["body"].Value, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("innerHTML", partsBranch.Groups["body"].Value, System.StringComparison.Ordinal);
+        Assert.Contains("createTextNode", partsBranch.Groups["body"].Value, System.StringComparison.Ordinal);
+
         var offenders = FirstPartyWebAssets()
             .SelectMany(resource => Regex.Matches(ReadResourceText(resource), @"data-i18n-(?<attr>[a-z-]+)=")
                 .Select(match => match.Groups["attr"].Value)
-                .Where(attribute => !allowed.Contains(attribute))
+                .Where(attribute => !allowed.Contains(attribute) && !string.Equals(attribute, PartsMarker, System.StringComparison.Ordinal))
                 .Select(attribute => $"{resource}: data-i18n-{attribute}"))
             .ToList();
 
@@ -227,7 +349,7 @@ public class LocalizationCatalogTests
         foreach (var (resource, _, match) in ScanHtmlAssets(MarkupTextPattern, "built-in English"))
         {
             var key = match.Groups["key"].Value;
-            var builtIn = CollapseWhitespace(match.Groups["text"].Value);
+            var builtIn = DecodeEntities(CollapseWhitespace(match.Groups["text"].Value));
             if (english.TryGetValue(key, out var catalogValue) && !string.Equals(catalogValue, builtIn, System.StringComparison.Ordinal))
             {
                 mismatches.Add($"{resource}: '{key}' markup \"{builtIn}\" != catalog \"{catalogValue}\"");
@@ -235,6 +357,91 @@ public class LocalizationCatalogTests
         }
 
         Assert.True(mismatches.Count == 0, "These built-in English strings have drifted from the catalog: " + string.Join(" | ", mismatches));
+    }
+
+    [Fact]
+    public void PartsBuiltInEnglish_MatchesTheCatalogAndNamesEveryChild()
+    {
+        // A parts marker localizes a sentence that HOLDS markup, which the text marker above cannot: it
+        // assigns textContent and would delete the `<code>` sample out of the middle of a sentence about
+        // recovering from a lockout. So the catalog value carries `{0}`, `{1}` for the children and the
+        // applier writes only the text between them (#1529).
+        //
+        // Three things have to hold, and all three are the same failure seen from different sides. The
+        // assembled English must equal the catalog value, for the reason the text-marker rule states: the
+        // markup's own English is the offline rendering and a drift means two readers see two sentences.
+        // Every child must be named exactly once, because a value naming fewer leaves a `<code>` out of
+        // the translated sentence and a value naming more asks for a node that does not exist - in both
+        // cases applyParts refuses and the whole sentence silently stays English. And no child may itself
+        // contain an element, because a slot a translator cannot see inside is a slot they cannot place.
+        var english = ReadCatalog(EnglishResource);
+        var problems = new List<string>();
+
+        foreach (var (resource, content, match) in ScanHtmlAssets(PartsElementPattern, "parts-marker"))
+        {
+            var key = match.Groups["key"].Value;
+            var (assembled, slots, nested) = AssembleParts(content, match.Index + match.Length, match.Groups["tag"].Value);
+
+            if (nested.Count > 0)
+            {
+                problems.Add($"{resource}: '{key}' - the child <{string.Join(">, <", nested)}> holds markup of its own, so its slot cannot be read or placed by a translator");
+            }
+
+            if (!english.TryGetValue(key, out var catalogValue))
+            {
+                // Absence is the orphan check's finding, not this one's.
+                continue;
+            }
+
+            if (!string.Equals(catalogValue, assembled, System.StringComparison.Ordinal))
+            {
+                problems.Add($"{resource}: '{key}' markup \"{assembled}\" != catalog \"{catalogValue}\"");
+            }
+
+            var named = PlaceholderIndexPattern.Matches(catalogValue).Select(m => int.Parse(m.Groups["index"].Value, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            if (named.Count != slots || named.Distinct().Count() != slots || named.Any(index => index >= slots))
+            {
+                problems.Add($"{resource}: '{key}' has {slots} child element(s) and its catalog value names [{string.Join(", ", named)}], so applyParts would refuse it and the sentence would stay English");
+            }
+        }
+
+        Assert.True(problems.Count == 0, "These parts markers do not describe the element they sit on: " + string.Join(" | ", problems));
+    }
+
+    [Fact]
+    public void EveryNonEnglishCatalog_NamesTheSameSlotsAsTheEnglishOne()
+    {
+        // A translation may REORDER the slots - that is the point of the mechanism, since German does not
+        // put the pieces of a sentence where English does - but it may not add, drop, or repeat one. Any of
+        // those makes applyParts refuse, and a refusal leaves the reader with the English sentence while
+        // every other string around it is translated, which reads as a bug in the page rather than in a
+        // catalog row (#1529).
+        var english = ReadCatalog(EnglishResource);
+        var slotted = english
+            .Where(entry => PlaceholderIndexPattern.IsMatch(entry.Value))
+            .ToDictionary(entry => entry.Key, entry => PlaceholderIndexPattern.Matches(entry.Value).Select(m => m.Groups["index"].Value).OrderBy(index => index, System.StringComparer.Ordinal).ToList(), System.StringComparer.Ordinal);
+
+        var problems = new List<string>();
+        foreach (var culture in CommittedCultures.Where(name => !string.Equals(name, "en", System.StringComparison.Ordinal)))
+        {
+            var other = ReadCatalog(ResourcePrefix + culture + ResourceSuffix);
+            foreach (var (key, indexes) in slotted)
+            {
+                if (!other.TryGetValue(key, out var value))
+                {
+                    // A missing key is the key-set rule's finding, not this one's.
+                    continue;
+                }
+
+                var theirs = PlaceholderIndexPattern.Matches(value).Select(m => m.Groups["index"].Value).OrderBy(index => index, System.StringComparer.Ordinal).ToList();
+                if (!theirs.SequenceEqual(indexes, System.StringComparer.Ordinal))
+                {
+                    problems.Add($"{culture}: '{key}' names [{string.Join(", ", theirs)}] where English names [{string.Join(", ", indexes)}]");
+                }
+            }
+        }
+
+        Assert.True(problems.Count == 0, "These translations do not name the same slots as the English value: " + string.Join(" | ", problems));
     }
 
     [Fact]

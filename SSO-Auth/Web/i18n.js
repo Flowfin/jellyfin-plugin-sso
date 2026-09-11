@@ -37,9 +37,75 @@ export function t(key, params, fallback) {
 // future edit) drive href, src, or an event handler through the same path.
 const LOCALIZABLE_ATTRIBUTES = ["title", "placeholder", "aria-label"];
 
+// The marker for a SENTENCE THAT HOLDS MARKUP (#1529), and it is deliberately not spelled
+// `data-i18n-<something>`: that shape means "localize the attribute of this name", the allowlist above
+// is what keeps it safe, and a marker that borrowed the shape without being an attribute would make
+// that rule ask a question it no longer means.
+const PARTS_MARKER = "data-i18n-parts";
+
+// A slot in a parts value. `{0}` stands for this element's FIRST child element, `{1}` for its second,
+// and so on in document order.
+const SLOT = /\{(\d+)\}/g;
+
+/*
+ * Splits a parts value into the pieces to write and the children to keep, or returns null if the value
+ * does not describe this element.
+ *
+ * WHY THIS REFUSES RATHER THAN DOING ITS BEST. A value that names four slots applied to an element with
+ * three children would silently drop a `<code>` sample out of a sentence about recovering from a
+ * lockout. Leaving the English standing is a visible, correct fallback; a half-assembled sentence is
+ * neither. So every index must be in range and each one must appear exactly once - which also refuses a
+ * value that names the same child twice, where one copy would have to be a clone and this never clones.
+ */
+function plan(value, childCount) {
+  const tokens = [];
+  const used = new Set();
+  let at = 0;
+  let match;
+  SLOT.lastIndex = 0;
+  while ((match = SLOT.exec(value)) !== null) {
+    const index = Number(match[1]);
+    if (index >= childCount || used.has(index)) {
+      return null;
+    }
+    used.add(index);
+    tokens.push({ text: value.slice(at, match.index) });
+    tokens.push({ child: index });
+    at = match.index + match[0].length;
+  }
+  tokens.push({ text: value.slice(at) });
+  return used.size === childCount ? tokens : null;
+}
+
+/*
+ * Writes a parts value into one element.
+ *
+ * NOTHING HERE IS PARSED AS MARKUP AND NOTHING IS CLONED. The children are the element's own nodes,
+ * held in an array while the element is emptied and then put back - so they keep their identity, their
+ * own content, and any listener on them, and the catalog can reorder them without being able to create
+ * one. The only thing built from the catalog is a text node, through createTextNode, which cannot carry
+ * markup by construction. That is the same posture as the attribute allowlist above and for the same
+ * reason: a localization file is data, and data never becomes structure here.
+ */
+function applyParts(el, value) {
+  const children = [...el.children];
+  const tokens = plan(value, children.length);
+  if (tokens === null) {
+    return;
+  }
+
+  const built = tokens.map((token) =>
+    token.child === undefined
+      ? document.createTextNode(token.text)
+      : children[token.child],
+  );
+  el.replaceChildren(...built);
+}
+
 // Apply the loaded catalog under `root` (default: the whole document): `data-i18n="key"` replaces an
-// element's text content, and `data-i18n-<attr>="key"` replaces one of the allowlisted attributes above
-// (e.g. data-i18n-title). A key that is not in the catalog leaves the built-in English in place.
+// element's text content, `data-i18n-parts="key"` rewrites a sentence AROUND the child elements it
+// holds, and `data-i18n-<attr>="key"` replaces one of the allowlisted attributes above (e.g.
+// data-i18n-title). A key that is not in the catalog leaves the built-in English in place.
 export function applyTo(root) {
   const scope = root || document;
 
@@ -47,6 +113,13 @@ export function applyTo(root) {
     const key = el.getAttribute("data-i18n");
     if (Object.prototype.hasOwnProperty.call(catalog, key)) {
       el.textContent = catalog[key];
+    }
+  });
+
+  scope.querySelectorAll("[" + PARTS_MARKER + "]").forEach((el) => {
+    const key = el.getAttribute(PARTS_MARKER);
+    if (Object.prototype.hasOwnProperty.call(catalog, key)) {
+      applyParts(el, catalog[key]);
     }
   });
 
