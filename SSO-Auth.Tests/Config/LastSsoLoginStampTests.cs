@@ -339,7 +339,7 @@ public class LastSsoLoginStampTests
         config.CanonicalLinks["never"] = User;
         config.CanonicalLinkLastLogins["seen"] = Now;
 
-        var document = LinkRoster.Build(live, _ => "alice");
+        var document = LinkRoster.Build(live, _ => new LinkedAccountState("alice", false));
 
         var links = Assert.Single(document.Accounts).Links;
         Assert.Equal(Now, Assert.Single(links, l => l.CanonicalName == "seen").LastSsoLoginUtc);

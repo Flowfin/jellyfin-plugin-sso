@@ -374,7 +374,7 @@ public class PendingApprovalActionTests
         config.CanonicalLinkPendingApprovals["live"] = new PendingApproval { UserId = Pending, SinceUtc = Now };
         config.CanonicalLinkPendingApprovals["moved"] = new PendingApproval { UserId = Other, SinceUtc = Now };
 
-        var links = Assert.Single(LinkRoster.Build(configuration, _ => "alice").Accounts).Links;
+        var links = Assert.Single(LinkRoster.Build(configuration, _ => new LinkedAccountState("alice", true)).Accounts).Links;
 
         Assert.Equal(Now, Assert.Single(links, l => l.CanonicalName == "live").PendingApprovalSinceUtc);
         Assert.Null(Assert.Single(links, l => l.CanonicalName == "moved").PendingApprovalSinceUtc);
@@ -382,6 +382,30 @@ public class PendingApprovalActionTests
         Assert.NotNull(PendingApproval.Live(config, "live"));
         Assert.Null(PendingApproval.Live(config, "moved"));
         Assert.Null(PendingApproval.Live(config, "plain"));
+    }
+
+    [Fact]
+    public void TheRosterDoesNotOfferAnAccountThatCanAlreadySignIn()
+    {
+        // #1637 from the page's side. The record is live - this plugin did provision the account inert and
+        // the link still points at it - but somebody has since enabled it in the dashboard, which this
+        // plugin never sees happen. A working account on a list of accounts that cannot sign in would be a
+        // row whose button does nothing, and, once that account is later disabled as a sanction, a row
+        // whose button undoes the sanction. The roster reads the flag the action reads, and withholds it.
+        var configuration = new PluginConfiguration();
+        var config = new OidConfig();
+        configuration.OidConfigs["kc"] = config;
+        config.CanonicalLinks["sub-1"] = Pending;
+        config.CanonicalLinkPendingApprovals["sub-1"] = new PendingApproval { UserId = Pending, SinceUtc = Now };
+
+        var enabled = LinkRoster.Build(configuration, _ => new LinkedAccountState("alice", false));
+        var disabled = LinkRoster.Build(configuration, _ => new LinkedAccountState("alice", true));
+        var gone = LinkRoster.Build(configuration, _ => null);
+
+        Assert.Null(Assert.Single(Assert.Single(enabled.Accounts).Links).PendingApprovalSinceUtc);
+        Assert.Equal(Now, Assert.Single(Assert.Single(disabled.Accounts).Links).PendingApprovalSinceUtc);
+        Assert.Null(Assert.Single(Assert.Single(gone.Accounts).Links).PendingApprovalSinceUtc);
+        Assert.False(Assert.Single(gone.Accounts).AccountExists);
     }
 
     // One provider holding one linked account, recorded as provisioned inert by this plugin.

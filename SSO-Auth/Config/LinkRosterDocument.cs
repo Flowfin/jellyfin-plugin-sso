@@ -96,7 +96,10 @@ public class LinkedAccountEntry
     /// this plugin's own create arm recorded, and that is the point: a disabled account whose link carries no
     /// record was disabled by somebody else, for a reason this plugin does not know and must not undo. Null
     /// again when the record names an account other than the one the link now points at, because a subject
-    /// whose account was deleted is re-linked at another account and the record is about neither.
+    /// whose account was deleted is re-linked at another account and the record is about neither. And null
+    /// once more when the account is no longer disabled: it was enabled outside this plugin, and a working
+    /// account is not waiting for anything. Non-null therefore means exactly one thing to the page that
+    /// reads it - this row may be offered for approval, and the approve action will accept it.
     /// <para>
     /// It is the PROVISIONING instant rather than the approval's, so a reader can see how long somebody has
     /// been waiting - which is the question an approval list is opened with.

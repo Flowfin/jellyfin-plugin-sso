@@ -191,6 +191,45 @@
               </form>
 
               <!--
+            Pending approvals (#1529). Presentation only, over the same elevation-gated roster the panel
+            above reads: a row appears here for exactly the links the server reports as waiting - this
+            plugin's own record of having provisioned the account disabled, still naming the account the
+            link points at, on an account that is still disabled. An account somebody else disabled has no
+            record and is not here, and the help text says so, because the one mistake this panel must not
+            invite is undoing a sanction from a page about SSO. The button drives the elevation-gated,
+            rate-limited approve endpoint, which re-reads the state and enables the account and nothing
+            else. Every cell is written with textContent, never innerHTML (#221). The list is bounded and
+            says when it is cut, so a provider with a wide audience cannot make this the page that breaks.
+          -->
+              <form id="sso-pending-approvals" class="esqConfigurationForm">
+                <div
+                  class="verticalSection"
+                  is="emby-collapse"
+                  title="Waiting for Approval"
+                  data-i18n-title="config.pending_approvals_title"
+                >
+                  <div class="collapseContent">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.pending_approvals_help"
+                    >
+                      Accounts this plugin created disabled because their
+                      provider provisions new users disabled, and that are still
+                      waiting. Approving enables the account and changes nothing
+                      else: its permissions are the ones the provisioning gave
+                      it. An account that an administrator disabled is not
+                      listed here, whatever its state, and is enabled in the
+                      Jellyfin dashboard. Read together with the linked accounts
+                      above; Refresh Linked Accounts re-reads both.
+                    </div>
+
+                    <div id="PendingApprovalsActionResult"></div>
+                    <div id="PendingApprovalsResult"></div>
+                  </div>
+                </div>
+              </form>
+
+              <!--
             Account-link transfer (#1131), on the Accounts tab since #1527. It used to sit in the same
             section as the configuration transfer so an administrator met both together; the two are now one
             tab apart, and this is the half that belongs beside the accounts it names. The other half stayed

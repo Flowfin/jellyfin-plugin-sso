@@ -1654,8 +1654,15 @@ public class SSOController : ControllerBase
         // Snapshot under the config lock so the two protocols' link maps are inverted against each other
         // atomically; the document that leaves the lock holds only strings and ids, so the JSON formatter
         // cannot tear against a concurrent login writing a link.
+        // The disabled flag rides along with the username (#1529) so the roster can withhold a pending row
+        // whose account somebody has since enabled; the page never reads the flag itself and never infers
+        // anything from it - it is the roster agreeing with the approve action, which reads the same flag.
         return Ok(SSOPlugin.Instance.ReadConfiguration(
-            live => LinkRoster.Build(live, userId => _userManager.GetUserById(userId)?.Username)));
+            live => LinkRoster.Build(
+                live,
+                userId => _userManager.GetUserById(userId) is { } account
+                    ? new LinkedAccountState(account.Username, account.HasPermission(PermissionKind.IsDisabled))
+                    : null)));
     }
 
     /// <summary>
