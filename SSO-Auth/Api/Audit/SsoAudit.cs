@@ -257,7 +257,7 @@ internal static class SsoAudit
         }
 
         logger.LogWarning(
-            "[SSO Audit] New account provisioned pending approval: '{Username}' via {Protocol} provider '{Provider}' was created disabled (ProvisionNewUsersDisabled); no session issued. Enable it in the Jellyfin dashboard to approve.",
+            "[SSO Audit] New account provisioned pending approval: '{Username}' via {Protocol} provider '{Provider}' was created disabled (ProvisionNewUsersDisabled); no session issued. Approve it on the plugin's Accounts tab, or enable it in the Jellyfin dashboard.",
             username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             protocol,
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
@@ -680,6 +680,37 @@ internal static class SsoAudit
             protocol,
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             jellyfinUserId);
+    }
+
+    /// <summary>
+    /// Records an administrator approving an account this plugin provisioned inert (#1529): the account was
+    /// enabled and can sign in from now on. A grant of access, so it is warned rather than informed, and it
+    /// is the counterpart of the line the provisioning itself wrote - an operator reading the trail should
+    /// find the same account inert at one instant and admitted at another, with a name against the second.
+    /// </summary>
+    /// <remarks>
+    /// The canonical subject is deliberately not a field, for the reason the pre-provision line states
+    /// (T-I1): the account and the provider identify the grant, and the subject is the one member of the
+    /// request that identifies a real person at the identity provider.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="actor">The elevated administrator who approved the account.</param>
+    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="provider">The provider the account was provisioned from.</param>
+    /// <param name="jellyfinUserId">The Jellyfin account that was enabled.</param>
+    internal static void AccountApproved(ILogger logger, string actor, string protocol, string provider, Guid jellyfinUserId)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] Account approved by {Actor}: Jellyfin user {UserId}, provisioned inert by {Protocol} provider '{Provider}', was enabled. No other permission was changed.",
+            actor?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            jellyfinUserId,
+            protocol,
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
     /// <summary>

@@ -71,7 +71,7 @@ internal static class LinkExport
                     link.Value,
                     config.CanonicalLinkIssuers.TryGetValue(link.Key, out var issuer) ? issuer : null,
                     LastSsoLogin(config, link.Key),
-                    PendingApprovalSince(config, link.Key, link.Value));
+                    PendingApprovalSince(config, link.Key));
             }
         }
 
@@ -79,7 +79,7 @@ internal static class LinkExport
         {
             foreach (var link in config.CanonicalLinks)
             {
-                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null, LastSsoLogin(config, link.Key), PendingApprovalSince(config, link.Key, link.Value));
+                yield return new CanonicalLinkRow(SamlProtocol, provider, link.Key, link.Value, null, LastSsoLogin(config, link.Key), PendingApprovalSince(config, link.Key));
             }
         }
     }
@@ -139,23 +139,12 @@ internal static class LinkExport
             ? stamped.ToUniversalTime()
             : null;
 
-    // The pending-approval record for one link (#1529), keyed by the same canonical name and carried on
-    // both protocols. Null is the answer for EVERY link this plugin did not provision inert itself, which
-    // is almost all of them: the record says what the plugin did, and is never an inference from the
-    // account's disabled flag. Normalized to UTC like its neighbours.
-    //
-    // AND NULL AGAIN WHEN THE RECORD NAMES A DIFFERENT ACCOUNT than the link now points at. The key is a
-    // subject and a subject can change hands: a link whose target account was deleted counts as absent, so
-    // the next login writes the key at another account, by adoption or by a fresh provisioning. The write
-    // paths clear the record when that happens, and this comparison is what makes a path that forgets a
-    // tidiness defect instead of a page offering to enable an account nobody provisioned inert. Fail closed
-    // is the cheap direction here: the cost of refusing a stale record is an administrator enabling an
-    // account by hand, the cost of honouring one is undoing somebody's sanction from a page about
-    // something else.
-    private static DateTime? PendingApprovalSince(ProviderConfigBase config, string canonicalName, Guid linkedUserId) =>
-        config.CanonicalLinkPendingApprovals.TryGetValue(canonicalName, out var record) && record?.UserId == linkedUserId
-            ? record.SinceUtc.ToUniversalTime()
-            : null;
+    // The pending-approval record for one link (#1529), carried on both protocols and read through the one
+    // rule that decides whether a record still describes anything - the same rule the approve action asks,
+    // so the roster cannot present a row that action would refuse. Null for EVERY link this plugin did not
+    // provision inert itself, which is almost all of them. Normalized to UTC like its neighbours.
+    private static DateTime? PendingApprovalSince(ProviderConfigBase config, string canonicalName) =>
+        PendingApproval.Live(config, canonicalName)?.SinceUtc.ToUniversalTime();
 
     // A provider stored with a null config object is reachable through a null-bodied add (#350), and the
     // read side treats that the same fail-closed way the link listings do: skipped, never dereferenced.

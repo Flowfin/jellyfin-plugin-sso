@@ -97,4 +97,28 @@ internal static class FlowResponses
         CanonicalLinkWriteResult.ConflictingUser => new ConflictObjectResult("That identity is already linked to a different Jellyfin account. Remove the existing link first."),
         _ => throw new InvalidOperationException($"Unhandled canonical-link write result: {result}"),
     };
+
+    /// <summary>
+    /// The HTTP boundary for approving an account this plugin provisioned inert (#1529): maps the link
+    /// service's closed result to a response.
+    /// </summary>
+    /// <remarks>
+    /// The two arms that DID something without enabling anything - a record whose account is already
+    /// enabled, and one whose account is gone - answer 204 rather than an error. Both leave the caller's
+    /// goal satisfied or unreachable for a reason no retry changes, both removed the record they found, and
+    /// a page that reloads the roster after a 204 will simply not show the row again. The administrator
+    /// refusal is a 403 and says where to go instead, because that one is a decision and not an accident.
+    /// </remarks>
+    /// <param name="result">The closed result variant from <c>CanonicalLinkService.ApproveProvisionedAccountAsync</c>.</param>
+    /// <returns>The mapped <see cref="ActionResult"/>.</returns>
+    internal static ActionResult MapPendingApproval(PendingApprovalResult result) => result switch
+    {
+        PendingApprovalResult.Approved => new NoContentResult(),
+        PendingApprovalResult.AlreadyEnabled => new NoContentResult(),
+        PendingApprovalResult.AccountGone => new NoContentResult(),
+        PendingApprovalResult.UnknownProvider => new BadRequestObjectResult(LoginStatusMapper.NoMatchingProviderMessage),
+        PendingApprovalResult.NotPending => new NotFoundObjectResult("This plugin has no record of provisioning that identity's account disabled, so there is nothing here to approve. An account disabled by an administrator is enabled in the Jellyfin dashboard."),
+        PendingApprovalResult.Administrator => new ObjectResult("That account is an administrator. Enable an administrator account in the Jellyfin dashboard, not from here.") { StatusCode = StatusCodes.Status403Forbidden },
+        _ => throw new InvalidOperationException($"Unhandled pending-approval result: {result}"),
+    };
 }
