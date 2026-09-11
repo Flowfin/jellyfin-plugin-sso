@@ -1499,6 +1499,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="Roles"
+                          data-i18n-parts="config.oid_roles_label"
                           >Roles:
                           <span
                             class="sso-optional"
@@ -1512,16 +1513,21 @@
                           type="text"
                           class="sso-line-list emby-textarea"
                         ></textarea>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.oid_roles_help"
+                        >
                           A list of roles, one role per-line to look for in the
                           OpenID response.
                           <br />
                           If a user has any of these roles, then the user is
                           authenticated. This validates the OpenID response
-                          against the claim set in <strong>"RoleClaim"</strong>.
-                          (If your provider carries the roles as object keys, as
-                          Zitadel does, also tick "Role claim is an object map"
-                          beside the Role Claim field.)
+                          against the claim set in
+                          <strong data-i18n="config.role_claim_property_name"
+                            >"RoleClaim"</strong
+                          >. (If your provider carries the roles as object keys,
+                          as Zitadel does, also tick "Role claim is an object
+                          map" beside the Role Claim field.)
                           <br />
                           Leave blank to disable role checking.
                         </div>
@@ -1531,6 +1537,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="AdminRoles"
+                          data-i18n-parts="config.admin_roles_label"
                           >Admin Roles:
                           <span
                             class="sso-optional"
@@ -1544,12 +1551,18 @@
                           type="text"
                           class="sso-line-list emby-textarea"
                         ></textarea>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.admin_roles_help"
+                        >
                           A list of roles, one role per-line to look for in the
                           OpenID response.
                           <br />
-                          Like <strong>"Roles"</strong>, but having any of the
-                          roles confers admin privilege.
+                          Like
+                          <strong data-i18n="config.roles_field_name"
+                            >"Roles"</strong
+                          >, but having any of the roles confers admin
+                          privilege.
                           <br />
                           If unset will not grant admin privileges.
                         </div>
@@ -1603,12 +1616,18 @@
                             id="EnabledFolders"
                             class="checkboxList paperList checkboxList-paperList sso-folder-list sso-bordered-list"
                           ></div>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.enabled_folders_help"
+                          >
                             Determines which libraries will be accessible to a
                             user that logs in through this provider.
                             <br />
-                            If <strong>"Enable All Folders"</strong> is checked,
-                            then this has no effect.
+                            If
+                            <strong data-i18n="config.enable_all_folders_name"
+                              >"Enable All Folders"</strong
+                            >
+                            is checked, then this has no effect.
                           </div>
                         </div>
 
@@ -1667,12 +1686,19 @@
                             id="FolderRoleMapping"
                             class="sso-role-map"
                           ></div>
-                          <div class="fieldDescription">
-                            Map roles (given by <strong>"Role Claim"</strong>)
-                            to lists of libraries. If a user has a given role,
-                            they will have access to the corresponding
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.folder_role_mapping_help"
+                          >
+                            Map roles (given by
+                            <strong data-i18n="config.role_claim_field_name"
+                              >"Role Claim"</strong
+                            >) to lists of libraries. If a user has a given
+                            role, they will have access to the corresponding
                             libraries. If
-                            <strong>"Enable Role-Based Folder Access"</strong>
+                            <strong data-i18n="config.enable_folder_roles_name"
+                              >"Enable Role-Based Folder Access"</strong
+                            >
                             is disabled, has no effect.
                           </div>
                         </div>
@@ -1719,6 +1745,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="LiveTvRoles"
+                            data-i18n-parts="config.livetv_roles_label"
                             >Live TV Roles:
                             <span
                               class="sso-optional"
@@ -1732,12 +1759,18 @@
                             type="text"
                             class="sso-line-list emby-textarea"
                           ></textarea>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.livetv_roles_help"
+                          >
                             A list of roles, one role per-line to look for in
                             the OpenID response.
                             <br />
-                            Like <strong>"Roles"</strong>, but having any of the
-                            roles confers Live TV privileges.
+                            Like
+                            <strong data-i18n="config.roles_field_name"
+                              >"Roles"</strong
+                            >, but having any of the roles confers Live TV
+                            privileges.
                           </div>
                         </div>
 
@@ -1745,6 +1778,7 @@
                           <label
                             class="inputLabel inputLabelUnfocused"
                             for="LiveTvManagementRoles"
+                            data-i18n-parts="config.livetv_management_roles_label"
                             >Live TV Management Roles:
                             <span
                               class="sso-optional"
@@ -1758,12 +1792,18 @@
                             type="text"
                             class="sso-line-list emby-textarea"
                           ></textarea>
-                          <div class="fieldDescription">
+                          <div
+                            class="fieldDescription"
+                            data-i18n-parts="config.livetv_management_roles_help"
+                          >
                             A list of roles, one role per-line to look for in
                             the OpenID response.
                             <br />
-                            Like <strong>"Roles"</strong>, but having any of the
-                            roles confers Live TV administration privileges.
+                            Like
+                            <strong data-i18n="config.roles_field_name"
+                              >"Roles"</strong
+                            >, but having any of the roles confers Live TV
+                            administration privileges.
                           </div>
                         </div>
                       </div>
@@ -1783,12 +1823,17 @@
                             >Enable Live TV Access By Default</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n-parts="config.livetv_access_help"
+                        >
                           Determines whether the user can view Live TV by
                           default.
                           <br />
                           This value is still used if
-                          <strong>Live TV RBAC</strong>
+                          <strong data-i18n="config.livetv_rbac_name"
+                            >Live TV RBAC</strong
+                          >
                           is enabled!
                         </div>
                       </div>
@@ -1809,12 +1854,17 @@
                             >Enable Live TV Management By Default</span
                           >
                         </label>
-                        <div class="fieldDescription checkboxFieldDescription">
+                        <div
+                          class="fieldDescription checkboxFieldDescription"
+                          data-i18n-parts="config.livetv_manage_help"
+                        >
                           Determines whether the user can manage Live TV by
                           default.
                           <br />
                           This value is still used if
-                          <strong>Live TV RBAC</strong>
+                          <strong data-i18n="config.livetv_rbac_name"
+                            >Live TV RBAC</strong
+                          >
                           is enabled!
                         </div>
                       </div>
@@ -1857,6 +1907,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="SchemeOverride"
+                          data-i18n-parts="config.scheme_override_label"
                           >Scheme Override
                           <span
                             class="sso-optional"
@@ -1883,6 +1934,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="PortOverride"
+                          data-i18n-parts="config.port_override_label"
                           >Port Override
                           <span
                             class="sso-optional"
@@ -1909,6 +1961,7 @@
                         <label
                           class="inputLabel inputLabelUnfocused"
                           for="BaseUrlOverride"
+                          data-i18n-parts="config.base_url_override_label"
                           >Base URL Override
                           <span
                             class="sso-optional"
@@ -1929,7 +1982,10 @@
                           role="alert"
                           hidden
                         ></div>
-                        <div class="fieldDescription">
+                        <div
+                          class="fieldDescription"
+                          data-i18n-parts="config.base_url_override_help"
+                        >
                           The canonical external base URL of this server, e.g.
                           <code>https://jellyfin.example.com</code>. When set,
                           the redirect URI and SAML base URL are built from it
@@ -1941,6 +1997,7 @@
                         <div
                           class="sso-callout sso-callout-warning"
                           role="note"
+                          data-i18n-parts="config.base_url_override_warning"
                         >
                           ⚠ Recommended. When left blank, the redirect URI
                           derives from the request Host header; behind a reverse
