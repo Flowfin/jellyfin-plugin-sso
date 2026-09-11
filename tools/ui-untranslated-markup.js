@@ -29,9 +29,9 @@
  * editor - each one a `title=` - are among the largest untranslated surfaces on
  * the page.
  *
- * WHAT DOES NOT COUNT, AND EACH EXEMPTION IS STRUCTURAL RATHER THAN A LIST OF
- * STRINGS. A list of strings ages badly: it grants its exemption to whatever the
- * text is changed to, and nobody re-reads it. These are properties instead.
+ * WHAT DOES NOT COUNT. Four of the five exemptions are STRUCTURAL - a property of
+ * the element rather than of its text - because a property cannot be granted to a
+ * string that later changes under it.
  *
  *  - Content of `code`, `kbd`, `samp`, `pre` and `title`. An identifier, a
  *    command or a code sample is the same in every language, and a catalog row
@@ -51,6 +51,18 @@
  *
  * A run with fewer than two letters is not text: it is the comma between two
  * links, or an entity, or whitespace the formatter left behind.
+ *
+ * THE FIFTH EXEMPTION IS A LIST, and it is a list because the property it stands
+ * for cannot be read off the element. A heading whose text the SCRIPT owns is
+ * marked nowhere and looks exactly like one nobody has keyed yet - the editor
+ * title is the case, and the markup beside it says at length why a marker there
+ * would let a late catalog pass overwrite a loaded provider's name with the word
+ * "New provider". Such text IS translated, at its source, through the tr() call
+ * that writes it. What keeps this list from ageing the way a list of strings
+ * usually does is that it is matched on the EXACT text and a stale entry is
+ * refused: a wording that changes loses its exemption and comes back into the
+ * count, which is the moment somebody has to look again. Same shape and same
+ * reason as the exemption list in tools/ui-untranslated.js.
  *
  * THE RATCHET, same shape and same reason as the script-side counter. It refuses
  * an increase, which is the drift. It refuses a decrease too, because a tranche
@@ -78,8 +90,8 @@ const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as runs are keyed, in the same commit that keys
 // them, and it never goes up.
-const PINNED = 283;
-const PINNED_ATTRIBUTES = 16;
+const PINNED = 246;
+const PINNED_ATTRIBUTES = 0;
 
 // The six templates a reader of this plugin actually sees: the five dashboard
 // pages and the self-service page.
@@ -90,6 +102,20 @@ const TEMPLATES = [
   "policiesPage.html",
   "serverPage.html",
   "linking.html",
+];
+
+// Text the SCRIPT owns, each with the reason a marker cannot sit on it. Matched
+// on the exact text; an entry no template carries any more is refused below, so
+// a changed wording loses its exemption instead of inheriting it.
+const EXEMPT = [
+  {
+    text: "New provider",
+    why:
+      'The editor heading, written by sso-core.js through tr("config.new_provider"). The markup ' +
+      "beside it explains the rest: the script writes the LOADED provider's name here, so a marker " +
+      'would let a late applyTo() overwrite "keycloak-prod" with the blank-editor wording over an ' +
+      "editor that has a provider in it, and the Save path targets that provider by name.",
+  },
 ];
 
 // Elements whose content is an identifier or a sample rather than prose.
@@ -145,6 +171,11 @@ function attributeOf(tagText, name) {
  * what this needs to know - which element encloses this text, and does it carry
  * a marker - is exactly what a walk with a stack knows.
  */
+// Every exempt text actually met in a template. What is not in here by the end is
+// an entry the templates no longer carry, and it is refused rather than left to
+// grant its exemption to nothing.
+const seenExempt = new Set();
+
 function scan(file) {
   const html = blankNonMarkup(fs.readFileSync(path.join(WEB, file), "utf8"));
   const runs = [];
@@ -169,7 +200,10 @@ function scan(file) {
         parent !== undefined &&
         parent.name === "option" &&
         parent.value === text;
-      if (!marked && !opaque && !declared) {
+      const scriptOwned = EXEMPT.some((entry) => entry.text === text);
+      if (scriptOwned) {
+        seenExempt.add(text);
+      } else if (!marked && !opaque && !declared) {
         runs.push({ line: lineAt(textStart), text });
       }
     }
@@ -253,6 +287,14 @@ if (totalAttributes !== PINNED_ATTRIBUTES) {
   );
 }
 
+for (const entry of EXEMPT) {
+  if (!seenExempt.has(entry.text)) {
+    faults.push(
+      `no template carries the exempt text "${entry.text}" any more, so its exemption grants nothing and the reason beside it is about something that is gone.`,
+    );
+  }
+}
+
 if (faults.length) {
   faults.forEach((fault) => console.error(fault));
   console.error("Run with --list to see them, then key them and move the pin.");
@@ -261,6 +303,9 @@ if (faults.length) {
 
 console.log(
   `${totalRuns} text run(s) and ${totalAttributes} attribute(s) in the templates still bypass the catalog, which is the pinned count.`,
+);
+console.log(
+  `  exempt   ${EXEMPT.length} text(s) the script owns, with the reason beside each`,
 );
 for (const { file, runs, attributes } of perFile) {
   console.log(

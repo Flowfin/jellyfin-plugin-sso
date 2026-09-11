@@ -143,6 +143,7 @@
                   class="verticalSection"
                   is="emby-collapse"
                   title="Configuration check"
+                  data-i18n-title="config.section_check"
                 >
                   <div class="collapseContent">
                     <div class="fieldDescription" data-i18n="config.check_lead">
@@ -214,13 +215,17 @@
                     >
                       No SSO providers yet
                     </p>
-                    <p class="fieldDescription">
+                    <p
+                      class="fieldDescription"
+                      data-i18n-parts="config.oidc_empty_help"
+                    >
                       Add an OpenID Connect provider to let users sign in
                       through your identity provider. See the
                       <a
                         is="emby-linkbutton"
                         href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki"
                         class="button-link"
+                        data-i18n="config.link_quickstart"
                         >quick-start guide</a
                       >
                       to get the endpoint, client id and secret from your
@@ -358,12 +363,15 @@
                         type="button"
                         class="raised button-delete sso-btn-deemphasized emby-button"
                       >
-                        <span>Delete</span>
+                        <span data-i18n="config.delete_provider">Delete</span>
                       </button>
                     </div>
                   </div>
 
-                  <p class="fieldDescription sso-required-legend">
+                  <p
+                    class="fieldDescription sso-required-legend"
+                    data-i18n-parts="config.required_legend"
+                  >
                     Fields marked
                     <span class="sso-required" aria-hidden="true">*</span>
                     are required.
@@ -424,8 +432,13 @@
                     <label
                       class="inputLabel inputLabelUnfocused"
                       for="OidPreset"
+                      data-i18n-parts="config.template_start_label"
                       >Start from a template
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <select
                       is="emby-select"
@@ -433,7 +446,7 @@
                       name="OidPreset"
                       class="emby-select-withcolor emby-select"
                     >
-                      <option value="">
+                      <option value="" data-i18n="config.template_choose">
                         &mdash; Choose a provider template &mdash;
                       </option>
                     </select>
@@ -443,7 +456,10 @@
                       role="status"
                       aria-live="polite"
                     ></div>
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.template_picker_help"
+                    >
                       Pre-fills the scopes, role-claim path, username claim, and
                       an endpoint placeholder for a known identity provider, and
                       enables only the compatibility options it needs. Review
@@ -458,6 +474,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="Connection"
+                    data-i18n-title="config.section_connection"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -823,6 +840,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="User provisioning"
+                    data-i18n-title="config.section_provisioning"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -1415,6 +1433,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="Roles & access"
+                    data-i18n-title="config.section_roles"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -1579,6 +1598,7 @@
                             title="Add"
                             data-i18n-title="config.add_button"
                             aria-label="Add role mapping"
+                            data-i18n-aria-label="config.add_role_mapping"
                           >
                             <span
                               class="material-icons add"
@@ -1606,6 +1626,7 @@
                   <div
                     is="emby-collapse"
                     title="Live TV"
+                    data-i18n-title="config.section_livetv"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -1746,6 +1767,7 @@
                   <div
                     is="emby-collapse"
                     title="Compatibility & overrides"
+                    data-i18n-title="config.section_compatibility"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -1886,6 +1908,7 @@
                     is="emby-collapse"
                     id="sso-security-section"
                     title="Security & hardening"
+                    data-i18n-title="config.section_security"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -2384,7 +2407,9 @@
                       type="button"
                       class="raised button-alt block emby-button"
                     >
-                      <span>Test Connection</span>
+                      <span data-i18n="config.test_connection"
+                        >Test Connection</span
+                      >
                     </button>
                     <div class="fieldDescription">
                       Validates the <strong>saved</strong> provider: the server
@@ -2433,7 +2458,7 @@
                       type="button"
                       class="raised button-submit block emby-button sso-save-button"
                     >
-                      <span>Save</span>
+                      <span data-i18n="config.save_provider">Save</span>
                     </button>
                   </div>
                 </div>
@@ -2586,12 +2611,15 @@
                         type="button"
                         class="raised button-delete sso-btn-deemphasized emby-button"
                       >
-                        <span>Delete</span>
+                        <span data-i18n="config.delete_provider">Delete</span>
                       </button>
                     </div>
                   </div>
 
-                  <p class="fieldDescription sso-required-legend">
+                  <p
+                    class="fieldDescription sso-required-legend"
+                    data-i18n-parts="config.required_legend"
+                  >
                     Fields marked
                     <span class="sso-required" aria-hidden="true">*</span>
                     are required.
@@ -2648,8 +2676,13 @@
                     <label
                       class="inputLabel inputLabelUnfocused"
                       for="saml-Preset"
+                      data-i18n-parts="config.template_start_label"
                       >Start from a template
-                      <span class="sso-optional">(optional)</span></label
+                      <span
+                        class="sso-optional"
+                        data-i18n="config.optional_marker"
+                        >(optional)</span
+                      ></label
                     >
                     <select
                       is="emby-select"
@@ -2657,7 +2690,7 @@
                       name="saml-Preset"
                       class="emby-select-withcolor emby-select"
                     >
-                      <option value="">
+                      <option value="" data-i18n="config.template_choose">
                         &mdash; Choose a provider template &mdash;
                       </option>
                     </select>
@@ -2667,7 +2700,10 @@
                       role="status"
                       aria-live="polite"
                     ></div>
-                    <div class="fieldDescription">
+                    <div
+                      class="fieldDescription"
+                      data-i18n="config.saml_template_help"
+                    >
                       Pre-fills an endpoint placeholder for a SAML identity
                       provider. Use the metadata import below to fill the
                       endpoint and signing certificate from your IdP, then
@@ -2680,6 +2716,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="Connection"
+                    data-i18n-title="config.section_connection"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -2723,7 +2760,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-metadata-url"
                           >Import from IdP metadata
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <div class="sso-redirect-uri-row">
                           <input
@@ -2746,6 +2787,7 @@
                           id="saml-metadata-xml"
                           class="emby-textarea"
                           placeholder="…or paste the metadata XML here"
+                          data-i18n-placeholder="config.saml_metadata_paste_placeholder"
                         ></textarea>
                         <button
                           is="emby-button"
@@ -3006,7 +3048,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-LoginButtonText"
                           >Login button text:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <input
                           is="emby-input"
@@ -3031,6 +3077,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="User provisioning"
+                    data-i18n-title="config.section_provisioning"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -3060,7 +3107,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-DefaultProvider"
                           >Set default Provider:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <input
                           is="emby-input"
@@ -3536,6 +3587,7 @@
                     is="emby-collapse"
                     data-expanded="true"
                     title="Roles &amp; access"
+                    data-i18n-title="config.section_roles"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -3544,7 +3596,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-Roles"
                           >Roles:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <textarea
                           is="emby-textarea"
@@ -3565,7 +3621,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-AdminRoles"
                           >Admin Roles:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <textarea
                           is="emby-textarea"
@@ -3663,6 +3723,7 @@
                             title="Add"
                             data-i18n-title="config.add_button"
                             aria-label="Add role mapping"
+                            data-i18n-aria-label="config.add_role_mapping"
                           >
                             <span
                               class="material-icons add"
@@ -3686,6 +3747,7 @@
                   <div
                     is="emby-collapse"
                     title="Live TV"
+                    data-i18n-title="config.section_livetv"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -3777,6 +3839,7 @@
                   <div
                     is="emby-collapse"
                     title="Compatibility &amp; overrides"
+                    data-i18n-title="config.section_compatibility"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -3785,7 +3848,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SchemeOverride"
                           >Scheme Override:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <input
                           is="emby-input"
@@ -3805,7 +3872,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-PortOverride"
                           >Port Override:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <input
                           is="emby-input"
@@ -3824,7 +3895,11 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-BaseUrlOverride"
                           >Base URL Override:
-                          <span class="sso-optional">(optional)</span></label
+                          <span
+                            class="sso-optional"
+                            data-i18n="config.optional_marker"
+                            >(optional)</span
+                          ></label
                         >
                         <input
                           is="emby-input"
@@ -3860,6 +3935,7 @@
                     is="emby-collapse"
                     id="saml-security-section"
                     title="Security &amp; hardening"
+                    data-i18n-title="config.section_security"
                     class="verticalSection verticalSection-extrabottompadding"
                   >
                     <div class="collapseContent">
@@ -3922,7 +3998,11 @@
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlAudience"
                             >SAML Audience:
-                            <span class="sso-optional">(optional)</span></label
+                            <span
+                              class="sso-optional"
+                              data-i18n="config.optional_marker"
+                              >(optional)</span
+                            ></label
                           >
                           <input
                             is="emby-input"
@@ -3968,7 +4048,11 @@
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlSigningKeyPfx"
                             >SP Signing Key (PFX/PKCS#12, Base64):
-                            <span class="sso-optional">(optional)</span></label
+                            <span
+                              class="sso-optional"
+                              data-i18n="config.optional_marker"
+                              >(optional)</span
+                            ></label
                           >
                           <input
                             is="emby-input"
@@ -3992,7 +4076,11 @@
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlRolloverSigningKeyPfx"
                             >SP Rollover Signing Key (PFX/PKCS#12, Base64):
-                            <span class="sso-optional">(optional)</span></label
+                            <span
+                              class="sso-optional"
+                              data-i18n="config.optional_marker"
+                              >(optional)</span
+                            ></label
                           >
                           <input
                             is="emby-input"
@@ -4023,7 +4111,11 @@
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlSecondaryCertificate"
                             >Secondary IdP Signing Certificate:
-                            <span class="sso-optional">(optional)</span></label
+                            <span
+                              class="sso-optional"
+                              data-i18n="config.optional_marker"
+                              >(optional)</span
+                            ></label
                           >
                           <textarea
                             is="emby-textarea"
@@ -4108,7 +4200,9 @@
                       type="button"
                       class="raised button-alt block emby-button"
                     >
-                      <span>Test Connection</span>
+                      <span data-i18n="config.test_connection"
+                        >Test Connection</span
+                      >
                     </button>
                     <div class="fieldDescription">
                       Validates the <strong>saved</strong> provider: parses the
@@ -4155,7 +4249,7 @@
                       type="button"
                       class="raised button-submit block emby-button sso-save-button"
                     >
-                      <span>Save</span>
+                      <span data-i18n="config.save_provider">Save</span>
                     </button>
                   </div>
                 </div>
@@ -4163,8 +4257,14 @@
             </div>
             <aside class="sso-column-rail">
               <div class="verticalSection sso-rail-card">
-                <h3 class="sectionTitle">Readiness</h3>
-                <div id="sso-rail-readiness" class="fieldDescription">
+                <h3 class="sectionTitle" data-i18n="config.readiness_title">
+                  Readiness
+                </h3>
+                <div
+                  id="sso-rail-readiness"
+                  class="fieldDescription"
+                  data-i18n="config.readiness_empty"
+                >
                   Open a provider to see whether it is ready to serve a login.
                 </div>
               </div>
