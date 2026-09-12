@@ -354,6 +354,7 @@
   "config.saml_template_help": "Pre-fills an endpoint placeholder for a SAML identity provider. Use the metadata import below to fill the endpoint and signing certificate from your IdP, then review and save. Nothing is saved automatically.",
   "config.test_connection": "Test Connection",
   "config.save_provider": "Save",
+  "config.readiness_moved": "Whether this provider is ready to serve a login is answered in the Readiness panel.",
   "config.readiness_empty": "Open a provider to see whether it is ready to serve a login.",
   "config.oid_name_label": "Name of OpenID Provider: {0}",
   "config.oid_name_help": "The name used by Jellyfin to identify the OpenID provider. {0} If an OpenID provider with a matching name does not exist, a new provider with this name will be created. {1} If an OpenID provider with a matching name already exists, the settings for that provider will be updated.",

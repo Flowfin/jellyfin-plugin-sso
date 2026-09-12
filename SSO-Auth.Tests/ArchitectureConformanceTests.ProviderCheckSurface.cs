@@ -136,6 +136,40 @@ public partial class ArchitectureConformanceTests
     }
 
     [Fact]
+    public void TheReadinessRail_IsAddressedByIdsTheProvidersPageCarries()
+    {
+        // The readiness panel used to be a section inside each provider form and is now one list in the
+        // rail (#1664), so ONE id carries what two used to. sso-core.js reaches it through a named
+        // constant rather than a literal selector, which is deliberate - both protocol specs point at the
+        // same list and a second spelling would be a second place for them to disagree - and it is exactly
+        // the shape tools/ui-mock-fields.js refuses to read: that reader skips a concatenated selector on
+        // purpose, so nothing else in this tree names the id at all.
+        //
+        // WHAT THAT COSTS IF NOBODY PINS IT. railReadiness returns at its own guard when the list is
+        // missing, and the forms no longer carry panels to fall back on, so renaming the element takes
+        // readiness off the page in silence - no error, no empty panel, just a card that never answers.
+        // The rule above exists for the same failure on the aggregate check and says why in full.
+        var js = ConfigJs();
+        var providers = WebAssets.Page("providersPage.html");
+
+        Assert.Contains("const RAIL_READINESS_LIST = \"sso-rail-readiness-list\";", js, StringComparison.Ordinal);
+        Assert.Contains("\"#\" + RAIL_READINESS_LIST", js, StringComparison.Ordinal);
+
+        foreach (var id in new[] { "sso-rail-readiness", "sso-rail-readiness-list" })
+        {
+            Assert.Contains("id=\"" + id + "\"", providers, StringComparison.Ordinal);
+        }
+
+        // The invitation and the list are the two halves of one card and one of them is always the visible
+        // one, so a page shipping the list visible would show a headed panel with no rows before anything
+        // is open - which reads as a provider that answered nothing.
+        Assert.Contains("id=\"sso-rail-readiness-list\"", providers, StringComparison.Ordinal);
+        Assert.Matches(
+            "id=\"sso-rail-readiness-list\"[^>]*hidden",
+            System.Text.RegularExpressions.Regex.Replace(providers, @"\s+", " "));
+    }
+
+    [Fact]
     public void TheServeDefaultsBanner_ReadsTheMemberTheReportDeclares()
     {
         // #1543. This one member is why the banner appears at all, and BOTH of its consumers fail quiet: the
