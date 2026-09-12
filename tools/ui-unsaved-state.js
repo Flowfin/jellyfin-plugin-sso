@@ -184,7 +184,19 @@ function pageFixture(file, regionIds) {
   const html = withoutComments(fs.readFileSync(file, "utf8"));
   const controls = [
     ...html.matchAll(/<(input|select|textarea)\b[\s\S]*?>/g),
-  ].map((m) => new Element(m[1], attr(m[0], "id"), attr(m[0], "type") || m[1]));
+  ].map((m) => {
+    const control = new Element(
+      m[1],
+      attr(m[0], "id"),
+      attr(m[0], "type") || m[1],
+    );
+    // READ OFF THE TAG, because whether a control is read-only is a fact the state now reads
+    // (#1701): the three computed addresses on the Providers page leave the baseline by it. A
+    // fixture that invented the flag would prove this stub rather than the page, and one that
+    // ignored it would report the whole repair as working on markup that had dropped it.
+    control.readOnly = m[0].split(/[\s>]+/).includes("readonly");
+    return control;
+  });
   if (controls.length === 0) {
     throw new Error(
       path.basename(file) +
@@ -1095,6 +1107,79 @@ async function main() {
     core.managedReportUnread = originalUnread;
   }
 
+  // ---- A computed address is not an edit (#1701) ----
+  //
+  // THE SHAPE IS A REPLY THAT LANDS AFTER THE BASELINE, and it is the ordinary path rather than a race
+  // somebody has to arrange: `loadProvider` empties `#OidRedirectUri`, schedules the request behind a
+  // 250 ms debounce, and calls `markPageClean` twenty lines later. So the baseline holds that field
+  // empty and the server's answer arrives into it afterwards, with no second baseline taken. While the
+  // field was in the tracked set, every OpenID provider ever loaded left the page reporting an edit
+  // nobody had made - and `refreshOnShow` then took its edit-protecting arm on every return, so the tab
+  // also stopped re-reading.
+  //
+  // DRIVEN THROUGH THE SHIPPED FUNCTIONS on the shipped markup: the flag is read off the page's own
+  // tag, so a `readonly` that leaves the markup takes this arm's premise with it and the arm says so
+  // rather than passing.
+  {
+    const page = providersPageFixture();
+    const uri = page.querySelector("#OidRedirectUri");
+    if (uri === null) {
+      refuse(
+        "computed-address",
+        "the Providers page declares no #OidRedirectUri, so this arm judges nothing",
+      );
+    } else {
+      if (uri.readOnly !== true) {
+        refuse(
+          "computed-address",
+          "#OidRedirectUri is not read-only in the markup, so the page now offers an address the server computes as something to type into",
+        );
+      }
+      wire(core, page);
+
+      // The reply, landing after the baseline exactly as the load leaves it.
+      uri.value = "https://jellyfin.example/sso/OID/redirect/example";
+      page.dispatch("input", uri, true);
+
+      if (core.isPageDirty(page)) {
+        refuse(
+          "computed-address",
+          "the address the server answered with was counted as something an administrator typed",
+        );
+      }
+      if (core.pageDiffersFromBaseline(page)) {
+        refuse(
+          "computed-address",
+          "a page holding nothing but the address the server computed reads as holding an edit, so the tab asserts one and stops re-reading",
+        );
+      }
+      if (!core.mayReplacePageContents(page)) {
+        refuse(
+          "computed-address",
+          "a tab that has only received its computed address refuses to be re-read",
+        );
+      }
+
+      // THE NEAR MISS, and it is the half that keeps the repair from being a deletion: a real edit made
+      // in the same window is still an edit. One character into a field beside the address.
+      const endpoint = page.querySelector("#OidEndpoint");
+      endpoint.value = "https://idp.example/";
+      page.dispatch("input", endpoint, true);
+      if (!core.isPageDirty(page)) {
+        refuse(
+          "computed-address",
+          "a field an administrator typed into beside the computed address did not mark the page dirty",
+        );
+      }
+      if (!core.pageDiffersFromBaseline(page)) {
+        refuse(
+          "computed-address",
+          "a real edit went invisible to the baseline, which is the repair overshooting into the loss it exists to prevent",
+        );
+      }
+    }
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(
@@ -1159,6 +1244,9 @@ async function main() {
   );
   console.log(
     "  managed-report-failure a failed managed-set read keeps the last set it read and says it failed",
+  );
+  console.log(
+    "  computed-address the address the server answers with is not an edit, and a real one beside it still is",
   );
 }
 
