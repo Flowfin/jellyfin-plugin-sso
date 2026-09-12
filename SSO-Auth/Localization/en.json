@@ -216,6 +216,8 @@
   "config.provider_removed": "Provider removed.",
   "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
   "config.config_read_failed": "Could not read the stored configuration, so nothing was changed. Reload the page and try again.",
+  "config.provider_read_not_configuration": "The server answered, but what it sent is not this plugin's configuration, so this form was closed rather than filled from it. Reload the page and try again; if it keeps happening, check whether something in front of Jellyfin is answering for it.",
+  "config.provider_fill_failed": "The stored configuration was read, but this form could not be filled from it, so it was closed rather than left half filled. Reload the page and try again.",
   "config.provider_read_failed": "Could not read the stored configuration, so this form was closed rather than left showing values that are not the stored ones. Reload the page and try again.",
   "config.validation_required": "{label} is required.",
   "config.validation_endpoint_required": "OpenID Endpoint is required.",
