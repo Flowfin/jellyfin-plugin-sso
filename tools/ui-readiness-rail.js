@@ -28,17 +28,26 @@
  * cheap means cannot say is stated below rather than hidden.
  *
  * WHAT THE STUB CAN AND CANNOT SAY, AND THIS BOUND IS THE PART TO READ. The DOM
- * below is a stub: id lookup, one attribute selector, a class list, text nodes and
- * a parent walk for `closest`. It is NOT a browser and it has NO EVENT TREE, so
- * the one thing it cannot reach is the ROUTE FROM A KEYSTROKE TO THE REBUILD.
- * initProvidersPage binds `input` and `change` on the two editor ELEMENTS and
- * relies on a field's event bubbling up to them; nothing here dispatches an event
- * at all, so a mutation that dropped either listener, or bound them to the wrong
- * element, passes every arm below. What IS driven is the rebuild itself - that it
- * reads the form's live values, that it is request-free, and that it is safe to
- * call twice - which is everything the listener does once it fires. The missing
- * half is issue #1687 and it is named here rather than left for a reader to
- * notice.
+ * below is a stub: id lookup, one attribute selector, a class list, text nodes, a
+ * parent walk for `closest`, and an ANCESTOR CHAIN read out of the page's own
+ * markup so an event can bubble along it.
+ *
+ * THAT CHAIN IS WHY THE ROUTE FROM A KEYSTROKE TO THE REBUILD IS DRIVEN (#1687) and
+ * is the newest thing here. initProvidersPage binds `input` and `change` on the two
+ * editor ELEMENTS and relies on a field's event reaching them from inside, so until
+ * there was a chain, a listener dropped, bound to a element the field's events never
+ * reach, or paired with the wrong protocol key passed every arm. The chain is DERIVED
+ * rather than declared: each id-bearing element's span is walked out of the markup and
+ * its parent is the smallest span that strictly contains it, so a field moved out of
+ * its editor moves in this fixture too.
+ *
+ * WHAT THE CHAIN STILL DOES NOT SAY. It holds id-bearing elements only, which is
+ * enough for every listener this module registers and is not a document tree: an
+ * element with no id is not in it, and capture-phase order, `stopPropagation` and
+ * default actions are not modelled. A listener on an ANCESTOR of the editor is not
+ * refused and should not be - an event from a field inside the editor reaches the page
+ * too, so a handler there would rebuild the rail in a browser exactly as one on the
+ * editor does. What is refused is a listener somewhere the field's event never reaches.
  *
  * It also cannot say anything about layout, about the order a real browser would
  * run two listeners in, or about what a screen reader announces from the list's
@@ -124,7 +133,77 @@ class Element {
     this.parentNode = null;
     this.nodes = [];
     this.classList = new Classes();
+    // Registered by the page's controller and called by `dispatch` below. A Map per
+    // element rather than one on the page, because WHICH element a listener sits on is
+    // the property #1687 is about.
+    this.listeners = new Map();
+    // initProvidersPage sets these on controls it wires; they are here so the fixture
+    // does not have to guess which. `dataset` carries the one flag the Save gate reads
+    // back - a button a managed provider froze - so the gate cannot hand a Save back that
+    // something else disabled.
+    this.placeholder = "";
+    this.title = "";
+    this.dataset = {};
   }
+
+  addEventListener(name, handler) {
+    if (!this.listeners.has(name)) {
+      this.listeners.set(name, []);
+    }
+    this.listeners.get(name).push(handler);
+  }
+
+  removeChild(node) {
+    this.nodes = this.nodes.filter((other) => other !== node);
+    node.parentNode = null;
+    return node;
+  }
+
+  remove() {
+    if (this.parentNode) {
+      this.parentNode.removeChild(this);
+    }
+  }
+
+  setAttribute(name, value) {
+    this[name] = String(value);
+  }
+
+  getAttribute(name) {
+    return this[name] === undefined ? null : String(this[name]);
+  }
+
+  removeAttribute(name) {
+    delete this[name];
+  }
+
+  hasAttribute(name) {
+    return this[name] !== undefined;
+  }
+
+  get children() {
+    return this.nodes.filter((node) => node instanceof Element);
+  }
+
+  append(...nodes) {
+    nodes.forEach((node) => this.appendChild(node));
+  }
+
+  insertBefore(node) {
+    return this.appendChild(node);
+  }
+
+  querySelector(selector) {
+    return this.ownerPage.querySelector(selector);
+  }
+
+  querySelectorAll(selector) {
+    return this.ownerPage.querySelectorAll(selector);
+  }
+
+  focus() {}
+
+  scrollIntoView() {}
 
   get childNodes() {
     return [...this.nodes];
@@ -183,6 +262,12 @@ class Page {
     // The page is a class target too: markPageClean takes the dirty marker off it, and a
     // stub without this throws inside the rejection arm rather than judging it.
     this.classList = new Classes();
+    this.listeners = new Map();
+    // Every element resolves selectors through the page it belongs to, so a lookup made
+    // from inside a handler reaches the same fixture the arm built.
+    elements.forEach((el) => {
+      el.ownerPage = this;
+    });
   }
 
   querySelector(selector) {
@@ -204,6 +289,57 @@ class Page {
   querySelectorAll(selector) {
     const tags = selector.split(",").map((part) => part.trim());
     return this.elements.filter((el) => tags.includes(el.tag));
+  }
+
+  addEventListener(name, handler) {
+    if (!this.listeners.has(name)) {
+      this.listeners.set(name, []);
+    }
+    this.listeners.get(name).push(handler);
+  }
+
+  // The page is a node too: the controller appends rows and cards to elements it
+  // looked up, and one of those lookups can be the view itself.
+  appendChild(node) {
+    this.elements.push(node);
+    return node;
+  }
+
+  append(...nodes) {
+    nodes.forEach((node) => this.appendChild(node));
+  }
+
+  insertBefore(node) {
+    return this.appendChild(node);
+  }
+
+  get children() {
+    return [];
+  }
+
+  /*
+   * One event, along the ancestor chain, innermost first.
+   *
+   * THIS IS THE WHOLE OF #1687 AND ITS WHOLE BOUND. A browser delivers a field's
+   * `input` to every ancestor that registered for it, which is why the controller may
+   * bind on the EDITOR rather than on 123 controls - so a fixture that called the
+   * target's own listeners only would prove the handler and not the binding. The chain
+   * walked here is the one `providersFixture` derived from the markup, so a field that
+   * is not inside its editor does not reach the editor's listener here either.
+   *
+   * The capture phase is not modelled and neither is `stopPropagation`: nothing this
+   * module registers asks for either, and a stub answering a question nobody poses is
+   * a thing to get wrong for free.
+   */
+  dispatch(type, target) {
+    for (let at = target; at; at = at.parentNode) {
+      (at.listeners.get(type) || []).forEach((handler) =>
+        handler({ type, target, currentTarget: at }),
+      );
+    }
+    (this.listeners.get(type) || []).forEach((handler) =>
+      handler({ type, target, currentTarget: this }),
+    );
   }
 }
 
@@ -230,6 +366,52 @@ function shipsHidden(html, id) {
   }
   const tag = html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
   return tag.split(/[\s>]+/).includes("hidden");
+}
+
+/*
+ * Where in the markup the element bearing `id` starts and ends.
+ *
+ * Walked to its own close with a depth counter over tags of the SAME NAME, which is the
+ * discipline tools/ui-condensed-help.js uses for the same job - one reading of "where does
+ * this element end", not two. A self-closed tag ends at its own bracket and holds nothing,
+ * which is what every `<input />` on this page is.
+ *
+ * Returns null for an element that never closes. That is broken markup and it is not this
+ * reader's to refuse: it makes the element an ancestor of nothing, and the arm that asks
+ * whether a required field is inside its editor then refuses by name.
+ */
+function spanOf(html, id) {
+  const at = html.indexOf('id="' + id + '"');
+  if (at === -1) {
+    return null;
+  }
+  const start = html.lastIndexOf("<", at);
+  const name = /^<([a-z][a-z0-9]*)/.exec(html.slice(start, start + 32));
+  const open = html.indexOf(">", at);
+  if (name === null || open === -1) {
+    return null;
+  }
+  if (html[open - 1] === "/") {
+    return [start, open + 1];
+  }
+  const tags = new RegExp("<(/?)" + name[1] + "\\b[^>]*?(/?)>", "g");
+  tags.lastIndex = open + 1;
+  let depth = 0;
+  let match;
+  while ((match = tags.exec(html)) !== null) {
+    if (match[2] === "/") {
+      continue;
+    }
+    if (match[1] === "/") {
+      if (depth === 0) {
+        return [start, match.index + match[0].length];
+      }
+      depth -= 1;
+      continue;
+    }
+    depth += 1;
+  }
+  return null;
 }
 
 /**
@@ -360,7 +542,62 @@ function providersFixture() {
     );
   }
 
-  return new Page(elements, labelsOf(html, controls));
+  /*
+   * THE ANCESTOR CHAIN, DERIVED (#1687). Each id-bearing element's span is walked out of
+   * the markup and its parent is the SMALLEST span that strictly contains it, so the chain
+   * is a reading of the page rather than a declaration in this file: move a required field
+   * out of its editor and it stops reaching the editor's listener here, exactly as it would
+   * in a browser.
+   *
+   * ID-BEARING ELEMENTS ONLY, and that is the bound. The real tree has a `<div>` or two
+   * between a field and its editor; those are not here, so this chain is shorter than the
+   * document's and holds the same ORDER. Every listener this module registers is on an
+   * element with an id, which is why the shorter chain answers the question.
+   */
+  // THE LABELS FIRST, BECAUSE THE WRAPPED IDIOM ALREADY CLAIMS A PARENT. labelsOf sets
+  // `control.parentNode` to the `<label>` a checkbox is wrapped in, which `closest("label")`
+  // needs, and the chain below has to go THROUGH that label rather than over it. Building
+  // the labels after the chain overwrote it, and the arm that asks whether each field is
+  // inside its editor said so by name for all seven flagged toggles - every one of them a
+  // wrapped checkbox.
+  const labels = labelsOf(html, controls);
+
+  const spans = new Map();
+  elements.forEach((el) => {
+    const span = spanOf(html, el.id);
+    if (span !== null) {
+      spans.set(el, span);
+    }
+  });
+  elements.forEach((el) => {
+    const own = spans.get(el);
+    if (own === undefined) {
+      return;
+    }
+    let parent = null;
+    let width = Infinity;
+    spans.forEach((span, other) => {
+      if (other === el || span[0] > own[0] || span[1] < own[1]) {
+        return;
+      }
+      if (span[1] - span[0] >= width) {
+        return;
+      }
+      parent = other;
+      width = span[1] - span[0];
+    });
+    // A wrapping label is SPLICED IN rather than replaced, so both readings hold at once:
+    // `closest("label")` still finds it and an event still travels from the control to the
+    // editor. The label carries no id, so it is in no span and cannot be found any other way.
+    const wrapper = el.parentNode;
+    if (wrapper !== null && wrapper.tag === "label") {
+      wrapper.parentNode = parent;
+    } else {
+      el.parentNode = parent;
+    }
+  });
+
+  return new Page(elements, labels);
 }
 
 // ---------------------------------------------------------------------------
@@ -661,16 +898,46 @@ async function loadCore() {
   const url =
     "data:text/javascript;base64," +
     Buffer.from(source, "utf8").toString("base64");
-  return (await import(url)).default;
+  const module = await import(url);
+  // The controller as well as the object, because #1687's subject is what
+  // initProvidersPage BINDS and the only way to ask is to run it.
+  return { core: module.default, controllers: module.pageControllers };
 }
 
-/** The host globals the readiness path touches, and nothing else. */
+/** The host globals the readiness path and the page's controller touch, and nothing else. */
 function installHost(counter) {
   globalThis.Node = { TEXT_NODE: 3 };
   globalThis.document = {
     createElement: (tag) => new Element(tag, "", tag),
     createTextNode: (data) => new Text(data),
   };
+  // initProvidersPage builds option rows for the preset pickers through the DOM's own
+  // Option constructor, and asks the host three things on its way through. None of them
+  // is reached by an arm's assertion; they are here so the controller runs rather than
+  // throwing, which is the difference between driving the binding and asserting it.
+  globalThis.Option = function (text, value) {
+    const option = new Element("option", "", "option");
+    option.textContent = text;
+    option.value = value;
+    return option;
+  };
+  globalThis.Dashboard = {
+    alert() {},
+    processPluginConfigurationUpdateResult() {},
+  };
+  // `document` RIDES ALONG ON window, because one call site reaches it that way:
+  // populateProvisioningProfileOptions builds its option rows with
+  // window.document.createElement. A window without it leaves that function throwing inside
+  // a promise, which surfaces as four rejections nobody handled rather than as a failed arm -
+  // and the arm that counts those rejections then blames the page.
+  globalThis.window = {
+    confirm: () => true,
+    location: { search: "" },
+    document: globalThis.document,
+  };
+  // node already defines navigator and refuses an assignment to it, so the one member the
+  // controller reaches for is defined on the existing object instead.
+  globalThis.navigator.clipboard = { writeText: () => Promise.resolve() };
   // EVERY CALL IS COUNTED AND NONE IS SERVED. The panel's whole claim is that it
   // reads what the form already holds, so a rebuild that reached the network would
   // be refused here by the count rather than by a reading of the file - and a
@@ -689,8 +956,45 @@ function installHost(counter) {
           // unreachable, a 500, a configuration the host cannot deserialize. Served as a
           // rejected promise and not as an empty object, which is what the success arm
           // already gets and is a different failure.
+          // The two that answer with a VALUE rather than a promise. Both are read
+          // synchronously - the computed URLs compose a string out of serverAddress, and
+          // getUrl builds a route - so a promise here is not a slower answer, it is the
+          // wrong type and the controller throws on it.
+          if (name === "serverAddress") {
+            return "https://jellyfin.example";
+          }
+          if (name === "getUrl") {
+            return "https://jellyfin.example/" + String(args[0]);
+          }
           if (counter.refuseRead && name === "getPluginConfiguration") {
             return Promise.reject(new Error("the stub refused this read"));
+          }
+          // THE SHAPE AND NOT THE CONTENT. The controller's own load path walks the three
+          // members of a configuration and the managed-set report, so a bare `{}` makes it
+          // throw on a `.map` of undefined - which would read as "the binding does not
+          // work" when what failed is this client. Empty members are a server with nothing
+          // configured, which is the state every arm here sets up by hand anyway.
+          if (name === "getPluginConfiguration") {
+            return Promise.resolve({
+              OidConfigs: {},
+              SamlConfigs: {},
+              ProvisioningProfiles: {},
+            });
+          }
+          // getJSON answers two routes, and which one is read off the route rather than
+          // guessed: the managed-set report, and the library list whose `Items` the folder
+          // checklists map over. A body with neither member makes the controller throw on a
+          // `.map` of undefined, which is this client failing and not the page.
+          if (name === "getJSON") {
+            const route = String(args[0]);
+            if (route.includes("Library/MediaFolders")) {
+              return Promise.resolve({ Items: [] });
+            }
+            return Promise.resolve({
+              OidConfigs: [],
+              SamlConfigs: [],
+              ProvisioningProfiles: [],
+            });
           }
           return Promise.resolve({});
         };
@@ -746,7 +1050,7 @@ async function run() {
   const unhandled = [];
   process.on("unhandledRejection", (reason) => unhandled.push(String(reason)));
   installHost(counter);
-  const core = await loadCore();
+  const { core, controllers } = await loadCore();
 
   // The spec is read from the module rather than restated, because an arm naming
   // its own required ids would stop testing the panel the day the spec changed and
@@ -1127,6 +1431,172 @@ async function run() {
     });
   }
 
+  // ---- Arm: a required field is inside the editor whose listener answers for it ----
+  //
+  // THE CHAIN IS ASKED ABOUT BEFORE IT IS RELIED ON (#1687). Every arm below rests on a
+  // field's event reaching its editor, and the chain that carries it is derived from the
+  // markup - so a field that has moved out of its editor would make those arms pass for
+  // the wrong reason, by reaching a listener that is not there to reach. Asked for both
+  // protocols, and for the flagged toggles as well as the required fields, because the
+  // rail answers for those too.
+  {
+    const page = providersFixture();
+    const inside = (id, editorId) => {
+      const field = page.querySelector("#" + id);
+      if (!field) {
+        return false;
+      }
+      for (let at = field.parentNode; at; at = at.parentNode) {
+        if (at.id === editorId) {
+          return true;
+        }
+      }
+      return false;
+    };
+    [
+      [
+        "oid",
+        core.readinessSpecs.oid.requiredIds.concat(core.insecureFieldIds),
+      ],
+      [
+        "saml",
+        core.readinessSpecs.saml.requiredIds.concat(
+          core.samlInsecureFieldIds.map((id) => "saml-" + id),
+        ),
+      ],
+    ].forEach(([protocol, ids]) =>
+      ids.forEach((id) => {
+        if (!inside(id, EDITORS[protocol])) {
+          refuse(
+            "inside-its-editor",
+            id +
+              " is not inside #" +
+              EDITORS[protocol] +
+              ", so an event it raises never reaches the listener that rebuilds the rail for " +
+              protocol,
+          );
+        }
+      }),
+    );
+  }
+
+  // ---- Arm: the wrapping-label idiom is in the fixture, not only in the map ----
+  //
+  // WITHOUT THIS ARM THE SPLICE ABOVE IS DRIVEN BY NOTHING, and the proof run said so:
+  // taking it out left the gate green. A checkbox on this page is WRAPPED in a bare
+  // `<label>` with no `for=`, and `readinessFieldName` reads that idiom through
+  // `field.closest("label")` - the fallback half of a function whose first half is the
+  // `label[for=...]` lookup. The fixture answers that first lookup for wrapped controls
+  // too, out of the map `labelsOf` builds, so the fallback is never taken and the chain
+  // could lose the label without any arm noticing.
+  //
+  // So the idiom is asked about directly: the control's nearest `<label>` ancestor, the
+  // way the shipped code asks. That keeps the fixture modelling the page rather than
+  // modelling what the other arms happen to need.
+  {
+    const page = providersFixture();
+    const source = withoutComments(fs.readFileSync(PROVIDERS_PAGE, "utf8"));
+    const wrapped = core.insecureFieldIds
+      .concat(core.sensitiveFieldIds)
+      .filter((id) => !source.includes('for="' + id + '"'));
+    if (wrapped.length === 0) {
+      refuse(
+        "wrapped-label",
+        "no flagged toggle on this page is wrapped in its label any more, so this arm proves nothing and the fallback in readinessFieldName is reached by nothing",
+      );
+    }
+    wrapped.forEach((id) => {
+      const field = page.querySelector("#" + id);
+      const label = field === null ? null : field.closest("label");
+      if (label === null) {
+        refuse(
+          "wrapped-label",
+          id +
+            ' is wrapped in a <label> on the page and closest("label") finds none here, so the fallback readinessFieldName takes for a checkbox is driven by nothing',
+        );
+        return;
+      }
+      if (label.textContent.trim() === "") {
+        refuse(
+          "wrapped-label",
+          id +
+            " has a wrapping label with no text, so the rail would name it by its id",
+        );
+      }
+    });
+  }
+
+  // ---- Arm: a keystroke in a required field rebuilds the rail ----
+  //
+  // THE ROUTE, NOT THE HANDLER. Every other arm here calls refreshReadiness itself, so all
+  // of them pass on a page whose controller bound nothing at all. This one runs the shipped
+  // initProvidersPage and then dispatches the event a control raises, on the CONTROL, so the
+  // only way the rail can move is along the chain to whatever the controller bound.
+  //
+  // BOTH EVENT TYPES, because they carry different controls: `change` alone leaves a text
+  // field's typing unanswered until focus moves, and `input` alone leaves every checkbox and
+  // select unanswered. And both protocols, because the pairing of a selector with a key is
+  // the third way this can be wrong and the quietest - refreshReadiness drops a call for the
+  // protocol that is not open at its own gate, so the rail simply never moves.
+  for (const protocol of ["oid", "saml"]) {
+    for (const type of ["input", "change"]) {
+      const page = providersFixture();
+      controllers.providers(page);
+      const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+      open(page);
+      const required = core.readinessSpecs[protocol].requiredIds;
+      const field = page.querySelector("#" + required[0]);
+      const before = rowsOf(page);
+      if (
+        before.length === 0 ||
+        !before[0].includes(nameOf(core, page, required[0]))
+      ) {
+        refuse(
+          "keystroke",
+          protocol +
+            ": the fixture for this arm did not start with " +
+            required[0] +
+            " named as empty, so it proves nothing: " +
+            JSON.stringify(before),
+        );
+        continue;
+      }
+      required.forEach((id) => {
+        page.querySelector("#" + id).value = "filled";
+      });
+      // Nothing calls refreshReadiness here. If the rail moves, it moved because the event
+      // reached a listener the controller registered.
+      page.dispatch(type, field);
+      const after = rowsOf(page);
+      if (!after[0].startsWith("Ready - Required fields - ")) {
+        refuse(
+          "keystroke",
+          protocol +
+            ": a " +
+            type +
+            " event on " +
+            required[0] +
+            " did not rebuild the rail - every required field is filled and it still reads " +
+            JSON.stringify(after[0]),
+        );
+      }
+      // And back, so the arm cannot pass on a rail that was rebuilt once at init and is
+      // now simply showing a ready row it was born with.
+      page.querySelector("#" + required[0]).value = "";
+      page.dispatch(type, field);
+      if (!rowsOf(page)[0].includes(nameOf(core, page, required[0]))) {
+        refuse(
+          "keystroke",
+          protocol +
+            ": a " +
+            type +
+            " event after the field was emptied again did not rebuild the rail: " +
+            JSON.stringify(rowsOf(page)[0]),
+        );
+      }
+    }
+  }
+
   // ---- Arm: the configuration read fails while an editor is being filled ----
   //
   // THE RAIL IS WHY THIS IS HERE RATHER THAN IN A GATE OF ITS OWN (#1681). An editor is
@@ -1248,16 +1718,34 @@ async function run() {
     "  labels           every field the rail names is named by the page's label and not by its id",
   );
   console.log(
+    "  inside-its-editor  every field the rail answers for is inside the editor whose listener",
+  );
+  console.log(
+    "                   rebuilds it, read from the markup rather than declared",
+  );
+  console.log(
+    '  wrapped-label    a checkbox wrapped in a bare label is found by closest("label"), which is',
+  );
+  console.log(
+    "                   the fallback half of the function that names it",
+  );
+  console.log(
+    "  keystroke        an input and a change event raised on a required field reach the listener",
+  );
+  console.log(
+    "                   initProvidersPage bound and rebuild the rail, on both protocols (#1687)",
+  );
+  console.log(
     "  read-failed      a configuration read that fails closes the editor, returns the rail to its",
   );
   console.log(
     "                   invitation, says so on the page, and leaves no rejection unhandled (#1681)",
   );
   console.log(
-    "  NOT driven:      the input/change listeners initProvidersPage binds on the two editors, and the",
+    "  NOT driven:      the capture phase, stopPropagation, and any ancestor with no id - the chain",
   );
   console.log(
-    "                   bubbling they rely on - this stub has no event tree (#1687)",
+    "                   holds id-bearing elements only. No layout and no real focus.",
   );
   return 0;
 }
