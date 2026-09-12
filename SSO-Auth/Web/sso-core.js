@@ -717,6 +717,22 @@ const ssoConfigurationPage = {
       load.then(noop, noop);
     }
   },
+  // WHICH PROVIDER THE PAGE IS ABOUT, NAMED BEFORE THE READS A SAVE ISSUES (#1710). A provider saved
+  // for the first time has no option under the selector yet, and a select assigned a value no option
+  // carries reads as empty. populateProviders then preserves that empty string (#1696), both loaders drop
+  // their reply for it (#1693), and the one read that fills the redirect URI after a save never runs -
+  // so the wizard's third step refused the provider it had just saved. Adding the option first makes the
+  // assignment take; the configuration read that follows replaces it with the served set, value intact.
+  nameSelectedProvider: (page, selectorId, provider_name) => {
+    const select = page.querySelector(selectorId);
+    const held = [...select.querySelectorAll("option")].some(
+      (option) => option.value === provider_name,
+    );
+    if (!held) {
+      select.appendChild(new Option(provider_name, provider_name));
+    }
+    select.value = provider_name;
+  },
   populateProviders: (page, providers) => {
     const select = page.querySelector("#selectProvider");
 
@@ -3418,10 +3434,13 @@ const ssoConfigurationPage = {
           ).then(
             function (result) {
               Dashboard.processPluginConfigurationUpdateResult(result);
+              ssoConfigurationPage.nameSelectedProvider(
+                page,
+                "#selectProvider",
+                provider_name,
+              );
               ssoConfigurationPage.loadConfiguration(page);
               ssoConfigurationPage.loadProvider(page, provider_name);
-
-              page.querySelector("#selectProvider").value = provider_name;
               // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
               resolve();
             },
@@ -6283,10 +6302,13 @@ const ssoConfigurationPage = {
           ).then(
             function (result) {
               Dashboard.processPluginConfigurationUpdateResult(result);
+              ssoConfigurationPage.nameSelectedProvider(
+                page,
+                "#saml-selectProvider",
+                provider_name,
+              );
               ssoConfigurationPage.loadConfiguration(page);
               ssoConfigurationPage.loadSamlProvider(page, provider_name);
-
-              page.querySelector("#saml-selectProvider").value = provider_name;
               // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
               resolve();
             },
