@@ -54,6 +54,17 @@
  * exactly the reasons the element is native rather than rebuilt, and they are a
  * walk's to confirm rather than this tool's.
  *
+ * WHAT WAS MEASURED WHERE THIS TOOL CANNOT LOOK (#1672): Chromium 152's accessibility
+ * tree, read on 2026-09-12 over the shipped Providers page with the shipped applier
+ * run on it. A field whose `aria-describedby` names its whole block is described by
+ * the lead line and the word "Full text" while the fold is closed, and by nothing at
+ * all when the reference names the body inside the closed fold; a hidden element
+ * named directly carries the whole text; and every fold's summary is a disclosure
+ * triangle named by the one catalogue word, 111 rows alike. The applier answers both
+ * with `nameFold` and `speak`, and the arms below hold the ATTRIBUTES that computation
+ * reads, because the stub computes no accessible name. What a screen reader then
+ * says is still measured by nothing in this tree.
+ *
  * WHAT KEEPS IT FROM BEING A PROOF ABOUT ITSELF. The code under test is the
  * shipped i18n.js, loaded whole, not a copy and not an extract. The pages read
  * are the ones carrying the opt-in attribute, so a page joining the slice is
@@ -439,6 +450,7 @@ function inspectMarkup(page, source) {
   const refusals = [];
   const at = [];
   let blocks = 0;
+  let named = 0;
   HELP_BLOCK.lastIndex = 0;
   let match;
   while ((match = HELP_BLOCK.exec(markup)) !== null) {
@@ -558,6 +570,80 @@ function inspectMarkup(page, source) {
     }
   }
 
+  // A FIELD DESCRIBED BY ITS WHOLE BLOCK (#1672). Measured in Chromium's accessibility
+  // tree over the shipped Providers page: `aria-describedby` is computed from what the
+  // named element RENDERS, and a closed fold renders its summary and nothing behind it,
+  // so the description a screen reader is handed is the lead line and the word "Full
+  // text" - and empty when the reference names the body inside the closed fold. The
+  // shape a description can be computed from is the block's spoken copy, a hidden span
+  // the applier fills from the body; so a reference to a block is refused by name and
+  // a copy nothing names is refused as dead weight, both here where the page is
+  // authored, because the runtime reader drives a fixture whose references are right
+  // by construction.
+  const described = new Set(
+    [...markup.matchAll(/aria-describedby="([^"]*)"/g)].flatMap((m) =>
+      m[1].split(/\s+/).filter(Boolean),
+    ),
+  );
+  // THE BLOCK'S EXTENT AND NOT ONLY ITS OPENING TAG, because the review of 2026-09-12
+  // drove a reference to the body inside the fold past a reader that knew the block by
+  // its class alone - which is the EMPTY case, worse than the one it refused - and a
+  // spoken copy authored one element outside its block, which `speak` looks for inside
+  // the block and never fills.
+  const blockSpans = elementSpans(markup).filter((span) =>
+    hasClassToken(
+      markup.slice(markup.lastIndexOf("<", span.from - 1), span.from),
+      "sso-help",
+    ),
+  );
+  const insideBlock = (index) =>
+    blockSpans.some((span) => index >= span.from && index < span.to);
+  described.forEach((id) => {
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // `\sid=` and not `\bid=`: a hyphen is a word boundary, so `data-id="x"` read as an id.
+    const target = new RegExp(
+      `<[a-z][a-z0-9]*\\b[^>]*\\sid="${escaped}"[^>]*>`,
+    ).exec(markup);
+    if (!target) {
+      return;
+    }
+    if (hasClassToken(target[0], "sso-help")) {
+      refusals.push(
+        `${id} on ${page} is a condensed block and a field's aria-describedby names it: with the fold closed the description a screen reader is handed is the lead line and the word "Full text", so name the block's spoken copy instead`,
+      );
+    } else if (
+      insideBlock(target.index) &&
+      !hasClassToken(target[0], "sso-help-spoken")
+    ) {
+      refusals.push(
+        `${id} on ${page} sits inside a condensed block and a field's aria-describedby names it: the lead line, the fold and the body inside it describe the field with a sentence, a word or nothing, so name the block's spoken copy instead`,
+      );
+    }
+  });
+  for (const tag of markup.matchAll(/<[a-z][a-z0-9]*\b[^>]*>/g)) {
+    if (!hasClassToken(tag[0], "sso-help-spoken")) {
+      continue;
+    }
+    const id = /\sid="([^"]*)"/.exec(tag[0]);
+    if (!id || !described.has(id[1])) {
+      refusals.push(
+        `a spoken copy on ${page}${id ? ` (${id[1]})` : ""} is named by no aria-describedby, so the applier fills a text nothing reads`,
+      );
+    }
+    // The ATTRIBUTE, read with every quoted value blanked first, so a class token spelled
+    // `hidden` does not pass for it.
+    if (!/\shidden(?=[\s>/=])/.test(tag[0].replace(/="[^"]*"/g, '=""'))) {
+      refusals.push(
+        `the spoken copy${id ? ` ${id[1]}` : ""} on ${page} is not hidden, so the whole text stands on the page twice`,
+      );
+    }
+    if (!insideBlock(tag.index)) {
+      refusals.push(
+        `the spoken copy${id ? ` ${id[1]}` : ""} on ${page} is authored outside any condensed block, where the applier never fills it, so the field it describes is described by nothing`,
+      );
+    }
+  }
+
   // WHERE THE CARD SITS, not merely whether the page holds one, and the review of
   // 2026-09-12 is why this is not a page-wide grep. The applier looks for the card
   // UNDER the marked container and attaches no focus listener when it does not find
@@ -571,7 +657,7 @@ function inspectMarkup(page, source) {
       refusals.push(
         `${page} condenses ${blocks} help text(s) and carries no readable ${CONDENSE_ROOT} container, so the applier is handed nothing to walk`,
       );
-      return { refusals, blocks, declared: flat, markup };
+      return { refusals, blocks, declared: flat, markup, named };
     }
 
     const card = markup.indexOf('class="verticalSection sso-help-card"');
@@ -635,6 +721,12 @@ function inspectMarkup(page, source) {
       ),
     );
 
+    // HOW MANY FOLDS A BROWSER NAMES AFTER THEIR FIELD (#1672), read the way the applier
+    // decides it: a block under a field container that carries a label. The rest keep
+    // the catalogue word, on purpose, and the run prints both so the split is a number
+    // rather than a sentence.
+    named = resolveFields(markup, at).filter((each) => each.labelled).length;
+
     // THE COUNT IS CLOSED, CLASS-AGNOSTIC (#1677). Everything above enters a help text
     // through its CLASS - `fieldDescription` for a block, `sso-help` for a condensed one
     // - so a `*_help` marker written on a class neither reader knows is in NEITHER
@@ -663,7 +755,7 @@ function inspectMarkup(page, source) {
     }
   }
 
-  return { refusals, blocks, declared: flat, markup };
+  return { refusals, blocks, declared: flat, markup, named };
 }
 
 // Elements a browser closes without a closing tag; they never contain a help block
@@ -737,6 +829,28 @@ function elementSpans(markup) {
  * spans are taken over every element rather than over the two class names.
  */
 function forEachSharedField(markup, blocks, say) {
+  const held = new Map();
+  resolveFields(markup, blocks).forEach(({ block, field, parent }) => {
+    const at = field || parent;
+    if (at === null) {
+      return;
+    }
+    if (held.has(at.from)) {
+      say(held.get(at.from), block.key);
+      return;
+    }
+    held.set(at.from, block.key);
+  });
+}
+
+/*
+ * Where each block sits, both halves of the applier's walk: the innermost field
+ * container holding it, and the innermost element of any kind. `labelled` says whether
+ * that container carries a label, which is what `nameFold` in i18n.js names the fold
+ * after (#1672); a block under no container is never named, whatever labels its parent
+ * happens to hold.
+ */
+function resolveFields(markup, blocks) {
   const spans = elementSpans(markup);
   const isField = (span) => {
     const opening = markup.slice(
@@ -749,8 +863,7 @@ function forEachSharedField(markup, blocks, say) {
     );
   };
 
-  const held = new Map();
-  blocks.forEach((block) => {
+  return blocks.map((block) => {
     // INNERMOST WINS in both halves: a container nested in another is the one the
     // applier stops at first on its way up, and the parent is the innermost element
     // of any kind. Picking an outer one would collapse a whole section into one field
@@ -768,16 +881,18 @@ function forEachSharedField(markup, blocks, say) {
         field = span;
       }
     });
-
-    const at = field || parent;
-    if (at === null) {
-      return;
-    }
-    if (held.has(at.from)) {
-      say(held.get(at.from), block.key);
-      return;
-    }
-    held.set(at.from, block.key);
+    return {
+      block,
+      field,
+      parent,
+      // A label FOR a control, or one wrapped around an input with an id: the two shapes
+      // `nameFold` derives its ids from. A bare `<label>` is not enough to be counted.
+      labelled:
+        field !== null &&
+        /<label\b[^>]*\sfor="[^"]+"|<label\b(?:(?!<\/label>)[\s\S])*<input\b[^>]*\sid="/.test(
+          markup.slice(field.from, field.to),
+        ),
+    };
   });
 }
 
@@ -983,10 +1098,16 @@ function buildPage(keys, texts, summary, options) {
 
   const main = new El("div");
   main.className = "sso-column-main";
-  const fields = keys.map((key) => {
+  const fields = keys.map((key, index) => {
     const container = new El("div");
     container.className = "inputContainer";
+    // A LABEL FOR THE CONTROL, as the pages author one per field (#1672): the fold is
+    // named after it, so the fixture carries the thing the name is derived from.
+    const label = new El("label");
+    label.setAttribute("for", `fixture_${index}`);
+    label.textContent = `Field ${index}`;
     const input = new El("input");
+    input.setAttribute("id", `fixture_${index}`);
 
     const lead = new El("span");
     lead.className = "sso-help-lead";
@@ -1022,16 +1143,32 @@ function buildPage(keys, texts, summary, options) {
     help.className = "fieldDescription sso-help";
     help.replaceChildren(lead, details);
 
-    container.replaceChildren(input, help);
+    // A SPOKEN COPY where the arm asks for one (#1672), named by the field's
+    // aria-describedby in place of the block: the one shape a description can be
+    // computed from with the fold closed.
+    let spoken = null;
+    if (options && options.spoken) {
+      spoken = new El("span");
+      spoken.className = "sso-help-spoken";
+      spoken.hidden = true;
+      spoken.setAttribute("hidden", "");
+      spoken.setAttribute("id", `fixture_${index}-help-spoken`);
+      input.setAttribute("aria-describedby", `fixture_${index}-help-spoken`);
+      help.appendChild(spoken);
+    }
+
+    container.replaceChildren(label, input, help);
     main.appendChild(container);
     return {
       key,
       container,
+      label,
       input,
       help,
       lead,
       details,
       body,
+      spoken,
       parts: assembled ? assembled.length : undefined,
     };
   });
@@ -1067,7 +1204,7 @@ function buildPage(keys, texts, summary, options) {
 function inspect(page, texts, summary) {
   const refusals = [];
   const say = (message) => refusals.push(message);
-  const counts = { folded: 0, flat: 0, flatParts: 0 };
+  const counts = { folded: 0, flat: 0, flatParts: 0, named: 0 };
 
   page.fields.forEach((field) => {
     const whole = texts[field.key];
@@ -1110,6 +1247,40 @@ function inspect(page, texts, summary) {
       say(
         `${field.key} names its fold ${JSON.stringify(summaryEl ? summaryEl.textContent : null)} and the catalogue says ${JSON.stringify(summary)}`,
       );
+    }
+
+    // THE FOLD IS NAMED AFTER ITS FIELD (#1672): the summary's aria-labelledby names the
+    // field's label and then the summary itself, by ids the applier writes. Measured in
+    // Chromium's accessibility tree, a summary without it is a disclosure triangle named
+    // by the catalogue word alone, the same as every other fold on the page.
+    const labelId = field.label.getAttribute("id");
+    const summaryId = summaryEl ? summaryEl.getAttribute("id") : null;
+    const namedBy = summaryEl
+      ? summaryEl.getAttribute("aria-labelledby")
+      : null;
+    if (!labelId || !summaryId || namedBy !== `${labelId} ${summaryId}`) {
+      say(
+        `${field.key} folds under a summary named by ${JSON.stringify(namedBy)} rather than by its field's label and its own word, so a list of the page's folds reads as one row repeated`,
+      );
+    } else {
+      counts.named += 1;
+    }
+
+    // AND THE SPOKEN COPY, WHERE THE FIELD HAS ONE, HOLDS THE WHOLE TEXT AND STAYS HIDDEN.
+    // It is what the field's aria-describedby hands a screen reader, so a copy short of
+    // the text describes the field with less than the fold holds, and one that is shown
+    // puts the text on the page twice.
+    if (field.spoken) {
+      if (field.spoken.textContent !== whole) {
+        say(
+          `${field.key} has a spoken copy holding ${field.spoken.textContent.length} character(s) and its text has ${whole.length}: what aria-describedby hands a screen reader is not the whole text`,
+        );
+      }
+      if (!field.spoken.hidden && !field.spoken.hasAttribute("hidden")) {
+        say(
+          `${field.key} shows its spoken copy on the page, so the whole text stands twice`,
+        );
+      }
     }
 
     // THE ONE-SENTENCE STATE IS A PLACE RATHER THAN A COPY (#1669). The body itself is
@@ -1417,7 +1588,7 @@ function fixtureMarkup(key, parts) {
   // asks for `p`, which is the tag a browser will not keep a `<details>` inside.
   const tag = p.tag || "div";
   const block = [
-    `<${tag} class="fieldDescription${p.marked ? " sso-help" : ""}">`,
+    `<${tag} class="fieldDescription${p.marked ? " sso-help" : ""}"${p.described ? ' id="fixture-help"' : ""}>`,
     p.comment ? `<!-- a note that mentions a closing </div> tag -->` : "",
     p.lead ? `<span class="sso-help-lead"></span>` : "",
     // `selfClosed` puts the one kind of tag that must NOT move the depth count before the
@@ -1436,10 +1607,14 @@ function fixtureMarkup(key, parts) {
     p.body
       ? p.assembled
         ? `<div class="sso-help-body" data-i18n-parts="${key}">whatever <strong data-i18n="config.fixture_emphasis">this</strong></div>`
-        : `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
+        : `<div${p.describedBody ? ' id="fixture-help-body"' : ""} class="sso-help-body" data-i18n="${key}">whatever</div>`
       : `<div class="sso-help-body"><span data-i18n="${key}">whatever</span></div>`,
     p.details ? `</details>` : "</div>",
     p.wrapped ? `</div>` : "",
+    // The spoken copy (#1672): named by the field below, or by nothing, or shown.
+    p.spoken || p.spokenUnnamed || p.spokenShown || p.spokenClassHidden
+      ? `<span class="sso-help-spoken${p.spokenClassHidden ? " hidden" : ""}" id="fixture-help-spoken"${p.spokenShown || p.spokenClassHidden ? "" : " hidden"}></span>`
+      : "",
     `</${tag}>`,
   ].join("\n");
 
@@ -1460,9 +1635,24 @@ function fixtureMarkup(key, parts) {
       ? `<div class="sso-callout"${p.declared ? ' data-sso-flat-help="a warning, not a field description"' : ""} data-i18n-parts="config.fixture_9_help">a warning</div>`
       : "";
 
+  // The field the block describes (#1672): by its block, which is refused, or by the
+  // block's spoken copy, which is the shape the Providers page authors.
+  const field = p.described
+    ? `<input id="fixture-input" aria-describedby="fixture-help" />`
+    : p.describedBody
+      ? `<input id="fixture-input" aria-describedby="fixture-help-body" />`
+      : p.spoken || p.spokenShown || p.spokenClassHidden || p.spokenOutside
+        ? `<input id="fixture-input" aria-describedby="fixture-help-spoken" />`
+        : "";
+
   return [
     `<div ${CONDENSE_ROOT}>`,
+    field,
     block,
+    // `spokenOutside` is the copy one element past its block: named, hidden, and never filled.
+    p.spokenOutside
+      ? `<span class="sso-help-spoken" id="fixture-help-spoken" hidden></span>`
+      : "",
     extra,
     p.card ? card : "",
     `</div>`,
@@ -1551,6 +1741,14 @@ async function calibrate(i18n) {
     ).refusals,
   );
   record(
+    "a field described by its block's spoken copy",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { spoken: true }),
+    ).refusals,
+  );
+  record(
     "two help blocks in two fields",
     false,
     inspectMarkup(
@@ -1575,6 +1773,15 @@ async function calibrate(i18n) {
     ["a key that is not on the body of its own fold", { body: false }],
     ["a condensed page with no rail card", { card: false }],
     ["a rail card outside the container the applier walks", { scoped: false }],
+    ["a field described by its whole block", { described: true }],
+    ["a spoken copy nothing names", { spokenUnnamed: true }],
+    ["a spoken copy authored shown", { spokenShown: true }],
+    ["a field described by the body inside its fold", { describedBody: true }],
+    ["a spoken copy authored outside its block", { spokenOutside: true }],
+    [
+      "a spoken copy hidden by a class token rather than the attribute",
+      { spokenClassHidden: true },
+    ],
   ];
   markupNegatives.forEach(([name, parts]) =>
     record(
@@ -1728,6 +1935,145 @@ async function calibrate(i18n) {
       ...inspect(page, texts, "Full text").refusals,
       ...inspectRail(page, texts, "Full text", true),
     ]);
+  }
+
+  /*
+   * --- the fold's name and the spoken copy (#1672) ---
+   *
+   * Both were measured in a browser's accessibility tree and neither can be measured
+   * here: the stub computes no accessible name. What the arms hold is the ATTRIBUTES
+   * that computation reads, which the applier writes and which a mutation removes.
+   */
+  {
+    const texts = fixtureTexts([TWO, ONE]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {
+      spoken: true,
+    });
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    // Twice, because the ids are written where they are missing and a second pass has
+    // to find them rather than mint a second set.
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    const summaryEl = page.fields[0].details.querySelector("summary");
+    record(
+      "a fold is named by its field's label and its own word, and a spoken copy holds the whole text",
+      false,
+      [
+        ...inspect(page, texts, "Full text").refusals,
+        ...inspectRail(page, texts, "Full text", true),
+        ...(summaryEl.getAttribute("aria-labelledby") ===
+          "fixture_0-label fixture_0-full-text" &&
+        page.fields[0].label.getAttribute("id") === "fixture_0-label"
+          ? []
+          : [
+              `the summary is named by ${JSON.stringify(summaryEl.getAttribute("aria-labelledby"))} and the ids the applier derives from the control are fixture_0-label and fixture_0-full-text`,
+            ]),
+        ...(page.fields[0].spoken.textContent === TWO
+          ? []
+          : ["the spoken copy does not hold the whole text"]),
+      ],
+    );
+  }
+
+  // A LABEL WRAPPED AROUND ITS CONTROL, which is how every checkbox row is authored:
+  // no `for`, the input inside the label, and the id taken from that input.
+  {
+    const texts = fixtureTexts([TWO]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {});
+    const field = page.fields[0];
+    field.container.className = "checkboxContainer";
+    field.label.removeAttribute("for");
+    field.label.appendChild(field.input);
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    const summaryEl = field.details.querySelector("summary");
+    record(
+      "a fold under a label wrapped around its checkbox is named by that label",
+      false,
+      summaryEl.getAttribute("aria-labelledby") ===
+        "fixture_0-label fixture_0-full-text"
+        ? []
+        : [
+            `the summary under a wrapping label is named by ${JSON.stringify(summaryEl.getAttribute("aria-labelledby"))}`,
+          ],
+    );
+  }
+
+  // A BLOCK IN NO FIELD CONTAINER KEEPS THE BARE WORD: the first label under its parent
+  // belongs to some other field, and a fold named after a field it does not open is
+  // worse than one named "Full text". The arm holds that the applier does NOT reach
+  // for that label; deleting the container test in `nameFold` is what turns it red.
+  {
+    const texts = fixtureTexts([TWO]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {});
+    const field = page.fields[0];
+    field.container.className = "sso-test-block";
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    const summaryEl = field.details.querySelector("summary");
+    record(
+      "a fold in no field container is not named after somebody else's label",
+      false,
+      summaryEl.hasAttribute("aria-labelledby")
+        ? [
+            `a fold under a plain parent was named by ${JSON.stringify(summaryEl.getAttribute("aria-labelledby"))}, the label of a field it does not open`,
+          ]
+        : [],
+    );
+  }
+
+  // TWO LABELLED CONTROLS IN ONE CONTAINER, the help under the second: the SAML form's
+  // Live TV rows author this once, and the FIRST label named that fold after the field
+  // above it (review of 2026-09-12). The label that names a fold is the last one before
+  // its block.
+  {
+    const texts = fixtureTexts([TWO]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {});
+    const field = page.fields[0];
+    const second = new El("label");
+    second.setAttribute("for", "fixture_0b");
+    second.textContent = "Second field";
+    const control = new El("input");
+    control.setAttribute("id", "fixture_0b");
+    field.container.insertBefore(second, field.help);
+    field.container.insertBefore(control, field.help);
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    const summaryEl = field.details.querySelector("summary");
+    record(
+      "a fold under the second of two labelled controls is named by the second label",
+      false,
+      summaryEl.getAttribute("aria-labelledby") ===
+        "fixture_0b-label fixture_0b-full-text"
+        ? []
+        : [
+            `the fold under the second control is named by ${JSON.stringify(summaryEl.getAttribute("aria-labelledby"))}`,
+          ],
+    );
+  }
+
+  // THE HOST'S OWN EMPTY LABEL. jellyfin-web's emby-input, emby-textarea and emby-select
+  // insert `<label for=id></label>` with no text directly in front of every control they
+  // upgrade, so on a real page an empty label stands between the authored one and the
+  // block on every field. The stub has no custom elements, so the label is authored here;
+  // the arm also asks that no id was minted on it, because the id it would get is the
+  // authored label's, and the same attribute string would then name an empty element.
+  {
+    const texts = fixtureTexts([TWO]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {});
+    const field = page.fields[0];
+    const host = new El("label");
+    host.setAttribute("for", "fixture_0");
+    field.container.insertBefore(host, field.input);
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    const summaryEl = field.details.querySelector("summary");
+    record(
+      "the empty label the host inserts before a control does not name the fold",
+      false,
+      summaryEl.getAttribute("aria-labelledby") ===
+        "fixture_0-label fixture_0-full-text" &&
+        host.getAttribute("id") === null
+        ? []
+        : [
+            `with the host's empty label in front of the control the fold is named by ${JSON.stringify(summaryEl.getAttribute("aria-labelledby"))}${host.getAttribute("id") === null ? "" : " and the empty label was given the id"}`,
+          ],
+    );
   }
 
   /*
@@ -2040,6 +2386,50 @@ async function calibrate(i18n) {
     ]);
   }
 
+  // The fold's name and the spoken copy (#1672), one negative per refusal.
+  const namedNegatives = [
+    [
+      "a fold named by nothing but the catalogue word",
+      (page) => {
+        page.fields[0].details
+          .querySelector("summary")
+          .removeAttribute("aria-labelledby");
+      },
+    ],
+    [
+      "a fold named by an id that is not its field's label",
+      (page) => {
+        const summaryEl = page.fields[0].details.querySelector("summary");
+        summaryEl.setAttribute(
+          "aria-labelledby",
+          "elsewhere " + summaryEl.getAttribute("id"),
+        );
+      },
+    ],
+    [
+      "a spoken copy that is not the whole text",
+      (page) => {
+        page.fields[0].spoken.textContent = "cut short.";
+      },
+    ],
+    [
+      "a spoken copy the applier left shown",
+      (page) => {
+        page.fields[0].spoken.hidden = false;
+        page.fields[0].spoken.removeAttribute("hidden");
+      },
+    ],
+  ];
+  for (const [name, mutate] of namedNegatives) {
+    const texts = fixtureTexts([TWO, ONE]);
+    const page = buildPage(Object.keys(texts), texts, "Full text", {
+      spoken: true,
+    });
+    await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
+    mutate(page);
+    record(name, true, inspect(page, texts, "Full text").refusals);
+  }
+
   // TWO HELP BLOCKS IN ONE FIELD CONTAINER. No page carries the shape and nothing
   // refuses it, which `i18n.js` says of itself at the map it builds; what this arm
   // holds is that the applier is DETERMINISTIC about it - the first block in
@@ -2339,7 +2729,7 @@ async function run() {
       });
       if (name === "en") {
         console.log(
-          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence` +
+          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence, ${authored.named} named after their field's label and ${keys.length - authored.named} by the catalogue word alone` +
             (assembled === 0
               ? ""
               : `, ${assembled} assembled from parts and driven with their own children, ${runtime.counts.flatParts} of them holding one sentence`) +
