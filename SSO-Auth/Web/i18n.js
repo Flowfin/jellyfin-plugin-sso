@@ -220,6 +220,21 @@ function fieldOf(help) {
  *
  * The fold is hidden where the body holds one sentence, so the promise its summary makes - that there
  * is more behind it - is never made falsely.
+ *
+ * A ONE-SENTENCE BODY IS MOVED RATHER THAN COPIED (#1669), and that is the difference between a
+ * sentence and the markup inside it. `lead.textContent = whole` replaced the lead's children with a
+ * single text node, which is correct for a body whose content is a catalogue row and nothing else, and
+ * lossy for one marked `data-i18n-parts`: that content is a sentence assembled AROUND child elements,
+ * so copying its text flattened a `<code>` sample into the body font while the fold that still held it
+ * was hidden. The two repairs that were rejected on the issue were leaving the fold up, which shows a
+ * field a bare "Full text" triangle and no sentence at all, and moving the CHILDREN into the lead,
+ * which empties the body that `applyParts` reassembles from on the next catalogue pass.
+ *
+ * Moving the body itself costs neither. It keeps its identity, its children, its marker and its place
+ * in every lookup here, and it becomes the line under the field by standing where the lead stands -
+ * before the hidden fold, with the lead cleared and collapsed by `.sso-help-lead:empty`. The move is
+ * made in both directions, because the same block is re-read in the other language: a text that holds
+ * one sentence in English and two in German folds and unfolds as the catalogue changes under it.
  */
 function refresh(help) {
   const lead = help.querySelector(".sso-help-lead");
@@ -233,6 +248,26 @@ function refresh(help) {
   const sentence = firstSentence(whole);
   lead.textContent = sentence === null ? whole : sentence;
   details.hidden = sentence === null;
+
+  // EACH MOVE IS GUARDED BY WHERE THE BODY ALREADY IS, and that is not an
+  // optimisation. Re-inserting a node REMOVES it and puts it back, which blurs
+  // anything focused inside it; three of these bodies carry a link, and this function
+  // runs again on every catalogue pass.
+  //
+  // AND THE REFERENCE NODE IS ONLY USED WHERE IT IS A CHILD OF THIS BLOCK. Every page
+  // authors the fold as a direct child, but `details` comes out of a querySelector over
+  // the whole block, so a page that ever wrapped it would hand insertBefore a node that
+  // is not a sibling - which THROWS, out of a forEach, taking the rest of the
+  // condensing and the rail listener with it. A null reference appends instead, which
+  // puts the body after a fold that is hidden anyway: the wrong order in a state
+  // nobody can see, rather than a page that stops being condensed.
+  if (sentence === null) {
+    if (body.parentNode !== help) {
+      help.insertBefore(body, details.parentNode === help ? details : null);
+    }
+  } else if (body.parentNode !== details) {
+    details.appendChild(body);
+  }
 }
 
 /*

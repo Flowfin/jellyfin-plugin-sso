@@ -631,6 +631,16 @@
   margin-top: 0.35em;
 }
 
+/* THE BODY OF A ONE-SENTENCE TEXT STANDS WHERE THE LEAD STANDS (#1669). The applier moves it out of the
+   fold rather than copying its text into the lead, so a sentence assembled around a `<code>` sample or a
+   `<strong>` field name keeps its markup instead of being flattened. It is then the first line of the
+   description rather than the second thing inside a fold, so it carries the lead's spacing and not the
+   fold's. The selector is the promoted position itself - a direct child of the block - which is a place
+   the markup never authors, so nothing has to be told which state it is in. */
+.sso-help > .sso-help-body {
+  margin-top: 0;
+}
+
 /* The rail card holds the whole text of whatever field has focus. Capped and scrolled rather than
    allowed to run: the longest of these texts is several hundred characters, and a rail as tall as the
    form pushes everything below it out of reach on the narrow layout, where the rail is stacked under the
