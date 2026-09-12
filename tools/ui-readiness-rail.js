@@ -153,9 +153,38 @@ class Element {
     this.listeners.get(name).push(handler);
   }
 
+  // A SELECT LOSES ITS SELECTION WHEN THE SELECTED OPTION GOES, AND THAT IS THE WHOLE
+  // REASON THIS OVERRIDE EXISTS (#1696). `populateProviders` rebuilds the hidden provider
+  // selector by removing every option and adding the current set back, and the selector is
+  // the state holder the save path, `applyManagedState` and both loaders read. A browser
+  // re-runs a select's selectedness the moment the selected option is removed: the first
+  // remaining option is selected, and an empty select carries the empty string. A stub that
+  // left `value` alone made the preservation in both populate functions green with it and
+  // green without it, which is what this issue was opened for - the guard shipped on a
+  // reading of the DOM specification rather than on a measurement.
+  //
+  // FOR A SELECT AND FOR NOTHING ELSE. Every other element here carries `value` as a plain
+  // property that removing a child cannot touch, which is also what a browser does.
+  //
+  // ITS BOUND, because it is half of the reset algorithm rather than all of it. A browser
+  // runs the same reset when an option is INSERTED into a select with nothing selected, so a
+  // clear-and-refill lands on the FIRST option there where it lands on the empty string
+  // here. Modelling that half too would make every arm that sets a selector's value on a
+  // fixture carrying no options read back empty, and those arms describe a page whose
+  // options exist. The two answers agree on the property that matters and the arm below is
+  // written against that: after the rebuild the selector no longer names the provider the
+  // page is about.
   removeChild(node) {
     this.nodes = this.nodes.filter((other) => other !== node);
     node.parentNode = null;
+    if (
+      this.tag === "select" &&
+      node.tag === "option" &&
+      node.value === this.value
+    ) {
+      const first = this.nodes.find((other) => other.tag === "option");
+      this.value = first === undefined ? "" : first.value;
+    }
     return node;
   }
 
@@ -197,8 +226,27 @@ class Element {
     return this.ownerPage.querySelector(selector);
   }
 
+  // THE PAGE'S ANSWER PLUS THIS ELEMENT'S OWN CHILDREN, and the second half is what makes
+  // the removal above reachable (#1696). The fixture's elements are built from the markup
+  // and carry no children, so a walk over them adds nothing and every existing reader -
+  // `applyManagedState` asking a form for its controls - gets the page-global answer it got
+  // before. What the page cannot answer is a node the controller APPENDED at run time: the
+  // provider options live under the selector and are in no fixture list, so
+  // `select.querySelectorAll("option")` returned an empty list and the clear loop in
+  // `populateProviders` removed nothing at all. Measured, not supposed: with two options
+  // appended, that call answered 0 and the node count rose from 2 to 4 across a populate.
+  //
+  // ONE LEVEL, because that is where the options are. A deeper walk would be a different
+  // claim about a tree this stub does not build.
   querySelectorAll(selector) {
-    return this.ownerPage.querySelectorAll(selector);
+    const tags = selector.split(",").map((part) => part.trim());
+    const own = this.nodes.filter(
+      (node) => node instanceof Element && tags.includes(node.tag),
+    );
+    const page = this.ownerPage
+      ? this.ownerPage.querySelectorAll(selector)
+      : [];
+    return [...new Set([...page, ...own])];
   }
 
   focus() {}
@@ -2034,6 +2082,176 @@ async function run() {
     );
   }
 
+  // ---- Arm: a configuration read that lands first does not take the selector with it ----
+  //
+  // THE SELECTOR IS THE PAGE'S RECORD OF WHICH PROVIDER IT IS ABOUT (#1696), and a
+  // configuration read rebuilds it. `populateProviders` and `populateSamlProviders` remove
+  // every option and add the current set back; a browser drops the selection the moment the
+  // selected option goes, and re-adding an option carrying the same value does not restore
+  // it. Three readers then compare against the empty string: `applyManagedState`, and both
+  // loaders since #1693.
+  //
+  // A SAVE IS THE ORDINARY ROUTE INTO IT, which is why this arm drives one rather than
+  // calling the populate functions directly. `saveProvider`'s success handler issues
+  // `loadConfiguration` and `loadProvider` back to back and sets the selector after both, so
+  // the two are in flight together and the ordering decides the outcome. The configuration
+  // read answering FIRST is the losing one: it empties the selector, and the provider reply
+  // arriving a moment later no longer speaks for anything and is dropped - leaving the
+  // administrator looking at the blanked form of the provider they just saved.
+  //
+  // THE PRESERVATION IS WHAT THIS PROVES, AND IT WAS PROVEN BY NOTHING. It landed with #1693
+  // on a reading of the DOM specification; the stub did not model a select at all, so the
+  // gate was green with the guard and green without it. Deleting both halves of it turns
+  // this arm red on both protocols: the selector reads the empty string instead of the
+  // provider's name, and the name field the provider read would have refilled stays empty.
+  {
+    const leaked = unhandled.length;
+    for (const protocol of ["oid", "saml"]) {
+      const page = providersFixture();
+      const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+      const save =
+        protocol === "oid" ? core.saveProvider : core.saveSamlProvider;
+      const selectorId =
+        protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
+      const nameField =
+        protocol === "saml" ? "#saml-provider-name" : "#OidProviderName";
+      // Two providers, because one is the case the defect hides in: with a single option the
+      // value a browser lands on after the rebuild is the one it started with.
+      const body = () => ({
+        OidConfigs: { a: {}, b: { OidEndpoint: "https://b.example" } },
+        SamlConfigs: { a: {}, b: { SamlEndpoint: "https://b.example" } },
+        ProvisioningProfiles: {},
+      });
+      const settled = () =>
+        new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+      const selector = page.querySelector(selectorId);
+
+      // The page as an administrator meets it: the configuration already read once, so the
+      // selector carries an option per provider. Without this the clear loop has nothing to
+      // remove and the arm would pass on a selector that was never at risk.
+      counter.serve = body();
+      core.loadConfiguration(page);
+      await settled();
+      counter.serve = undefined;
+      if (selector.querySelectorAll("option").length !== 2) {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": the first configuration read left " +
+            selector.querySelectorAll("option").length +
+            " option(s) under " +
+            selectorId +
+            ", so this arm would prove nothing",
+        );
+        continue;
+      }
+
+      // openProvider is not reachable from this stub - it resets the editor through a
+      // selector this page's querySelector refuses - so the editor is put into the state it
+      // leaves behind, which is what the stale-reply arm above does for the same reason.
+      open(page);
+      selector.value = "b";
+      page.querySelector(nameField).value = "b";
+
+      counter.park = [];
+      let outcome = "never settled";
+      save(page, "b").then(
+        () => {
+          outcome = "resolved";
+        },
+        (error) => {
+          outcome = "rejected: " + error.message;
+        },
+      );
+      await settled();
+      if (counter.park.length !== 1) {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": the save asked for " +
+            counter.park.length +
+            " configuration read(s) before its write, so the ordering below is not the one this arm describes",
+        );
+        counter.park = null;
+        continue;
+      }
+      // The save's own read, then its write, and the two reads its success handler issues.
+      counter.park[0].resolve(body());
+      await settled();
+      if (counter.park.length !== 3 || outcome !== "resolved") {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": a save that should have parked two reads and resolved parked " +
+            (counter.park.length - 1) +
+            " and " +
+            outcome,
+        );
+        counter.park = null;
+        continue;
+      }
+
+      // THE LOSING ORDERING, and the only line of this arm that chooses it: the
+      // configuration read settles while the provider read is still out.
+      counter.park[1].resolve(body());
+      await settled();
+      if (selector.value !== "b") {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": the configuration read rebuilt " +
+            selectorId +
+            " and the page's record of which provider it is about did not survive it - the selector now reads " +
+            JSON.stringify(selector.value),
+        );
+      }
+
+      // What the emptied selector COSTS, driven rather than argued: the provider reply is
+      // dropped as stale and the form of the provider that was just saved stays blank.
+      page.querySelector(nameField).value = "";
+      counter.park[2].resolve(body());
+      await settled();
+      counter.park = null;
+      if (page.querySelector(nameField).value !== "b") {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": the provider read that followed the configuration read filled nothing, so the editor is left blank over a provider that is saved - " +
+            nameField +
+            " reads " +
+            JSON.stringify(page.querySelector(nameField).value),
+        );
+      }
+
+      // THE OTHER READER OF THE SAME VALUE, and it predates #1693. applyManagedState freezes
+      // the editor of a provider a configuration file owns, and it compares the selector
+      // first to be sure the form it is about to freeze is still the one that was asked
+      // about. Against an emptied selector that comparison never matches, so a managed
+      // provider's form stays editable and its Save stays live.
+      const owned = protocol === "saml" ? "SamlConfigs" : "OidConfigs";
+      const named = core.managedProviders[owned];
+      core.managedProviders[owned] = ["b"];
+      await core.applyManagedState(page, protocol, "b");
+      core.managedProviders[owned] = named;
+      if (!page.querySelector(nameField).disabled) {
+        refuse(
+          "selector-survives",
+          protocol +
+            ": a provider a configuration file owns was not frozen after the rebuild, so its form is editable and its Save is live over a value the server will put back",
+        );
+      }
+    }
+    if (unhandled.length > leaked) {
+      refuse(
+        "selector-survives",
+        unhandled.length -
+          leaked +
+          " rejection(s) reached nobody: " +
+          unhandled.slice(leaked).join("; "),
+      );
+    }
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(faults.length + " refusal(s) in the readiness rail (#1678)");
@@ -2111,6 +2329,15 @@ async function run() {
   );
   console.log(
     "                   invitation, says so on the page, and leaves no rejection unhandled (#1681)",
+  );
+  console.log(
+    "  selector-survives  a save whose configuration read lands before its provider read keeps the",
+  );
+  console.log(
+    "                   page's record of which provider it is about: the reply still lands, and a",
+  );
+  console.log(
+    "                   managed provider is still frozen, on both protocols (#1696)",
   );
   console.log(
     "  NOT driven:      the capture phase, stopPropagation, and any ancestor with no id - the chain",
