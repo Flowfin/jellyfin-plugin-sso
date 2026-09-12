@@ -275,6 +275,121 @@ function refresh(help) {
   } else if (body.parentNode !== details) {
     details.appendChild(body);
   }
+
+  nameFold(help, details);
+  speak(help, body);
+}
+
+/*
+ * Names the fold after the field it belongs to (#1672).
+ *
+ * WHAT A SCREEN READER IS HANDED WAS MEASURED RATHER THAN REASONED, on 2026-09-12 in Chromium 152's
+ * accessibility tree over the shipped Providers page with this applier run on it: every one of the
+ * page's 111 folds is a disclosure triangle named "Full text", so a list of the page's controls reads
+ * as 111 identical rows and none of them says which field it opens. The name is computed from the
+ * summary's own text, which is one catalogue row shared by every fold on purpose.
+ *
+ * SO THE FIELD'S LABEL IS PUT IN FRONT OF THAT WORD, BY REFERENCE AND NOT BY COPY. `aria-labelledby`
+ * names the label and then the summary itself, so the computed name is the label's text followed by
+ * the catalogue word - "Redirect URI (register this at your provider): Full text" - and it follows
+ * both texts through every later catalogue pass with no second string anybody has to keep in step.
+ * The two ids the reference needs are written here where they are missing, derived from the control
+ * the label is for, so no page authors them.
+ *
+ * ONLY WHERE THE PAGE DRAWS A CONTAINER AROUND ONE CONTROL. `fieldOf` falls back to the block's own
+ * parent for the blocks that sit in no `inputContainer` or `checkboxContainer` - the empty states, the
+ * danger zone, the test block - and the first label under such a parent belongs to some other field.
+ * A fold named after a field it does not open is worse than one named "Full text", so those keep the
+ * bare word, and how many there are is a number the gate prints rather than one this comment promises.
+ */
+function nameFold(help, details) {
+  const summary = details.querySelector("summary");
+  const field = fieldOf(help);
+  const label =
+    field &&
+    (hasClass(field, "inputContainer") || hasClass(field, "checkboxContainer"))
+      ? labelBefore(field, help)
+      : null;
+  if (!summary || !label) {
+    return;
+  }
+
+  // A label FOR its control, or one WRAPPED AROUND it, which is how the checkbox rows are authored.
+  const wrapped = label.querySelector("input");
+  const control =
+    label.getAttribute("for") || (wrapped && wrapped.getAttribute("id"));
+  if (!control) {
+    return;
+  }
+  if (!label.hasAttribute("id")) {
+    label.setAttribute("id", control + "-label");
+  }
+  if (!summary.hasAttribute("id")) {
+    summary.setAttribute("id", control + "-full-text");
+  }
+  summary.setAttribute(
+    "aria-labelledby",
+    label.getAttribute("id") + " " + summary.getAttribute("id"),
+  );
+}
+
+/*
+ * The label that names the block's field: the last one before the block in document order that
+ * carries text.
+ *
+ * THE LAST, because one container on the SAML form holds two labelled controls and one help block
+ * under the second, and the first label would name that fold after the field above it (review of
+ * 2026-09-12). WITH TEXT, because jellyfin-web's `emby-input`, `emby-textarea` and `emby-select`
+ * insert an EMPTY label of their own directly in front of every control they upgrade; that one
+ * stands closer to the block than the authored label on every field, and taking it would name
+ * every fold by the bare word again. Neither shape is visible to the gate's markup reader, which
+ * is why both are driven as arms in tools/ui-condensed-help.js rather than only stated here.
+ */
+function labelBefore(field, help) {
+  const labels = new Set(all(field, "label"));
+  let found = null;
+  const walk = (el) => {
+    for (const child of el.children) {
+      if (child === help) {
+        return true;
+      }
+      if (labels.has(child) && child.textContent.trim() !== "") {
+        found = child;
+      }
+      if (walk(child)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  walk(field);
+  return found;
+}
+
+/*
+ * Writes the whole text into the block's spoken copy, where a page authors one (#1672).
+ *
+ * A FIELD DESCRIBED BY ITS WHOLE BLOCK IS DESCRIBED BY THE LEAD LINE AND THE WORD "FULL TEXT", and
+ * that too was measured, on the same page and the same day. `aria-describedby` is computed from what
+ * the referenced element RENDERS, and a closed `<details>` renders its summary and nothing behind it.
+ * Opening the fold made the description the whole text. Pointing the reference at the body inside
+ * the closed fold made it EMPTY, because a closed fold's content is not in the rendered tree at all,
+ * so that repair is dead. What does carry the whole text is a hidden element the reference names
+ * DIRECTLY - accessible-name computation walks into those - and that is the spoken copy: a
+ * `<span class="sso-help-spoken" hidden>` beside the fold, filled here from the body, named by the
+ * field's `aria-describedby` in place of the block. Measured: the description is then the whole text
+ * with the fold closed.
+ *
+ * FILLED FROM THE BODY AND NEVER FROM THE CATALOGUE, for the reason the rail card is: the copy and
+ * the fold cannot say different things, and a parts body arrives assembled. One page authors one such
+ * span today, for the redirect-URI field. tools/ui-condensed-help.js refuses a field described by its
+ * block and a spoken copy nothing names, so the shape cannot drift in either direction unnoticed.
+ */
+function speak(help, body) {
+  const spoken = help.querySelector(".sso-help-spoken");
+  if (spoken) {
+    spoken.textContent = body.textContent;
+  }
 }
 
 /*

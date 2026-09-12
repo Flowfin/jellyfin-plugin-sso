@@ -760,7 +760,7 @@
                             id="OidRedirectUri"
                             type="text"
                             readonly
-                            aria-describedby="OidRedirectUri-help"
+                            aria-describedby="OidRedirectUri-help-spoken"
                           />
                           <button
                             is="emby-button"
@@ -811,6 +811,19 @@
                               instead; register that one too if any of them do.
                             </div>
                           </details>
+                          <!--
+                    The copy the field's aria-describedby names (#1672). A description computed from
+                    the block itself is the lead line and the word "Full text" while the fold is
+                    closed, and empty when it names the body inside the closed fold; a hidden element
+                    named directly carries the whole text. i18n.js fills it from the body on every
+                    catalogue pass, and tools/ui-condensed-help.js refuses a field described by its
+                    block or a copy nothing names.
+                  -->
+                          <span
+                            class="sso-help-spoken"
+                            id="OidRedirectUri-help-spoken"
+                            hidden
+                          ></span>
                         </div>
                       </div>
 
