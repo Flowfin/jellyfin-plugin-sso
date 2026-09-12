@@ -1739,6 +1739,66 @@ async function calibrate(i18n) {
   );
 
   /*
+   * THE FALLBACK REFERENCE NODE IS DRIVEN RATHER THAN ASSERTED. `refresh` reads the fold
+   * with a querySelector over the whole block, so it finds one at any depth, and then
+   * inserts the promoted body with `help.insertBefore(body, details)` - which requires the
+   * fold to be the block's own CHILD. Every page authors it that way, so the arm the
+   * applier carries for the other shape was reachable from nothing:
+   * `details.parentNode === help ? details : null`. An arm nothing drives cannot be told
+   * apart from one that does not work, and deleting it instead was tried and is worse: a
+   * browser aborts the whole condensing pass and the rail listener on the throw.
+   *
+   * So the shape is authored here. The fold goes inside a wrapper, which is the layout
+   * change somebody makes without reading this function, and the arm asks for the two
+   * things that separate a degradation from a failure: the pass does not throw, and the
+   * body ends up somewhere a reader can see it rather than inside the hidden fold. Where
+   * it ends up is AFTER the fold rather than before it, which draws the same field because
+   * the fold is hidden, and the stylesheet then gives it the fold's spacing rather than
+   * the lead's - the one visible cost, and the reason #1684 asks the markup reader to
+   * refuse the shape at authoring time instead of leaving the applier to absorb it.
+   */
+  {
+    const key = "config.fixture_0_help";
+    const page = buildPage([key], {}, "Full text", {
+      parts: { [key]: [{ tag: "code", text: AVATAR }] },
+    });
+    const field = page.fields[0];
+    const wrap = new El("div");
+    // ORDER: replaceChildren drops the fold's parent first, so the wrapper adopts a node
+    // that belongs to nobody. Appending to the wrapper first would leave the fold in two
+    // child lists at once in a stub that did not detach, and this one does - so the order
+    // here is the one a browser also takes rather than a habit.
+    field.help.replaceChildren(field.lead, wrap);
+    wrap.appendChild(field.details);
+    let threw = null;
+    try {
+      await render(i18n, page, {
+        [key]: "The avatar url takes the form {0}",
+        [SUMMARY_KEY]: "Full text",
+      });
+    } catch (error) {
+      threw = error;
+    }
+    const placed =
+      threw === null
+        ? field.body.parentNode === field.help && field.details.hidden
+        : false;
+    record(
+      "a fold the page wrapped still gets its one-sentence body onto the page",
+      false,
+      threw !== null
+        ? [
+            `condensing a block whose fold is not its own child threw ${threw.message}, which in a browser leaves every block after it on the page unread and attaches no rail listener`,
+          ]
+        : placed
+          ? []
+          : [
+              `a one-sentence body under a wrapped fold ended up in ${field.body.parentNode === wrap ? "the wrapper, inside the hidden fold" : "neither the block nor the wrapper"}, so the field shows no description at all`,
+            ],
+    );
+  }
+
+  /*
    * THE SECOND PASS MOVES NOTHING, which is what the `body.parentNode !== help`
    * guard in the applier buys and what the arms above cannot see: every one of them
    * compares a FINAL tree, and re-inserting a body that is already in place leaves the

@@ -248,25 +248,21 @@ function refresh(help) {
   lead.textContent = sentence === null ? "" : sentence;
   details.hidden = sentence === null;
 
-  // EACH MOVE IS GUARDED BY WHERE THE BODY ALREADY IS, and that is not an optimisation.
-  // Re-inserting a node REMOVES it and puts it back, so a browser drops the focus out of
-  // whatever was focused inside it; three of these bodies carry a link, and this function
-  // runs again on every catalogue pass. The guard is judged by a MOVE COUNT in
-  // tools/ui-condensed-help.js rather than by a focus, because the stub there holds none.
+  // EACH MOVE IS GUARDED BY WHERE THE BODY ALREADY IS, and that is not an
+  // optimisation. Re-inserting a node REMOVES it and puts it back, which blurs
+  // anything focused inside it; three of these bodies carry a link, and this function
+  // runs again on every catalogue pass.
   //
-  // IT RESTS ON THE FOLD BEING A DIRECT CHILD OF THE BLOCK, WHICH NOTHING REFUSES. Every
-  // page authors it that way, but `details` comes out of a querySelector over the whole
-  // block: on a page that wrapped the fold, insertBefore would be handed a reference node
-  // that is not this element's child and THROW, out of a forEach, taking the rest of the
-  // condensing and the rail listener with it, and the parent test below would re-insert on
-  // every pass. A ternary falling back to a null reference was written here first and
-  // removed: it is an arm no page and no fixture can reach, so nothing could show it
-  // working, and an unreachable repair reads as cover for a case that is still open.
-  // The refusal belongs in the markup reader next door, which walks the authored nesting
-  // already; that is issue #1684 and it is not this change.
+  // AND THE REFERENCE NODE IS ONLY USED WHERE IT IS A CHILD OF THIS BLOCK. Every page
+  // authors the fold as a direct child, but `details` comes out of a querySelector over
+  // the whole block, so a page that ever wrapped it would hand insertBefore a node that
+  // is not a sibling - which THROWS, out of a forEach, taking the rest of the
+  // condensing and the rail listener with it. A null reference appends instead, which
+  // puts the body after a fold that is hidden anyway: the wrong order in a state
+  // nobody can see, rather than a page that stops being condensed.
   if (sentence === null) {
     if (body.parentNode !== help) {
-      help.insertBefore(body, details);
+      help.insertBefore(body, details.parentNode === help ? details : null);
     }
   } else if (body.parentNode !== details) {
     details.appendChild(body);
