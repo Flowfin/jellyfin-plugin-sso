@@ -1,0 +1,1160 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-FileCopyrightText: 2026 iderex
+
+/*
+ * Runs the REAL readiness rail of sso-core.js against the REAL Providers page and
+ * refuses each way it can be wrong (#1678).
+ *
+ * WHY THIS EXISTS AS A RUNNING PROOF AND NOT AS A CONFORMANCE RULE. The rules this
+ * repository already has over the rail read its TEXT:
+ * ArchitectureConformanceTests.ProviderCheckSurface asks whether the two ids are
+ * still declared, whether the list still ships `hidden`, and whether each spec
+ * still names its required ids. None of them can ask what the page DOES, and
+ * #1664 moved the panel out of the two editors and into one card in the rail - so
+ * the rail is the ONLY place readiness appears now. A fault in the one function
+ * that decides what it holds removes the signal from the product rather than
+ * duplicating it somewhere else, and a page whose list quietly stops being filled
+ * looks exactly like a page where every provider is fine.
+ *
+ * That is the failure shape this file exists for: the rail is confidently wrong or
+ * confidently silent, and every text rule over it stays green.
+ *
+ * WHY IT IS NODE AND NOT A BROWSER OR A DOM LIBRARY. The means check, per the
+ * standpoint: node is already carried by this tree - the .NET workflow runs the other
+ * gates beside this one with no install - and a DOM library would add a dependency and a
+ * lockfile to a repository that has neither. A browser would answer more and is
+ * the walk, which is a person's job and is owed on #1664 either way. What the
+ * cheap means cannot say is stated below rather than hidden.
+ *
+ * WHAT THE STUB CAN AND CANNOT SAY, AND THIS BOUND IS THE PART TO READ. The DOM
+ * below is a stub: id lookup, one attribute selector, a class list, text nodes and
+ * a parent walk for `closest`. It is NOT a browser and it has NO EVENT TREE, so
+ * the one thing it cannot reach is the ROUTE FROM A KEYSTROKE TO THE REBUILD.
+ * initProvidersPage binds `input` and `change` on the two editor ELEMENTS and
+ * relies on a field's event bubbling up to them; nothing here dispatches an event
+ * at all, so a mutation that dropped either listener, or bound them to the wrong
+ * element, passes every arm below. What IS driven is the rebuild itself - that it
+ * reads the form's live values, that it is request-free, and that it is safe to
+ * call twice - which is everything the listener does once it fires. The missing
+ * half is issue #1687 and it is named here rather than left for a reader to
+ * notice.
+ *
+ * It also cannot say anything about layout, about the order a real browser would
+ * run two listeners in, or about what a screen reader announces from the list's
+ * `role="status"`. What keeps it from being a proof about ITSELF is that the
+ * CONTROLS, THE REGIONS AND THE FIELD LABELS are all read out of the shipped
+ * providersPage.html, so a control or a label that leaves the page leaves this
+ * fixture with it, and that the code under test is the shipped sso-core.js loaded
+ * whole, not a copy and not an extract.
+ *
+ * WHY THE MODULE IS LOADED THROUGH A DATA URL. sso-core.js is an ES module and
+ * this tree carries no package.json, so node would read a `.js` file as CommonJS
+ * and fail on its `export`. Importing the bytes as a data: URL loads the same
+ * source as a module without writing a temporary file beside the tree.
+ *
+ * THE CALIBRATION RUNS BEFORE THE REAL PAGE IS OPENED, POSITIVE AND NEGATIVE.
+ * The reader below decides what the rail ought to hold, and a reader that cannot
+ * fail is not a measurement: it would pass a page it had stopped looking at. So it
+ * is first handed a hand-built rail that is right, and then one hand-broken rail
+ * per refusal it can make - and the run stops on any disagreement instead of
+ * opening the real page. The negative is the half that gets skipped and the half
+ * that matters: a reader carrying positives only passes its own calibration by
+ * accepting everything.
+ *
+ * EVERY LEG REFUSES BY NAME AND THE PASS IS PRINTED. A proof whose result nobody
+ * sees reads exactly like one that never ran.
+ */
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const root = path.resolve(__dirname, "..");
+const CORE = path.join(root, "SSO-Auth", "Web", "sso-core.js");
+const PROVIDERS_PAGE = path.join(root, "SSO-Auth", "Web", "providersPage.html");
+
+// The two ids the rail is made of, and the two editors whose `hidden` attributes
+// decide which protocol it answers for. Spelled here because an arm has to name
+// them; that they are the ids the page and the module agree on is what
+// ProviderCheckSurface already refuses, and this file asserts it again below
+// rather than trusting it.
+const INVITATION = "sso-rail-readiness";
+const LIST = "sso-rail-readiness-list";
+const EDITORS = { oid: "sso-editor", saml: "saml-editor" };
+
+// ---------------------------------------------------------------------------
+// The stub. Small on purpose: every member here is one the code under test
+// reaches for, and nothing is added for completeness.
+// ---------------------------------------------------------------------------
+
+class Classes {
+  constructor() {
+    this.set = new Set();
+  }
+  add(...names) {
+    names.forEach((name) => this.set.add(name));
+  }
+  remove(...names) {
+    names.forEach((name) => this.set.delete(name));
+  }
+  contains(name) {
+    return this.set.has(name);
+  }
+}
+
+class Text {
+  constructor(data) {
+    this.nodeType = 3;
+    this.textContent = String(data);
+  }
+}
+
+class Element {
+  constructor(tag, id, type) {
+    this.nodeType = 1;
+    this.tag = tag;
+    this.id = id;
+    this.type = type || tag;
+    this.value = "";
+    this.checked = false;
+    this.disabled = false;
+    this.hidden = false;
+    this.parentNode = null;
+    this.nodes = [];
+    this.classList = new Classes();
+  }
+
+  get childNodes() {
+    return [...this.nodes];
+  }
+
+  // Concatenated, like a browser: readinessFieldName falls back to the WHOLE
+  // label's text for the wrapped-checkbox idiom, where the direct text nodes are
+  // empty and the name lives in a child span. A stub returning only its own text
+  // would make that idiom return the id and no arm would notice, because the id is
+  // also what an unlabelled control returns.
+  get textContent() {
+    return this.nodes.map((node) => node.textContent).join("");
+  }
+
+  set textContent(value) {
+    this.nodes = [new Text(value)];
+  }
+
+  appendChild(node) {
+    node.parentNode = this;
+    this.nodes.push(node);
+    return node;
+  }
+
+  replaceChildren(...nodes) {
+    this.nodes.forEach((node) => {
+      node.parentNode = null;
+    });
+    this.nodes = [];
+    nodes.forEach((node) => this.appendChild(node));
+  }
+
+  // The parent walk, `this` included, matching on the tag alone - which is the one
+  // form the code under test uses: `field.closest("label")`.
+  closest(selector) {
+    for (let at = this; at; at = at.parentNode) {
+      if (at.tag === selector) {
+        return at;
+      }
+    }
+    return null;
+  }
+}
+
+/**
+ * One page. Its `querySelector` answers the two forms the readiness path uses and
+ * REFUSES anything else, so a selector this stub cannot resolve fails the run
+ * instead of silently returning null - which the code reads as "the field is not
+ * on the page" and reports as an empty required field.
+ */
+class Page {
+  constructor(elements, labels) {
+    this.elements = elements;
+    this.byId = new Map(elements.map((el) => [el.id, el]));
+    this.labelFor = labels;
+  }
+
+  querySelector(selector) {
+    if (selector.startsWith("#")) {
+      return this.byId.get(selector.slice(1)) || null;
+    }
+    const label = /^label\[for="([^"]+)"\]$/.exec(selector);
+    if (label) {
+      return this.labelFor.get(label[1]) || null;
+    }
+    throw new Error("the stub does not resolve the selector " + selector);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The fixture, read out of the shipped page.
+// ---------------------------------------------------------------------------
+
+/** Replaces every HTML comment with spaces, so a documented control is not a real one. */
+function withoutComments(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/** The value of `name="..."` where the name starts an attribute, as ui-mock-fields.js reads it. */
+function attr(tag, name) {
+  const m = tag.match(new RegExp("(?<![-\\w])" + name + '="([^"]*)"'));
+  return m ? m[1] : "";
+}
+
+/** Whether the opening tag at `at` carries a bare `hidden` attribute. */
+function shipsHidden(html, id) {
+  const at = html.indexOf('id="' + id + '"');
+  if (at === -1) {
+    return false;
+  }
+  const tag = html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
+  return tag.split(/[\s>]+/).includes("hidden");
+}
+
+/**
+ * The label a field's name is read from, built with the same two shapes the page
+ * authors and `readinessFieldName` reads differently:
+ *
+ *   <label for="X">Name of Thing: <span>*</span></label>   - direct text is the name
+ *   <label><input id="X"> <span>Name of Thing</span></label> - the span is the name
+ *
+ * Both are built from the page's own bytes. Restating the names here would give
+ * this fixture a second copy of every label to drift against, which is the defect
+ * the code under test avoids by reading the label in the first place.
+ */
+function labelsOf(html, controls) {
+  const labels = new Map();
+
+  // The `for=` idiom. The element is cut out around the attribute rather than
+  // matched, because these opening tags run over several lines and a pattern for
+  // one is a second thing to get wrong.
+  for (const m of html.matchAll(/<label\b[^>]*\bfor="([^"]+)"/g)) {
+    const open = html.indexOf(">", m.index);
+    const close = html.indexOf("</label", open);
+    if (open === -1 || close === -1) {
+      continue;
+    }
+    labels.set(m[1], labelFrom(html.slice(open + 1, close)));
+  }
+
+  // The wrapping idiom. Found from the control rather than from the label, because
+  // the opening tag carries nothing that names the field.
+  for (const control of controls) {
+    if (labels.has(control.id) || !control.id) {
+      continue;
+    }
+    const at = html.indexOf('id="' + control.id + '"');
+    if (at === -1) {
+      continue;
+    }
+    const open = html.lastIndexOf("<label", at);
+    const close = html.indexOf("</label", at);
+    if (open === -1 || close === -1 || close < at) {
+      continue;
+    }
+    const label = labelFrom(html.slice(html.indexOf(">", open) + 1, close));
+    labels.set(control.id, label);
+    // `closest("label")` has to find it, which is the lookup the wrapped idiom
+    // rests on: there is no `for=` to follow.
+    control.parentNode = label;
+  }
+
+  return labels;
+}
+
+/**
+ * One label element from its inner markup: the text OUTSIDE any child tag becomes
+ * direct text nodes, and each child element becomes a child with its own text. The
+ * split is the whole point - `readinessFieldName` takes the direct text nodes
+ * first and the full text only as a fallback, so a fixture that flattened both
+ * into one string would make the two idioms indistinguishable and the fallback
+ * unreachable.
+ */
+function labelFrom(inner) {
+  const label = new Element("label", "", "label");
+  let at = 0;
+  for (const m of inner.matchAll(/<(?<tag>[a-z][a-z0-9]*)\b[^>]*>/g)) {
+    if (m.index > at) {
+      label.appendChild(new Text(inner.slice(at, m.index)));
+    }
+    const open = m.index + m[0].length;
+    const close = inner.indexOf("</" + m.groups.tag, open);
+    const child = new Element(m.groups.tag, "", m.groups.tag);
+    child.appendChild(new Text(close === -1 ? "" : inner.slice(open, close)));
+    label.appendChild(child);
+    at = close === -1 ? inner.length : inner.indexOf(">", close) + 1;
+  }
+  if (at < inner.length) {
+    label.appendChild(new Text(inner.slice(at)));
+  }
+  return label;
+}
+
+/**
+ * The Providers page as this stub sees it: every form control it declares, every
+ * id it declares as a plain element, and the labels above. The regions the rail
+ * writes into are ASSERTED against the markup rather than invented, because a
+ * renamed region turns every render into a no-op that a stub building its own
+ * regions would report as a pass.
+ */
+function providersFixture() {
+  const html = withoutComments(fs.readFileSync(PROVIDERS_PAGE, "utf8"));
+  const declared = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+
+  const controls = [
+    ...html.matchAll(/<(input|select|textarea)\b[\s\S]*?>/g),
+  ].map((m) => new Element(m[1], attr(m[0], "id"), attr(m[0], "type") || m[1]));
+  if (controls.length === 0) {
+    throw new Error(
+      "providersPage.html declares no form control, so this fixture would prove nothing",
+    );
+  }
+
+  for (const id of [INVITATION, LIST, EDITORS.oid, EDITORS.saml]) {
+    if (!declared.includes(id)) {
+      throw new Error(
+        "providersPage.html declares no #" +
+          id +
+          ", so the rail would render into nothing",
+      );
+    }
+  }
+
+  const known = new Set(controls.map((control) => control.id));
+  const others = declared
+    .filter((id) => id && !known.has(id))
+    .map((id) => new Element(id === LIST ? "ul" : "div", id, "div"));
+
+  const elements = [...controls, ...others];
+  // The markup's own starting state, read off each tag. A fixture that started the
+  // editors open, or the list shown, would make an arm refuse for a reason the arm
+  // did not set up - and the list shipping `hidden` is load-bearing: it is what a
+  // page whose script never ran shows instead of a headed panel with no rows.
+  elements.forEach((el) => {
+    el.hidden = shipsHidden(html, el.id);
+  });
+  if (!elements.find((el) => el.id === LIST).hidden) {
+    throw new Error(
+      "the readiness list does not ship hidden, so a page whose script never ran shows a headed empty panel",
+    );
+  }
+
+  return new Page(elements, labelsOf(html, controls));
+}
+
+// ---------------------------------------------------------------------------
+// The reader. What the rail ought to hold, and every way it can be wrong.
+// ---------------------------------------------------------------------------
+
+/** The rows the list currently holds, as the strings appendReadinessRow wrote. */
+function rowsOf(page) {
+  return page
+    .querySelector("#" + LIST)
+    .childNodes.map((node) => node.textContent);
+}
+
+/**
+ * Refuses one rail state against what it OUGHT to be.
+ *
+ * `expected.open` is the protocol the page is about, or null for neither, and
+ * `expected.rows` is one matcher per row IN ORDER: its state word, the row label,
+ * and a fragment its detail must contain. Matching a fragment rather than the
+ * whole sentence is deliberate - the detail of a row listing field names is built
+ * from the page's own labels, and pinning the whole string here would make this
+ * reader a second copy of the catalogue.
+ *
+ * THE EMPTY STATE IS TWO REFUSALS AND NOT ONE, because a headed list with no rows
+ * is the failure that reads as an answer: it says a provider answered nothing,
+ * which is the opposite of the truth when no provider is open. So a closed rail is
+ * refused both for showing the list and for holding rows behind it.
+ */
+function inspectRail(page, expected) {
+  const refusals = [];
+  const invitation = page.querySelector("#" + INVITATION);
+  const list = page.querySelector("#" + LIST);
+  const rows = rowsOf(page);
+
+  if (expected.open === null) {
+    if (invitation.hidden) {
+      refusals.push(
+        "no editor is open and the invitation is hidden, so the rail card is blank",
+      );
+    }
+    if (!list.hidden) {
+      refusals.push(
+        "no editor is open and the readiness list is shown, so the rail answers for a provider nobody opened",
+      );
+    }
+    if (rows.length !== 0) {
+      refusals.push(
+        "no editor is open and the list still holds " +
+          rows.length +
+          " row(s): " +
+          JSON.stringify(rows[0]),
+      );
+    }
+    return refusals;
+  }
+
+  if (!invitation.hidden) {
+    refusals.push(
+      "an editor is open and the invitation is still shown, so the card invites what is already open",
+    );
+  }
+  if (list.hidden) {
+    refusals.push(
+      "an editor is open and the readiness list is hidden, so the only readiness signal on the page is absent",
+    );
+  }
+  // A ROW TOO MANY IS COUNTED AND A ROW TOO FEW IS NAMED, and the split is not
+  // tidiness. One check over both directions left the missing-row refusal below
+  // unreachable - each of the two covered the other, so deleting either one kept the
+  // gate green and neither could be proven. A longer list has no row to name, so the
+  // count is the only thing to say about it; a shorter one does, and WHICH row went
+  // missing is what a reader of the refusal needs.
+  if (rows.length > expected.rows.length) {
+    refusals.push(
+      "the rail holds " +
+        rows.length +
+        " row(s) and this editor has " +
+        expected.rows.length +
+        " to answer: " +
+        JSON.stringify(rows.slice(expected.rows.length)),
+    );
+  }
+
+  expected.rows.forEach((want, index) => {
+    // A ROW THAT IS NOT THERE IS REFUSED RATHER THAN READ. The count above returns,
+    // so this cannot be reached on a short list today - and the proof run showed what
+    // resting on that costs: deleting the count refusal turned this loop into a
+    // TypeError, so the gate went red for the wrong reason and named no arm.
+    const row = rows[index];
+    if (row === undefined) {
+      refusals.push(
+        "row " +
+          (index + 1) +
+          " is missing, and it is the " +
+          want.label +
+          " row",
+      );
+      return;
+    }
+    if (!row.startsWith(want.state + " - " + want.label + " - ")) {
+      refusals.push(
+        "row " +
+          (index + 1) +
+          " should read " +
+          JSON.stringify(want.state + " - " + want.label) +
+          " and reads " +
+          JSON.stringify(row),
+      );
+      return;
+    }
+    if (!row.includes(want.detail)) {
+      refusals.push(
+        "the " +
+          want.label +
+          " row should say " +
+          JSON.stringify(want.detail) +
+          " and says " +
+          JSON.stringify(row),
+      );
+    }
+  });
+
+  return refusals;
+}
+
+// ---------------------------------------------------------------------------
+// The calibration: a hand-built rail that is right, and one that is broken per
+// refusal the reader can make. Run BEFORE the real page is opened.
+// ---------------------------------------------------------------------------
+
+/**
+ * A rail with no page around it, in a named state. Nothing here is read from the
+ * shipped markup on purpose: the calibration is about whether the READER can fail,
+ * and a fixture derived from the real page would make a broken arm depend on what
+ * the page happens to carry today.
+ */
+function handRail(open, rowTexts) {
+  const invitation = new Element("div", INVITATION, "div");
+  const list = new Element("ul", LIST, "ul");
+  invitation.hidden = open !== null;
+  list.hidden = open === null;
+  rowTexts.forEach((text) => {
+    const item = new Element("li", "", "li");
+    item.textContent = text;
+    list.appendChild(item);
+  });
+  return new Page([invitation, list], new Map());
+}
+
+const GOOD_ROWS = [
+  "Ready - Required fields - Every required field on this form is filled in.",
+  "Needs attention - Field warnings - Reporting a problem: Endpoint",
+];
+const GOOD_EXPECTED = {
+  open: "oid",
+  rows: [
+    { state: "Ready", label: "Required fields", detail: "Every required" },
+    { state: "Needs attention", label: "Field warnings", detail: "Endpoint" },
+  ],
+};
+
+function calibrate() {
+  const arms = [];
+  const record = (name, mustRefuse, refusals) => {
+    const refused = refusals.length > 0;
+    arms.push({ name, mustRefuse, ok: refused === mustRefuse, refusals });
+  };
+
+  // The positive, twice: the reader accepts a correct open rail and a correct
+  // closed one. A reader that refused either would fail every arm below for its
+  // own reason and the real page would never be reached.
+  record(
+    "open rail as it should be",
+    false,
+    inspectRail(handRail("oid", GOOD_ROWS), GOOD_EXPECTED),
+  );
+  record(
+    "closed rail as it should be",
+    false,
+    inspectRail(handRail(null, []), { open: null, rows: [] }),
+  );
+
+  // One negative per refusal, each a ONE-CHANGE neighbour of a rail that passes.
+  // A negative several changes away proves less: it would be refused by whichever
+  // arm noticed first, and the refusal this row is for could be missing.
+  {
+    const page = handRail("oid", GOOD_ROWS);
+    page.querySelector("#" + LIST).hidden = true;
+    record(
+      "an open editor whose list is hidden",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", GOOD_ROWS);
+    page.querySelector("#" + INVITATION).hidden = false;
+    record(
+      "an open editor still showing the invitation",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", GOOD_ROWS.slice(0, 1));
+    record(
+      "an open editor missing a row",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", GOOD_ROWS.concat([GOOD_ROWS[1]]));
+    record(
+      "an open editor with a row too many",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", [
+      GOOD_ROWS[0].replace("Ready", "Needs attention"),
+      GOOD_ROWS[1],
+    ]);
+    record(
+      "a row carrying the wrong state word",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", [
+      GOOD_ROWS[0],
+      "Needs attention - Reply URL (ACS) - Computed once the provider has a name.",
+    ]);
+    record(
+      "a row from the other protocol",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail("oid", [
+      GOOD_ROWS[0],
+      "Needs attention - Field warnings - Reporting a problem: Client ID",
+    ]);
+    record(
+      "a row naming the wrong field",
+      true,
+      inspectRail(page, GOOD_EXPECTED),
+    );
+  }
+  {
+    const page = handRail(null, []);
+    page.querySelector("#" + INVITATION).hidden = true;
+    record(
+      "a closed rail with nothing in it at all",
+      true,
+      inspectRail(page, { open: null, rows: [] }),
+    );
+  }
+  {
+    const page = handRail(null, []);
+    page.querySelector("#" + LIST).hidden = false;
+    record(
+      "a closed rail showing its list",
+      true,
+      inspectRail(page, { open: null, rows: [] }),
+    );
+  }
+  {
+    // THE HEADED EMPTY LIST, which is the state #1664 names and the one a reader
+    // asking only about `hidden` would pass: the list is correctly hidden and the
+    // invitation correctly shown, and the rows of the provider that was open a
+    // moment ago are still behind it. The next unhide would show them under a
+    // provider nobody chose.
+    const page = handRail(null, []);
+    const list = page.querySelector("#" + LIST);
+    const stale = new Element("li", "", "li");
+    stale.textContent = GOOD_ROWS[0];
+    list.appendChild(stale);
+    record(
+      "a closed rail keeping the last provider's rows",
+      true,
+      inspectRail(page, { open: null, rows: [] }),
+    );
+  }
+
+  return arms;
+}
+
+// ---------------------------------------------------------------------------
+// The arms over the real page.
+// ---------------------------------------------------------------------------
+
+async function loadCore() {
+  const source = fs.readFileSync(CORE, "utf8");
+  const url =
+    "data:text/javascript;base64," +
+    Buffer.from(source, "utf8").toString("base64");
+  return (await import(url)).default;
+}
+
+/** The host globals the readiness path touches, and nothing else. */
+function installHost(counter) {
+  globalThis.Node = { TEXT_NODE: 3 };
+  globalThis.document = {
+    createElement: (tag) => new Element(tag, "", tag),
+    createTextNode: (data) => new Text(data),
+  };
+  // EVERY CALL IS COUNTED AND NONE IS SERVED. The panel's whole claim is that it
+  // reads what the form already holds, so a rebuild that reached the network would
+  // be refused here by the count rather than by a reading of the file - and a
+  // client that answered would let one slip past as a pass.
+  globalThis.ApiClient = new Proxy(
+    {},
+    {
+      get: (_target, name) => {
+        if (name === "then" || typeof name === "symbol") {
+          return undefined;
+        }
+        return (...args) => {
+          counter.calls.push(String(name) + "(" + args.length + ")");
+          return Promise.resolve({});
+        };
+      },
+    },
+  );
+}
+
+/** A required field, filled or emptied, named as the rail will name it. */
+function nameOf(core, page, id) {
+  return core.readinessFieldName(page, id);
+}
+
+function main() {
+  const faults = [];
+  const refuse = (leg, detail) => faults.push(leg + ": " + detail);
+
+  // ---- the calibration, first ----
+  const arms = calibrate();
+  const bad = arms.filter((arm) => !arm.ok);
+  if (bad.length > 0) {
+    bad.forEach((arm) =>
+      console.error(
+        "CALIBRATION  " +
+          arm.name +
+          ": " +
+          (arm.mustRefuse
+            ? "the reader accepted a rail that is wrong"
+            : "the reader refused a rail that is right - " +
+              arm.refusals.join("; ")),
+      ),
+    );
+    console.error(
+      "the calibration disagreed, so the real page was not opened (#1678)",
+    );
+    return 1;
+  }
+  const mustPass = arms.filter((arm) => !arm.mustRefuse).length;
+
+  return { arms, mustPass, faults, refuse };
+}
+
+async function run() {
+  const started = main();
+  if (typeof started === "number") {
+    return started;
+  }
+  const { arms, mustPass, faults, refuse } = started;
+  const counter = { calls: [] };
+  installHost(counter);
+  const core = await loadCore();
+
+  // The spec is read from the module rather than restated, because an arm naming
+  // its own required ids would stop testing the panel the day the spec changed and
+  // would instead test a copy of what the spec used to be.
+  const REQUIRED = core.readinessSpecs.oid.requiredIds;
+  const SAML_REQUIRED = core.readinessSpecs.saml.requiredIds;
+
+  /** The five rows an OpenID editor answers, in order, for a blank form. */
+  const blankOid = (page) => ({
+    open: "oid",
+    rows: [
+      {
+        state: "Needs attention",
+        label: "Required fields",
+        detail:
+          "Still empty: " +
+          REQUIRED.map((id) => nameOf(core, page, id)).join(", "),
+      },
+      {
+        state: "Ready",
+        label: "Field warnings",
+        detail: "No field on this form is reporting a problem.",
+      },
+      {
+        state: "Needs attention",
+        label: "Endpoint test",
+        detail: "Not yet tested.",
+      },
+      {
+        state: "Needs attention",
+        label: "Redirect URI",
+        detail: "Available once the provider is saved.",
+      },
+      {
+        state: "Ready",
+        label: "Insecure or sensitive options",
+        detail: "None of the flagged options is active",
+      },
+    ],
+  });
+
+  /** The five rows a SAML editor answers, in order, for a blank form. */
+  const blankSaml = (page) => ({
+    open: "saml",
+    rows: [
+      {
+        state: "Needs attention",
+        label: "Required fields",
+        detail:
+          "Still empty: " +
+          SAML_REQUIRED.map((id) => nameOf(core, page, id)).join(", "),
+      },
+      {
+        state: "Ready",
+        label: "Field warnings",
+        detail: "No field on this form is reporting a problem.",
+      },
+      {
+        state: "Needs attention",
+        label: "Endpoint test",
+        detail: "Not yet tested.",
+      },
+      {
+        state: "Needs attention",
+        label: "Reply URL (ACS)",
+        detail: "Computed once the provider has a name.",
+      },
+      {
+        state: "Ready",
+        label: "Insecure or sensitive options",
+        detail: "None of the flagged options is active",
+      },
+    ],
+  });
+
+  // ---- Arm: neither editor open ----
+  {
+    const page = providersFixture();
+    core.railReadiness(page);
+    inspectRail(page, { open: null, rows: [] }).forEach((detail) =>
+      refuse("none-open", detail),
+    );
+  }
+
+  // ---- Arm: the OpenID editor opened through the shipped opener ----
+  //
+  // THE SAML EDITOR IS OPENED FIRST, and that is not scene-setting. Both editors
+  // ship hidden, so an arm that opened the OpenID one on a fresh fixture would find
+  // the SAML one closed whether showEditor closed it or not - which is exactly what
+  // the first draft of this arm did, and the proof run caught it: taking
+  // hideSamlEditor out of showEditor left the gate green. The one-workspace rule
+  // (#1527) is only readable from a page where the other workspace was open.
+  {
+    const page = providersFixture();
+    core.showSamlEditor(page);
+    core.showEditor(page);
+    if (page.querySelector("#" + EDITORS.saml).hidden !== true) {
+      refuse(
+        "oid-open",
+        "opening the OpenID editor left the SAML editor open, so the rail is answering for one of two forms on screen",
+      );
+    }
+    inspectRail(page, blankOid(page)).forEach((detail) =>
+      refuse("oid-open", detail),
+    );
+  }
+
+  // ---- Arm: the SAML editor, whose rows are its own ----
+  {
+    const page = providersFixture();
+    core.showEditor(page);
+    core.showSamlEditor(page);
+    if (page.querySelector("#" + EDITORS.oid).hidden !== true) {
+      refuse(
+        "saml-open",
+        "opening the SAML editor left the OpenID editor open",
+      );
+    }
+    const rows = rowsOf(page);
+    // The ACS row is the one that separates the two protocols by NAME rather than
+    // by count: both editors answer five rows, so a rail that answered for the
+    // wrong one would match on length alone.
+    if (!rows.some((row) => row.includes("Reply URL (ACS)"))) {
+      refuse(
+        "saml-open",
+        "the SAML editor's rail carries no Reply URL row, so it is answering for the other protocol: " +
+          JSON.stringify(rows),
+      );
+    }
+    const missing = SAML_REQUIRED.map((id) => nameOf(core, page, id)).join(
+      ", ",
+    );
+    if (!rows[0].includes(missing)) {
+      refuse(
+        "saml-open",
+        "the SAML required row should name " +
+          JSON.stringify(missing) +
+          " and reads " +
+          JSON.stringify(rows[0]),
+      );
+    }
+  }
+
+  // ---- Arm: switching protocols while one is open ----
+  {
+    const page = providersFixture();
+    core.showEditor(page);
+    const before = rowsOf(page);
+    core.showSamlEditor(page);
+    const after = rowsOf(page);
+    if (after.some((row) => row.includes("Redirect URI"))) {
+      refuse(
+        "switch",
+        "switching to the SAML editor left the OpenID redirect row standing in the rail: " +
+          JSON.stringify(after),
+      );
+    }
+    if (before.join("|") === after.join("|")) {
+      refuse(
+        "switch",
+        "the rail did not change when the open protocol did, so this arm cannot tell a rebuild from a stale list",
+      );
+    }
+    inspectRail(page, blankSaml(page)).forEach((detail) =>
+      refuse("switch", detail),
+    );
+  }
+
+  // ---- Arm: a reply that lost the race may not paint the other protocol ----
+  //
+  // This is the #1664 race, driven rather than reasoned: three callers reach
+  // refreshReadiness asynchronously with a protocol decided when their request went
+  // out. While each editor held its own list a late write was harmless. One shared
+  // list removed that isolation.
+  {
+    const page = providersFixture();
+    core.showSamlEditor(page);
+    const before = rowsOf(page);
+    core.refreshReadiness(page, "oid");
+    const after = rowsOf(page);
+    if (before.join("|") !== after.join("|")) {
+      refuse(
+        "late-write",
+        "an OpenID reply arriving after the SAML editor opened repainted the rail: " +
+          JSON.stringify(after),
+      );
+    }
+  }
+
+  // ---- Arm: closing the last open editor ----
+  {
+    const page = providersFixture();
+    core.showEditor(page);
+    if (rowsOf(page).length === 0) {
+      refuse(
+        "close",
+        "the fixture for this arm never filled the rail, so it proves nothing",
+      );
+    }
+    core.hideEditor(page);
+    inspectRail(page, { open: null, rows: [] }).forEach((detail) =>
+      refuse("close", detail),
+    );
+  }
+
+  // ---- Arm: a required field filled rebuilds the rows, and asks nobody ----
+  {
+    const page = providersFixture();
+    core.showEditor(page);
+    const callsBefore = counter.calls.length;
+    REQUIRED.forEach((id) => {
+      page.querySelector("#" + id).value = "filled";
+    });
+    core.refreshReadiness(page, "oid");
+    const rows = rowsOf(page);
+    if (!rows[0].startsWith("Ready - Required fields - ")) {
+      refuse(
+        "field-rebuild",
+        "every required field is filled and the rail still says they are not: " +
+          JSON.stringify(rows[0]),
+      );
+    }
+    // And back: the row has to move in BOTH directions, or an arm that only ever
+    // fills fields would pass a panel that hard-coded the ready sentence.
+    page.querySelector("#" + REQUIRED[0]).value = "";
+    core.refreshReadiness(page, "oid");
+    const emptied = rowsOf(page)[0];
+    if (!emptied.includes(nameOf(core, page, REQUIRED[0]))) {
+      refuse(
+        "field-rebuild",
+        "a required field emptied again is not named by the rail: " +
+          JSON.stringify(emptied),
+      );
+    }
+    if (counter.calls.length !== callsBefore) {
+      refuse(
+        "field-rebuild",
+        "rebuilding the rail issued " +
+          (counter.calls.length - callsBefore) +
+          " request(s): " +
+          counter.calls.slice(callsBefore).join(", "),
+      );
+    }
+    // Twice in a row is one list, not two. The openers call railReadiness and the
+    // field handler calls refreshReadiness, so a doubled call is an ordinary
+    // arrival rather than an edge case.
+    const once = rowsOf(page).length;
+    core.refreshReadiness(page, "oid");
+    if (rowsOf(page).length !== once) {
+      refuse(
+        "field-rebuild",
+        "a second rebuild left " +
+          rowsOf(page).length +
+          " rows where the first left " +
+          once,
+      );
+    }
+  }
+
+  // ---- Arm: each remaining row moves for its OWN reason ----
+  //
+  // One row per reason, because four rows built from one condition would pass with
+  // three of them wired to the wrong input.
+  {
+    const page = providersFixture();
+    core.showEditor(page);
+
+    // A validator's own output box, which is where the warnings row reads from.
+    const errored = core.readinessSpecs.oid.errorIds[1];
+    const box = page.querySelector("#" + errored + "-error");
+    if (!box) {
+      refuse(
+        "rows",
+        "providersPage.html declares no #" +
+          errored +
+          "-error, so the warnings row reads from nothing",
+      );
+    } else {
+      box.hidden = false;
+      box.textContent = "This must be an absolute https URL.";
+      core.refreshReadiness(page, "oid");
+      if (!rowsOf(page)[1].includes(nameOf(core, page, errored))) {
+        refuse(
+          "rows",
+          "a field reporting a problem is not named by the warnings row: " +
+            JSON.stringify(rowsOf(page)[1]),
+        );
+      }
+    }
+
+    // The last Test Connection outcome, through the shipped recorder in both
+    // directions - the pass is the arm that matters, because a row that said
+    // "Needs attention" whatever happened would satisfy the failure arm alone.
+    core.recordTestOutcome(page, "oid", false);
+    if (!rowsOf(page)[2].includes("did not reach")) {
+      refuse(
+        "rows",
+        "a failed Test Connection is not reported: " +
+          JSON.stringify(rowsOf(page)[2]),
+      );
+    }
+    core.recordTestOutcome(page, "oid", true);
+    if (!rowsOf(page)[2].startsWith("Ready - Endpoint test - ")) {
+      refuse(
+        "rows",
+        "a passing Test Connection is not reported: " +
+          JSON.stringify(rowsOf(page)[2]),
+      );
+    }
+
+    // The computed URL, which for OpenID is the server's answer and is blank until
+    // the provider is saved.
+    page.querySelector("#" + core.readinessSpecs.oid.urlId).value =
+      "https://jellyfin.example/sso/OID/redirect/one";
+    core.refreshReadiness(page, "oid");
+    if (!rowsOf(page)[3].startsWith("Ready - Redirect URI - ")) {
+      refuse(
+        "rows",
+        "a redirect URI on the form is not reported: " +
+          JSON.stringify(rowsOf(page)[3]),
+      );
+    }
+
+    // And a flagged toggle, named by its own label. This row is the one that is a
+    // security statement rather than a convenience, so it is asked in both
+    // directions too.
+    const toggle = core.insecureFieldIds[0];
+    page.querySelector("#" + toggle).checked = true;
+    core.refreshReadiness(page, "oid");
+    if (!rowsOf(page)[4].includes(nameOf(core, page, toggle))) {
+      refuse(
+        "rows",
+        "an active insecure toggle is not named by the rail: " +
+          JSON.stringify(rowsOf(page)[4]),
+      );
+    }
+    page.querySelector("#" + toggle).checked = false;
+    core.refreshReadiness(page, "oid");
+    if (
+      !rowsOf(page)[4].startsWith("Ready - Insecure or sensitive options - ")
+    ) {
+      refuse(
+        "rows",
+        "a toggle turned back off is still reported as active: " +
+          JSON.stringify(rowsOf(page)[4]),
+      );
+    }
+  }
+
+  // ---- Arm: a field name is the page's own label, not an id ----
+  //
+  // The rail's detail sentences are the only place these names appear, so a
+  // readinessFieldName that fell through to the id would leave an administrator
+  // reading "Still empty: OidClientId" - which is not the text beside the field
+  // they are looking at.
+  {
+    const page = providersFixture();
+    REQUIRED.concat(core.insecureFieldIds).forEach((id) => {
+      const name = nameOf(core, page, id);
+      if (name === id) {
+        refuse(
+          "labels",
+          "the rail would name " +
+            id +
+            " by its id, so the sentence does not match the form",
+        );
+      }
+      if (/[:*]$/.test(name) || name !== name.trim()) {
+        refuse(
+          "labels",
+          "the rail would name " +
+            id +
+            " as " +
+            JSON.stringify(name) +
+            ", with the label's punctuation still on it",
+        );
+      }
+    });
+  }
+
+  if (faults.length) {
+    faults.forEach((fault) => console.error(fault));
+    console.error(faults.length + " refusal(s) in the readiness rail (#1678)");
+    return 1;
+  }
+
+  console.log(
+    "calibration:       " +
+      arms.length +
+      " arms, " +
+      mustPass +
+      " that must pass and " +
+      (arms.length - mustPass) +
+      " that must be refused, all as expected",
+  );
+  console.log(
+    "readiness rail:    every arm below run against the shipped sso-core.js and the shipped providersPage.html",
+  );
+  console.log(
+    "  none-open        neither editor open: the invitation, an empty list, and no rows behind it",
+  );
+  console.log(
+    "  oid-open / saml-open  an opener fills the rail for its own protocol and closes the other editor",
+  );
+  console.log(
+    "  switch           switching protocol replaces the rows rather than leaving the last one's standing",
+  );
+  console.log(
+    "  late-write       a reply for the protocol that is no longer open repaints nothing",
+  );
+  console.log(
+    "  close            closing the last editor returns the invitation and empties the list",
+  );
+  console.log(
+    "  field-rebuild    a required field filled and emptied moves the row, twice, and asks the server nothing",
+  );
+  console.log(
+    "  rows             each of the other four rows moves for its own reason, in both directions",
+  );
+  console.log(
+    "  labels           every field the rail names is named by the page's label and not by its id",
+  );
+  console.log(
+    "  NOT driven:      the input/change listeners initProvidersPage binds on the two editors, and the",
+  );
+  console.log(
+    "                   bubbling they rely on - this stub has no event tree (#1687)",
+  );
+  return 0;
+}
+
+run()
+  .then((code) => process.exit(code))
+  .catch((error) => {
+    console.error(String((error && error.stack) || error));
+    process.exit(1);
+  });
