@@ -97,7 +97,7 @@
             hidden
           ></div>
 
-          <div class="sso-columns">
+          <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
             The linked-accounts panel (#1121). Presentation only: it reads the elevation-gated aggregate
@@ -121,23 +121,31 @@
                   data-i18n-title="config.linked_accounts_title"
                 >
                   <div class="collapseContent">
-                    <div
-                      class="fieldDescription"
-                      data-i18n="config.linked_accounts_help"
-                    >
-                      Every Jellyfin account that holds an SSO link, with the
-                      provider and the identity-provider subject behind each
-                      link. Revoking an account removes its links from every
-                      provider, ends every session it holds on every device, and
-                      switches it back to the built-in Jellyfin password
-                      provider - so that account can sign in with a password
-                      again even while this server is otherwise SSO-only, and
-                      the server-wide setting is not changed. A revoke is not
-                      durable where a provider has Allow Existing Account Link
-                      enabled: the same-named account can be re-adopted on its
-                      next SSO login, so disable or rename the local account as
-                      well when the cut has to hold. Requires administrator
-                      privileges.
+                    <div class="fieldDescription sso-help">
+                      <span class="sso-help-lead"></span>
+                      <details class="sso-help-full">
+                        <summary data-i18n="config.help_full_text">
+                          Full text
+                        </summary>
+                        <div
+                          class="sso-help-body"
+                          data-i18n="config.linked_accounts_help"
+                        >
+                          Every Jellyfin account that holds an SSO link, with
+                          the provider and the identity-provider subject behind
+                          each link. Revoking an account removes its links from
+                          every provider, ends every session it holds on every
+                          device, and switches it back to the built-in Jellyfin
+                          password provider - so that account can sign in with a
+                          password again even while this server is otherwise
+                          SSO-only, and the server-wide setting is not changed.
+                          A revoke is not durable where a provider has Allow
+                          Existing Account Link enabled: the same-named account
+                          can be re-adopted on its next SSO login, so disable or
+                          rename the local account as well when the cut has to
+                          hold. Requires administrator privileges.
+                        </div>
+                      </details>
                     </div>
 
                     <button
@@ -173,14 +181,22 @@
                         placeholder="account, provider or subject"
                         data-i18n-placeholder="config.linked_accounts_filter_placeholder"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.linked_accounts_filter_help"
-                      >
-                        Narrows the table to the rows whose account name,
-                        provider, protocol or identity-provider subject contains
-                        what you type. It filters what is already loaded and
-                        asks the server for nothing.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.linked_accounts_filter_help"
+                          >
+                            Narrows the table to the rows whose account name,
+                            provider, protocol or identity-provider subject
+                            contains what you type. It filters what is already
+                            loaded and asks the server for nothing.
+                          </div>
+                        </details>
                       </div>
                     </div>
 
@@ -209,18 +225,27 @@
                   data-i18n-title="config.pending_approvals_title"
                 >
                   <div class="collapseContent">
-                    <div
-                      class="fieldDescription"
-                      data-i18n="config.pending_approvals_help"
-                    >
-                      Accounts this plugin created disabled because their
-                      provider provisions new users disabled, and that are still
-                      waiting. Approving enables the account and changes nothing
-                      else: its permissions are the ones the provisioning gave
-                      it. An account that an administrator disabled is not
-                      listed here, whatever its state, and is enabled in the
-                      Jellyfin dashboard. Read together with the linked accounts
-                      above; Refresh Linked Accounts re-reads both.
+                    <div class="fieldDescription sso-help">
+                      <span class="sso-help-lead"></span>
+                      <details class="sso-help-full">
+                        <summary data-i18n="config.help_full_text">
+                          Full text
+                        </summary>
+                        <div
+                          class="sso-help-body"
+                          data-i18n="config.pending_approvals_help"
+                        >
+                          Accounts this plugin created disabled because their
+                          provider provisions new users disabled, and that are
+                          still waiting. Approving enables the account and
+                          changes nothing else: its permissions are the ones the
+                          provisioning gave it. An account that an administrator
+                          disabled is not listed here, whatever its state, and
+                          is enabled in the Jellyfin dashboard. Read together
+                          with the linked accounts above; Refresh Linked
+                          Accounts re-reads both.
+                        </div>
+                      </details>
                     </div>
 
                     <div id="PendingApprovalsActionResult"></div>
@@ -256,22 +281,31 @@
                     >
                       Export / Import Account Links
                     </h3>
-                    <div
-                      class="fieldDescription"
-                      data-i18n="config.link_transfer_help"
-                    >
-                      Account links are stored against Jellyfin user ids, which
-                      a rebuilt user database does not reissue, so a migration
-                      needs this second file as well as the configuration file
-                      above. It is keyed on usernames and is NOT redacted: it
-                      contains usernames and the identity-provider subject
-                      identifiers behind each link, so treat it as identity
-                      data. Import restores every link onto the account this
-                      server holds for that username today, and rejects the
-                      whole file rather than restoring part of it if it names a
-                      user or a provider this instance does not have, or a link
-                      this instance already holds for a different account.
-                      Requires administrator privileges.
+                    <div class="fieldDescription sso-help">
+                      <span class="sso-help-lead"></span>
+                      <details class="sso-help-full">
+                        <summary data-i18n="config.help_full_text">
+                          Full text
+                        </summary>
+                        <div
+                          class="sso-help-body"
+                          data-i18n="config.link_transfer_help"
+                        >
+                          Account links are stored against Jellyfin user ids,
+                          which a rebuilt user database does not reissue, so a
+                          migration needs this second file as well as the
+                          configuration file above. It is keyed on usernames and
+                          is NOT redacted: it contains usernames and the
+                          identity-provider subject identifiers behind each
+                          link, so treat it as identity data. Import restores
+                          every link onto the account this server holds for that
+                          username today, and rejects the whole file rather than
+                          restoring part of it if it names a user or a provider
+                          this instance does not have, or a link this instance
+                          already holds for a different account. Requires
+                          administrator privileges.
+                        </div>
+                      </details>
                     </div>
 
                     <button
@@ -307,7 +341,21 @@
                 </div>
               </form>
             </div>
-            <aside class="sso-column-rail"></aside>
+            <aside class="sso-column-rail">
+              <!--
+                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
+                the rest behind a fold; this is the second way to read the rest, without losing the field while
+                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
+                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
+                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+              -->
+              <div class="verticalSection sso-help-card" hidden>
+                <h2 class="sectionTitle" data-i18n="config.help_full_text">
+                  Full text
+                </h2>
+                <div class="fieldDescription sso-help-card-text"></div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>

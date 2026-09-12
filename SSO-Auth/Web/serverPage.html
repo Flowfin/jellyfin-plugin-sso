@@ -112,7 +112,7 @@
             hidden
           ></div>
 
-          <div class="sso-columns">
+          <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
             Config export / import (#161). Export downloads a REDACTED, importable document: the provider
@@ -132,20 +132,29 @@
                   data-i18n-title="config.server_transfer_section"
                 >
                   <div class="collapseContent">
-                    <div
-                      class="fieldDescription"
-                      data-i18n="config.server_transfer_help"
-                    >
-                      Export downloads a redacted copy of this plugin's
-                      configuration (provider secrets and account links are
-                      never included). Import merges an exported file into this
-                      instance, keeping the stored secret and account links of
-                      each unchanged provider. If the import gives an OpenID
-                      provider a different discovery endpoint or client id, that
-                      provider's links and secret are cleared (a repoint safety
-                      measure), so review a file before importing it over a live
-                      provider. Re-enter each provider's secret here after
-                      importing. Requires administrator privileges.
+                    <div class="fieldDescription sso-help">
+                      <span class="sso-help-lead"></span>
+                      <details class="sso-help-full">
+                        <summary data-i18n="config.help_full_text">
+                          Full text
+                        </summary>
+                        <div
+                          class="sso-help-body"
+                          data-i18n="config.server_transfer_help"
+                        >
+                          Export downloads a redacted copy of this plugin's
+                          configuration (provider secrets and account links are
+                          never included). Import merges an exported file into
+                          this instance, keeping the stored secret and account
+                          links of each unchanged provider. If the import gives
+                          an OpenID provider a different discovery endpoint or
+                          client id, that provider's links and secret are
+                          cleared (a repoint safety measure), so review a file
+                          before importing it over a live provider. Re-enter
+                          each provider's secret here after importing. Requires
+                          administrator privileges.
+                        </div>
+                      </details>
                     </div>
 
                     <button
@@ -212,19 +221,29 @@
                         >
                       </label>
                       <div
-                        class="fieldDescription checkboxFieldDescription"
-                        data-i18n="config.server_login_buttons_help"
+                        class="fieldDescription checkboxFieldDescription sso-help"
                       >
-                        Off by default: the plugin never touches the server's
-                        login branding unless you opt in here. When on, a
-                        managed "Sign in with …" block, one button per enabled
-                        provider, is spliced into the login page's branding
-                        disclaimer and refreshed whenever this plugin's
-                        configuration is saved (and at server start). When off,
-                        only that managed block is removed; any disclaimer
-                        content you wrote yourself is preserved either way. Each
-                        provider's editor below can hide its button or give it a
-                        custom label.
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.server_login_buttons_help"
+                          >
+                            Off by default: the plugin never touches the
+                            server's login branding unless you opt in here. When
+                            on, a managed "Sign in with …" block, one button per
+                            enabled provider, is spliced into the login page's
+                            branding disclaimer and refreshed whenever this
+                            plugin's configuration is saved (and at server
+                            start). When off, only that managed block is
+                            removed; any disclaimer content you wrote yourself
+                            is preserved either way. Each provider's editor
+                            below can hide its button or give it a custom label.
+                          </div>
+                        </details>
                       </div>
                     </div>
                   </div>
@@ -261,20 +280,31 @@
                         >
                       </label>
                       <div
-                        class="fieldDescription checkboxFieldDescription"
-                        data-i18n="config.server_slo_help"
+                        class="fieldDescription checkboxFieldDescription sso-help"
                       >
-                        Off by default. When on, each successful login stores
-                        the per-session state a logout needs, and two logout
-                        surfaces become active: the RP-initiated OpenID logout
-                        route (which ends the linked Jellyfin session and can
-                        redirect the browser on to the identity provider's
-                        end-session endpoint) and the inbound SAML LogoutRequest
-                        endpoint (which ends the Jellyfin session matched by the
-                        request). While off, no per-session logout state is
-                        captured and both surfaces reject; local Jellyfin logout
-                        is unaffected either way. Set each OpenID provider's
-                        optional post-logout redirect URL in its editor below.
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.server_slo_help"
+                          >
+                            Off by default. When on, each successful login
+                            stores the per-session state a logout needs, and two
+                            logout surfaces become active: the RP-initiated
+                            OpenID logout route (which ends the linked Jellyfin
+                            session and can redirect the browser on to the
+                            identity provider's end-session endpoint) and the
+                            inbound SAML LogoutRequest endpoint (which ends the
+                            Jellyfin session matched by the request). While off,
+                            no per-session logout state is captured and both
+                            surfaces reject; local Jellyfin logout is unaffected
+                            either way. Set each OpenID provider's optional
+                            post-logout redirect URL in its editor below.
+                          </div>
+                        </details>
                       </div>
                     </div>
                   </div>
@@ -312,7 +342,21 @@
                 ></div>
               </div>
             </div>
-            <aside class="sso-column-rail"></aside>
+            <aside class="sso-column-rail">
+              <!--
+                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
+                the rest behind a fold; this is the second way to read the rest, without losing the field while
+                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
+                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
+                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+              -->
+              <div class="verticalSection sso-help-card" hidden>
+                <h2 class="sectionTitle" data-i18n="config.help_full_text">
+                  Full text
+                </h2>
+                <div class="fieldDescription sso-help-card-text"></div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>
