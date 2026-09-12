@@ -19,7 +19,10 @@
  * TWO READERS, BECAUSE THE SLICE HAS TWO HALVES AND THEY FAIL DIFFERENTLY. The
  * first reads the shipped markup and refuses a help text that is not authored as
  * a fold, a fold with no lead line to fill, a summary naming something other than
- * the catalogue row the folds share, and a marked page with no rail card. The
+ * the catalogue row the folds share, a marked page with no rail card, a fold authored
+ * inside a `<p>` - which `<details>` closes, so a browser takes the fold out of the
+ * block - and two help blocks resolving to one field, by either branch of the walk the
+ * applier makes (#1663). The
  * second LOADS the shipped applier and drives it over the shipped catalogues,
  * refusing a lead that is not the first sentence of the text behind it, a fold
  * hiding nothing, a fold hidden while it holds more, and a rail card answering a
@@ -67,6 +70,23 @@
  * pass. The markup reader now refuses that placement by name, which closes the one
  * instance and not the class. A real-page shape the string reader cannot see is
  * still a shape nothing here judges.
+ *
+ * IT IS A STRING READER AND NOT A PARSER, WHICH IS A SEPARATE BOUND FROM THAT ONE AND
+ * COST TWO LIVE BLOCKS (#1663). Both readers here walk the tags as AUTHORED; a browser
+ * walks them as PARSED, and the two differ wherever HTML implies an end tag. Two folds
+ * authored inside a `<p>` therefore read as whole to every line of this file while a
+ * browser lifted them out of their blocks and left the lead line unfillable for good.
+ * The `<p>` case is refused by name now, and the class is not closed: any other implied
+ * end tag would pass exactly the same way.
+ *
+ * AND ONE HALF OF THE PAGE IS JUDGED BY THE MARKUP READER ALONE (#1663). A help text
+ * whose body is marked `data-i18n-parts` holds a catalogue value with `{n}` slots the
+ * pass fills from the body's own children, so the sentence a reader sees is assembled
+ * on the page and the raw value is not it. The built page has no such children, so
+ * those keys are kept out of the runtime half rather than judged against a lead
+ * holding `{0}`, and the run PRINTS how many of a page's blocks that was. What covers
+ * them is the markup reader, which judges both spellings, and the applier rule they
+ * share with every other block - not an arm of their own.
  *
  * THE CALIBRATION RUNS FIRST AND THE REAL PAGES SECOND. A reader that accepts
  * everything passes its own arithmetic, so the arms below drive both readers over
@@ -349,10 +369,10 @@ function inspectMarkup(page, source) {
       continue;
     }
 
-    const keys = [...body.matchAll(/data-i18n="([a-z0-9_.]+_help)"/g)].map(
-      (m) => m[1],
-    );
-    const own = /data-i18n="([a-z0-9_.]+_help)"/.exec(opening);
+    const keys = [
+      ...body.matchAll(/data-i18n(?:-parts)?="([a-z0-9_.]+_help)"/g),
+    ].map((m) => m[1]);
+    const own = /data-i18n(?:-parts)?="([a-z0-9_.]+_help)"/.exec(opening);
     if (own) {
       refusals.push(
         `${page} still writes ${own[1]} flat: the field shows the whole text under it rather than a sentence and a fold`,
@@ -374,9 +394,35 @@ function inspectMarkup(page, source) {
       continue;
     }
     blocks += 1;
-    at.push(match.index);
+    at.push({ index: match.index, key: keys[0] });
 
     const key = keys[0];
+
+    // A BLOCK AUTHORED IN A `<p>` IS REFUSED, AND THIS READER FOUND IT ONLY AFTER A
+    // PARSER DID (#1663). `<details>` is on the HTML spec's list of elements whose
+    // start tag closes an open `<p>`, so a browser RE-PARENTS the fold out of the
+    // block and leaves the lead span alone inside a `<p>` that ends before it. The
+    // applier then finds a `.sso-help` with no `.sso-help-body`, returns at its own
+    // guard, and the lead stays empty for good - which the stylesheet hides, so the
+    // field shows a bare "Full text" triangle and nothing else. The rail handler is
+    // worse: it reads `.sso-help-body` off that block without a guard and throws.
+    //
+    // NEITHER READER HERE COULD SEE IT AND THAT IS THE POINT. This one walks the
+    // SOURCE nesting with a depth counter over the authored tags, so the block reads
+    // as whole; the runtime one drives a tree this file BUILDS, where the element is
+    // whatever `buildPage` chose. Two green readers over two structurally dead blocks
+    // is exactly the "green for the wrong reason" the header says this file exists to
+    // refuse, and the repair is a property rather than a fixed page.
+    //
+    // ONLY `p`, because that is the rule HTML actually has: an implied end tag before
+    // `<details>`. A longer list of tags would be a guess, and a guess that refuses
+    // honest markup is worse here than one that misses.
+    if (match.groups.tag === "p") {
+      refusals.push(
+        `${key} on ${page} is authored in a <p>, which <details> closes: the browser lifts the fold out of the block, the lead line can never be filled, and the rail card throws on a focus inside that field`,
+      );
+    }
+
     if (!hasClassToken(opening, "sso-help")) {
       refusals.push(
         `${key} on ${page} is a fold the applier will never find: its block is not marked sso-help, so its lead line stays empty`,
@@ -397,7 +443,11 @@ function inspectMarkup(page, source) {
         `the fold of ${key} on ${page} is named by something other than ${SUMMARY_KEY}, so one page's folds can be renamed without the others`,
       );
     }
-    if (!new RegExp(`class="sso-help-body" data-i18n="${key}"`).test(body)) {
+    if (
+      !new RegExp(`class="sso-help-body" data-i18n(?:-parts)?="${key}"`).test(
+        body,
+      )
+    ) {
       refusals.push(
         `${key} on ${page} does not sit on the body of its own fold, so the catalogue writes it somewhere the applier does not read it from`,
       );
@@ -438,22 +488,166 @@ function inspectMarkup(page, source) {
       card < 0
         ? ""
         : elementBody(markup, markup.indexOf(">", card) + 1, "div") || "";
+    // ANY HEADING LEVEL, AND THE LEVEL IS THE PAGE'S QUESTION RATHER THAN THIS ONE'S.
+    // `<h2` was the only spelling until the review of 2026-09-12, which is a constraint
+    // nobody argued for: what this refusal is about is that the card is HEADED by the
+    // row the folds share, so one page's card cannot be renamed without the others.
+    // The level belongs beside the headings the page already has - the Providers rail
+    // carries an h3 readiness card, so an h2 help card beside it is a heading-order
+    // defect a screen reader meets and the refusal was creating.
     if (
       card >= 0 &&
-      !new RegExp(`<h2[^>]*data-i18n="${SUMMARY_KEY}"`).test(inCard)
+      !new RegExp(`<h[1-6][^>]*data-i18n="${SUMMARY_KEY}"`).test(inCard)
     ) {
       refusals.push(`the rail card on ${page} is not headed by ${SUMMARY_KEY}`);
     }
 
-    const outside = at.filter((i) => i < scope.from || i > scope.to).length;
+    const outside = at.filter(
+      (block) => block.index < scope.from || block.index > scope.to,
+    ).length;
     if (outside > 0) {
       refusals.push(
         `${outside} condensed help text(s) on ${page} sit outside the ${CONDENSE_ROOT} container, so no sentence is ever written under those fields`,
       );
     }
+
+    // TWO HELP BLOCKS IN ONE FIELD (#1663). The applier keeps the FIRST in document
+    // order and the second is then unreachable from the rail card - focus anywhere in
+    // that field shows the first block's text, whichever control the reader is in. The
+    // fold and the sentence under the field are unaffected, so nothing on the page
+    // looks wrong; the card just answers with the wrong text, which is the failure a
+    // reader is least able to name.
+    //
+    // WHY IT IS REFUSED ON THIS PAGE AND NOT ON THE THREE BEFORE IT. No page carried
+    // the shape when slice 1 landed, counted over its twenty blocks, and the applier
+    // says so at the choice it makes rather than leaving it to be discovered. The
+    // Providers page is where it can first arise: 112 sites in 98 keys over two
+    // protocol forms, fourteen keys standing twice. It does not carry the shape today
+    // either - this refusal is green on the tree it lands with, and its bite is the
+    // negative arm below rather than a page it currently catches.
+    forEachSharedField(markup, at, (first, second) =>
+      refusals.push(
+        `${first} and ${second} on ${page} are two help blocks in one field: the rail card answers for ${first} wherever the focus lands in it, and ${second} is unreachable from it`,
+      ),
+    );
   }
 
   return { refusals, blocks };
+}
+
+// Elements a browser closes without a closing tag; they never contain a help block
+// and would otherwise be pushed onto the stack below and swallow the rest of a page.
+const VOID_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+/*
+ * Every element on the page as a span, innermost last for any given point.
+ *
+ * ONE STACK PASS rather than a walk per candidate: the reader below needs the field
+ * of every block and the fallback field is the block's PARENT, which is a question
+ * about every element rather than about a named few.
+ */
+function elementSpans(markup) {
+  const spans = [];
+  const stack = [];
+  const tags = /<(\/?)([a-z][a-z0-9]*)([^>]*)>/g;
+  let match;
+  while ((match = tags.exec(markup)) !== null) {
+    const [whole, slash, tag, attrs] = match;
+    if (VOID_TAGS.has(tag) || /\/\s*$/.test(attrs)) {
+      continue;
+    }
+    if (slash === "/") {
+      // An unbalanced close is dropped rather than allowed to unwind the stack past
+      // the element it does not belong to: this reader is not a parser, and guessing
+      // at broken markup is how it would start refusing pages for the wrong reason.
+      const open = stack.pop();
+      if (open === undefined) {
+        continue;
+      }
+      spans.push({ from: open.from, to: match.index, tag: open.tag });
+      continue;
+    }
+    stack.push({ from: match.index + whole.length, tag });
+  }
+  return spans;
+}
+
+/*
+ * Calls back once per pair of condensed blocks that the applier would resolve to ONE
+ * field, naming the key it keeps and the key it drops.
+ *
+ * THE FIELD IS DECIDED THE WAY THE APPLIER DECIDES IT, BOTH HALVES OF IT. `fieldOf`
+ * in SSO-Auth/Web/i18n.js walks up from the block to the nearest `inputContainer` or
+ * `checkboxContainer`, and where there is none it takes the block's own PARENT. This
+ * read only the first half until the review of 2026-09-12, which is worse than a gap
+ * because the note in i18n.js claimed the whole of it: ten of the Providers page's
+ * blocks sit in neither container - the empty states, the collapse contents, the
+ * subgroups, the danger zone, the test block - and two help texts added to any of
+ * them would share a field, lose one of the two to the rail, and be refused by
+ * nothing while a comment said otherwise. The refuted claim and the missing half are
+ * repaired in the same change.
+ *
+ * A PARENT IS THE INNERMOST SPAN THAT IS NOT THE BLOCK ITSELF, which is why the
+ * spans are taken over every element rather than over the two class names.
+ */
+function forEachSharedField(markup, blocks, say) {
+  const spans = elementSpans(markup);
+  const isField = (span) => {
+    const opening = markup.slice(
+      markup.lastIndexOf("<", span.from - 1),
+      span.from,
+    );
+    return (
+      hasClassToken(opening, "inputContainer") ||
+      hasClassToken(opening, "checkboxContainer")
+    );
+  };
+
+  const held = new Map();
+  blocks.forEach((block) => {
+    // INNERMOST WINS in both halves: a container nested in another is the one the
+    // applier stops at first on its way up, and the parent is the innermost element
+    // of any kind. Picking an outer one would collapse a whole section into one field
+    // and refuse a page nothing is wrong with.
+    let field = null;
+    let parent = null;
+    spans.forEach((span) => {
+      if (block.index < span.from || block.index >= span.to) {
+        return;
+      }
+      if (parent === null || span.from > parent.from) {
+        parent = span;
+      }
+      if (isField(span) && (field === null || span.from > field.from)) {
+        field = span;
+      }
+    });
+
+    const at = field || parent;
+    if (at === null) {
+      return;
+    }
+    if (held.has(at.from)) {
+      say(held.get(at.from), block.key);
+      return;
+    }
+    held.set(at.from, block.key);
+  });
 }
 
 // The span of the container a page marks for condensing, or null when it marks
@@ -882,14 +1076,25 @@ function fixtureMarkup(key, parts) {
   if (p.flat) {
     return [
       `<div ${CONDENSE_ROOT}>`,
-      `<div class="fieldDescription" data-i18n="${key}">whatever</div>`,
+      `<div class="fieldDescription" data-i18n${p.assembled ? "-parts" : ""}="${key}">whatever</div>`,
       `</div>`,
     ].join("\n");
   }
 
-  const card = `<div class="verticalSection sso-help-card" hidden><h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2><div class="sso-help-card-text"></div></div>`;
+  // `heading: false` leaves the card headless. It is a negative of its own because the
+  // heading refusal had none until the review of 2026-09-12 - it was written, never
+  // driven, and then widened from `<h2` to any level by that review, which is exactly
+  // when an undriven refusal stops being trustworthy.
+  const heading =
+    p.heading === false
+      ? ""
+      : `<h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2>`;
+  const card = `<div class="verticalSection sso-help-card" hidden>${heading}<div class="sso-help-card-text"></div></div>`;
+  // The element the block is authored in. `div` everywhere but the one negative that
+  // asks for `p`, which is the tag a browser will not keep a `<details>` inside.
+  const tag = p.tag || "div";
   const block = [
-    `<div class="fieldDescription${p.marked ? " sso-help" : ""}">`,
+    `<${tag} class="fieldDescription${p.marked ? " sso-help" : ""}">`,
     p.comment ? `<!-- a note that mentions a closing </div> tag -->` : "",
     p.lead ? `<span class="sso-help-lead"></span>` : "",
     p.details ? `<details class="sso-help-full">` : "<div>",
@@ -897,10 +1102,12 @@ function fixtureMarkup(key, parts) {
       ? `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`
       : `<summary data-i18n="config.something_else">More</summary>`,
     p.body
-      ? `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
+      ? p.assembled
+        ? `<div class="sso-help-body" data-i18n-parts="${key}">whatever <strong data-i18n="config.fixture_emphasis">this</strong></div>`
+        : `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
       : `<div class="sso-help-body"><span data-i18n="${key}">whatever</span></div>`,
     p.details ? `</details>` : "</div>",
-    `</div>`,
+    `</${tag}>`,
   ].join("\n");
 
   // `scoped: false` is the shape the review of 2026-09-12 killed a whole page's
@@ -912,6 +1119,38 @@ function fixtureMarkup(key, parts) {
   return [`<div ${CONDENSE_ROOT}>`, block, p.card ? card : "", `</div>`].join(
     "\n",
   );
+}
+
+/*
+ * Two condensed blocks, in two field containers or in one (#1663).
+ *
+ * THE NEAR-MISS IS THE POINT AND IT IS ONE CLOSING TAG. `shared: false` is the shape
+ * every page already has - a block per field - and `shared: true` is that page with
+ * one `</div>` moved, which is exactly the edit somebody makes while rearranging a
+ * form. The refusal has to separate those two and nothing else.
+ */
+function fixturePair(key, other, shared) {
+  const block = (name) =>
+    [
+      `<div class="fieldDescription sso-help">`,
+      `<span class="sso-help-lead"></span>`,
+      `<details class="sso-help-full">`,
+      `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`,
+      `<div class="sso-help-body" data-i18n="${name}">whatever</div>`,
+      `</details>`,
+      `</div>`,
+    ].join("\n");
+  const card = `<div class="verticalSection sso-help-card" hidden><h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2><div class="sso-help-card-text"></div></div>`;
+  // `wrapper` is the class the two blocks share. `inputContainer` is the branch
+  // `fieldOf` walks up to; anything else is the PARENT branch, which is the half the
+  // review of 2026-09-12 found unread and which ten of the Providers page's blocks
+  // sit in.
+  const wrapper = shared === "parent" ? "sso-test-block" : "inputContainer";
+  const fields =
+    shared === false
+      ? `<div class="inputContainer">${block(key)}</div><div class="inputContainer">${block(other)}</div>`
+      : `<div class="${wrapper}">${block(key)}${block(other)}</div>`;
+  return [`<div ${CONDENSE_ROOT}>`, fields, card, `</div>`].join("\n");
 }
 
 async function calibrate(i18n) {
@@ -939,8 +1178,30 @@ async function calibrate(i18n) {
       fixtureMarkup("config.fixture_0_help", { comment: true }),
     ).refusals,
   );
+  record(
+    "a fold whose text is assembled from parts",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { assembled: true }),
+    ).refusals,
+  );
+  record(
+    "two help blocks in two fields",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixturePair("config.fixture_0_help", "config.fixture_1_help", false),
+    ).refusals,
+  );
   const markupNegatives = [
     ["a help text still written flat", { flat: true }],
+    [
+      "a parts-marked help text still written flat",
+      { flat: true, assembled: true },
+    ],
+    ["a fold authored inside a <p>", { tag: "p" }],
+    ["a rail card with no heading", { heading: false }],
     ["a block the applier will not find", { marked: false }],
     ["a fold with no lead line to fill", { lead: false }],
     ["a whole text behind no fold", { details: false }],
@@ -956,6 +1217,22 @@ async function calibrate(i18n) {
       inspectMarkup("fixture", fixtureMarkup("config.fixture_0_help", parts))
         .refusals,
     ),
+  );
+  record(
+    "two help blocks in one field",
+    true,
+    inspectMarkup(
+      "fixture",
+      fixturePair("config.fixture_0_help", "config.fixture_1_help", true),
+    ).refusals,
+  );
+  record(
+    "two help blocks sharing a parent that is not a field container",
+    true,
+    inspectMarkup(
+      "fixture",
+      fixturePair("config.fixture_0_help", "config.fixture_1_help", "parent"),
+    ).refusals,
   );
 
   // --- the hand-written answers, which is the only arm not derived from the rule ---
@@ -1243,11 +1520,27 @@ async function run() {
     // moment Prettier wraps the body tag, and a run that counted nothing printed
     // a green line for all three pages. That is the shape this tool exists to
     // refuse, arriving in the tool itself.
-    const keys = [
+    const bodies = [
       ...markup
         .replace(/\s+/g, " ")
-        .matchAll(/class="sso-help-body" data-i18n="([a-z0-9_.]+_help)"/g),
-    ].map((m) => m[1]);
+        .matchAll(
+          /class="sso-help-body" data-i18n(?<parts>-parts)?="(?<key>[a-z0-9_.]+_help)"/g,
+        ),
+    ].map((m) => ({ key: m.groups.key, parts: m.groups.parts !== undefined }));
+    const keys = bodies.map((body) => body.key);
+
+    // WHAT THE APPLIER IS DRIVEN OVER IS THE PLAIN-BODIED HALF, AND THE OTHER HALF IS
+    // PRINTED RATHER THAN COUNTED SILENTLY (#1663). A `data-i18n-parts` body holds a
+    // catalogue value with `{n}` slots that the pass fills from the body's own child
+    // elements, so the text a reader sees is assembled on the page and the raw value
+    // is not it. The page this file BUILDS carries no such children - buildPage writes
+    // one text node per body - so feeding a parts key into it would judge the lead
+    // against a sentence holding `{0}`, which is a refusal about this fixture rather
+    // than about the page. The markup half above judges every block on both spellings;
+    // this half judges the ones whose text is the catalogue row itself.
+    const driven = bodies.filter((body) => !body.parts).map((b) => b.key);
+    const assembled = keys.length - driven.length;
+
     if (keys.length === 0) {
       console.error(
         `REFUSED  ${page} carries ${CONDENSE_ROOT} and no condensed help text, so the applier is driven over nothing on it`,
@@ -1282,12 +1575,12 @@ async function run() {
       }
 
       const texts = Object.fromEntries(
-        keys.map((key) => [
+        driven.map((key) => [
           key,
           values[key] !== undefined ? values[key] : en[key],
         ]),
       );
-      const built = buildPage(keys, texts, summary, {});
+      const built = buildPage(driven, texts, summary, {});
       await render(i18n, built, { ...texts, [SUMMARY_KEY]: summary });
       const runtime = inspect(built, texts, summary);
       [
@@ -1299,7 +1592,10 @@ async function run() {
       });
       if (name === "en") {
         console.log(
-          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence`,
+          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence` +
+            (assembled === 0
+              ? ""
+              : `, ${assembled} assembled from parts and judged by the markup reader only`),
         );
       }
     }
