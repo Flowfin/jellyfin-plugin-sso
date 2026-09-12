@@ -34,8 +34,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// </para>
 /// <para>
 /// The action is reachable without authentication today, so the 304 grants nothing a 200 would not, and
-/// the tag is the plugin's file version, which <see cref="SSOViewsController"/> has exposed the same way
-/// since #253 (T-I, decided on #1627).
+/// the tag is a digest of the build, which <see cref="SSOViewsController"/> has exposed the same way
+/// since #253 (T-I, decided on #1627), from the file version until #1705.
 /// </para>
 /// </remarks>
 internal sealed class PluginPageCacheFilter : IResultFilter
