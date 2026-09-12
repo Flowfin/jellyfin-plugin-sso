@@ -85,14 +85,21 @@ function attr(tag, name) {
   return "";
 }
 
-/** Index of the `</div>` that closes the element opening at `start`. */
-function regionEnd(html, start) {
-  const re = /<div\b[^>]*>|<\/div>/g;
+/**
+ * Index of the tag that closes the `tag` element opening at `start`.
+ *
+ * The tag is a parameter because a risk region is not always a `<div>`: #1666 made the Sensitive and
+ * Insecure regions native `<details>` folds, and a walk counting `<div>` depth inside one returns at
+ * the first inner `</div>` - which puts every control of those regions OUTSIDE the box the page draws
+ * around it, and the marking this tool compares against FIELDS.md is exactly that box.
+ */
+function regionEnd(html, start, tag) {
+  const re = new RegExp("<" + tag + "\\b[^>]*>|</" + tag + ">", "g");
   re.lastIndex = start;
   let depth = 0;
   let m;
   while ((m = re.exec(html)) !== null) {
-    if (m[0] === "</div>") {
+    if (m[0] === "</" + tag + ">") {
       depth -= 1;
       if (depth === 0) return m.index;
     } else {
@@ -104,13 +111,13 @@ function regionEnd(html, start) {
 
 function regionsOf(html, className) {
   const re = new RegExp(
-    '<div [^>]*class="[^"]*' + className + '[^"]*"[^>]*>',
+    '<(div|details)\\b[^>]*class="[^"]*' + className + '[^"]*"[^>]*>',
     "g",
   );
   const out = [];
   let m;
   while ((m = re.exec(html)) !== null)
-    out.push({ a: m.index, b: regionEnd(html, m.index) });
+    out.push({ a: m.index, b: regionEnd(html, m.index, m[1]) });
   return out;
 }
 

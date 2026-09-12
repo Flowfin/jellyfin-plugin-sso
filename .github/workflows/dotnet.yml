@@ -165,6 +165,19 @@ jobs:
       # and negative before the real page is opened. Same runtime and same absence of dependencies as the
       # steps above.
       run: node tools/ui-provider-wizard.js
+    - name: The option folds
+      # The Sensitive and Insecure regions are folds now (#1666), and a fold that names only its region is
+      # a closed box over a live downgrade: an administrator reads "Insecure options", sees it collapsed,
+      # and cannot tell from the page that one of the six inside is ticked. So the summary carries a count,
+      # and a count that is WRONG is worse than none - "0 of 6 in use" over a ticked DisableHttps tells an
+      # administrator the opposite of the truth. Nothing else here can ask it: the C# rules read the markup
+      # and the field census reads which region a control sits in, and a page whose summaries never get
+      # filled satisfies both. This reads the shipped markup for four collapsed folds with somewhere to put
+      # a count, then drives the shipped sso-core.js recount over a tree built out of that same markup, in
+      # both directions and for a ticked box as well as a filled field. Behind a calibration that runs
+      # positive and negative before the real page is opened. Same runtime and same absence of dependencies
+      # as the steps above.
+      run: node tools/ui-option-folds.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

@@ -1025,18 +1025,23 @@ const ssoConfigurationPage = {
         true,
       );
     }
+
+    // A load ticks boxes without dispatching anything, so the count is refreshed here as well as from
+    // the delegated listener. It walks every fold on the page, so either protocol's re-sync answers
+    // for both.
+    ssoConfigurationPage.refreshOptionFoldCounts(page);
   },
+  // The insecure options are a native fold now (#1666), so opening one is setting `open` and the
+  // expanded state is the element's own. What went with the button it replaced is a whole class of
+  // disagreement: an `aria-expanded` this code had to keep in step with a `hidden` it set elsewhere,
+  // and a label it swapped between two catalogue strings. The toggles are still in the DOM when the
+  // fold is closed - `<details>` keeps its content in the form - so they serialize exactly as before.
   setInsecureOptionsExpanded: (page, expanded) => {
-    const button = page.querySelector("#ShowInsecureOptions");
-    const options = page.querySelector("#sso-insecure-options");
-    if (!button || !options) {
+    const fold = page.querySelector("#sso-insecure-options");
+    if (!fold) {
       return;
     }
-    options.hidden = !expanded;
-    button.setAttribute("aria-expanded", String(expanded));
-    button.querySelector("span").textContent = expanded
-      ? tr("config.insecure_hide", "Hide insecure options")
-      : tr("config.insecure_show", "Show insecure options");
+    fold.open = expanded;
   },
   // On-blur inline validation (#365). These are pre-emptive WARNINGS that mirror the server's fail-closed
   // checks, surfaced beside the field before the round-trip; they never block the save (the server remains
@@ -1438,6 +1443,57 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.saveGateEmpties(page, gate).length > 0,
       );
     });
+  },
+  // ---- What a closed fold says about what it hides (#1666) ----
+  //
+  // The Sensitive and Insecure regions are folds, and a fold that names only its region lets an active
+  // downgrade sit behind one word. So the summary carries a count, and the count is DERIVED from the
+  // region's own boxes rather than from a list written down beside it: an option added to a region is
+  // counted the day it is added, where a list would have to be edited in a second place and the one
+  // that was forgotten would read "0 of 5" over a ticked box.
+  //
+  // An OPTION is one of the page's own field boxes - a `checkboxContainer` or an `inputContainer` - and
+  // it is IN USE when its control is ticked or carries a value. Both halves are needed because the two
+  // protocols do not hide the same shape: the OpenID regions hold toggles, and the SAML sensitive
+  // region holds the secondary signing certificate, which is a value.
+  //
+  // Presentation only. Nothing here reads or writes a control's value, so a count that is somehow wrong
+  // cannot change what a save sends.
+  optionFoldControls: (fold) =>
+    Array.from(fold.querySelectorAll(".checkboxContainer, .inputContainer"))
+      .map((box) => box.querySelector("input, select, textarea"))
+      .filter((control) => control !== null),
+  optionInUse: (control) =>
+    control.type === "checkbox" || control.type === "radio"
+      ? control.checked
+      : String(control.value || "").trim() !== "",
+  refreshOptionFoldCounts: (page) => {
+    page.querySelectorAll(".sso-option-fold").forEach((fold) => {
+      const count = fold.querySelector(".sso-fold-count");
+      if (!count) {
+        return;
+      }
+      const controls = ssoConfigurationPage.optionFoldControls(fold);
+      count.textContent = tr(
+        "config.option_fold_count",
+        "{active} of {total} in use",
+        {
+          active: String(
+            controls.filter(ssoConfigurationPage.optionInUse).length,
+          ),
+          total: String(controls.length),
+        },
+      );
+    });
+  },
+  // The count updates with no save, so it is delegated and in the capture phase for the same two reasons
+  // bindUnsavedChangeTracking states below: a non-bubbling event reaches nothing else, and a handler that
+  // stops propagation on its own control would otherwise hide the change from this. `isTrusted` is not
+  // read here either - the host's own checkbox dispatches a synthetic event on a real click.
+  bindOptionFoldCounts: (page) => {
+    const recount = () => ssoConfigurationPage.refreshOptionFoldCounts(page);
+    page.addEventListener("input", recount, true);
+    page.addEventListener("change", recount, true);
   },
   // One delegated listener per page rather than one per control, so a control the page renders later - a
   // permission row, a folder checkbox - is tracked from the moment it exists. Capture phase for the two
@@ -5580,18 +5636,16 @@ const ssoConfigurationPage = {
         true,
       );
     }
+
+    ssoConfigurationPage.refreshOptionFoldCounts(page);
   },
+  // The SAML half of the fold above, for the reason written there.
   setSamlInsecureOptionsExpanded: (page, expanded) => {
-    const button = page.querySelector("#saml-ShowInsecureOptions");
-    const options = page.querySelector("#saml-insecure-options");
-    if (!button || !options) {
+    const fold = page.querySelector("#saml-insecure-options");
+    if (!fold) {
       return;
     }
-    options.hidden = !expanded;
-    button.setAttribute("aria-expanded", String(expanded));
-    button.querySelector("span").textContent = expanded
-      ? tr("config.insecure_hide", "Hide insecure options")
-      : tr("config.insecure_show", "Show insecure options");
+    fold.open = expanded;
   },
   // The SAML save contract, made explicit (mirrors listArgumentsByType): every input in
   // #sso-new-saml-provider that persists carries an sso-* marker class AND a "saml-"+property id. The
@@ -6599,6 +6653,8 @@ function initSharedPage(view) {
   ssoConfigurationPage.loadConfiguration(view);
   ssoConfigurationPage.localize(view);
   ssoConfigurationPage.bindUnsavedChangeTracking(view);
+  ssoConfigurationPage.bindOptionFoldCounts(view);
+  ssoConfigurationPage.refreshOptionFoldCounts(view);
   ssoConfigurationPage.markPageClean(view);
   view.addEventListener("viewshow", () =>
     ssoConfigurationPage.refreshOnShow(view),
@@ -6837,15 +6893,6 @@ function initProvidersPage(view) {
     current_mappings.push({ Role: "", Folders: [] });
     ssoConfigurationPage.populateRoleMappings(current_mappings, container);
   });
-  // The insecure-options expander keeps the dangerous toggles in the DOM (hidden), never detached, so they
-  // still serialize; it only flips the `hidden` attribute and the aria-expanded state.
-  view.querySelector("#ShowInsecureOptions").addEventListener("click", (e) => {
-    const collapsed = view.querySelector("#sso-insecure-options").hidden;
-    ssoConfigurationPage.setInsecureOptionsExpanded(view, collapsed);
-    e.preventDefault();
-    return false;
-  });
-
   // Reveal-on-toggle dependent groups react to their controlling checkbox. syncDependentFields only toggles
   // visibility (hide-not-remove) and never mutates a value, so nothing can be dropped from a later save.
   ["EnableAllFolders", "EnableFolderRoles", "EnableLiveTvRoles"].forEach(
@@ -6995,15 +7042,6 @@ function initProvidersPage(view) {
     e.preventDefault();
     return false;
   });
-
-  view
-    .querySelector("#saml-ShowInsecureOptions")
-    .addEventListener("click", (e) => {
-      const collapsed = view.querySelector("#saml-insecure-options").hidden;
-      ssoConfigurationPage.setSamlInsecureOptionsExpanded(view, collapsed);
-      e.preventDefault();
-      return false;
-    });
 
   [
     "saml-EnableAllFolders",
