@@ -753,7 +753,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A browser no longer keeps the previous build's scripts after an upgrade
+  (#1705).** Every plugin asset carries a tag a browser sends back to ask
+  whether its copy is still current, and that tag was the assembly's file
+  version, which the project pins at the line's three-part number: every build
+  of one line answered the same tag, the server said 304, and the dashboard
+  ran the old build's script against the new build's pages with nothing on
+  the page saying so. The tag is now a digest of the assembly's bytes, so two
+  builds whose bytes differ cannot share one, whatever any version field says;
+  where the bytes cannot be read it falls back to the assembly version rather
+  than to no tag. The `no-cache` answer is unchanged: a browser keeps the
+  asset and asks, and after an upgrade the first ask is now answered in full.
 - **A settings tab returned to now shows what the server holds, instead of what
+
   it last loaded (#1576, #1572).** The Jellyfin dashboard keeps three views
   alive and hands a cached one back without re-running its controller, so a
   settings tab left and returned to went on showing the configuration as it was

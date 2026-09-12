@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
@@ -18,7 +19,8 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// Tests for <see cref="SSOViewsController.GetView"/> - the endpoint that serves the plugin's embedded
 /// view assets (the linking page, its stylesheet and scripts). The action itself resolves the requested
 /// name against <see cref="SSOPlugin.GetViews"/>, streams the matching embedded resource, and tags the
-/// response with the version-derived tag of <c>PluginAssetVersion</c> so clients can 304-revalidate (#253)
+/// response with the build-derived tag of <c>PluginAssetVersion</c> so clients can 304-revalidate (#253)
+
 /// and, since #1627, with no-cache so that they ask. These tests
 /// pin exactly that action-level behavior: an unknown name 404s, a known name streams the resource with
 /// the content type derived from the embedded resource path and the version ETag. The conditional
@@ -45,15 +47,15 @@ public class SSOViewsControllerTests
         };
     }
 
-    // The version-derived ETag the action stamps on every asset, recomputed here from the same source the
-    // controller uses (the SSO-Auth assembly's FILE version) so the assertions catch a regression to a
-    // null, weak, or lastModified-only tag.
+    // The build-derived ETag the action stamps on every asset, recomputed here from the same source the
+    // tag is derived from (the bytes of the SSO-Auth assembly on disk, #1705) so the assertions catch a
+    // regression to a null, weak, lastModified-only or version-derived tag.
     private static string ExpectedAssetETag()
     {
-        var fileVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(
-            typeof(SSOPlugin).Assembly.Location).FileVersion;
-        return "\"" + fileVersion + "\"";
+        var bytes = File.ReadAllBytes(typeof(SSOPlugin).Assembly.Location);
+        return "\"" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))[..16] + "\"";
     }
+
 
     [Fact]
     public void GetView_KnownView_SaysABrowserMustAskBeforeReusingIt()

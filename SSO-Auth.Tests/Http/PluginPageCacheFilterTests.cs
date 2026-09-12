@@ -90,6 +90,26 @@ public class PluginPageCacheFilterTests
     }
 
     [Fact]
+    public void OurPage_HeldAtThePreviousBuildsTag_IsServedInFull()
+    {
+        // The defect of #1705: two builds of one line whose bytes differ shared a tag, so a browser holding
+        // the previous build's script was told 304 against the new build's markup. The previous build is
+        // stood in for by other bytes run through the same derivation as the current tag.
+        var previous = PluginAssetVersion.TagOf(new byte[] { 9, 9, 9 }).ToString();
+        Assert.NotEqual(CurrentTag, previous);
+
+        var (filter, _) = Build();
+        var context = Context("Dashboard", "GetDashboardConfigurationPage", OurPage, File(out var stream), ifNoneMatch: previous);
+        var served = context.Result;
+
+        filter.OnResultExecuting(context);
+
+        Assert.Same(served, context.Result);
+        Assert.True(stream.CanRead);
+        Assert.Equal(CurrentTag, context.HttpContext.Response.Headers.ETag.ToString());
+    }
+
+    [Fact]
     public void AWeakTag_Validates_AsTheStandardRequiresForIfNoneMatch()
     {
         // RFC 9110 requires the weak comparison for If-None-Match, and the plugin's own route answers that
