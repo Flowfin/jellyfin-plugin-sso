@@ -246,6 +246,11 @@ const OIDC_PRESET_MANAGED_TOGGLES = [
 ];
 const SAML_PRESET_MANAGED_TOGGLES = ["DoNotValidateAudience"];
 
+// The one list the readiness panel writes into (#1664). It is named once because both protocol specs
+// point at it now: a second spelling is a second place for the two forms to disagree about where the
+// answer goes, and the whole point of the move is that there is only one.
+const RAIL_READINESS_LIST = "sso-rail-readiness-list";
+
 const ssoConfigurationPage = {
   pluginUniqueId: "505ce9d1-d916-42fa-86ca-673ef241d7df",
   // Toggles that disable an OpenID Connect security defense. An active one is a downgrade the admin must
@@ -806,9 +811,11 @@ const ssoConfigurationPage = {
   showEditor: (page) => {
     ssoConfigurationPage.hideSamlEditor(page);
     page.querySelector("#sso-editor").hidden = false;
+    ssoConfigurationPage.railReadiness(page);
   },
   hideEditor: (page) => {
     page.querySelector("#sso-editor").hidden = true;
+    ssoConfigurationPage.railReadiness(page);
   },
   setEditorTitle: (page, title) => {
     page.querySelector("#sso-editor-title").textContent = title;
@@ -3249,7 +3256,46 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.readinessTestState[key] = ok;
     ssoConfigurationPage.refreshReadiness(page, key);
   },
-  // ---- Readiness panel (#1083) ----
+  // ---- Readiness panel (#1083), answered once in the rail (#1664) ----
+  // WHICH PROTOCOL THE PAGE IS CURRENTLY ABOUT, or null when it is about neither. COMPUTED RATHER THAN
+  // REMEMBERED: the two editors are mutually exclusive (#1527) and every route that opens one hides the
+  // other, so this is a function of two `hidden` attributes and never of a variable somebody has to keep
+  // in step.
+  //
+  // ONE READING, USED BY THE RAIL AND BY THE PANEL ITSELF, because two readings disagreeing is the
+  // failure this arrangement can have: one list shared by both forms shows whatever was written into it
+  // last, whichever form is on screen.
+  openEditorKey: (page) => {
+    const oid = page.querySelector("#sso-editor");
+    const saml = page.querySelector("#saml-editor");
+    if (!oid || !saml) {
+      return null;
+    }
+    return !oid.hidden ? "oid" : !saml.hidden ? "saml" : null;
+  },
+  // The rail, brought into line with whatever is on screen. Both openers and both closers call it, and a
+  // doubled call is a rebuild of the same list - which the panel was already safe for, being idempotent
+  // and request-free.
+  //
+  // BOTH HIDDEN IS THE INVITATION, not an empty panel: a headed list with no rows reads as a provider
+  // that answered nothing, which is the opposite of the truth when no provider is open.
+  railReadiness: (page) => {
+    const list = page.querySelector("#" + RAIL_READINESS_LIST);
+    const empty = page.querySelector("#sso-rail-readiness");
+    if (!list || !empty) {
+      return;
+    }
+    const open = ssoConfigurationPage.openEditorKey(page);
+    if (open === null) {
+      list.replaceChildren();
+      list.hidden = true;
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    list.hidden = false;
+    ssoConfigurationPage.refreshReadiness(page, open);
+  },
   // The last Test Connection outcome per protocol, so the reachability row can report it WITHOUT
   // re-issuing the request. null means "not yet tested in this page session", which is what a provider
   // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
@@ -3259,7 +3305,7 @@ const ssoConfigurationPage = {
   // panel adds no field, no request and no state of its own beyond the test outcome above.
   readinessSpecs: {
     oid: {
-      listId: "OidReadinessList",
+      listId: RAIL_READINESS_LIST,
       testKey: "oid",
       requiredIds: ["OidProviderName", "OidEndpoint", "OidClientId"],
       errorIds: [
@@ -3273,7 +3319,7 @@ const ssoConfigurationPage = {
       urlId: "OidRedirectUri",
     },
     saml: {
-      listId: "saml-ReadinessList",
+      listId: RAIL_READINESS_LIST,
       testKey: "saml",
       requiredIds: [
         "saml-provider-name",
@@ -3373,6 +3419,23 @@ const ssoConfigurationPage = {
   // Rebuild a panel from the form's current state. Cheap and idempotent, so it is safe to call from a
   // field event; it issues no request and reads nothing the page does not already hold.
   refreshReadiness: (page, key) => {
+    // ONLY THE OPEN EDITOR MAY WRITE, and this is not belt-and-braces on top of
+    // railReadiness - it is the half railReadiness cannot cover (#1664). Three callers
+    // reach here ASYNCHRONOUSLY with a protocol decided when the request went out: the
+    // redirect-URI debounce, the two loadProvider replies, and recordTestOutcome. While
+    // each protocol wrote into its own list inside its own editor those late writes were
+    // harmless - they landed in a hidden panel and were rebuilt on the next open. One
+    // shared list removed that isolation, so an OpenID reply arriving after the
+    // administrator clicked a SAML provider painted the OpenID answer under the SAML
+    // form, including "Ready - Endpoint test", and it stood until the next keystroke.
+    // Found by a review that drove it rather than by a reading of this file.
+    //
+    // A LATE WRITE IS DROPPED RATHER THAN QUEUED, because it is stale by then: the panel
+    // is rebuilt from the form on the next open and on every field event, so nothing is
+    // owed to the reply that lost the race.
+    if (ssoConfigurationPage.openEditorKey(page) !== key) {
+      return;
+    }
     const spec = ssoConfigurationPage.readinessSpecs[key];
     const list = page.querySelector("#" + spec.listId);
     if (!list) {
@@ -4743,9 +4806,11 @@ const ssoConfigurationPage = {
   showSamlEditor: (page) => {
     ssoConfigurationPage.hideEditor(page);
     page.querySelector("#saml-editor").hidden = false;
+    ssoConfigurationPage.railReadiness(page);
   },
   hideSamlEditor: (page) => {
     page.querySelector("#saml-editor").hidden = true;
+    ssoConfigurationPage.railReadiness(page);
   },
   setSamlEditorTitle: (page, title) => {
     page.querySelector("#saml-editor-title").textContent = title;

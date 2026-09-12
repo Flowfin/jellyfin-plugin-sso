@@ -389,30 +389,19 @@
                   </p>
 
                   <!--
-                Readiness panel (#1083). One aggregate answer to "is this provider ready for a login
-                attempt, and if not what is left?", assembled from signals the page already has: the
-                required fields on this form, the inline validation messages beside them, the last Test
-                Connection outcome, the computed redirect URI, and the flagged security toggles.
-                ADVISORY ONLY - it never blocks Save, it never writes a toggle's `.checked`, and it issues
-                no request of its own. Every row carries its state as words (#221), never as colour alone,
-                and the field names in a row are read from the form's own labels rather than restated
-                here, so a relabelled field cannot drift against this panel. Rows are built with
-                createElement/textContent, so nothing reaches the DOM as markup.
+                WHERE THE READINESS PANEL WENT (#1664). It was a section here (#1083) and it is now the
+                rail's card, answered once for whichever editor is open. This line is the pointer the
+                issue asks for: a reader of the form meets it where the panel used to be and is told
+                where the answer is, rather than finding the panel gone. It is a sentence and not a
+                second panel - nothing here restates a row, so there is nothing to drift.
               -->
-                  <section class="sso-readiness" id="OidReadiness">
-                    <h4
-                      class="checkboxListLabel"
-                      data-i18n="config.readiness_title"
-                    >
-                      Readiness
-                    </h4>
-                    <ul
-                      class="sso-readiness-list"
-                      id="OidReadinessList"
-                      role="status"
-                      aria-live="polite"
-                    ></ul>
-                  </section>
+                  <p
+                    class="fieldDescription sso-readiness-pointer"
+                    data-i18n="config.readiness_moved"
+                  >
+                    Whether this provider is ready to serve a login is answered
+                    in the Readiness panel.
+                  </p>
 
                   <!--
                 The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
@@ -3400,30 +3389,17 @@
                   </p>
 
                   <!--
-                Readiness panel (#1083). One aggregate answer to "is this provider ready for a login
-                attempt, and if not what is left?", assembled from signals the page already has: the
-                required fields on this form, the inline validation messages beside them, the last Test
-                Connection outcome, the computed reply URL (ACS), and the flagged security toggles.
-                ADVISORY ONLY - it never blocks Save, it never writes a toggle's `.checked`, and it issues
-                no request of its own. Every row carries its state as words (#221), never as colour alone,
-                and the field names in a row are read from the form's own labels rather than restated
-                here, so a relabelled field cannot drift against this panel. Rows are built with
-                createElement/textContent, so nothing reaches the DOM as markup.
+                WHERE THE READINESS PANEL WENT (#1664), the SAML half of the move the OpenID form above
+                carries the same note for. The rail answers for whichever editor is open, so one card
+                serves both forms and neither holds a panel of its own.
               -->
-                  <section class="sso-readiness" id="saml-Readiness">
-                    <h4
-                      class="checkboxListLabel"
-                      data-i18n="config.readiness_title"
-                    >
-                      Readiness
-                    </h4>
-                    <ul
-                      class="sso-readiness-list"
-                      id="saml-ReadinessList"
-                      role="status"
-                      aria-live="polite"
-                    ></ul>
-                  </section>
+                  <p
+                    class="fieldDescription sso-readiness-pointer"
+                    data-i18n="config.readiness_moved"
+                  >
+                    Whether this provider is ready to serve a login is answered
+                    in the Readiness panel.
+                  </p>
 
                   <!--
                 The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
@@ -5670,6 +5646,27 @@
                 >
                   Open a provider to see whether it is ready to serve a login.
                 </div>
+                <!--
+                  THE READINESS PANEL, ONCE, FOR WHICHEVER EDITOR IS OPEN (#1664). It was a section inside
+                  each provider form (#1083) and the two could never both be answering, because only one
+                  workspace is open at a time (#1527). One list here is the same answer with one place to
+                  read it, and each form keeps a pointer where its panel was.
+
+                  EMPTY IN THE MARKUP AND THE LINE ABOVE VISIBLE, so a page whose script never ran shows
+                  the invitation rather than a headed panel with nothing in it. sso-core.js swaps the two
+                  whenever an editor opens or closes, and it is the only thing that writes here.
+
+                  role="status" and aria-live="polite" ride along from the panel this replaces: the list
+                  is rebuilt on every field change, and a reader who has moved past the form is told what
+                  changed without being interrupted. Every row still carries its state as words (#221).
+                -->
+                <ul
+                  class="sso-readiness-list"
+                  id="sso-rail-readiness-list"
+                  role="status"
+                  aria-live="polite"
+                  hidden
+                ></ul>
               </div>
               <!--
                 THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1663), the same card slice 1 put on the small
