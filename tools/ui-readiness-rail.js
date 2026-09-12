@@ -255,10 +255,11 @@ class Element {
  * on the page" and reports as an empty required field.
  */
 class Page {
-  constructor(elements, labels) {
+  constructor(elements, labels, byClass) {
     this.elements = elements;
     this.byId = new Map(elements.map((el) => [el.id, el]));
     this.labelFor = labels;
+    this.byClass = byClass;
     // The page is a class target too: markPageClean takes the dirty marker off it, and a
     // stub without this throws inside the rejection arm rather than judging it.
     this.classList = new Classes();
@@ -277,6 +278,18 @@ class Page {
     const label = /^label\[for="([^"]+)"\]$/.exec(selector);
     if (label) {
       return this.labelFor.get(label[1]) || null;
+    }
+    // A SINGLE CLASS, RESOLVED OUT OF THE MARKUP like every id here, because the fill path a
+    // resolved read reaches asks for one: fillProvisioningTemplate looks its permissions
+    // container up by class. Its BOUND is the one this whole stub has - a lookup is
+    // page-global rather than scoped to the element it was made on, so where a page carries
+    // the same class twice, once per protocol, the first in document order answers both. No
+    // arm asserts anything about that container; it is resolved so the fill runs instead of
+    // throwing inside a promise, which the unhandled-rejection count would then blame on the
+    // page.
+    const token = /^\.([a-z][a-z0-9-]*)$/.exec(selector);
+    if (token) {
+      return this.byClass.get(token[1]) || null;
     }
     throw new Error("the stub does not resolve the selector " + selector);
   }
@@ -597,7 +610,34 @@ function providersFixture() {
     }
   });
 
-  return new Page(elements, labels);
+  // One entry per class token, the FIRST element in document order that carries it. Read off
+  // each element's own opening tag rather than listed here, so a class that leaves the page
+  // leaves this map with it.
+  const byClass = new Map();
+  elements.forEach((el) => {
+    const at = html.indexOf('id="' + el.id + '"');
+    if (at === -1) {
+      return;
+    }
+    const tag = html.slice(
+      html.lastIndexOf("<", at),
+      html.indexOf(">", at) + 1,
+    );
+    const classes = /class="([^"]*)"/.exec(tag);
+    if (classes === null) {
+      return;
+    }
+    classes[1]
+      .split(/\s+/)
+      .filter(Boolean)
+      .forEach((name) => {
+        if (!byClass.has(name)) {
+          byClass.set(name, el);
+        }
+      });
+  });
+
+  return new Page(elements, labels, byClass);
 }
 
 // ---------------------------------------------------------------------------
@@ -744,7 +784,7 @@ function handRail(open, rowTexts) {
     item.textContent = text;
     list.appendChild(item);
   });
-  return new Page([invitation, list], new Map());
+  return new Page([invitation, list], new Map(), new Map());
 }
 
 const GOOD_ROWS = [
@@ -966,6 +1006,15 @@ function installHost(counter) {
           if (name === "getUrl") {
             return "https://jellyfin.example/" + String(args[0]);
           }
+          // A READ CAN BE PARKED AND SETTLED LATER, IN ANY ORDER (#1693). A reply's order
+          // relative to the clicks around it is the whole subject: a failing request is
+          // typically the slower of two, so the stale case is the ordinary ordering rather
+          // than an exotic one, and it cannot be reached by a client that answers at once.
+          if (counter.park !== null && name === "getPluginConfiguration") {
+            return new Promise((resolve, reject) =>
+              counter.park.push({ resolve, reject }),
+            );
+          }
           if (counter.refuseRead && name === "getPluginConfiguration") {
             return Promise.reject(new Error("the stub refused this read"));
           }
@@ -1043,7 +1092,7 @@ async function run() {
     return started;
   }
   const { arms, mustPass, faults, refuse } = started;
-  const counter = { calls: [], refuseRead: false };
+  const counter = { calls: [], refuseRead: false, park: null };
   // EVERY REJECTION NOBODY HANDLED IS RECORDED, which is a thing node tells you and a
   // browser does not tell an administrator. The arm below asks for it by name, because
   // "it surfaces in the console" is exactly the reporting #1681 is about the absence of.
@@ -1597,6 +1646,164 @@ async function run() {
     }
   }
 
+  // ---- Arm: a reply that no longer speaks for the open editor changes nothing ----
+  //
+  // THE ORDERING IS THE ORDINARY ONE. A failing request is typically the slower of two, so
+  // "the read that fails settles after the one that succeeded" is what a timeout looks like
+  // rather than a race somebody has to contrive. Before #1693 the late FAILURE closed the
+  // editor the administrator was working in and explained it by naming a provider they had
+  // already left; the late SUCCESS was worse, because it wrote the old provider's values into
+  // the open form under the new provider's title and a Save then persisted them.
+  //
+  // Both directions are driven, and so are the two ways the editor stops being about a
+  // provider without any read being issued: it is CLOSED, and the other protocol is opened.
+  // A serial counting reads answers neither of those, which is why the guard compares the
+  // editor's subject instead.
+  for (const protocol of ["oid", "saml"]) {
+    const selectorId =
+      protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
+    const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+    const close = protocol === "oid" ? core.hideEditor : core.hideSamlEditor;
+    const other = protocol === "oid" ? core.showSamlEditor : core.showEditor;
+    const load = protocol === "oid" ? core.loadProvider : core.loadSamlProvider;
+    const nameField =
+      protocol === "saml" ? "#saml-provider-name" : "#OidProviderName";
+    const member = protocol === "saml" ? "SamlConfigs" : "OidConfigs";
+
+    /** Opens `which` the way openProvider does, and parks its read. */
+    const openAndPark = (page, which) => {
+      open(page);
+      page.querySelector(selectorId).value = which;
+      load(page, which);
+    };
+    const settled = () =>
+      new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+
+    // 1. a LATE FAILURE for the provider before the one on screen.
+    {
+      const page = providersFixture();
+      counter.park = [];
+      openAndPark(page, "a");
+      openAndPark(page, "b");
+      const [first, second] = counter.park;
+      second.resolve({ [member]: { b: {} } });
+      await settled();
+      first.reject(new Error("the read for a failed late"));
+      await settled();
+      counter.park = null;
+      if (page.querySelector("#" + EDITORS[protocol]).hidden) {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a late failure for the provider before this one closed the editor the administrator is working in",
+        );
+      }
+      if (page.querySelector("#sso-page-status").textContent !== "") {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a late failure for another provider put a sentence on the page about one the reader has left: " +
+            JSON.stringify(page.querySelector("#sso-page-status").textContent),
+        );
+      }
+    }
+
+    // 2. a LATE SUCCESS for the provider before the one on screen. The name field is what
+    //    the fill writes first, so it is what says whose values landed.
+    {
+      const page = providersFixture();
+      counter.park = [];
+      openAndPark(page, "a");
+      openAndPark(page, "b");
+      const [first, second] = counter.park;
+      second.resolve({ [member]: { b: {} } });
+      await settled();
+      first.resolve({ [member]: { a: {} } });
+      await settled();
+      counter.park = null;
+      const shown = page.querySelector(nameField).value;
+      if (shown !== "b") {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a late reply for another provider filled the open form - the name field reads " +
+            JSON.stringify(shown) +
+            " under an editor opened for b",
+        );
+      }
+    }
+
+    // 3. THE EDITOR CLOSED, which issues no read at all and is the case a serial cannot see.
+    {
+      const page = providersFixture();
+      counter.park = [];
+      openAndPark(page, "a");
+      close(page);
+      const [only] = counter.park;
+      only.reject(new Error("the read for a failed after its editor closed"));
+      await settled();
+      counter.park = null;
+      if (page.querySelector("#sso-page-status").textContent !== "") {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a failure for a provider whose editor was already closed still wrote a page status",
+        );
+      }
+      inspectRail(page, { open: null, rows: [] }).forEach((detail) =>
+        refuse("stale-reply", protocol + " (closed): " + detail),
+      );
+    }
+
+    // 4. THE OTHER PROTOCOL OPENED, the second case a serial cannot see: one workspace at a
+    //    time, so opening the other editor closes this one without any read being issued.
+    {
+      const page = providersFixture();
+      counter.park = [];
+      openAndPark(page, "a");
+      other(page);
+      const [only] = counter.park;
+      only.reject(new Error("the read failed after the other protocol opened"));
+      await settled();
+      counter.park = null;
+      const otherId = protocol === "oid" ? EDITORS.saml : EDITORS.oid;
+      if (page.querySelector("#" + otherId).hidden) {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a failure for the protocol that is no longer open closed the editor that is",
+        );
+      }
+      if (page.querySelector("#sso-page-status").textContent !== "") {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": a failure for the protocol that is no longer open wrote a page status under the other form",
+        );
+      }
+    }
+
+    // 5. AND THE REPLY THAT IS STILL CURRENT STILL LANDS. Without this the guard could be
+    //    "drop everything" and every arm above would pass.
+    {
+      const page = providersFixture();
+      counter.park = [];
+      openAndPark(page, "a");
+      const [only] = counter.park;
+      only.resolve({ [member]: { a: {} } });
+      await settled();
+      counter.park = null;
+      if (page.querySelector(nameField).value !== "a") {
+        refuse(
+          "stale-reply",
+          protocol +
+            ": the reply for the provider that IS open did not fill the form - the name field reads " +
+            JSON.stringify(page.querySelector(nameField).value),
+        );
+      }
+    }
+  }
+
   // ---- Arm: the configuration read fails while an editor is being filled ----
   //
   // THE RAIL IS WHY THIS IS HERE RATHER THAN IN A GATE OF ITS OWN (#1681). An editor is
@@ -1611,6 +1818,13 @@ async function run() {
     const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
     const load = protocol === "oid" ? core.loadProvider : core.loadSamlProvider;
     open(page);
+    // THE SELECTOR CARRIES WHICH PROVIDER THE EDITOR IS ABOUT, and openProvider sets it
+    // before it loads. This arm sets it too, because both loaders drop a reply that no
+    // longer speaks for what is on screen (#1693), and a fixture that left the selector
+    // blank would have every reply read as stale - a pass for the wrong reason.
+    page.querySelector(
+      protocol === "saml" ? "#saml-selectProvider" : "#selectProvider",
+    ).value = "a-saved-provider";
     if (rowsOf(page).length === 0) {
       refuse(
         "read-failed",
@@ -1734,6 +1948,12 @@ async function run() {
   );
   console.log(
     "                   initProvidersPage bound and rebuild the rail, on both protocols (#1687)",
+  );
+  console.log(
+    "  stale-reply      a reply that no longer speaks for the open editor writes nothing and closes",
+  );
+  console.log(
+    "                   nothing, in five orderings per protocol, and the current one still lands (#1693)",
   );
   console.log(
     "  read-failed      a configuration read that fails closes the editor, returns the rail to its",

@@ -720,6 +720,16 @@ const ssoConfigurationPage = {
   populateProviders: (page, providers) => {
     const select = page.querySelector("#selectProvider");
 
+    // WHICH PROVIDER THE PAGE IS ABOUT SURVIVES THE RE-POPULATE (#1693). The comment below
+    // calls this selector the state holder the save path reads, and a browser empties
+    // `value` the moment the selected `<option>` is removed - re-adding an option with the
+    // same value does not restore the selection. So a read of the configuration landing after
+    // a save silently took the page's own record of its subject away, and everything that
+    // compares against it - applyManagedState, and since #1693 both loaders - then compared
+    // against the empty string. Read before, restored after, with no branch: assigning a
+    // value no option carries leaves it empty, which is what it would have been anyway.
+    const chosen = select.value;
+
     // Clear providers in case there are out of date ones
     select.querySelectorAll("option").forEach((option) => option.remove());
 
@@ -729,6 +739,7 @@ const ssoConfigurationPage = {
     Object.keys(providers).forEach((provider_name) => {
       select.appendChild(new Option(provider_name, provider_name));
     });
+    select.value = chosen;
 
     ssoConfigurationPage.renderProviderCards(page, providers);
   },
@@ -2707,6 +2718,14 @@ const ssoConfigurationPage = {
   loadProvider: (page, provider_name) => {
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
+        // A reply for a provider the editor has since left writes nothing (#1693). Dropped
+        // rather than queued, because it is stale by then: whatever the editor is about now
+        // was filled by its own read.
+        if (
+          !ssoConfigurationPage.replyStillSpeaksFor(page, "oid", provider_name)
+        ) {
+          return;
+        }
         const provider = config.OidConfigs[provider_name] || {};
 
         const form_elements = ssoConfigurationPage.listArgumentsByType(page);
@@ -2789,6 +2808,15 @@ const ssoConfigurationPage = {
       // a catch here would also fire for anything thrown by the fill above, and a fill that threw
       // halfway would then be reported as a server that could not be reached.
       () => {
+        // And a failure for a provider the editor has since left closes nothing and says
+        // nothing (#1693): the editor on screen was filled by its own read, and a sentence
+        // about the provider before it would explain the loss of a form the reader is working
+        // in by naming one they have already left.
+        if (
+          !ssoConfigurationPage.replyStillSpeaksFor(page, "oid", provider_name)
+        ) {
+          return;
+        }
         ssoConfigurationPage.hideEditor(page);
         ssoConfigurationPage.reportUnreadableProviderConfiguration(page);
         // The form is gone, so nothing in it is unsaved, and the notice that says otherwise would
@@ -3131,6 +3159,37 @@ const ssoConfigurationPage = {
   // THE PAGE REGION AND NOT THE EDITOR'S, for the reason deleteProvider states where it does the same
   // thing: the editor's status box lives inside the element that was just hidden, so an outcome written
   // there would be invisible.
+  /*
+   * Whether a reply about `provider_name` on `key` still speaks for what is on screen (#1693).
+   *
+   * A LOADER'S REPLY CAN BE ABOUT A PROVIDER NOBODY IS LOOKING AT ANY MORE, and a failing
+   * request is typically the slower of two, so this is the ordinary ordering rather than an
+   * exotic one: an administrator clicks a, its read stalls, they click b, b answers and fills
+   * the form, and then a's read settles. Before this, a's FAILURE closed b's editor and put a
+   * sentence about a on the page, and a's SUCCESS wrote a's values into b's form under b's
+   * title. The second is the worse of the two, because a Save then persists it.
+   *
+   * THE SUBJECT AND NOT A COUNTER. A serial bumped when a read is issued answers "has another
+   * read started", which is three of the four ways a reply goes stale and not the fourth: the
+   * editor being CLOSED, or the other protocol being opened, issues no read at all. What the
+   * editor is currently ABOUT answers all four at once - another provider opened, a blank New
+   * provider form opened, the editor closed, the protocol switched - and it is read from the
+   * same two places every other part of this page reads it from. `redirectUriSerial` twenty
+   * lines below is the counter shape, for a question where the subject cannot move: that field
+   * follows what is typed rather than which provider is loaded.
+   *
+   * applyManagedState compares the selector's value for the same reason, and this is that
+   * comparison with the open-editor half added.
+   */
+  replyStillSpeaksFor: (page, key, provider_name) => {
+    if (ssoConfigurationPage.openEditorKey(page) !== key) {
+      return false;
+    }
+    const selector = page.querySelector(
+      key === "saml" ? "#saml-selectProvider" : "#selectProvider",
+    );
+    return selector !== null && selector.value === provider_name;
+  },
   reportUnreadableProviderConfiguration: (page) => {
     ssoConfigurationPage.renderPageStatus(
       page,
@@ -4786,10 +4845,13 @@ const ssoConfigurationPage = {
   samlPropOf: (id) => id.slice("saml-".length),
   populateSamlProviders: (page, providers) => {
     const select = page.querySelector("#saml-selectProvider");
+    // The same preservation its OpenID twin does, for the same reason (#1693).
+    const chosen = select.value;
     select.querySelectorAll("option").forEach((option) => option.remove());
     Object.keys(providers).forEach((provider_name) => {
       select.appendChild(new Option(provider_name, provider_name));
     });
+    select.value = chosen;
     ssoConfigurationPage.renderSamlProviderCards(page, providers);
   },
   // SAML provider cards, same inert createElement/textContent construction as renderProviderCards (#221):
@@ -5038,6 +5100,12 @@ const ssoConfigurationPage = {
   loadSamlProvider: (page, provider_name) => {
     ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
       (config) => {
+        // The same drop the OpenID loader makes, for the same reason (#1693).
+        if (
+          !ssoConfigurationPage.replyStillSpeaksFor(page, "saml", provider_name)
+        ) {
+          return;
+        }
         const provider = (config.SamlConfigs || {})[provider_name] || {};
 
         const form_elements =
@@ -5121,6 +5189,11 @@ const ssoConfigurationPage = {
       // Both protocols reach this through one read of one configuration document, so a failure here is
       // never about one of them: whichever editor was being filled is closed and the page says why.
       () => {
+        if (
+          !ssoConfigurationPage.replyStillSpeaksFor(page, "saml", provider_name)
+        ) {
+          return;
+        }
         ssoConfigurationPage.hideSamlEditor(page);
         ssoConfigurationPage.reportUnreadableProviderConfiguration(page);
         ssoConfigurationPage.markPageClean(page);
