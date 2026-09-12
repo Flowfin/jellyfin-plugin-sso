@@ -141,6 +141,16 @@ field rather than that field's description. A warning is not condensed - folding
 one hides the thing it exists to put in front of a reader - and the condensing
 reader's subject is `fieldDescription`, so it neither moves nor refuses it.
 
+THAT SENTENCE USED TO BE THE WHOLE ANSWER AND IT WAS NOT ENOUGH (#1677). Both
+readers in the condensing gate enter a help text through its CLASS, so a site on
+a class neither of them knows was in neither population, and nothing closed the
+difference: a field taken out of the condensing by renaming its class looked
+exactly like the warning above. The gate counts the `*_help` MARKERS now,
+class-agnostic, and requires every one to be either a condensed block or a site
+carrying `data-sso-flat-help` with its reason at the site. The run prints how
+many a page declares, so "one short" is a number a reader can see rather than
+one they have to reconstruct from this page.
+
 The same slice is where the two readers stop covering the same population, which
 is stated here because the census's own figure does not show it. A help text
 whose body is marked `data-i18n-parts` has its `{n}` slots filled from the body's

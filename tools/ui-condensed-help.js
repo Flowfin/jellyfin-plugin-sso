@@ -22,7 +22,10 @@
  * the catalogue row the folds share, a marked page with no rail card, a fold authored
  * inside a `<p>` - which `<details>` closes, so a browser takes the fold out of the
  * block - and two help blocks resolving to one field, by either branch of the walk the
- * applier makes (#1663). The
+ * applier makes (#1663). It also closes the COUNT over the page: every `*_help` marker
+ * is either a condensed block or a site that DECLARES itself flat with a reason, so a
+ * help text on a class neither reader enters is refused rather than dropped from both
+ * populations in silence (#1677). The
  * second LOADS the shipped applier and drives it over the shipped catalogues,
  * refusing a lead that is not the first sentence of the text behind it, a fold
  * hiding nothing, a fold hidden while it holds more, and a rail card answering a
@@ -335,6 +338,7 @@ function elementBody(markup, from, tag) {
  * never arrived is left with.
  */
 function inspectMarkup(page, source) {
+  let flat = 0;
   // Whitespace-collapsed first, because Prettier decides where the lines in these
   // files break: it puts every attribute of a long tag on its own line and the
   // closing angle bracket on a line after them. A reader matching
@@ -467,7 +471,7 @@ function inspectMarkup(page, source) {
       refusals.push(
         `${page} condenses ${blocks} help text(s) and carries no readable ${CONDENSE_ROOT} container, so the applier is handed nothing to walk`,
       );
-      return { refusals, blocks };
+      return { refusals, blocks, declared: flat };
     }
 
     const card = markup.indexOf('class="verticalSection sso-help-card"');
@@ -530,9 +534,36 @@ function inspectMarkup(page, source) {
         `${first} and ${second} on ${page} are two help blocks in one field: the rail card answers for ${first} wherever the focus lands in it, and ${second} is unreachable from it`,
       ),
     );
+
+    // THE COUNT IS CLOSED, CLASS-AGNOSTIC (#1677). Everything above enters a help text
+    // through its CLASS - `fieldDescription` for a block, `sso-help` for a condensed one
+    // - so a `*_help` marker written on a class neither reader knows is in NEITHER
+    // population, and the census next door does not care how a site is authored. A field
+    // taken out of the condensing by renaming its class would leave no trace anywhere but
+    // in a number nothing asserts.
+    //
+    // So the markers are counted from the attribute alone and the page has to add up:
+    // every one is either a condensed block or a site that DECLARES itself flat, with the
+    // reason at the site. The tree carries exactly one declaration today and it is a
+    // warning rather than a field description - folding a warning hides the thing it
+    // exists to put in front of a reader - which is why the answer is a declaration and
+    // not an exemption by class name: the next one has to say why too.
+    const markers = [
+      ...markup.matchAll(/data-i18n(?:-parts)?="[a-z0-9_.]+_help"/g),
+    ].length;
+    flat = [...markup.matchAll(/<[a-z][a-z0-9]*\b[^>]*>/g)].filter(
+      (tag) =>
+        /data-sso-flat-help="[^"]+"/.test(tag[0]) &&
+        /data-i18n(?:-parts)?="[a-z0-9_.]+_help"/.test(tag[0]),
+    ).length;
+    if (markers !== blocks + flat) {
+      refusals.push(
+        `${page} carries ${markers} help marker(s) and accounts for ${blocks + flat} of them - ${blocks} condensed and ${flat} declared flat - so a help text sits on an element neither reader enters`,
+      );
+    }
   }
 
-  return { refusals, blocks };
+  return { refusals, blocks, declared: flat };
 }
 
 // Elements a browser closes without a closing tag; they never contain a help block
@@ -1116,9 +1147,24 @@ function fixtureMarkup(key, parts) {
   if (p.scoped === false) {
     return [`<div ${CONDENSE_ROOT}>`, block, `</div>`, card].join("\n");
   }
-  return [`<div ${CONDENSE_ROOT}>`, block, p.card ? card : "", `</div>`].join(
-    "\n",
-  );
+
+  // A second `*_help` marker on a class neither reader enters (#1677). `stray` leaves it
+  // undeclared, which the closure refuses; `flat` declares it with a reason, which it
+  // accepts. The two differ by one attribute, which is the whole near-miss: renaming a
+  // field's class to take it out of the condensing produces the first, and a warning that
+  // was never a field description produces the second.
+  const extra =
+    p.stray || p.declared
+      ? `<div class="sso-callout"${p.declared ? ' data-sso-flat-help="a warning, not a field description"' : ""} data-i18n-parts="config.fixture_9_help">a warning</div>`
+      : "";
+
+  return [
+    `<div ${CONDENSE_ROOT}>`,
+    block,
+    extra,
+    p.card ? card : "",
+    `</div>`,
+  ].join("\n");
 }
 
 /*
@@ -1179,6 +1225,14 @@ async function calibrate(i18n) {
     ).refusals,
   );
   record(
+    "a help marker declared flat, with its reason",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { declared: true }),
+    ).refusals,
+  );
+  record(
     "a fold whose text is assembled from parts",
     false,
     inspectMarkup(
@@ -1201,6 +1255,7 @@ async function calibrate(i18n) {
       { flat: true, assembled: true },
     ],
     ["a fold authored inside a <p>", { tag: "p" }],
+    ["a help marker on a class neither reader enters", { stray: true }],
     ["a rail card with no heading", { heading: false }],
     ["a block the applier will not find", { marked: false }],
     ["a fold with no lead line to fill", { lead: false }],
@@ -1595,7 +1650,10 @@ async function run() {
           `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence` +
             (assembled === 0
               ? ""
-              : `, ${assembled} assembled from parts and judged by the markup reader only`),
+              : `, ${assembled} assembled from parts and judged by the markup reader only`) +
+            (authored.declared === 0
+              ? ""
+              : `, ${authored.declared} declared flat with a reason`),
         );
       }
     }

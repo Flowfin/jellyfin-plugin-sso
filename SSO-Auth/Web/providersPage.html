@@ -5148,9 +5148,20 @@
                           role="alert"
                           hidden
                         ></div>
+                        <!--
+                      DECLARED FLAT (#1677), and the declaration is the point rather than the class. This
+                      carries a *_help key and is NOT condensed: it is a warning beside the field, and
+                      folding a warning hides the thing it exists to put in front of a reader. Both readers
+                      in tools/ui-condensed-help.js enter a help text through its class, so without this
+                      attribute the site would sit in neither population and a field taken out of the
+                      condensing by renaming its class would look exactly the same. The gate closes the
+                      count over the markers instead, and every marker it cannot see as a fold has to say
+                      here why it is not one.
+                    -->
                         <div
                           class="sso-callout sso-callout-warning"
                           role="note"
+                          data-sso-flat-help="a warning beside the field, not its description: folding it would hide what it exists to put in front of a reader"
                           data-i18n-parts="config.saml_base_url_override_help"
                         >
                           ⚠ Recommended. The canonical external base URL of this
