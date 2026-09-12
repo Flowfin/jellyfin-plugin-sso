@@ -406,8 +406,18 @@
   color: #ff8a80; /* Accent heading, paired with the descriptive text below it, not colour-only. */
 }
 
-.sso-insecure-toggle {
-  margin: 0.5em 0;
+/* The Sensitive / Insecure regions are folds, and the summary carries the region name plus the count of
+   options in use inside it (#1666). The count is a second span rather than part of the heading so the
+   heading stays one translated string, and it is dimmed rather than coloured-only: it reads as text with
+   no colour at all. */
+.sso-fold-summary {
+  cursor: pointer;
+}
+
+.sso-fold-count:not(:empty) {
+  margin-left: 0.5em;
+  font-weight: 400;
+  opacity: 0.8;
 }
 
 /* Sticky save footer (Fitts): the primary action stays at the bottom edge. */
