@@ -1017,7 +1017,7 @@ function buildPage(keys, texts, summary, options) {
 function inspect(page, texts, summary) {
   const refusals = [];
   const say = (message) => refusals.push(message);
-  const counts = { folded: 0, flat: 0 };
+  const counts = { folded: 0, flat: 0, flatParts: 0 };
 
   page.fields.forEach((field) => {
     const whole = texts[field.key];
@@ -1073,6 +1073,14 @@ function inspect(page, texts, summary) {
     // same page, so the two orders are not separated here.
     if (lead === null) {
       counts.flat += 1;
+      // THE POPULATION #1669 IS ABOUT, COUNTED WHERE THE PAGE IS READ rather than by a
+      // walk somebody runs once. It is the parts-marked bodies that come out holding ONE
+      // sentence after their own children are substituted, which is the only shape the
+      // flattening defect could reach, and it moves with every catalogue edit - a
+      // translator adding a second sentence in German takes a row out of it. Derived from
+      // the hand-written lead rule above and never from where the applier put the body,
+      // so a regression shrinks the figure instead of being counted as a pass.
+      counts.flatParts += field.parts === undefined ? 0 : 1;
       if (field.body.parentNode !== field.help) {
         say(
           `${field.key} holds one sentence and its text is still inside the hidden fold, so the field shows no description at all`,
@@ -1730,6 +1738,46 @@ async function calibrate(i18n) {
     [AVATAR],
   );
 
+  /*
+   * THE SECOND PASS MOVES NOTHING, which is what the `body.parentNode !== help`
+   * guard in the applier buys and what the arms above cannot see: every one of them
+   * compares a FINAL tree, and re-inserting a body that is already in place leaves the
+   * same tree behind. A DOM move is a removal and an insertion, so a browser blurs
+   * anything focused inside the moved node - three of these bodies carry a link - and
+   * `refresh` runs again on every catalogue pass. The stub is not a browser and holds no
+   * focus, which this file's header says of itself, so the arm counts the MOVES rather
+   * than asserting the blur: one on the pass that promotes the body, none on an
+   * identical pass after it.
+   */
+  {
+    const key = "config.fixture_0_help";
+    const page = buildPage([key], {}, "Full text", {
+      parts: { [key]: [{ tag: "code", text: AVATAR }] },
+    });
+    const catalogue = {
+      [key]: "The avatar url takes the form {0}",
+      [SUMMARY_KEY]: "Full text",
+    };
+    await render(i18n, page, catalogue);
+    const field = page.fields[0];
+    let moves = 0;
+    const insert = field.help.insertBefore.bind(field.help);
+    field.help.insertBefore = (node, before) => {
+      moves += node === field.body ? 1 : 0;
+      return insert(node, before);
+    };
+    await render(i18n, page, catalogue);
+    record(
+      "a second identical pass does not move the promoted body again",
+      false,
+      moves === 0
+        ? []
+        : [
+            `a second pass re-inserted an already promoted body ${moves} time(s), which in a browser drops the focus out of a link inside it`,
+          ],
+    );
+  }
+
   // The negative: the children flattened into one text node, which is the defect
   // itself. Every character is still there, so only the tree can refuse it.
   {
@@ -2165,7 +2213,7 @@ async function run() {
           `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence` +
             (assembled === 0
               ? ""
-              : `, ${assembled} assembled from parts and driven with their own children`) +
+              : `, ${assembled} assembled from parts and driven with their own children, ${runtime.counts.flatParts} of them holding one sentence`) +
             (unread === 0
               ? ""
               : `, ${unread} whose children this reader cannot walk and judged by the markup reader only`) +
