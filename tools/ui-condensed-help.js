@@ -92,6 +92,48 @@ const SUMMARY_KEY = "config.help_full_text";
 // somewhere to write the first sentence and a page whose script never ran shows no blank prose.
 const EMPTY_LEAD = '<span class="sso-help-lead"></span>';
 
+// A help key a marker names, under EITHER marker. `data-i18n-parts` is a sentence
+// that holds markup (#1529), and 36 of the Providers page's help texts are written
+// that way; a reader that knew only the plain marker read every one of them as a
+// condensed block naming no key at all.
+const HELP_KEY = 'data-i18n(?:-parts)?="([a-z0-9_.]+_help)"';
+
+// The same pattern pinned to one key. Both forms allow OTHER ATTRIBUTES between the
+// body's class and its marker, because one body carries an id: the input it describes
+// points at it through aria-describedby, and that reference has to resolve to the
+// element holding the text rather than to the wrapper whose first readable child is
+// the word the summary is named with.
+const HELP_KEY_FOR = (key) => `data-i18n(?:-parts)?="${key}"`;
+
+// A field description DECLARING that it stays flat, which is the only way one may.
+// The Providers page leaves thirteen that way - the twelve inside the two security
+// regions that slice 5 (#1666) turns into folds of their own, where a second fold
+// over a warning would be the wrong change to make early, and the one callout,
+// which is a note rather than a field. The declaration is an attribute at the site
+// rather than a class list inside this tool: a reader of the page sees why it is
+// flat where the page is flat, and a help text nobody declared is still refused.
+const FLAT_MARK = "data-sso-help-flat";
+
+// The elements that never close, so a stack of open tags does not keep one and a
+// later closing tag does not unwind the wrong element. The `<input>` inside every
+// field container is exactly where that bites.
+const VOID_ELEMENTS = new Set([
+  "br",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "wbr",
+  "source",
+  "area",
+  "base",
+  "col",
+  "embed",
+  "param",
+  "track",
+]);
+
 // ---------------------------------------------------------------------------
 // The stub DOM
 // ---------------------------------------------------------------------------
@@ -269,8 +311,15 @@ globalThis.ApiClient = { getUrl: (route) => `https://stub.invalid/${route}` };
 // where there had been twenty. The census next door drops its `<details>` figure
 // from 20 to 19 for the same edit and refuses nothing, because the text is still
 // present once in its own field. Neither reader owned it.
+// A CALLOUT IS IN THE POPULATION TOO, and it is in it so that its declaration is
+// READ rather than merely written. One `*_help` key on the Providers page sits on a
+// `sso-callout sso-callout-warning` with `role="note"` - a warning about a reverse
+// proxy, which is a statement about the server rather than a description of the
+// field beside it, and folding a warning is the wrong move. It stays flat and says
+// so; a reader that did not know the class would have accepted the attribute while
+// reading nothing, which is the shape of a declaration nobody checks.
 const HELP_BLOCK =
-  /<(?<tag>[a-z][a-z0-9]*)\b(?<attrs>[^>]*\bclass="[^"]*\bfieldDescription\b[^"]*"[^>]*)>/g;
+  /<(?<tag>[a-z][a-z0-9]*)\b(?<attrs>[^>]*\bclass="[^"]*\b(?:fieldDescription|sso-callout)\b[^"]*"[^>]*)>/g;
 
 /*
  * Whether an opening tag carries a class, as a CLASS rather than as a substring.
@@ -335,6 +384,7 @@ function inspectMarkup(page, source) {
   const refusals = [];
   const at = [];
   let blocks = 0;
+  let flat = 0;
   HELP_BLOCK.lastIndex = 0;
   let match;
   while ((match = HELP_BLOCK.exec(markup)) !== null) {
@@ -349,14 +399,22 @@ function inspectMarkup(page, source) {
       continue;
     }
 
-    const keys = [...body.matchAll(/data-i18n="([a-z0-9_.]+_help)"/g)].map(
-      (m) => m[1],
-    );
-    const own = /data-i18n="([a-z0-9_.]+_help)"/.exec(opening);
+    const keys = [...body.matchAll(new RegExp(HELP_KEY, "g"))].map((m) => m[1]);
+    const own = new RegExp(HELP_KEY).exec(opening);
     if (own) {
-      refusals.push(
-        `${page} still writes ${own[1]} flat: the field shows the whole text under it rather than a sentence and a fold`,
-      );
+      // A DECLARED flat field passes and an undeclared one does not, which is the
+      // whole difference between a boundary between two issues and a hole. The
+      // attribute is at the site, so the page says where it is flat and this tool
+      // does not carry a list of exceptions somebody has to keep in step.
+      if (!opening.includes(FLAT_MARK)) {
+        refusals.push(
+          `${page} still writes ${own[1]} flat and does not declare it: the field shows the whole text under it rather than a sentence and a fold`,
+        );
+        continue;
+      }
+      // Counted only once the declaration is there, so a refused page does not
+      // report its offender among the sites that declared themselves.
+      flat += 1;
       continue;
     }
     // A BLOCK THE READER COULD NOT READ IS REFUSED, never skipped. This was a plain
@@ -372,6 +430,14 @@ function inspectMarkup(page, source) {
         );
       }
       continue;
+    }
+    // AFTER the key read, because before it this fired on any keyless field
+    // description somebody had left a stray attribute on - an element that is
+    // neither condensed nor a help site, refused for being both.
+    if (opening.includes(FLAT_MARK)) {
+      refusals.push(
+        `a condensed block on ${page} declares itself flat, so one of the two statements about it is wrong`,
+      );
     }
     blocks += 1;
     at.push(match.index);
@@ -397,7 +463,9 @@ function inspectMarkup(page, source) {
         `the fold of ${key} on ${page} is named by something other than ${SUMMARY_KEY}, so one page's folds can be renamed without the others`,
       );
     }
-    if (!new RegExp(`class="sso-help-body" data-i18n="${key}"`).test(body)) {
+    if (
+      !new RegExp(`class="sso-help-body"[^>]*${HELP_KEY_FOR(key)}`).test(body)
+    ) {
       refusals.push(
         `${key} on ${page} does not sit on the body of its own fold, so the catalogue writes it somewhere the applier does not read it from`,
       );
@@ -417,7 +485,7 @@ function inspectMarkup(page, source) {
       refusals.push(
         `${page} condenses ${blocks} help text(s) and carries no readable ${CONDENSE_ROOT} container, so the applier is handed nothing to walk`,
       );
-      return { refusals, blocks };
+      return { refusals, blocks, flat };
     }
 
     const card = markup.indexOf('class="verticalSection sso-help-card"');
@@ -452,6 +520,145 @@ function inspectMarkup(page, source) {
       );
     }
   }
+
+  return { refusals, blocks, flat };
+}
+
+/*
+ * Every tag on a page, with quoted attribute values and comments respected.
+ *
+ * A SECOND READER OF THE SAME BYTES, and what it adds is the STACK: which elements a
+ * block sits inside, which a match-and-count walk cannot say. Quoted attribute values
+ * are respected as well, and THAT HALF IS INSURANCE RATHER THAN A REPAIR - measured
+ * across all six HTML assets in this tree, no attribute value holds a `<` or a `>`.
+ * The comment half is real: a comment on the Providers page carries a closing tag,
+ * and a depth counter reading it as a real one truncates the element it is in. Said
+ * this way round because the first version of this paragraph claimed both as failures
+ * this page had produced, and only one of them had.
+ */
+function tags(str) {
+  const out = [];
+  let i = 0;
+  while (i < str.length) {
+    const lt = str.indexOf("<", i);
+    if (lt < 0) break;
+    if (str.startsWith("<!--", lt)) {
+      const e = str.indexOf("-->", lt);
+      i = e < 0 ? str.length : e + 3;
+      continue;
+    }
+    let j = lt + 1;
+    let closing = false;
+    if (str[j] === "/") {
+      closing = true;
+      j++;
+    }
+    let name = "";
+    while (j < str.length && /[a-zA-Z0-9-]/.test(str[j])) {
+      name += str[j];
+      j++;
+    }
+    if (name === "") {
+      i = lt + 1;
+      continue;
+    }
+    let quote = null;
+    let self = false;
+    while (j < str.length) {
+      const c = str[j];
+      if (quote) {
+        if (c === quote) quote = null;
+        j++;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        quote = c;
+        j++;
+        continue;
+      }
+      if (c === ">") {
+        self = str[j - 1] === "/";
+        j++;
+        break;
+      }
+      j++;
+    }
+    out.push({
+      name: name.toLowerCase(),
+      closing,
+      self,
+      attrs: str.slice(lt + 1 + name.length + (closing ? 1 : 0), j - 1),
+      start: lt,
+      end: j,
+    });
+    i = j;
+  }
+  return out;
+}
+
+/*
+ * Refuses two condensed help blocks resolving to ONE field.
+ *
+ * WHAT IT COSTS IS THE RAIL AND NOT THE FOLD. The applier keys the focused field to
+ * one help block by walking up to the nearest `inputContainer` or `checkboxContainer`
+ * - the census's own rule for which field a text belongs to - so two blocks under one
+ * container leave the second unreachable from the card, in silence. Both still show
+ * their own sentence and their own fold.
+ *
+ * IT WAS UNREFUSED WHEN SLICE 1 LANDED and #1662 says so of itself. No page had the
+ * shape then, counted over its twenty blocks; the Providers page brings ninety-nine
+ * and is where it would first arise, which is why the refusal lands with it.
+ */
+function inspectFields(page, source) {
+  const refusals = [];
+  const toks = tags(source);
+  const open = [];
+  const owners = new Map();
+  let blocks = 0;
+
+  toks.forEach((t) => {
+    if (t.self) return;
+    if (t.closing) {
+      while (open.length && open[open.length - 1].name !== t.name) open.pop();
+      open.pop();
+      return;
+    }
+
+    // hasClassToken, not a word-boundary match: `sso-help-lead`, `-full`, `-body`
+    // and `-card-text` all satisfy a boundary after "help", and the first spelling
+    // of this counted fourteen blocks on a page holding three.
+    const isBlock = hasClassToken(t.attrs, "sso-help");
+    if (!VOID_ELEMENTS.has(t.name)) {
+      open.push(t);
+    }
+    if (!isBlock) return;
+
+    blocks += 1;
+    // The block itself is on the stack, so the field is looked for beneath it.
+    const above = open.slice(0, -1);
+    // THE SAME CLASS TEST THE APPLIER MAKES, which is a token test and not a
+    // boundary match. `checkboxContainer-withDescription` satisfies a boundary after
+    // "checkboxContainer" and does NOT satisfy classList.contains, so the first
+    // spelling of this computed a different field from the one the rail actually
+    // keys on - and then passed a page where the second block of a shared field was
+    // unreachable, which is the whole loss this reader exists for.
+    const field =
+      [...above]
+        .reverse()
+        .find(
+          (el) =>
+            hasClassToken(el.attrs, "inputContainer") ||
+            hasClassToken(el.attrs, "checkboxContainer"),
+        ) || above[above.length - 1];
+    const at = field ? field.start : -1;
+    if (owners.has(at)) {
+      refusals.push(
+        `two condensed help texts on ${page} share one field, so the second is unreachable from the rail card: the blocks at offsets ${owners.get(at)} and ${t.start}`,
+      );
+      return;
+    }
+    owners.set(at, t.start);
+  });
 
   return { refusals, blocks };
 }
@@ -882,14 +1089,14 @@ function fixtureMarkup(key, parts) {
   if (p.flat) {
     return [
       `<div ${CONDENSE_ROOT}>`,
-      `<div class="fieldDescription" data-i18n="${key}">whatever</div>`,
+      `<div class="fieldDescription" data-i18n="${key}"${p.declared ? " " + FLAT_MARK : ""}>whatever</div>`,
       `</div>`,
     ].join("\n");
   }
 
   const card = `<div class="verticalSection sso-help-card" hidden><h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2><div class="sso-help-card-text"></div></div>`;
   const block = [
-    `<div class="fieldDescription${p.marked ? " sso-help" : ""}">`,
+    `<div class="fieldDescription${p.marked ? " sso-help" : ""}"${p.declared ? " " + FLAT_MARK : ""}>`,
     p.comment ? `<!-- a note that mentions a closing </div> tag -->` : "",
     p.lead ? `<span class="sso-help-lead"></span>` : "",
     p.details ? `<details class="sso-help-full">` : "<div>",
@@ -897,7 +1104,7 @@ function fixtureMarkup(key, parts) {
       ? `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`
       : `<summary data-i18n="config.something_else">More</summary>`,
     p.body
-      ? `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
+      ? `<div class="sso-help-body" data-i18n${p.partsBody ? "-parts" : ""}="${key}">whatever</div>`
       : `<div class="sso-help-body"><span data-i18n="${key}">whatever</span></div>`,
     p.details ? `</details>` : "</div>",
     `</div>`,
@@ -912,6 +1119,36 @@ function fixtureMarkup(key, parts) {
   return [`<div ${CONDENSE_ROOT}>`, block, p.card ? card : "", `</div>`].join(
     "\n",
   );
+}
+
+/*
+ * A field container holding `n` condensed help blocks, for the field reader's arms.
+ * `voidTag` puts an `<input>` beside them, which is what a real field holds and what
+ * unwinds a stack of open tags that does not know which elements never close.
+ */
+function fieldMarkup(n, opts) {
+  const blocks = [];
+  for (let i = 0; i < n; i++) {
+    blocks.push(
+      [
+        `<div class="fieldDescription sso-help">`,
+        `<span class="sso-help-lead"></span>`,
+        `<details class="sso-help-full">`,
+        `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`,
+        `<div class="sso-help-body" data-i18n="config.fixture_${i}_help">whatever</div>`,
+        `</details>`,
+        `</div>`,
+      ].join("\n"),
+    );
+  }
+  return [
+    `<div ${CONDENSE_ROOT}>`,
+    `<div class="inputContainer">`,
+    opts && opts.voidTag ? `<input id="x" type="text" />` : "",
+    ...blocks,
+    `</div>`,
+    `</div>`,
+  ].join("\n");
 }
 
 async function calibrate(i18n) {
@@ -939,8 +1176,43 @@ async function calibrate(i18n) {
       fixtureMarkup("config.fixture_0_help", { comment: true }),
     ).refusals,
   );
+  record(
+    "a help text written flat and declaring it",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { flat: true, declared: true }),
+    ).refusals,
+  );
+  record(
+    "a parts-marked body is a key like any other",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { partsBody: true }),
+    ).refusals,
+  );
+
+  // The field reader, which is a different reader over the same bytes.
+  record(
+    "one condensed block per field container",
+    false,
+    inspectFields("fixture", fieldMarkup(1)).refusals,
+  );
+  record(
+    "two condensed blocks in one field container",
+    true,
+    inspectFields("fixture", fieldMarkup(2)).refusals,
+  );
+  record(
+    "an input in the container does not unwind the stack",
+    false,
+    inspectFields("fixture", fieldMarkup(1, { voidTag: true })).refusals,
+  );
+
   const markupNegatives = [
     ["a help text still written flat", { flat: true }],
+    ["a condensed block declaring itself flat", { declared: true }],
     ["a block the applier will not find", { marked: false }],
     ["a fold with no lead line to fill", { lead: false }],
     ["a whole text behind no fold", { details: false }],
@@ -1230,13 +1502,21 @@ async function run() {
 
   let refused = 0;
   let total = 0;
+  let declaredFlat = 0;
   for (const page of pages) {
     const markup = read(path.join(WEB, page));
     const authored = inspectMarkup(page, markup);
-    authored.refusals.forEach((message) => {
+    const fields = inspectFields(page, markup);
+    [...authored.refusals, ...fields.refusals].forEach((message) => {
       console.error(`REFUSED  ${message}`);
       refused += 1;
     });
+    if (authored.blocks !== fields.blocks) {
+      console.error(
+        `REFUSED  ${page}: the string reader finds ${authored.blocks} condensed block(s) and the tag reader finds ${fields.blocks}, so one of them is not seeing the page`,
+      );
+      refused += 1;
+    }
 
     // Collapsed for the same reason the markup reader collapses, and the floor
     // below is not decoration: reading the file as written yields ZERO keys the
@@ -1246,7 +1526,7 @@ async function run() {
     const keys = [
       ...markup
         .replace(/\s+/g, " ")
-        .matchAll(/class="sso-help-body" data-i18n="([a-z0-9_.]+_help)"/g),
+        .matchAll(new RegExp('class="sso-help-body"[^>]*' + HELP_KEY, "g")),
     ].map((m) => m[1]);
     if (keys.length === 0) {
       console.error(
@@ -1260,6 +1540,24 @@ async function run() {
     // block either of them loses - a truncated walk, a body tag spelled differently,
     // a field quietly un-condensed - moves one number and not the other. Without this
     // the run printed a green line over nineteen blocks where there had been twenty.
+    // THE WHOLE POPULATION IS TIED TO THE PAGE'S OWN MARKER COUNT, which is the
+    // arithmetic the flat half was missing. Both readers above enter a block through
+    // its CLASS, so a help text written on a class neither knows is invisible to
+    // both: the review of 2026-09-12 renamed one declared-flat field to
+    // `sso-field-note`, took its declaration away, and every gate here stayed green
+    // because the only trace was a count nothing asserted. This counts every marker
+    // on the page, class-agnostic, and requires the two halves to add up to it.
+    const markers = [
+      ...markup
+        .replace(/<!--[sS]*?-->/g, " ")
+        .matchAll(new RegExp(HELP_KEY, "g")),
+    ].length;
+    if (authored.blocks + authored.flat !== markers) {
+      console.error(
+        `REFUSED  ${page}: ${markers} help marker(s) on the page and ${authored.blocks} condensed plus ${authored.flat} declared flat, so a help text sits on an element neither reader enters`,
+      );
+      refused += 1;
+    }
     if (authored.blocks !== keys.length) {
       console.error(
         `REFUSED  ${page}: the element reader finds ${authored.blocks} condensed block(s) and the marker reader finds ${keys.length}, so one of them is not seeing the page`,
@@ -1267,6 +1565,7 @@ async function run() {
       refused += 1;
     }
     total += keys.length;
+    declaredFlat += authored.flat;
 
     for (const [name, values] of [
       ["en", en],
@@ -1299,14 +1598,14 @@ async function run() {
       });
       if (name === "en") {
         console.log(
-          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence`,
+          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence, ${authored.flat} left flat by declaration`,
         );
       }
     }
   }
 
   console.log(
-    `the marked pages:   ${total} condensed help text(s) over ${pages.length} page(s), read in en and de`,
+    `the marked pages:   ${total} condensed help text(s) and ${declaredFlat} left flat by declaration, over ${pages.length} page(s), read in en and de`,
   );
   if (refused > 0) {
     console.error(`${refused} refusal(s) in the condensed help (#1662)`);

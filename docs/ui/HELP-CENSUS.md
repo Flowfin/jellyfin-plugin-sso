@@ -123,6 +123,17 @@ it holds more, and a rail card answering a field that does not have focus. The
 two are complements. This one holds "nothing is deleted"; that one holds "and
 what happened to it is what was promised".
 
+Slice 2 (#1663) put the same folds on the Providers page and left twenty-four of
+its help texts flat on purpose, each DECLARING it with a `data-sso-help-flat`
+attribute at the site: the twelve inside the two security regions that slice 5
+(#1666) turns into folds of their own, where a second fold over a warning is the
+wrong change to make early; the one `sso-callout` note, which is a statement
+about the server rather than a description of the field beside it; and the eleven
+whose text holds a single sentence, which have nothing to put behind a fold. A
+flat help text that declares nothing is refused, and so is a page whose declared
+and condensed halves do not add up to the markers the page carries - that second
+sum is what catches a help text written on a class neither reader knows.
+
 | Page                 | Help key                                      | Field                                     |
 | -------------------- | --------------------------------------------- | ----------------------------------------- |
 | `accountsPage.html`  | `config.linked_accounts_help`                 | `(sso-linked-accounts)`                   |
