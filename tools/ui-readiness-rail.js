@@ -1097,6 +1097,15 @@ function installHost(counter) {
             if (route.includes("Library/MediaFolders")) {
               return Promise.resolve({ Items: [] });
             }
+            // THE ONE ROUTE SERVED AS A STRING (#1710): the computed redirect URI is what the
+            // provider reply's fill asks for, so an arm that watches the field can tell a
+            // dropped reply from a server that had no address to give.
+            if (
+              counter.redirect !== undefined &&
+              route.includes("RedirectUri")
+            ) {
+              return Promise.resolve(counter.redirect);
+            }
             return Promise.resolve({
               OidConfigs: [],
               SamlConfigs: [],
@@ -2252,6 +2261,178 @@ async function run() {
     }
   }
 
+  // ---- Arm: a provider saved for the first time still names itself, and its address arrives ----
+  //
+  // THE SELECTOR HOLDS NO OPTION FOR A NAME THE SERVER HAS NEVER SEEN (#1710). The arm above
+  // saves a provider whose option the first configuration read created; this one saves a name
+  // no option carries, which is every provider the wizard builds. A select assigned such a
+  // value reads as empty, populateProviders preserved that empty string (#1696), both loaders
+  // dropped their reply for it (#1693), and the redirect-URI read that only the provider reply
+  // issues never ran - so the wizard's third step refused the provider it had just saved, and
+  // the sentence it refused with promised the opposite.
+  //
+  // THE WINNING ORDERING IS ENOUGH HERE, because the defect does not need the losing one: the
+  // provider reply was dropped whichever read landed first. The observable is the field that
+  // reply fills - the stub serves the address as a string, so an empty field afterwards is a
+  // reply that was dropped and not a server that had nothing to give. The address is OpenID's
+  // alone; the SAML editor computes its ACS URL in the client and the name field is its proof.
+  {
+    const leaked = unhandled.length;
+    for (const protocol of ["oid", "saml"]) {
+      const page = providersFixture();
+      const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+      const save =
+        protocol === "oid" ? core.saveProvider : core.saveSamlProvider;
+      const selectorId =
+        protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
+      const nameField =
+        protocol === "saml" ? "#saml-provider-name" : "#OidProviderName";
+      const before = () => ({
+        OidConfigs: { a: {} },
+        SamlConfigs: { a: {} },
+        ProvisioningProfiles: {},
+      });
+      const after = () => ({
+        OidConfigs: { a: {}, fresh: {} },
+        SamlConfigs: { a: {}, fresh: {} },
+        ProvisioningProfiles: {},
+      });
+      const settled = () =>
+        new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+      const selector = page.querySelector(selectorId);
+      // THE OTHER HALF OF A SELECT'S RESET, on this one element and nowhere else: a browser
+      // assigning a value no option carries reads back the empty string, which is the whole
+      // mechanism of #1710 and the half the class above says it leaves out. Modelled here
+      // rather than on the class because the arms above set a selector on fixtures whose
+      // options were never populated and describe a page whose options exist; this arm is
+      // the one whose subject is an option that does not exist yet.
+      Object.defineProperty(selector, "value", {
+        configurable: true,
+        get() {
+          return this.chosenValue === undefined ? "" : this.chosenValue;
+        },
+        set(next) {
+          this.chosenValue = this.nodes.some(
+            (node) => node.tag === "option" && node.value === next,
+          )
+            ? next
+            : "";
+        },
+      });
+      counter.serve = before();
+      core.loadConfiguration(page);
+      await settled();
+      counter.serve = undefined;
+      if (
+        [...selector.querySelectorAll("option")].some(
+          (option) => option.value === "fresh",
+        )
+      ) {
+        refuse(
+          "first-save",
+          protocol +
+            ": the selector already held an option for the name this arm saves, so it would prove nothing",
+        );
+        continue;
+      }
+      // The state addProvider leaves behind: the editor open on a blank form and the selector
+      // naming nobody. openProvider is not reachable from this stub, as the arms above say.
+      open(page);
+      selector.value = "";
+      page.querySelector(nameField).value = "fresh";
+      counter.redirect = "https://jellyfin.example/sso/OID/redirect/fresh";
+      counter.park = [];
+      let outcome = "never settled";
+      save(page, "fresh").then(
+        () => {
+          outcome = "resolved";
+        },
+        (error) => {
+          outcome = "rejected: " + error.message;
+        },
+      );
+      await settled();
+      if (counter.park.length !== 1) {
+        refuse(
+          "first-save",
+          protocol +
+            ": the save asked for " +
+            counter.park.length +
+            " configuration read(s) before its write, so the ordering below is not the one this arm describes",
+        );
+        counter.park = null;
+        counter.redirect = undefined;
+        continue;
+      }
+      counter.park[0].resolve(before());
+      await settled();
+      if (counter.park.length !== 3 || outcome !== "resolved") {
+        refuse(
+          "first-save",
+          protocol +
+            ": a save that should have parked two reads and resolved parked " +
+            (counter.park.length - 1) +
+            " and " +
+            outcome,
+        );
+        counter.park = null;
+        counter.redirect = undefined;
+        continue;
+      }
+      if (selector.value !== "fresh") {
+        refuse(
+          "first-save",
+          protocol +
+            ": the save left " +
+            selectorId +
+            " reading " +
+            JSON.stringify(selector.value) +
+            " for the provider it had just written, so every reply about that provider is dropped as stale",
+        );
+      }
+      counter.park[1].resolve(after());
+      await settled();
+      page.querySelector(nameField).value = "";
+      counter.park[2].resolve(after());
+      await settled();
+      counter.park = null;
+      if (page.querySelector(nameField).value !== "fresh") {
+        refuse(
+          "first-save",
+          protocol +
+            ": the provider read after a first save filled nothing - " +
+            nameField +
+            " reads " +
+            JSON.stringify(page.querySelector(nameField).value),
+        );
+      }
+      if (protocol === "oid") {
+        // The fill asks for the address after a short timer, so this waits for a clock and not
+        // for a turn; the timer is the code's own and is not restated here.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const address = page.querySelector("#OidRedirectUri").value;
+        if (address !== counter.redirect) {
+          refuse(
+            "first-save",
+            "the redirect URI after a first save reads " +
+              JSON.stringify(address) +
+              " rather than the address the server serves, so the wizard's third step refuses the provider it just saved",
+          );
+        }
+      }
+      counter.redirect = undefined;
+    }
+    if (unhandled.length > leaked) {
+      refuse(
+        "first-save",
+        unhandled.length -
+          leaked +
+          " rejection(s) reached nobody: " +
+          unhandled.slice(leaked).join("; "),
+      );
+    }
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(faults.length + " refusal(s) in the readiness rail (#1678)");
@@ -2338,6 +2519,12 @@ async function run() {
   );
   console.log(
     "                   managed provider is still frozen, on both protocols (#1696)",
+  );
+  console.log(
+    "  first-save       a provider saved under a name no option held yet still names itself: the",
+  );
+  console.log(
+    "                   reply lands, and on OpenID the redirect URI arrives, on both protocols (#1710)",
   );
   console.log(
     "  NOT driven:      the capture phase, stopPropagation, and any ancestor with no id - the chain",
