@@ -216,6 +216,7 @@
   "config.provider_removed": "Anbieter entfernt.",
   "config.provider_remove_failed": "Der Anbieter konnte nicht entfernt werden: Der Server hat die gespeicherte Konfiguration abgelehnt, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
   "config.config_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde nichts geändert. Laden Sie die Seite neu und versuchen Sie es erneut.",
+  "config.provider_read_failed": "Die gespeicherte Konfiguration konnte nicht gelesen werden, daher wurde dieses Formular geschlossen und nicht mit Werten stehen gelassen, die nicht die gespeicherten sind. Laden Sie die Seite neu und versuchen Sie es erneut.",
   "config.validation_required": "{label} ist erforderlich.",
   "config.validation_endpoint_required": "Der OpenID-Endpunkt ist erforderlich.",
   "config.validation_endpoint_absolute": "Geben Sie eine absolute URL an, z. B. https://id.example.com",

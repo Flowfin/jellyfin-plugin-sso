@@ -2784,6 +2784,17 @@ const ssoConfigurationPage = {
         // against what was filled in rather than against what stood here before (#1572).
         ssoConfigurationPage.markPageClean(page);
       },
+      // The read failed, so there is nothing to fill the form from (#1681). Attached as the SECOND
+      // argument to then rather than as a catch, for the reason saveProvider states at its own handler:
+      // a catch here would also fire for anything thrown by the fill above, and a fill that threw
+      // halfway would then be reported as a server that could not be reached.
+      () => {
+        ssoConfigurationPage.hideEditor(page);
+        ssoConfigurationPage.reportUnreadableProviderConfiguration(page);
+        // The form is gone, so nothing in it is unsaved, and the notice that says otherwise would
+        // outlive the editor it is about (#1572).
+        ssoConfigurationPage.markPageClean(page);
+      },
     );
   },
   // Serial of the most recent redirect-URI request. A reply for an older provider name must never land in
@@ -3100,6 +3111,35 @@ const ssoConfigurationPage = {
     if (message) {
       box.classList.add(ok ? "sso-status-ok" : "sso-status-fail");
     }
+  },
+  // THE ONE ANSWER TO A CONFIGURATION READ THAT FAILED WHILE AN EDITOR WAS BEING FILLED (#1681).
+  //
+  // Both loaders fill a form from a read that can fail, and until this existed neither had a rejection
+  // arm at all: the editor was already open over the fields resetEditor had blanked, so the form read as
+  // an empty provider, the readiness rail had been rebuilt from those blanks and asserted "Still empty"
+  // about a provider that is saved and fully configured, and the rejection surfaced in the browser
+  // console and nowhere a reader of the page will look. The rail is the part worth stating plainly: since
+  // #1664 it is the only place readiness appears, so it was not silent, it was confidently wrong, and
+  // what it said was the opposite of the truth.
+  //
+  // THE EDITOR IS CLOSED RATHER THAN ANNOTATED, and that is the decision. A note above a form full of
+  // blanks leaves the blanks on screen, one Save away from writing them over a provider that is fine, and
+  // leaves the rail answering about them. Closing it takes all three at once: nothing reads as the
+  // provider's values, the Save goes with the form, and hideEditor / hideSamlEditor put the rail back to
+  // its invitation through railReadiness, which is the state that matches a page with no editor open.
+  //
+  // THE PAGE REGION AND NOT THE EDITOR'S, for the reason deleteProvider states where it does the same
+  // thing: the editor's status box lives inside the element that was just hidden, so an outcome written
+  // there would be invisible.
+  reportUnreadableProviderConfiguration: (page) => {
+    ssoConfigurationPage.renderPageStatus(
+      page,
+      tr(
+        "config.provider_read_failed",
+        "Could not read the stored configuration, so this form was closed rather than left showing values that are not the stored ones. Reload the page and try again.",
+      ),
+      false,
+    );
   },
   saveProvider: (page, provider_name) => {
     return new Promise((resolve, reject) => {
@@ -5075,6 +5115,14 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.refreshReadiness(page, "saml");
         // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
         // against what was filled in rather than against what stood here before (#1572).
+        ssoConfigurationPage.markPageClean(page);
+      },
+      // The same arm the OpenID loader carries, for the same reason and written the same way (#1681).
+      // Both protocols reach this through one read of one configuration document, so a failure here is
+      // never about one of them: whichever editor was being filled is closed and the page says why.
+      () => {
+        ssoConfigurationPage.hideSamlEditor(page);
+        ssoConfigurationPage.reportUnreadableProviderConfiguration(page);
         ssoConfigurationPage.markPageClean(page);
       },
     );

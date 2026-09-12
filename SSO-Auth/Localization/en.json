@@ -216,6 +216,7 @@
   "config.provider_removed": "Provider removed.",
   "config.provider_remove_failed": "Could not remove the provider: the server refused the saved configuration, so nothing was changed. Reload the page and try again.",
   "config.config_read_failed": "Could not read the stored configuration, so nothing was changed. Reload the page and try again.",
+  "config.provider_read_failed": "Could not read the stored configuration, so this form was closed rather than left showing values that are not the stored ones. Reload the page and try again.",
   "config.validation_required": "{label} is required.",
   "config.validation_endpoint_required": "OpenID Endpoint is required.",
   "config.validation_endpoint_absolute": "Enter an absolute URL, e.g. https://id.example.com",
