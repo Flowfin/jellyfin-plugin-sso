@@ -637,11 +637,16 @@
    form rather than beside it.
 
    NO `position: sticky` HERE, and it was written before it was thought about. The stated purpose was to
-   survive a scroll, and `.sso-columns` sets `align-items: start` while the rail holds nothing but this
-   card - so the sticky element's containing block is its own height and there is nowhere to travel. It
-   would have been a declaration that does nothing, asserting a behaviour in a comment beside it. What
-   the rail should do when the form is taller than the screen is a question for the walk, not for a
-   property nobody measured. */
+   survive a scroll, and `.sso-columns` sets `align-items: start`, so a sticky element whose containing
+   block is the rail's own content has nowhere to travel. It would have been a declaration that does
+   nothing, asserting a behaviour in a comment beside it.
+
+   THE REASON SAID "THE RAIL HOLDS NOTHING BUT THIS CARD" AND THAT STOPPED BEING TRUE (#1664). The
+   Providers rail holds the readiness card as well now, so the rail's content is no longer one card's
+   height, and whether that changes the answer is not settled here - it is measured on a walk or not at
+   all. The declaration is still absent and the sentence that justified it is repaired rather than left
+   standing as a fact about a page that has moved on. What the rail should do when the form is taller
+   than the screen remains the walk's question. */
 .sso-help-card {
   max-height: 60vh;
   overflow-y: auto;
