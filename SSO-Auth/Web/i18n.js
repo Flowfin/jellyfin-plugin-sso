@@ -272,10 +272,13 @@ function condenseHelp(root) {
   // two is unreachable from the rail either way. A Map built from pairs silently kept the LAST, which is
   // the harder of the two to notice on a page, so this at least fails in document order.
   //
-  // THE SHAPE IS NOT REFUSED ANYWHERE, and saying so is the point of this note. No page carries it
-  // today - all twenty blocks on the three condensed pages resolve to distinct elements, counted - and
-  // the Providers page, which the next slice feeds this code, carries 112 sites in 98 keys and is where
-  // it would first arise. The fold and the sentence under the field are unaffected; only the rail is.
+  // THE SHAPE IS REFUSED NOW, AND THIS NOTE SAID IT WAS REFUSED NOWHERE. It said so correctly while the
+  // Providers page was still flat; that page joined the slice in #1663, which is where the note said the
+  // shape would first arise, and the refusal landed with it. tools/ui-condensed-help.js reads the field
+  // each condensed block resolves to - the same walk `fieldOf` below makes - and refuses two blocks
+  // sharing one, naming the key it keeps and the key the rail can no longer reach. No page carries the
+  // shape; what the refusal holds is the next edit that would. The fold and the sentence under the field
+  // are unaffected by it either way; only the rail is.
   const fields = new Map();
   helps.forEach((help) => {
     const field = fieldOf(help);
