@@ -354,6 +354,7 @@
   "config.saml_template_help": "Füllt einen Platzhalter für den Endpunkt eines SAML-Identitätsanbieters vor. Füllen Sie Endpunkt und Signaturzertifikat über die Metadaten-Einfuhr unten aus den Daten Ihres Identitätsanbieters, prüfen Sie dann und speichern Sie. Es wird nichts automatisch gespeichert.",
   "config.test_connection": "Verbindung testen",
   "config.save_provider": "Speichern",
+  "config.readiness_moved": "Ob dieser Anbieter bereit ist, eine Anmeldung zu bedienen, steht in der Übersicht neben diesem Formular.",
   "config.readiness_empty": "Öffnen Sie einen Anbieter, um zu sehen, ob er eine Anmeldung bedienen kann.",
   "config.oid_name_label": "Name des OpenID-Anbieters: {0}",
   "config.oid_name_help": "Der Name, unter dem Jellyfin den OpenID-Anbieter führt. {0} Gibt es keinen OpenID-Anbieter dieses Namens, wird einer unter diesem Namen angelegt. {1} Gibt es ihn schon, werden dessen Einstellungen aktualisiert.",

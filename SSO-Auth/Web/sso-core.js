@@ -246,6 +246,11 @@ const OIDC_PRESET_MANAGED_TOGGLES = [
 ];
 const SAML_PRESET_MANAGED_TOGGLES = ["DoNotValidateAudience"];
 
+// The one list the readiness panel writes into (#1664). It is named once because both protocol specs
+// point at it now: a second spelling is a second place for the two forms to disagree about where the
+// answer goes, and the whole point of the move is that there is only one.
+const RAIL_READINESS_LIST = "sso-rail-readiness-list";
+
 const ssoConfigurationPage = {
   pluginUniqueId: "505ce9d1-d916-42fa-86ca-673ef241d7df",
   // Toggles that disable an OpenID Connect security defense. An active one is a downgrade the admin must
@@ -806,9 +811,11 @@ const ssoConfigurationPage = {
   showEditor: (page) => {
     ssoConfigurationPage.hideSamlEditor(page);
     page.querySelector("#sso-editor").hidden = false;
+    ssoConfigurationPage.railReadiness(page);
   },
   hideEditor: (page) => {
     page.querySelector("#sso-editor").hidden = true;
+    ssoConfigurationPage.railReadiness(page);
   },
   setEditorTitle: (page, title) => {
     page.querySelector("#sso-editor-title").textContent = title;
@@ -3249,7 +3256,36 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.readinessTestState[key] = ok;
     ssoConfigurationPage.refreshReadiness(page, key);
   },
-  // ---- Readiness panel (#1083) ----
+  // ---- Readiness panel (#1083), answered once in the rail (#1664) ----
+  // WHICH EDITOR IS OPEN DECIDES WHAT THE RAIL SAYS, and it is computed rather than remembered. The two
+  // editors are mutually exclusive (#1527) and every route that opens one hides the other, so the rail's
+  // state is a function of two `hidden` attributes and never of a variable somebody has to keep in step.
+  // Both openers and both closers call this; a doubled call is a rebuild of the same list, which is what
+  // the panel was already safe for.
+  //
+  // BOTH HIDDEN IS THE INVITATION, not an empty panel: a headed list with no rows reads as a provider
+  // that answered nothing, which is the opposite of the truth when no provider is open.
+  railReadiness: (page) => {
+    const list = page.querySelector("#" + RAIL_READINESS_LIST);
+    const empty = page.querySelector("#sso-rail-readiness");
+    if (!list || !empty) {
+      return;
+    }
+    const open = !page.querySelector("#sso-editor").hidden
+      ? "oid"
+      : !page.querySelector("#saml-editor").hidden
+        ? "saml"
+        : null;
+    if (open === null) {
+      list.replaceChildren();
+      list.hidden = true;
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    list.hidden = false;
+    ssoConfigurationPage.refreshReadiness(page, open);
+  },
   // The last Test Connection outcome per protocol, so the reachability row can report it WITHOUT
   // re-issuing the request. null means "not yet tested in this page session", which is what a provider
   // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
@@ -3259,7 +3295,7 @@ const ssoConfigurationPage = {
   // panel adds no field, no request and no state of its own beyond the test outcome above.
   readinessSpecs: {
     oid: {
-      listId: "OidReadinessList",
+      listId: RAIL_READINESS_LIST,
       testKey: "oid",
       requiredIds: ["OidProviderName", "OidEndpoint", "OidClientId"],
       errorIds: [
@@ -3273,7 +3309,7 @@ const ssoConfigurationPage = {
       urlId: "OidRedirectUri",
     },
     saml: {
-      listId: "saml-ReadinessList",
+      listId: RAIL_READINESS_LIST,
       testKey: "saml",
       requiredIds: [
         "saml-provider-name",
@@ -4743,9 +4779,11 @@ const ssoConfigurationPage = {
   showSamlEditor: (page) => {
     ssoConfigurationPage.hideEditor(page);
     page.querySelector("#saml-editor").hidden = false;
+    ssoConfigurationPage.railReadiness(page);
   },
   hideSamlEditor: (page) => {
     page.querySelector("#saml-editor").hidden = true;
+    ssoConfigurationPage.railReadiness(page);
   },
   setSamlEditorTitle: (page, title) => {
     page.querySelector("#saml-editor-title").textContent = title;
