@@ -2807,13 +2807,15 @@
                         </div>
                       </div>
 
-                      <div class="sso-security-block sso-sensitive-region">
-                        <p
-                          class="sso-subgroup-title"
-                          data-i18n="config.security_adoption_heading"
-                        >
-                          Account adoption (sensitive)
-                        </p>
+                      <details
+                        class="sso-security-block sso-sensitive-region sso-option-fold"
+                      >
+                        <summary class="sso-subgroup-title sso-fold-summary">
+                          <span data-i18n="config.security_adoption_heading"
+                            >Account adoption (sensitive)</span
+                          >
+                          <span class="sso-fold-count"></span>
+                        </summary>
                         <div
                           class="checkboxContainer checkboxContainer-withDescription"
                         >
@@ -3058,15 +3060,20 @@
                             </details>
                           </div>
                         </div>
-                      </div>
+                      </details>
 
-                      <div class="sso-security-block sso-danger-zone">
-                        <p
-                          class="sso-subgroup-title sso-danger-title"
-                          data-i18n="config.security_insecure_heading"
+                      <details
+                        id="sso-insecure-options"
+                        class="sso-security-block sso-danger-zone sso-option-fold"
+                      >
+                        <summary
+                          class="sso-subgroup-title sso-danger-title sso-fold-summary"
                         >
-                          Insecure options
-                        </p>
+                          <span data-i18n="config.security_insecure_heading"
+                            >Insecure options</span
+                          >
+                          <span class="sso-fold-count"></span>
+                        </summary>
                         <div class="fieldDescription sso-help">
                           <span class="sso-help-lead"></span>
                           <details class="sso-help-full">
@@ -3084,242 +3091,218 @@
                             </div>
                           </details>
                         </div>
-                        <button
-                          is="emby-button"
-                          type="button"
-                          id="ShowInsecureOptions"
-                          class="raised button-alt sso-insecure-toggle emby-button"
-                          aria-expanded="false"
-                          aria-controls="sso-insecure-options"
-                        >
-                          <span data-i18n="config.insecure_show"
-                            >Show insecure options</span
-                          >
-                        </button>
-
                         <div
-                          id="sso-insecure-options"
-                          class="sso-insecure-options"
-                          hidden
+                          class="checkboxContainer checkboxContainer-withDescription"
                         >
-                          <div
-                            class="checkboxContainer checkboxContainer-withDescription"
-                          >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="DisableHttps"
-                                name="DisableHttps"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span data-i18n="config.disable_https_label"
-                                >Disable OpenID HTTPS Discovery (Insecure)</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="DisableHttps"
+                              name="DisableHttps"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span data-i18n="config.disable_https_label"
+                              >Disable OpenID HTTPS Discovery (Insecure)</span
                             >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n="config.disable_https_help"
-                                >
-                                  ⚠ Insecure: drops TLS on the discovery, JWKS
-                                  and token endpoints, so the id_token signing
-                                  keys can be swapped by a man-in-the-middle and
-                                  a forged login accepted. Use only on a trusted
-                                  internal network. Enabling it is recorded as
-                                  an audit warning.
-                                </div>
-                              </details>
-                            </div>
-                          </div>
-
-                          <div class="checkboxContainer">
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="DisablePushedAuthorization"
-                                name="DisablePushedAuthorization"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span data-i18n="config.disable_par_label"
-                                >Disable Pushed Authorization (Insecure). May be
-                                needed for Authelia.</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription"
-                            ></div>
-                          </div>
-
+                          </label>
                           <div
-                            class="checkboxContainer checkboxContainer-withDescription"
+                            class="fieldDescription checkboxFieldDescription sso-help"
                           >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="DoNotValidateEndpoints"
-                                name="DoNotValidateEndpoints"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span
-                                data-i18n="config.no_validate_endpoints_label"
-                                >Do Not Validate OpenID Endpoints
-                                (Insecure)</span
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.disable_https_help"
                               >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
-                            >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n="config.no_validate_endpoints_help"
-                                >
-                                  ⚠ Insecure: disables endpoint-origin
-                                  validation (a mix-up defense). May be required
-                                  for Google OpenID, whose endpoints live on
-                                  different hosts. Enabling it is recorded as an
-                                  audit warning.
-                                </div>
-                              </details>
-                            </div>
-                          </div>
-
-                          <div
-                            class="checkboxContainer checkboxContainer-withDescription"
-                          >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="AllowPrivateNetworkAddresses"
-                                name="AllowPrivateNetworkAddresses"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span
-                                data-i18n="config.allow_private_network_label"
-                                >Allow Private Network Addresses
-                                (Insecure)</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
-                            >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n="config.allow_private_network_help"
-                                >
-                                  ⚠ Insecure: relaxes the outbound SSRF /
-                                  DNS-rebind guard for this provider, allowing
-                                  connection to an OIDC provider hosted on a
-                                  private network. Permits RFC 1918, CGNAT and
-                                  IPv6 unique-local addresses. Loopback,
-                                  link-local and cloud-metadata ranges remain
-                                  blocked. Leave off for any provider reachable
-                                  on the public internet. Enabling it is
-                                  recorded as an audit warning.
-                                </div>
-                              </details>
-                            </div>
-                          </div>
-
-                          <div
-                            class="checkboxContainer checkboxContainer-withDescription"
-                          >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="DoNotValidateIssuerName"
-                                name="DoNotValidateIssuerName"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span data-i18n="config.no_validate_issuer_label"
-                                >Do Not Validate OpenID Issuer Name
-                                (Insecure)</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
-                            >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n="config.no_validate_issuer_help"
-                                >
-                                  ⚠ Insecure: disables matching the discovery
-                                  issuer, a mix-up defense. Only for a provider
-                                  that legitimately presents a different issuer
-                                  (some templated/multi-tenant setups). Enabling
-                                  it is recorded as an audit warning.
-                                </div>
-                              </details>
-                            </div>
-                          </div>
-
-                          <div
-                            class="checkboxContainer checkboxContainer-withDescription"
-                          >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="DoNotValidateResponseIssuer"
-                                name="DoNotValidateResponseIssuer"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span
-                                data-i18n="config.no_validate_response_issuer_label"
-                                >Do Not Validate Authorization-Response Issuer
-                                (Insecure)</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
-                            >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n-parts="config.no_validate_response_issuer_help"
-                                >
-                                  ⚠ Insecure: disables the RFC 9207
-                                  <code>iss</code>
-                                  check, an OpenID Connect mix-up defense. Only
-                                  for a provider whose authorization response
-                                  legitimately carries a different issuer.
-                                  Enabling it is recorded as an audit warning.
-                                </div>
-                              </details>
-                            </div>
+                                ⚠ Insecure: drops TLS on the discovery, JWKS and
+                                token endpoints, so the id_token signing keys
+                                can be swapped by a man-in-the-middle and a
+                                forged login accepted. Use only on a trusted
+                                internal network. Enabling it is recorded as an
+                                audit warning.
+                              </div>
+                            </details>
                           </div>
                         </div>
-                      </div>
+
+                        <div class="checkboxContainer">
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="DisablePushedAuthorization"
+                              name="DisablePushedAuthorization"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span data-i18n="config.disable_par_label"
+                              >Disable Pushed Authorization (Insecure). May be
+                              needed for Authelia.</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription"
+                          ></div>
+                        </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="DoNotValidateEndpoints"
+                              name="DoNotValidateEndpoints"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span data-i18n="config.no_validate_endpoints_label"
+                              >Do Not Validate OpenID Endpoints (Insecure)</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.no_validate_endpoints_help"
+                              >
+                                ⚠ Insecure: disables endpoint-origin validation
+                                (a mix-up defense). May be required for Google
+                                OpenID, whose endpoints live on different hosts.
+                                Enabling it is recorded as an audit warning.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="AllowPrivateNetworkAddresses"
+                              name="AllowPrivateNetworkAddresses"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span data-i18n="config.allow_private_network_label"
+                              >Allow Private Network Addresses (Insecure)</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.allow_private_network_help"
+                              >
+                                ⚠ Insecure: relaxes the outbound SSRF /
+                                DNS-rebind guard for this provider, allowing
+                                connection to an OIDC provider hosted on a
+                                private network. Permits RFC 1918, CGNAT and
+                                IPv6 unique-local addresses. Loopback,
+                                link-local and cloud-metadata ranges remain
+                                blocked. Leave off for any provider reachable on
+                                the public internet. Enabling it is recorded as
+                                an audit warning.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="DoNotValidateIssuerName"
+                              name="DoNotValidateIssuerName"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span data-i18n="config.no_validate_issuer_label"
+                              >Do Not Validate OpenID Issuer Name
+                              (Insecure)</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.no_validate_issuer_help"
+                              >
+                                ⚠ Insecure: disables matching the discovery
+                                issuer, a mix-up defense. Only for a provider
+                                that legitimately presents a different issuer
+                                (some templated/multi-tenant setups). Enabling
+                                it is recorded as an audit warning.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="DoNotValidateResponseIssuer"
+                              name="DoNotValidateResponseIssuer"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span
+                              data-i18n="config.no_validate_response_issuer_label"
+                              >Do Not Validate Authorization-Response Issuer
+                              (Insecure)</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n-parts="config.no_validate_response_issuer_help"
+                              >
+                                ⚠ Insecure: disables the RFC 9207
+                                <code>iss</code>
+                                check, an OpenID Connect mix-up defense. Only
+                                for a provider whose authorization response
+                                legitimately carries a different issuer.
+                                Enabling it is recorded as an audit warning.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+                      </details>
                     </div>
                   </div>
 
@@ -5582,13 +5565,15 @@
                         </div>
                       </div>
 
-                      <div class="sso-security-block sso-sensitive-region">
-                        <p
-                          class="sso-subgroup-title"
-                          data-i18n="config.saml_inbound_rotation_heading"
-                        >
-                          Inbound certificate rotation
-                        </p>
+                      <details
+                        class="sso-security-block sso-sensitive-region sso-option-fold"
+                      >
+                        <summary class="sso-subgroup-title sso-fold-summary">
+                          <span data-i18n="config.saml_inbound_rotation_heading"
+                            >Inbound certificate rotation</span
+                          >
+                          <span class="sso-fold-count"></span>
+                        </summary>
 
                         <div class="inputContainer">
                           <label
@@ -5634,15 +5619,20 @@
                             </details>
                           </div>
                         </div>
-                      </div>
+                      </details>
 
-                      <div class="sso-security-block sso-danger-zone">
-                        <p
-                          class="sso-subgroup-title sso-danger-title"
-                          data-i18n="config.security_insecure_heading"
+                      <details
+                        id="saml-insecure-options"
+                        class="sso-security-block sso-danger-zone sso-option-fold"
+                      >
+                        <summary
+                          class="sso-subgroup-title sso-danger-title sso-fold-summary"
                         >
-                          Insecure options
-                        </p>
+                          <span data-i18n="config.security_insecure_heading"
+                            >Insecure options</span
+                          >
+                          <span class="sso-fold-count"></span>
+                        </summary>
                         <div class="fieldDescription sso-help">
                           <span class="sso-help-lead"></span>
                           <details class="sso-help-full">
@@ -5659,64 +5649,45 @@
                             </div>
                           </details>
                         </div>
-                        <button
-                          is="emby-button"
-                          type="button"
-                          id="saml-ShowInsecureOptions"
-                          class="raised button-alt sso-insecure-toggle emby-button"
-                          aria-expanded="false"
-                          aria-controls="saml-insecure-options"
-                        >
-                          <span data-i18n="config.insecure_show"
-                            >Show insecure options</span
-                          >
-                        </button>
-
                         <div
-                          id="saml-insecure-options"
-                          class="sso-insecure-options"
-                          hidden
+                          class="checkboxContainer checkboxContainer-withDescription"
                         >
-                          <div
-                            class="checkboxContainer checkboxContainer-withDescription"
-                          >
-                            <label>
-                              <input
-                                is="emby-checkbox"
-                                id="saml-DoNotValidateAudience"
-                                name="saml-DoNotValidateAudience"
-                                type="checkbox"
-                                class="sso-toggle"
-                              />
-                              <span
-                                data-i18n="config.saml_no_validate_audience_label"
-                                >Do Not Validate Audience (Insecure)</span
-                              >
-                            </label>
-                            <div
-                              class="fieldDescription checkboxFieldDescription sso-help"
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="saml-DoNotValidateAudience"
+                              name="saml-DoNotValidateAudience"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span
+                              data-i18n="config.saml_no_validate_audience_label"
+                              >Do Not Validate Audience (Insecure)</span
                             >
-                              <span class="sso-help-lead"></span>
-                              <details class="sso-help-full">
-                                <summary data-i18n="config.help_full_text">
-                                  Full text
-                                </summary>
-                                <div
-                                  class="sso-help-body"
-                                  data-i18n-parts="config.saml_no_validate_audience_help"
-                                >
-                                  ⚠ Insecure: disables the
-                                  <code>AudienceRestriction</code> check, so an
-                                  assertion minted for a different service
-                                  provider could be replayed here. Only if your
-                                  IdP cannot set the audience correctly.
-                                  Enabling it is recorded as an audit warning.
-                                </div>
-                              </details>
-                            </div>
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n-parts="config.saml_no_validate_audience_help"
+                              >
+                                ⚠ Insecure: disables the
+                                <code>AudienceRestriction</code> check, so an
+                                assertion minted for a different service
+                                provider could be replayed here. Only if your
+                                IdP cannot set the audience correctly. Enabling
+                                it is recorded as an audit warning.
+                              </div>
+                            </details>
                           </div>
                         </div>
-                      </div>
+                      </details>
                     </div>
                   </div>
 

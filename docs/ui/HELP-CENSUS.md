@@ -234,7 +234,7 @@ run, and it prints how many per page. This table counts them as it always has.
 | `providersPage.html` | `config.follow_renames_help`                  | `SyncUsernameFromProvider`                |
 | `providersPage.html` | `config.require_verified_email_adoption_help` | `RequireVerifiedEmailForAdoption`         |
 | `providersPage.html` | `config.require_verified_email_login_help`    | `RequireVerifiedEmailForLogin`            |
-| `providersPage.html` | `config.insecure_options_help`                | `(sso-security-section)`                  |
+| `providersPage.html` | `config.insecure_options_help`                | `(sso-insecure-options)`                  |
 | `providersPage.html` | `config.disable_https_help`                   | `DisableHttps`                            |
 | `providersPage.html` | `config.no_validate_endpoints_help`           | `DoNotValidateEndpoints`                  |
 | `providersPage.html` | `config.allow_private_network_help`           | `AllowPrivateNetworkAddresses`            |
@@ -288,7 +288,7 @@ run, and it prints how many per page. This table counts them as it always has.
 | `providersPage.html` | `config.saml_signing_key_help`                | `saml-SamlSigningKeyPfx`                  |
 | `providersPage.html` | `config.saml_rollover_signing_key_help`       | `saml-SamlRolloverSigningKeyPfx`          |
 | `providersPage.html` | `config.saml_secondary_certificate_help`      | `saml-SamlSecondaryCertificate`           |
-| `providersPage.html` | `config.saml_insecure_options_help`           | `(saml-security-section)`                 |
+| `providersPage.html` | `config.saml_insecure_options_help`           | `(saml-insecure-options)`                 |
 | `providersPage.html` | `config.saml_no_validate_audience_help`       | `saml-DoNotValidateAudience`              |
 | `providersPage.html` | `config.saml_test_help`                       | `(saml-editor)`                           |
 | `serverPage.html`    | `config.server_transfer_help`                 | `(sso-config-transfer)`                   |
