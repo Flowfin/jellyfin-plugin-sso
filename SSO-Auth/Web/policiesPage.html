@@ -112,7 +112,7 @@
             hidden
           ></div>
 
-          <div class="sso-columns">
+          <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
             Provisioning profiles (#1105): the editor for the GLOBAL named profile set. A profile is a
@@ -167,13 +167,21 @@
                         name="selectProvisioningProfile"
                         class="emby-select-withcolor emby-select"
                       ></select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.profiles_select_help"
-                      >
-                        The profiles this configuration defines. Choosing one
-                        loads it into the fields below; Save profile writes it
-                        back.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.profiles_select_help"
+                          >
+                            The profiles this configuration defines. Choosing
+                            one loads it into the fields below; Save profile
+                            writes it back.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <!--
@@ -202,15 +210,23 @@
                         type="text"
                         class="emby-input"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.profiles_name_help"
-                      >
-                        The name a provider points at. Add profile creates a new
-                        one under this name; Rename profile renames the profile
-                        selected above and repoints every provider and role rule
-                        that names it, so nothing is left pointing at a name
-                        that no longer exists.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.profiles_name_help"
+                          >
+                            The name a provider points at. Add profile creates a
+                            new one under this name; Rename profile renames the
+                            profile selected above and repoints every provider
+                            and role rule that names it, so nothing is left
+                            pointing at a name that no longer exists.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -226,16 +242,25 @@
                         name="ProvisioningProfileSource"
                         class="emby-select-withcolor emby-select"
                       ></select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.profiles_copy_help"
-                      >
-                        A new profile begins as what a provider does today, so
-                        the first edit is a difference from a known state rather
-                        than a form filled from blank. Only providers that carry
-                        an inline policy are listed. Choosing to start empty is
-                        allowed and means exactly that: until you set a field,
-                        the profile writes nothing onto a new account.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.profiles_copy_help"
+                          >
+                            A new profile begins as what a provider does today,
+                            so the first edit is a difference from a known state
+                            rather than a form filled from blank. Only providers
+                            that carry an inline policy are listed. Choosing to
+                            start empty is allowed and means exactly that: until
+                            you set a field, the profile writes nothing onto a
+                            new account.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <button
@@ -288,13 +313,22 @@
                         step="1"
                         class="sso-tmpl-number emby-input"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_bitrate_help"
-                      >
-                        The remote streaming ceiling in bits per second. Zero
-                        means no limit, which is a real setting rather than an
-                        empty one. Leave blank to keep Jellyfin's own default.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_bitrate_help"
+                          >
+                            The remote streaming ceiling in bits per second.
+                            Zero means no limit, which is a real setting rather
+                            than an empty one. Leave blank to keep Jellyfin's
+                            own default.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -313,13 +347,22 @@
                         step="1"
                         class="sso-tmpl-number emby-input"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_sessions_help"
-                      >
-                        How many sessions the account may hold at once. Zero
-                        means unlimited, which is a real setting rather than an
-                        empty one. Leave blank to keep Jellyfin's own default.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_sessions_help"
+                          >
+                            How many sessions the account may hold at once. Zero
+                            means unlimited, which is a real setting rather than
+                            an empty one. Leave blank to keep Jellyfin's own
+                            default.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -336,14 +379,22 @@
                         type="text"
                         class="sso-tmpl-text emby-input"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_audio_language_help"
-                      >
-                        The language code Jellyfin itself stores, for example
-                        eng. It is passed on as given rather than checked
-                        against a list, so any code Jellyfin accepts works.
-                        Leave blank to keep Jellyfin's own default.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_audio_language_help"
+                          >
+                            The language code Jellyfin itself stores, for
+                            example eng. It is passed on as given rather than
+                            checked against a list, so any code Jellyfin accepts
+                            works. Leave blank to keep Jellyfin's own default.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -360,12 +411,21 @@
                         type="text"
                         class="sso-tmpl-text emby-input"
                       />
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_subtitle_language_help"
-                      >
-                        The language code Jellyfin itself stores, for example
-                        eng. Leave blank to keep Jellyfin's own default.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_subtitle_language_help"
+                          >
+                            The language code Jellyfin itself stores, for
+                            example eng. Leave blank to keep Jellyfin's own
+                            default.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -390,14 +450,22 @@
                         <option value="None">None</option>
                         <option value="Smart">Smart</option>
                       </select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_subtitle_mode_help"
-                      >
-                        Which subtitles play by default. The options are the
-                        exact mode names Jellyfin declares, which is the
-                        spelling a save accepts; leaving it unset keeps
-                        Jellyfin's own default.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_subtitle_mode_help"
+                          >
+                            Which subtitles play by default. The options are the
+                            exact mode names Jellyfin declares, which is the
+                            spelling a save accepts; leaving it unset keeps
+                            Jellyfin's own default.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -423,13 +491,21 @@
                           No
                         </option>
                       </select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_play_default_audio_help"
-                      >
-                        Leaving this unset keeps Jellyfin's own default. No is a
-                        deliberate setting rather than an absent one, which is
-                        why this is a list and not a checkbox.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_play_default_audio_help"
+                          >
+                            Leaving this unset keeps Jellyfin's own default. No
+                            is a deliberate setting rather than an absent one,
+                            which is why this is a list and not a checkbox.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -455,14 +531,22 @@
                           No
                         </option>
                       </select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_remember_audio_help"
-                      >
-                        Whether an audio track chosen during playback is
-                        remembered for next time. Leaving this unset keeps
-                        Jellyfin's own default; No is a deliberate setting
-                        rather than an absent one.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_remember_audio_help"
+                          >
+                            Whether an audio track chosen during playback is
+                            remembered for next time. Leaving this unset keeps
+                            Jellyfin's own default; No is a deliberate setting
+                            rather than an absent one.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -488,14 +572,22 @@
                           No
                         </option>
                       </select>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_remember_subtitle_help"
-                      >
-                        Whether a subtitle chosen during playback is remembered
-                        for next time. Leaving this unset keeps Jellyfin's own
-                        default; No is a deliberate setting rather than an
-                        absent one.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_remember_subtitle_help"
+                          >
+                            Whether a subtitle chosen during playback is
+                            remembered for next time. Leaving this unset keeps
+                            Jellyfin's own default; No is a deliberate setting
+                            rather than an absent one.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="inputContainer">
@@ -512,18 +604,27 @@
                         type="text"
                         class="sso-tmpl-list emby-textarea"
                       ></textarea>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_home_sections_help"
-                      >
-                        The sections of the web client's home screen, one per
-                        line, top slot first: None, SmallLibraryTiles,
-                        LibraryButtons, ActiveRecordings, Resume, ResumeAudio,
-                        LatestMedia, NextUp, LiveTv or ResumeBook, spelled
-                        exactly like that. Up to ten lines; the slots you do not
-                        fill show nothing, as they would after saving the
-                        client's own home-screen settings. Leave the box empty
-                        to keep Jellyfin's own layout.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_home_sections_help"
+                          >
+                            The sections of the web client's home screen, one
+                            per line, top slot first: None, SmallLibraryTiles,
+                            LibraryButtons, ActiveRecordings, Resume,
+                            ResumeAudio, LatestMedia, NextUp, LiveTv or
+                            ResumeBook, spelled exactly like that. Up to ten
+                            lines; the slots you do not fill show nothing, as
+                            they would after saving the client's own home-screen
+                            settings. Leave the box empty to keep Jellyfin's own
+                            layout.
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div class="sso-subgroup">
@@ -533,18 +634,27 @@
                       >
                         Permissions written onto a new account
                       </p>
-                      <div
-                        class="fieldDescription"
-                        data-i18n="config.template_permissions_help"
-                      >
-                        Each row names one Jellyfin permission and the value a
-                        new account starts with. A permission that is not listed
-                        is never touched. The names come from the server rather
-                        than from a list kept on this page, so they cannot drift
-                        from what a save accepts; administrator, all-folders and
-                        Live TV access are not offered here because each keeps
-                        its own setting above, and no account can be created
-                        disabled from here.
+                      <div class="fieldDescription sso-help">
+                        <span class="sso-help-lead"></span>
+                        <details class="sso-help-full">
+                          <summary data-i18n="config.help_full_text">
+                            Full text
+                          </summary>
+                          <div
+                            class="sso-help-body"
+                            data-i18n="config.template_permissions_help"
+                          >
+                            Each row names one Jellyfin permission and the value
+                            a new account starts with. A permission that is not
+                            listed is never touched. The names come from the
+                            server rather than from a list kept on this page, so
+                            they cannot drift from what a save accepts;
+                            administrator, all-folders and Live TV access are
+                            not offered here because each keeps its own setting
+                            above, and no account can be created disabled from
+                            here.
+                          </div>
+                        </details>
                       </div>
                       <div
                         id="profile-Tmpl-Permissions"
@@ -583,7 +693,21 @@
                 </div>
               </form>
             </div>
-            <aside class="sso-column-rail"></aside>
+            <aside class="sso-column-rail">
+              <!--
+                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
+                the rest behind a fold; this is the second way to read the rest, without losing the field while
+                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
+                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
+                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+              -->
+              <div class="verticalSection sso-help-card" hidden>
+                <h2 class="sectionTitle" data-i18n="config.help_full_text">
+                  Full text
+                </h2>
+                <div class="fieldDescription sso-help-card-text"></div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>

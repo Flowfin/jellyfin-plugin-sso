@@ -592,3 +592,57 @@
 .sso-callout code {
   overflow-wrap: anywhere;
 }
+
+/* CONDENSED HELP (#1662). A field description is authored as an empty lead line over a `<details>` that
+   holds the whole text; SSO-Auth/Web/i18n.js writes the text's first sentence into that lead line when
+   it runs. These rules are what stop the structure from reading as stacked paragraphs.
+
+   WHAT A PAGE WHOSE SCRIPT NEVER RAN SHOWS, stated rather than implied, because an earlier draft of this
+   comment claimed it kept "the flat text it always had" and the markup this change authors has no flat
+   text in it. It shows the fold, closed, named, holding every word - and NO sentence under the field,
+   because the only part of the arrangement that needs a runtime is the split. The rule below hides the
+   lead line while it is empty, so the loss is a fold to open rather than a blank line above one. The
+   module load is wrapped in a try and a catch by sso-core.js, so this is reachable: a blocked or missing
+   SSOViews/i18n.js is silent by design there and lands here.
+
+   NATIVE `<details>` AND NO REPLACEMENT MARKER. The disclosure triangle, the keyboard behaviour and the
+   announcement to a screen reader all come from the element; a custom toggle would have to rebuild three
+   things this plugin has no reason to own, and the one that is hardest to notice missing is the third. */
+.sso-help-lead {
+  display: block;
+}
+
+.sso-help-lead:empty {
+  display: none;
+}
+
+.sso-help-full {
+  margin-top: 0.35em;
+}
+
+/* The summary is the only clickable thing inside a block of prose, so it says so with the cursor as well
+   as with the triangle - the same reason the check rows carry a glyph beside their colour. */
+.sso-help-full > summary {
+  cursor: pointer;
+  display: list-item;
+}
+
+.sso-help-body {
+  margin-top: 0.35em;
+}
+
+/* The rail card holds the whole text of whatever field has focus. Capped and scrolled rather than
+   allowed to run: the longest of these texts is several hundred characters, and a rail as tall as the
+   form pushes everything below it out of reach on the narrow layout, where the rail is stacked under the
+   form rather than beside it.
+
+   NO `position: sticky` HERE, and it was written before it was thought about. The stated purpose was to
+   survive a scroll, and `.sso-columns` sets `align-items: start` while the rail holds nothing but this
+   card - so the sticky element's containing block is its own height and there is nowhere to travel. It
+   would have been a declaration that does nothing, asserting a behaviour in a comment beside it. What
+   the rail should do when the form is taller than the screen is a question for the walk, not for a
+   property nobody measured. */
+.sso-help-card {
+  max-height: 60vh;
+  overflow-y: auto;
+}

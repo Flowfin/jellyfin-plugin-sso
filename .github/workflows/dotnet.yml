@@ -129,6 +129,17 @@ jobs:
       # elsewhere is a move to the wrong field. Same runtime and same absence of dependencies as the
       # steps above.
       run: node tools/ui-help-census.js
+    - name: The condensed help
+      # The census above reads BYTES, and a help text sealed inside a fold nobody named, over a lead line
+      # that stays empty because no applier ran, satisfies it exactly as well as a working field does - the
+      # text is present, once, in the field that names it, and no reader ever sees it (#1662). This reads
+      # the authored markup and then LOADS SSO-Auth/Web/i18n.js and drives it over both catalogues, so the
+      # sentence the applier derives is judged rather than assumed. It refuses a help text still written
+      # flat, a fold with no lead line to fill, a summary named by anything but the row the folds share, a
+      # sentence under the field that is not the first sentence of the text behind it, a fold hidden while
+      # it holds more, and a rail card answering a field that does not have focus. Same runtime and same
+      # absence of dependencies as the steps above.
+      run: node tools/ui-condensed-help.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

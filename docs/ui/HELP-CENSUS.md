@@ -103,6 +103,26 @@ whole block rather than outside one field - a text moved WITHIN such a block is
 not refused, though a field inside it that ends up with no text of its own still
 is.
 
+And it says nothing about what the fold a page grew is WORTH, which is the half
+a reader of the run is most likely to take it for. Slice 1 of stage 2 landed on
+the three small pages that carry a field description at all (#1662 - the one
+help row Overview names is a link label inside a sentence, not a field), and the `behind a <details>` figure moved with it,
+so that figure is a real count of how far the stage has come. What it is not is
+a statement that any of those texts can be READ. It counts an element; a help
+text sealed inside a fold nobody named, above a lead line that stays empty
+because no applier ran, satisfies every refusal on this page exactly as well as
+a working field does - the text is present, once, inside the field that names
+it, and no reader ever sees it.
+
+What holds that half is `tools/ui-condensed-help.js`, which reads the authored
+markup and then LOADS `SSO-Auth/Web/i18n.js` and drives it over both catalogues:
+it refuses a help text still written flat, a fold with no lead line to fill, a
+summary named by anything but the row the folds share, a sentence under the
+field that is not the first sentence of the text behind it, a fold hidden while
+it holds more, and a rail card answering a field that does not have focus. The
+two are complements. This one holds "nothing is deleted"; that one holds "and
+what happened to it is what was promised".
+
 | Page                 | Help key                                      | Field                                     |
 | -------------------- | --------------------------------------------- | ----------------------------------------- |
 | `accountsPage.html`  | `config.linked_accounts_help`                 | `(sso-linked-accounts)`                   |
