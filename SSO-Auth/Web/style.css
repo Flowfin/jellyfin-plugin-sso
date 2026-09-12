@@ -263,6 +263,31 @@
   font-style: italic;
 }
 
+/* `hidden` MEANS HIDDEN ON THESE PAGES, WHICH IT DOES NOT OTHERWISE (#1665).
+
+   The browser's own stylesheet carries `[hidden] { display: none }`, and a USER-AGENT rule loses to any
+   author rule for the same property. jellyfin-web declares `display: inline-flex` on `.emby-button` in
+   its own stylesheet and ships no `[hidden]` rule at all:
+
+     grep -o '.emby-button{[^}]*display:[^;]*' dist/main.jellyfin.*.css
+     .emby-button{...;display:-webkit-inline-flex;display:inline-flex
+     grep -rl '\[hidden\]' dist/        (no match)
+
+   So a button this plugin hides by setting `hidden` stays on screen and stays pressable. That was
+   invisible for as long as the idiom was only used on plain `div` and `ul` elements, which carry no
+   author `display` - every earlier use on these pages is one of those. The wizard is the first to hide
+   a BUTTON, and what it cost was the whole step gate: Finish sat on screen on step one and accepted,
+   closing the wizard with "The provider is tested, enabled and saved" over an empty editor. Found by a
+   review that read the host's stylesheet rather than this one.
+
+   SCOPED TO THIS PLUGIN'S PAGES and not written as a bare `[hidden]`, so nothing outside them changes.
+   `!important` because the rule it has to beat is an author rule of its own, and because a declaration
+   that loses a cascade it was written to win is worse than none: it reads as a fix. It can break nothing
+   that is correct, since an element carrying `hidden` is one the page has already said is not there. */
+.sso-page [hidden] {
+  display: none !important;
+}
+
 /* Inline field validation. Theme-foreground text (AA), red accent border + a tinted panel carry the
    error meaning so it is never colour-only. */
 .sso-inline-error {
@@ -660,4 +685,59 @@
 .sso-help-card {
   max-height: 60vh;
   overflow-y: auto;
+}
+
+/* The provider wizard (#1665). A block that sits above both workspaces and is either on screen or not;
+   nothing here is a second layer over the page, because the wizard is a page state and not a dialog
+   (decision D2 on #1528) and the editor it conducts has to stay readable underneath it. */
+.sso-wizard {
+  margin: 0 0 1em;
+  padding: 0.75em 1em;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.3em;
+}
+
+/* The numbering is in the text of each row, written by the controller and translated with it, so the
+   list marker would say it a second time in digits nobody can localize. */
+.sso-wizard-steps {
+  list-style: none;
+  margin: 0.5em 0;
+  padding: 0;
+}
+
+.sso-wizard-step {
+  margin: 0.2em 0;
+}
+
+/* The state word is a word (#221). It is dimmed relative to the step title because the title is what a
+   reader scans for, and dimming is the only thing carried by appearance alone - remove the rule and
+   every row still says where it is. */
+.sso-wizard-state {
+  margin-left: 0.4em;
+  opacity: 0.75;
+}
+
+.sso-wizard-protocol,
+.sso-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin-top: 0.5em;
+}
+
+.sso-wizard-actions {
+  margin-top: 0.75em;
+}
+
+/* A refusal READS like the inline field errors it is about, so it wears their class rather than a copy
+   of their declarations: the markup carries `sso-inline-error` and this adds only the one thing that
+   differs, which is the space above it. The appearance argument is theirs and is not restated here. */
+.sso-wizard-refusal {
+  margin-top: 0.5em;
+}
+
+/* Overview's entry into the wizard. Unlike the provider cards beside it this one IS pressed, so it keeps
+   the dashboard's own button appearance and only needs separating from the list above it. */
+.sso-overview-add {
+  margin-top: 0.5em;
 }

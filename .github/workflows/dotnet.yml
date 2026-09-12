@@ -152,6 +152,19 @@ jobs:
       # behind a calibration that runs positive and negative before the real page is opened. Same runtime and
       # same absence of dependencies as the steps above.
       run: node tools/ui-readiness-rail.js
+    - name: The provider wizard
+      # The wizard is the one thing on this surface that is made entirely of decisions: which step opens
+      # the next, and what it says when it refuses to (#1665). Every rule this tree already has over these
+      # assets reads TEXT - the catalogue tests can say each refusal sentence exists in both languages, the
+      # field reconciliation can say every id the controller reaches is on this page - and none of them can
+      # ask whether a step that is not complete opens the next one anyway. That failure is the confident
+      # one: a wizard whose gates always pass walks an administrator to Enable with an endpoint that has
+      # never answered, which is the state its last step exists to prevent. This runs the shipped
+      # sso-core.js over the shipped providersPage.html, presses the wizard's own buttons after running its
+      # controller, and refuses each way it can be wrong by name, behind a calibration that runs positive
+      # and negative before the real page is opened. Same runtime and same absence of dependencies as the
+      # steps above.
+      run: node tools/ui-provider-wizard.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the

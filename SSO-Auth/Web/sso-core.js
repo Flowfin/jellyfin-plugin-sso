@@ -3431,6 +3431,11 @@ const ssoConfigurationPage = {
   // unknown: the row must not read as "not yet tested" after a test the admin watched fail.
   recordTestOutcome: (page, key, ok) => {
     ssoConfigurationPage.readinessTestState[key] = ok;
+    ssoConfigurationPage.readinessTestSubject[key] =
+      ssoConfigurationPage.providerTestSubject(
+        page,
+        ssoConfigurationPage.readinessSpecs[key],
+      );
     ssoConfigurationPage.refreshReadiness(page, key);
   },
   // ---- Readiness panel (#1083), answered once in the rail (#1664) ----
@@ -3478,6 +3483,36 @@ const ssoConfigurationPage = {
   // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
   // so a previous provider's result cannot be read as this one's.
   readinessTestState: { oid: null, saml: null },
+  // WHAT THE LAST OUTCOME WAS ABOUT, so a later reader can ask whether it still speaks for the form in
+  // front of it (#1665). The outcome above says only that a test ran and what it answered; it is a flag,
+  // and nothing clears it when a field moves. That is correct for the rail, which reports a past run,
+  // and wrong for a gate. The wizard refuses to open its last step without a test that SUCCEEDED, so on
+  // the flag alone an administrator could pass that step, go back, put a typo in the endpoint, walk
+  // forward through a gate re-reading the same stale boolean, and finish on a page saying the provider
+  // was tested. Driven on the fixture rather than reasoned about.
+  //
+  // NULL UNTIL A TEST RUNS, and deliberately not reset beside the outcome: it is read only where the
+  // outcome is already true, so a stale subject under a null outcome says nothing to anybody.
+  readinessTestSubject: { oid: null, saml: null },
+  // The fields a Test Connection's answer depends on, as one comparable string. The spec's REQUIRED ids
+  // and no separate list: they are the provider's identity and its endpoint - which provider the server
+  // is asked about, and what it fetches - and they are declared once already. So ticking Enabled or
+  // editing a role map is not a reason to re-test, and changing the endpoint is.
+  //
+  // The separator is the one controlSignature settles on, for the reason it gives (#1576): a value
+  // cannot contain it, so two fields cannot join into a third form's string.
+  //
+  // IT READS `value` AND NOT `checked`, which is complete for what it is handed: every required id of
+  // both specs is a text field. A checkbox made required tomorrow would need the branch
+  // controlSignature carries, because a checkbox's `value` does not move when it is ticked - so this
+  // would go on answering the same string across the change it exists to notice.
+  providerTestSubject: (page, spec) =>
+    spec.requiredIds
+      .map((id) => {
+        const field = page.querySelector("#" + id);
+        return id + "=" + String((field && field.value) || "");
+      })
+      .join("\n"),
   // What each editor's panel is made of. Everything here is an id that already exists on the form: the
   // panel adds no field, no request and no state of its own beyond the test outcome above.
   readinessSpecs: {
@@ -3493,6 +3528,7 @@ const ssoConfigurationPage = {
         "BaseUrlOverride",
       ],
       urlId: "OidRedirectUri",
+      enabledId: "Enabled",
     },
     saml: {
       testKey: "saml",
@@ -3511,6 +3547,7 @@ const ssoConfigurationPage = {
         "saml-BaseUrlOverride",
       ],
       urlId: "saml-AcsUrl",
+      enabledId: "saml-Enabled",
     },
   },
   // A field's human name, taken from the form's own <label>. Restating the names here would give the panel
@@ -3722,6 +3759,388 @@ const ssoConfigurationPage = {
             options: active.join(", "),
           }),
     );
+  },
+  // ---- The provider wizard (#1665) ----
+  //
+  // WHAT IT IS: a conductor over the editor that already exists, not a second editor. It holds no field,
+  // writes no configuration value and issues no request; the save and the test it asks for are the
+  // editor's own buttons, which already carry their late-reply guards. So the save contract, the managed
+  // freeze and the readiness rail are all untouched by it, and the one thing it adds is an ORDER with a
+  // refusal at each join.
+  //
+  // WHY THE ORDER IS THE ONE IT IS, AND IT IS NOT THE ONE A READING OF THE SCREEN SUGGESTS. Two of the
+  // five steps need the provider to exist on the SERVER before they can answer at all, and both were
+  // measured rather than assumed. `sso/OID/RedirectUri/<name>` answers 404 for a provider that has not
+  // been saved, which is why `updateRedirectUri` has a rejection arm that writes "Save this provider to
+  // see its exact redirect URI"; and `OID/Test/{provider}` reads the STORED configuration and returns
+  // 404 for anything else. So the save is inside step 2 rather than being the last thing that happens,
+  // and the last step is the ENABLE. The SAML half computes its ACS URL in the client and needs no save
+  // for step 3, which is why the refusal for that step is the one thing here that is per-protocol.
+  //
+  // WHAT THAT ORDER BUYS IS A SECURITY PROPERTY AND NOT A CONVENIENCE. A provider reaches `Enabled` only
+  // after a Test Connection that SUCCEEDED, because step 4 refuses to open step 5 otherwise, and every
+  // provider this wizard builds starts from `addProvider` or `addSamlProvider` - one opener per protocol,
+  // each resetting every toggle off - so neither half arrives already enabled. The failure it is against
+  // is the ordinary one: a provider enabled on a typo, offered on the sign-in page, and answering nobody.
+  //
+  // THE STEP IS READ FROM THE PAGE. `#sso-wizard` carries `data-step`, so two pages of one dashboard
+  // cannot share it, a reader of the DOM can see where the wizard stands, and this module keeps no state
+  // that something has to remember to reset. The PROTOCOL is not stored at all: it is `openEditorKey`,
+  // the same reading the rail uses, so an editor closed or a provider card clicked mid-wizard moves the
+  // wizard with it instead of leaving it answering for a form that is no longer on screen.
+  wizardStep: (page) => {
+    const wizard = page.querySelector("#sso-wizard");
+    const step = wizard ? Number(wizard.getAttribute("data-step")) : 0;
+    return Number.isInteger(step) && step >= 0 ? step : 0;
+  },
+  // The panels give the COUNT and the ORDER, so neither is written in this module. WHAT THAT DOES NOT
+  // BUY IS A SIXTH STEP FOR FREE, and this comment claimed it did until a probe added one panel: the
+  // stepper rows are a second population in the same markup, so a panel added without its row leaves
+  // the wizard on a step no row names and aria-current on nothing at all. The markup is where a step is
+  // added, and it is added in BOTH places; what is derived here is only that this module never holds a
+  // number to disagree with them.
+  wizardPanels: (page) => [...page.querySelectorAll(".sso-wizard-panel")],
+  // Whether Overview's card asked for the wizard. Read from the hash because that is where the
+  // dashboard's own route lives - the tab strip's links are `#/configurationpage?name=...` - and the
+  // Overview card is one of those links with a flag on the end, so it works before any controller runs.
+  wizardRequested: () => /[?&]wizard=1(?:&|$)/.test(window.location.hash || ""),
+  startWizard: (page) => {
+    page.querySelector("#sso-wizard").hidden = false;
+    page.querySelector("#sso-wizard-start").hidden = true;
+    // STEP ONE, ALWAYS, and never where it was left. A wizard resumed at step 4 over a form somebody
+    // has since emptied would be asserting a test outcome about a provider that is no longer in front
+    // of it, and nothing on the page would say so.
+    ssoConfigurationPage.setWizardStep(page, 0);
+  },
+  // LEAVING CHANGES NOTHING IN THE EDITOR, which is what the wizard's own lead promises. The editor
+  // stays open, its values stay where they are, and if any of them is unsaved the page is dirty and the
+  // unsaved-changes indicator above is already saying so (#1572) - this has nothing to add and must not
+  // claim the opposite by tidying up.
+  closeWizard: (page) => {
+    // THE REFUSAL GOES WITH IT, and this line is not spare. Finish is reached from a step that has
+    // already refused at least once in the ordinary case - tick Enabled, press Finish, meet the
+    // unsaved refusal, save, press Finish again - so without this the wizard closes with the sentence
+    // it no longer means still sitting in the region, to be shown again by the next open.
+    ssoConfigurationPage.renderWizardRefusal(page, "");
+    page.querySelector("#sso-wizard").hidden = true;
+    page.querySelector("#sso-wizard-start").hidden = false;
+  },
+  setWizardStep: (page, step) => {
+    page.querySelector("#sso-wizard").setAttribute("data-step", String(step));
+    ssoConfigurationPage.renderWizard(page);
+  },
+  // Step one's action: open the blank editor for the protocol chosen. It does NOT advance - choosing a
+  // template is the other half of this step and the picker is inside the editor that just opened, so the
+  // administrator advances when they are done with both. One advance mechanism, and it is Next.
+  //
+  // THE CONFIRMATION IS THE DATA-LOSS GUARD AND IT IS THE ONLY ONE HERE. `addProvider` blanks every
+  // field and then marks the page clean, so a protocol changed after twenty minutes of typing would take
+  // that typing with it and leave nothing behind saying it had. This is the same window.confirm idiom
+  // the delete and the profile-change paths use, and it is asked ONLY when the page actually holds an
+  // edit, so the ordinary first pick is never interrupted by it.
+  wizardPick: (page, key) => {
+    // BOTH READINGS OF 'THERE IS WORK HERE', AND NEITHER ALONE. The dirty CLASS is raised by an input
+    // or change event, and the refresh guard two hundred lines above refuses to trust it for exactly
+    // this decision, naming the path: removing a role-mapping row is a button click with no event, so
+    // the class stays off while the form has changed. The BASELINE comparison catches that, and is the
+    // one that can be true when nothing was typed, because the redirect URI arrives after the fill that
+    // took the baseline. A false question before a destructive act costs one dialog; a missing one
+    // costs the work.
+    if (
+      (ssoConfigurationPage.isPageDirty(page) ||
+        ssoConfigurationPage.pageDiffersFromBaseline(page)) &&
+      !window.confirm(
+        tr(
+          "config.wizard_switch_confirm",
+          "This empties the editor, and what has been typed into it is not saved anywhere. Change the protocol anyway?",
+        ),
+      )
+    ) {
+      return;
+    }
+
+    if (key === "saml") {
+      ssoConfigurationPage.addSamlProvider(page);
+    } else {
+      ssoConfigurationPage.addProvider(page);
+    }
+
+    // Both openers scroll their own editor to the top of the viewport, which puts the wizard off screen
+    // above it - and the wizard is where the next instruction and the Next button are. Scrolling back
+    // leaves the editor immediately below it, so both are readable at once.
+    const wizard = page.querySelector("#sso-wizard");
+    if (wizard) {
+      wizard.scrollIntoView({ block: "start" });
+    }
+    ssoConfigurationPage.renderWizard(page);
+  },
+  // What stops this step opening the next, or null when nothing does. ONE FUNCTION FOR EVERY STEP, so
+  // Next and Finish cannot disagree about whether a step is complete: Finish asks the same question of
+  // the last step that Next asks of the other four.
+  //
+  // EVERY ANSWER IS READ OUT OF THE PAGE AT THE MOMENT IT IS ASKED, and nothing is remembered from the
+  // press before. The required fields come from `readinessFieldStates`, which is the reading the rail
+  // and the Save gate already use, so the wizard cannot name a different set of missing fields than the
+  // card beside it does. The names it prints are the form's own localized labels, for the reason the
+  // aggregate check gives: a bare `OidEndpoint` in front of an administrator is an internal id and a
+  // lost translation.
+  wizardStepRefusal: (page, step) => {
+    const key = ssoConfigurationPage.openEditorKey(page);
+    // NO EDITOR IS NO PROTOCOL, at every step and not only at the first. An editor closed mid-wizard
+    // leaves nothing for any later step to read, so answering "still empty" about a form that is not on
+    // screen would be the confidently-wrong direction.
+    if (key === null) {
+      return tr(
+        "config.wizard_refuse_protocol",
+        "No protocol is chosen yet. Pick OpenID Connect or SAML 2.0 above, and the editor below opens on the one you pick.",
+      );
+    }
+
+    const spec = ssoConfigurationPage.readinessSpecs[key];
+
+    if (step === 1) {
+      const missing = ssoConfigurationPage.readinessFieldStates(
+        page,
+        spec,
+      ).missing;
+      return missing.length === 0
+        ? null
+        : tr(
+            "config.wizard_refuse_required",
+            "Still empty: {fields}. Fill every one of them in the editor below, then press Save.",
+            { fields: missing.join(", ") },
+          );
+    }
+
+    if (step === 2) {
+      const url = page.querySelector("#" + spec.urlId);
+      if (url && String(url.value || "").trim()) {
+        return null;
+      }
+      return key === "saml"
+        ? tr(
+            "config.wizard_refuse_url_saml",
+            "The ACS URL is still empty. It is computed from the provider name, so fill the name in the editor below.",
+          )
+        : tr(
+            "config.wizard_refuse_url_oid",
+            "The redirect URI is still empty. This server computes it for a provider it already holds, so press Save in the editor below and the field fills itself.",
+          );
+    }
+
+    if (step === 3) {
+      const tested = ssoConfigurationPage.readinessTestState[spec.testKey];
+      if (tested === true) {
+        // A GREEN TEST IS ABOUT A PROVIDER, NOT ABOUT A PAGE. The outcome survives every keystroke,
+        // so without this an endpoint edited after the test walks through this step on the strength of
+        // a run that asked about a different address.
+        return ssoConfigurationPage.readinessTestSubject[spec.testKey] ===
+          ssoConfigurationPage.providerTestSubject(page, spec)
+          ? null
+          : tr(
+              "config.wizard_refuse_test_stale",
+              "The connection fields have changed since the last Test Connection, so that result is not about the provider this form now describes. Save, and run Test Connection again.",
+            );
+      }
+      // NOT TESTED AND TESTED-AND-FAILED ARE DIFFERENT SENTENCES, because they ask for different things:
+      // one is a button nobody has pressed, the other is a provider that answered wrongly.
+      return tested === false
+        ? tr(
+            "config.wizard_refuse_test_failed",
+            "The last Test Connection did not succeed. It asks the server about the provider it has STORED, so press Save first if this one is new, then read what the test reported and run it again; this wizard does not go on to enable a provider whose endpoint has not answered.",
+          )
+        : tr(
+            "config.wizard_refuse_untested",
+            "Nothing has been tested yet. Press Test Connection in the editor below; this step opens the next only on a test that succeeded.",
+          );
+    }
+
+    if (step === 4) {
+      const toggle = page.querySelector("#" + spec.enabledId);
+      // A PROVIDER A CONFIGURATION SOURCE OWNS CANNOT BE TICKED HERE, and telling somebody to tick it
+      // anyway is a refusal naming an action they cannot take (#1104). The freeze writes `disabled`
+      // on every control of the form and nothing else on this page does, so the attribute is the
+      // reading; the wizard's own buttons are outside both forms, so Back and Leave stay live.
+      if (toggle && toggle.disabled) {
+        return tr(
+          "config.wizard_refuse_managed",
+          "This provider is owned by a configuration source outside Jellyfin, so it cannot be enabled from this page. Enable it where it is declared, or leave the wizard.",
+        );
+      }
+      if (!toggle || !toggle.checked) {
+        return tr(
+          "config.wizard_refuse_disabled",
+          "The provider is not enabled yet. Tick Enabled in the editor below, then press Save.",
+        );
+      }
+      // TICKED IS NOT SAVED. The toggle is a form value until a save carries it to the server, so
+      // finishing here on the tick alone would end a wizard whose whole promise is a provider that
+      // works with a provider the server has never been told about.
+      return ssoConfigurationPage.isPageDirty(page)
+        ? tr(
+            "config.wizard_refuse_unsaved",
+            "The editor still holds changes nothing has saved. Press Save in the editor below, then finish.",
+          )
+        : null;
+    }
+
+    // Step one. Reaching here means an editor is open, which is what this step is for.
+    return null;
+  },
+  /*
+   * WHAT STOPS THIS STEP, OR ANY STEP BEFORE IT. The first refusal in order, which is the difference
+   * between a wizard and five buttons that happen to be numbered.
+   *
+   * WHY IT IS CUMULATIVE, AND THE SINGLE-STEP VERSION SHIPPED FIRST. Every condition here is read off
+   * the form, and the form can change under a step that has already been passed: clicking a saved
+   * provider's card while the wizard is open reloads the editor, and `resetEditor` clears the Test
+   * Connection outcome with it. On the single-step reading the administrator was then one press of
+   * Finish away from a page that said "The provider is tested, enabled and saved" about a provider
+   * whose test this page had just forgotten - which is the confidently-wrong direction, and the exact
+   * thing the fifth step exists to prevent. Driven on the fixture rather than reasoned about, and the
+   * arm that drives it is in tools/ui-provider-wizard.js.
+   *
+   * IT COSTS NOTHING WHEN NOTHING MOVED, because the steps are walked in order and the first
+   * unsatisfied one answers: an administrator going forward through a form they are filling in meets
+   * exactly the refusal they would have met before.
+   */
+  wizardRefusal: (page, step) => {
+    for (let at = 0; at <= step; at += 1) {
+      const refusal = ssoConfigurationPage.wizardStepRefusal(page, at);
+      if (refusal !== null) {
+        return refusal;
+      }
+    }
+    return null;
+  },
+  // BACK IS NEVER REFUSED and never validates, which is the promise the wizard's lead makes. A step that
+  // could trap somebody who mistyped one field is worse than no wizard, and going back costs nothing:
+  // every step reads the page afresh, so nothing is carried backwards to be wrong later.
+  wizardGo: (page, delta) => {
+    const step = ssoConfigurationPage.wizardStep(page);
+    const last = ssoConfigurationPage.wizardPanels(page).length - 1;
+
+    if (delta < 0) {
+      ssoConfigurationPage.setWizardStep(page, Math.max(0, step - 1));
+      return;
+    }
+
+    const refusal = ssoConfigurationPage.wizardRefusal(page, step);
+    if (refusal !== null) {
+      ssoConfigurationPage.wizardRefuse(page, refusal);
+      return;
+    }
+
+    ssoConfigurationPage.setWizardStep(page, Math.min(last, step + 1));
+  },
+  // Finish asks the LAST step the same question Next asks every other one, then closes the wizard and
+  // says so where a page-level outcome belongs (#1572) - the editor's own status region is about the
+  // save, and this is about the wizard.
+  wizardFinish: (page) => {
+    const refusal = ssoConfigurationPage.wizardRefusal(
+      page,
+      ssoConfigurationPage.wizardStep(page),
+    );
+    if (refusal !== null) {
+      ssoConfigurationPage.wizardRefuse(page, refusal);
+      return;
+    }
+
+    ssoConfigurationPage.closeWizard(page);
+    ssoConfigurationPage.renderPageStatus(
+      page,
+      tr(
+        "config.wizard_done",
+        "The provider is tested, enabled and saved. It is offered on the sign-in page from now on.",
+      ),
+      true,
+    );
+  },
+  renderWizard: (page) => {
+    // THE ONE GUARDED MEMBER OF THIS SECTION, and the asymmetry is the point. Everything else here is
+    // reached only from a button inside the wizard, which exists on exactly one page, so a guard there
+    // would only move a throw two lines down - and tools/ui-mock-fields.js is what holds those ids to
+    // this page. This one is different: the localization callback calls it on all five pages, four of
+    // which carry no wizard at all.
+    if (!page.querySelector("#sso-wizard")) {
+      return;
+    }
+
+    const step = ssoConfigurationPage.wizardStep(page);
+    const panels = ssoConfigurationPage.wizardPanels(page);
+    const states = [...page.querySelectorAll(".sso-wizard-state")];
+    const total = panels.length;
+
+    panels.forEach((panel, index) => {
+      panel.hidden = index !== step;
+    });
+
+    // THE STATE IS A WORD AND NOT A COLOUR (#221), and it carries the position too, so a row read on its
+    // own still says which of how many it is. `aria-current` is added beside it rather than instead of
+    // it: one is for a reader moving row by row, the other for a reader who lands on one.
+    states.forEach((state, index) => {
+      const word =
+        index < step
+          ? tr("config.wizard_state_done", "done")
+          : index === step
+            ? tr("config.wizard_state_here", "you are here")
+            : tr("config.wizard_state_todo", "not yet");
+      state.textContent = tr(
+        "config.wizard_step_state",
+        "({state}, step {n} of {total})",
+        { state: word, n: index + 1, total },
+      );
+      const row = state.parentNode;
+      if (row) {
+        if (index === step) {
+          row.setAttribute("aria-current", "step");
+        } else {
+          row.removeAttribute("aria-current");
+        }
+      }
+    });
+
+    page.querySelector("#sso-wizard-back").disabled = step === 0;
+    page.querySelector("#sso-wizard-next").hidden = step === total - 1;
+    page.querySelector("#sso-wizard-finish").hidden = step !== total - 1;
+
+    // A REFUSAL IS ABOUT THE PRESS THAT EARNED IT. Moving to another step makes it a statement about a
+    // step nobody is on, so it is cleared here rather than left to age.
+    ssoConfigurationPage.renderWizardRefusal(page, "");
+  },
+  /*
+   * A REFUSAL IS PUT WHERE THE CONTROL IT NAMES IS.
+   *
+   * One refusal can be earned on a step whose panel does not hold the thing it asks for: the protocol
+   * sentence names the two pick buttons, which live on the FIRST panel, and every other panel hides
+   * them. An editor can close under a later step - both loaders hide it when their read fails, and a
+   * save chains a load - so that pairing is reachable rather than theoretical, and what it produced
+   * was a sentence pointing at buttons nobody could see.
+   *
+   * The step is moved BEFORE the sentence is written, because renderWizard clears the region on its
+   * way through: written first, the refusal would be wiped by its own repair.
+   */
+  wizardRefuse: (page, message) => {
+    if (ssoConfigurationPage.openEditorKey(page) === null) {
+      ssoConfigurationPage.setWizardStep(page, 0);
+    }
+    ssoConfigurationPage.renderWizardRefusal(page, message);
+  },
+  renderWizardRefusal: (page, message) => {
+    const box = page.querySelector("#sso-wizard-refusal");
+    if (!box) {
+      return;
+    }
+    // UNHIDE FIRST, THEN WRITE, for the reason renderUnsavedNotice states at length: `hidden` takes the
+    // element out of the accessibility tree, so text written while it is hidden changes a live region
+    // nothing is watching.
+    if (message) {
+      box.hidden = false;
+      box.textContent = message;
+      return;
+    }
+    box.textContent = "";
+    box.hidden = true;
   },
   // ---- Aggregate configuration check (#1084) ----
   // ONE action over every configured provider, answered by the server at `sso/Config/Check`. The evaluation
@@ -4771,6 +5190,14 @@ const ssoConfigurationPage = {
           module.loadCatalog().then(() => {
             i18n = module;
             module.applyTo(view);
+            // THE ONE THING ON THIS SURFACE A SCRIPT WRITES BEFORE THE CATALOGUE CAN ARRIVE (#1665).
+            // `applyTo` rewrites marked markup, and the wizard's step rows are written by tr(), which
+            // returns its English default while this import is still in flight. Every other tr() on
+            // these pages is written on a press, long after this lands; the wizard's is not, because
+            // Overview's card can open it inside initProvidersPage. So the rows are painted again here,
+            // with the catalogue in hand. A no-op on the four pages that carry no wizard, and on this
+            // one until somebody opens it.
+            ssoConfigurationPage.renderWizard(view);
           }),
         )
         .catch(() => {});
@@ -6229,6 +6656,69 @@ function initOverviewPage(view) {
 function initProvidersPage(view) {
   initSharedPage(view);
   bindTemplatePermissionAdders(view);
+
+  // ---- The provider wizard (#1665) ----
+  //
+  // Seven registrations and no state: every one of them hands the page to a function that reads the page
+  // back, so nothing here has to be kept in step with anything. Unguarded like the rest of this function,
+  // for the reason the partition rests on - these ids are on this page, and tools/ui-mock-fields.js is
+  // what holds that true.
+  view.querySelector("#sso-wizard-start").addEventListener("click", (e) => {
+    ssoConfigurationPage.startWizard(view);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-leave").addEventListener("click", (e) => {
+    ssoConfigurationPage.closeWizard(view);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-pick-oid").addEventListener("click", (e) => {
+    ssoConfigurationPage.wizardPick(view, "oid");
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-pick-saml").addEventListener("click", (e) => {
+    ssoConfigurationPage.wizardPick(view, "saml");
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-back").addEventListener("click", (e) => {
+    ssoConfigurationPage.wizardGo(view, -1);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-next").addEventListener("click", (e) => {
+    ssoConfigurationPage.wizardGo(view, 1);
+    e.preventDefault();
+    return false;
+  });
+
+  view.querySelector("#sso-wizard-finish").addEventListener("click", (e) => {
+    ssoConfigurationPage.wizardFinish(view);
+    e.preventDefault();
+    return false;
+  });
+
+  // The deep link from Overview's Add provider card. It is read once, here, and never again: a wizard
+  // restarted on every return to a cached view would throw away whatever step the administrator had
+  // reached, and `viewshow` fires on every return.
+  //
+  // ITS BOUND, AND THE DISCLOSURE STAYS NEGATIVE. The dashboard hands a CACHED view back rather than
+  // building one again, and `initOverviewPage`'s own comment says what it caches on: pathname and
+  // search, neither of which is the hash this flag rides in. So whether arriving at this page with the
+  // flag CONSTRUCTS a controller at all, on a tab the reader has already opened once, is a behaviour of
+  // jellyfin-web that no reading of this tree settles - and if it does not, the card on Overview opens
+  // the Providers tab and the wizard stays closed until its own button is pressed. That is the walk's
+  // question (#1665, decision D4), and nothing here claims it is answered.
+  if (ssoConfigurationPage.wizardRequested()) {
+    ssoConfigurationPage.startWizard(view);
+  }
 
   // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
   //

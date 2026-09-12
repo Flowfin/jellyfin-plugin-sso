@@ -180,6 +180,229 @@
               </form>
 
               <!--
+            THE PROVIDER WIZARD (#1665), stage 2 of the 4.4 surface, and a PAGE STATE rather than a dialog
+            (decision D2 on #1528): it stays inside the dashboard's own navigation, the unsaved-changes
+            indicator above covers it, and the Add provider card on Overview deep-links into it with a
+            query flag.
+
+            IT DRIVES THE EDITOR AND HOLDS NO FIELD OF ITS OWN. Every value the wizard is about is typed
+            into the grouped editor below, which is the editor that already existed; this block carries
+            buttons and prose only. So there is no second way to edit a provider, nothing here is
+            serialized, and the ProviderFormFieldIds contract has nothing new to cover. It also means the
+            wizard issues no request of its own: the two that matter, the save and the test, are the
+            editor's own buttons, which already carry their own late-reply guards.
+
+            WHAT IT DOES TO THE READINESS RAIL IS NOTHING, WHICH IS THE ANSWER #1664 ASKED FOR. The rail
+            answers for whichever editor is open, and openEditorKey reads the two editors' hidden
+            attributes and nothing else. The wizard OPENS an editor instead of replacing it, so both
+            attributes mean exactly what they meant before and the rail goes on answering beside the form
+            an administrator is filling in.
+
+            THE FIVE STEPS AND THE FIVE PANELS ARE AUTHORED HERE RATHER THAN BUILT BY THE SCRIPT, for the
+            reason the preset picker's own comment gives (#1602): text a script writes with tr() while the
+            catalog is still arriving keeps its English for the life of the page, and this wizard can be
+            opened by the query flag during init. Markup rides i18n.applyTo instead. What the script writes
+            is what only it knows - the state word beside each step, and the refusal a press earned - and
+            both of those are written long after the catalog has landed.
+
+            THE STEP IS AN ATTRIBUTE ON THIS ELEMENT rather than a variable in the module, because it is a
+            fact about this page: a module-scope number would be shared by every page of one dashboard,
+            and a reader of the DOM can see where the wizard stands without asking the script.
+          -->
+              <button
+                id="sso-wizard-start"
+                is="emby-button"
+                type="button"
+                class="raised button-submit sso-add-provider emby-button"
+              >
+                <span class="material-icons add" aria-hidden="true"></span>
+                <span data-i18n="config.wizard_start"
+                  >Add a provider, step by step</span
+                >
+              </button>
+
+              <div id="sso-wizard" class="sso-wizard" data-step="0" hidden>
+                <h3 class="sso-workspace-title" data-i18n="config.wizard_title">
+                  Adding a provider
+                </h3>
+                <p class="fieldDescription" data-i18n="config.wizard_lead">
+                  Five steps from an empty form to a provider whose endpoint has
+                  answered. A step opens the next only once it is complete, and
+                  names what is missing when it is not. Back is always
+                  available, and leaving the wizard leaves the editor exactly as
+                  it stands.
+                </p>
+
+                <ol class="sso-wizard-steps">
+                  <li class="sso-wizard-step">
+                    <span data-i18n="config.wizard_step_1_title"
+                      >Protocol and template</span
+                    >
+                    <span class="sso-wizard-state"></span>
+                  </li>
+                  <li class="sso-wizard-step">
+                    <span data-i18n="config.wizard_step_2_title"
+                      >The required fields</span
+                    >
+                    <span class="sso-wizard-state"></span>
+                  </li>
+                  <li class="sso-wizard-step">
+                    <span data-i18n="config.wizard_step_3_title"
+                      >The address to register</span
+                    >
+                    <span class="sso-wizard-state"></span>
+                  </li>
+                  <li class="sso-wizard-step">
+                    <span data-i18n="config.wizard_step_4_title"
+                      >Test the connection</span
+                    >
+                    <span class="sso-wizard-state"></span>
+                  </li>
+                  <li class="sso-wizard-step">
+                    <span data-i18n="config.wizard_step_5_title"
+                      >Enable the provider</span
+                    >
+                    <span class="sso-wizard-state"></span>
+                  </li>
+                </ol>
+
+                <div class="sso-wizard-panel" hidden>
+                  <p
+                    class="fieldDescription"
+                    data-i18n="config.wizard_step_1_lead"
+                  >
+                    Pick the protocol your identity provider speaks. The editor
+                    below opens on the one you choose, and its Start from a
+                    template picker fills the endpoint shape and the scopes for
+                    a provider it knows. A template is optional: leave it
+                    unchosen for a provider it does not.
+                  </p>
+                  <div class="sso-wizard-protocol">
+                    <button
+                      id="sso-wizard-pick-oid"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit emby-button"
+                    >
+                      <span data-i18n="config.wizard_pick_oid"
+                        >Use OpenID Connect</span
+                      >
+                    </button>
+                    <button
+                      id="sso-wizard-pick-saml"
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit emby-button"
+                    >
+                      <span data-i18n="config.wizard_pick_saml"
+                        >Use SAML 2.0</span
+                      >
+                    </button>
+                  </div>
+                </div>
+
+                <div class="sso-wizard-panel" hidden>
+                  <p
+                    class="fieldDescription"
+                    data-i18n="config.wizard_step_2_lead"
+                  >
+                    Fill every field marked required in the editor below, then
+                    press Save. Nothing else on the form is needed yet, and no
+                    accordion has to be opened for it: the required fields are
+                    in Connection, which is open already.
+                  </p>
+                </div>
+
+                <div class="sso-wizard-panel" hidden>
+                  <p
+                    class="fieldDescription"
+                    data-i18n="config.wizard_step_3_lead"
+                  >
+                    Copy the address in the editor below with the button beside
+                    it, and register it at your identity provider as the
+                    redirect or assertion-consumer URL. The value is the one
+                    this server computes, which is why the field is read-only.
+                  </p>
+                </div>
+
+                <div class="sso-wizard-panel" hidden>
+                  <p
+                    class="fieldDescription"
+                    data-i18n="config.wizard_step_4_lead"
+                  >
+                    Press Test Connection in the editor below. It asks the
+                    identity provider itself, and this step opens the next only
+                    once that test has succeeded, so the provider you go on to
+                    enable is never one whose endpoint has not answered.
+                  </p>
+                </div>
+
+                <div class="sso-wizard-panel" hidden>
+                  <p
+                    class="fieldDescription"
+                    data-i18n="config.wizard_step_5_lead"
+                  >
+                    Tick Enabled in the editor below and press Save. Until you
+                    do, the provider exists and is offered to nobody on the
+                    sign-in page, which is where every provider this wizard
+                    builds starts.
+                  </p>
+                </div>
+
+                <!--
+              The refusal a press earned, written by sso-core.js with textContent (#221) and carrying no
+              configuration value beyond the localized NAMES of the fields that are still empty. It is a
+              live region because it is the whole answer to a Next that did nothing: without an
+              announcement, a press that refuses and a press that is not wired read the same.
+            -->
+                <div
+                  id="sso-wizard-refusal"
+                  class="sso-wizard-refusal sso-inline-error fieldDescription"
+                  role="status"
+                  aria-live="polite"
+                  hidden
+                ></div>
+
+                <div class="sso-wizard-actions">
+                  <button
+                    id="sso-wizard-back"
+                    is="emby-button"
+                    type="button"
+                    class="raised button-alt emby-button"
+                  >
+                    <span data-i18n="config.wizard_back">Back</span>
+                  </button>
+                  <button
+                    id="sso-wizard-next"
+                    is="emby-button"
+                    type="button"
+                    class="raised button-submit emby-button"
+                  >
+                    <span data-i18n="config.wizard_next">Next</span>
+                  </button>
+                  <button
+                    id="sso-wizard-finish"
+                    is="emby-button"
+                    type="button"
+                    class="raised button-submit emby-button"
+                    hidden
+                  >
+                    <span data-i18n="config.wizard_finish">Finish</span>
+                  </button>
+                  <button
+                    id="sso-wizard-leave"
+                    is="emby-button"
+                    type="button"
+                    class="raised button-alt sso-btn-deemphasized emby-button"
+                  >
+                    <span data-i18n="config.wizard_leave"
+                      >Leave the wizard</span
+                    >
+                  </button>
+                </div>
+              </div>
+
+              <!--
             Provider workspace (#365 UI redesign). The provider LIST replaces the old select -> Load flow:
             each saved OpenID provider is a card (name + type badge + enabled/disabled pill); clicking a card
             loads it into the editor below. The hidden <select id="selectProvider"> is retained as the state
@@ -243,57 +466,21 @@
                       </details>
                     </div>
                     <!--
-                  First-run guided path (#1085). The steps NAME the controls that already exist inside the
-                  editor and put them in order; they add no second Add button, no second template picker and
-                  no control of their own, so there is nothing here that can drift out of step with the form
-                  it describes. It is advisory: the button below opens the same editor it always did, and an
-                  administrator who knows the form can ignore the list and fill it in any order. Each step is
-                  a single text node so the localization applier can replace it (#913).
+                  The order lives in the wizard above and nowhere else (#1665). A first-run list of its
+                  own stood here until the wizard enforced the same five steps: two statements of one
+                  order is a copy, and these two had already come apart - the list asked for the
+                  redirect URI to be copied before the save the server needs before it will compute
+                  one, and ended with a provider appearing on the sign-in page, which it does not do
+                  until Enabled is ticked. This points at the one statement that is enforced.
                 -->
                     <p
                       class="fieldDescription"
-                      data-i18n="config.first_run_oidc_lead"
+                      data-i18n="config.first_run_wizard"
                     >
-                      Adding your first provider is five steps, and this button
-                      starts them:
+                      The steps are in the wizard above this list: press Add a
+                      provider, step by step, and each step names the one thing
+                      it needs before it opens the next.
                     </p>
-                    <ol class="sso-first-run-steps">
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_oidc_step_1"
-                      >
-                        Pick your identity provider from Start from a template,
-                        which fills the endpoint shape and the scopes for you.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_oidc_step_2"
-                      >
-                        Paste the OpenID endpoint, the client id and the client
-                        secret from your provider.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_oidc_step_3"
-                      >
-                        Copy the redirect URI this page computes and register it
-                        at your provider.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_oidc_step_4"
-                      >
-                        Run Test Connection to check the endpoint answers before
-                        anyone tries to log in.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_oidc_step_5"
-                      >
-                        Save. The provider joins the SSO providers list above,
-                        and its button appears on the sign-in page.
-                      </li>
-                    </ol>
                     <button
                       id="AddProviderEmpty"
                       is="emby-button"
@@ -3267,58 +3454,21 @@
                       </details>
                     </div>
                     <!--
-                  First-run guided path (#1085). The steps NAME the controls that already exist inside the
-                  editor and put them in order; they add no second Add button, no second template picker and
-                  no control of their own, so there is nothing here that can drift out of step with the form
-                  it describes. It is advisory: the button below opens the same editor it always did, and an
-                  administrator who knows the form can ignore the list and fill it in any order. Each step is
-                  a single text node so the localization applier can replace it (#913).
+                  The order lives in the wizard above and nowhere else (#1665). A first-run list of its
+                  own stood here until the wizard enforced the same five steps: two statements of one
+                  order is a copy, and these two had already come apart - the list asked for the
+                  redirect URI to be copied before the save the server needs before it will compute
+                  one, and ended with a provider appearing on the sign-in page, which it does not do
+                  until Enabled is ticked. This points at the one statement that is enforced.
                 -->
                     <p
                       class="fieldDescription"
-                      data-i18n="config.first_run_saml_lead"
+                      data-i18n="config.first_run_wizard"
                     >
-                      Adding your first SAML provider is five steps, and this
-                      button starts them:
+                      The steps are in the wizard above this list: press Add a
+                      provider, step by step, and each step names the one thing
+                      it needs before it opens the next.
                     </p>
-                    <ol class="sso-first-run-steps">
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_saml_step_1"
-                      >
-                        Pick your identity provider from Start from a template,
-                        or import its metadata to fill the endpoint and the
-                        signing certificate at once.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_saml_step_2"
-                      >
-                        Check the SAML endpoint, the client id and the IdP
-                        signing certificate the import filled in.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_saml_step_3"
-                      >
-                        Copy the reply URL and the metadata URL this page
-                        computes and register them at your provider.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_saml_step_4"
-                      >
-                        Run Test Connection to check the certificate and the
-                        endpoint before anyone tries to log in.
-                      </li>
-                      <li
-                        class="fieldDescription"
-                        data-i18n="config.first_run_saml_step_5"
-                      >
-                        Save. The provider joins the SAML providers list above,
-                        and its button appears on the sign-in page.
-                      </li>
-                    </ol>
                     <button
                       id="saml-AddProviderEmpty"
                       is="emby-button"
