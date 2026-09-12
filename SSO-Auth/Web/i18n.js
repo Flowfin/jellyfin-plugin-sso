@@ -253,13 +253,21 @@ function refresh(help) {
   // anything focused inside it; three of these bodies carry a link, and this function
   // runs again on every catalogue pass.
   //
-  // AND THE REFERENCE NODE IS ONLY USED WHERE IT IS A CHILD OF THIS BLOCK. Every page
-  // authors the fold as a direct child, but `details` comes out of a querySelector over
-  // the whole block, so a page that ever wrapped it would hand insertBefore a node that
-  // is not a sibling - which THROWS, out of a forEach, taking the rest of the
-  // condensing and the rail listener with it. A null reference appends instead, which
-  // puts the body after a fold that is hidden anyway: the wrong order in a state
-  // nobody can see, rather than a page that stops being condensed.
+  // AND THE REFERENCE NODE IS ONLY USED WHERE IT IS A CHILD OF THIS BLOCK. `details`
+  // comes out of a querySelector over the whole block, so a page that wrapped the fold
+  // would hand insertBefore a node that is not a sibling - which THROWS, out of a
+  // forEach, taking the rest of the condensing and the rail listener with it. A null
+  // reference appends instead, which puts the body after a fold that is hidden anyway:
+  // the wrong order in a state nobody can see, rather than a page that stops being
+  // condensed. That branch is driven: the arm is called "a fold the page wrapped still
+  // gets its one-sentence body onto the page" in tools/ui-condensed-help.js.
+  //
+  // AND THE SHAPE IS NOW REFUSED WHERE IT IS AUTHORED (#1684), so this branch is a floor
+  // rather than the rule - which is what it used to be, under a sentence saying every
+  // page happens to author the fold as a direct child and nothing checks it. The markup
+  // reader in the same gate walks each block's authored nesting and refuses a fold that
+  // is not its block's own child, naming the page and the key. What is left to this
+  // branch is markup that reached a browser without passing that gate.
   if (sentence === null) {
     if (body.parentNode !== help) {
       help.insertBefore(body, details.parentNode === help ? details : null);

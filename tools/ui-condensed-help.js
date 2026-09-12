@@ -384,6 +384,36 @@ function elementBody(markup, from, tag) {
 }
 
 /*
+ * How many elements are still open at `at` inside `inner` - zero when whatever starts
+ * there is a direct child of the element `inner` is the body of.
+ *
+ * A SELF-CLOSING TAG IS DEPTH-NEUTRAL AND A VOID NAME IS NOT READ, which is the bound to
+ * know rather than a simplification. These pages write every void element with its slash -
+ * nineteen `<br />` on the Providers page and every `<input>` closed the same way - because
+ * Prettier formats this markup and the `prettier` gate runs on every change, so `<br>` with
+ * no slash cannot land. A name list instead would have to be right about every void element
+ * these pages use, and the direction it fails in is silent: an `<input>` counted as an
+ * element that opens makes every tag after it read as nested inside it, and this reader
+ * would then refuse honest markup. One was written here first and deleted, because the
+ * proof run showed every branch of it could go with the gate staying green - no block on
+ * any of the four pages authors a void element before its fold today, so nothing drove it.
+ * The arm below does drive the self-closing branch.
+ */
+function depthAt(inner, at) {
+  let depth = 0;
+  for (const m of inner.matchAll(/<(\/?)([a-z][a-z0-9]*)\b[^>]*?(\/?)>/g)) {
+    if (m.index >= at) {
+      break;
+    }
+    if (m[3] === "/") {
+      continue;
+    }
+    depth += m[1] === "/" ? -1 : 1;
+  }
+  return depth;
+}
+
+/*
  * Refuses the markup half, page by page: what a reader of a page whose script
  * never arrived is left with.
  */
@@ -487,9 +517,29 @@ function inspectMarkup(page, source) {
         `${key} on ${page} has no empty lead line for the first sentence to be written into`,
       );
     }
-    if (!/<details\b[^>]*class="sso-help-full"/.test(body)) {
+    const fold = /<details\b[^>]*class="sso-help-full"/.exec(body);
+    if (fold === null) {
       refusals.push(
         `${key} on ${page} has no fold to put the whole text behind`,
+      );
+    } else if (depthAt(body, fold.index) > 0) {
+      // THE FOLD IS A DIRECT CHILD OF ITS BLOCK, WHICH THE APPLIER RELIES ON AND NOTHING
+      // REFUSED UNTIL NOW (#1684). `refresh` in SSO-Auth/Web/i18n.js finds the fold with a
+      // querySelector over the WHOLE block, so it finds one at any depth, and then promotes
+      // a one-sentence body with `help.insertBefore(body, details)` - which needs the fold
+      // to be that element's own child. Every one of these blocks authors it that way and
+      // the applier carries a fallback for the other shape, so this is not a crash waiting
+      // to happen; it is a layout edit that silently changes where a help body ends up,
+      // after the fold rather than in front of it, and takes it out of the stylesheet rule
+      // that gives a promoted body the lead's spacing.
+      //
+      // READ FROM THE SAME WALK AS EVERY OTHER REFUSAL HERE, over the authored source with
+      // its comments stripped, because the runtime reader next door cannot see it at all:
+      // that one drives a tree `buildPage` builds, where the fold is a direct child by
+      // construction. Two green readers over a shape neither of them authors is the "green
+      // for the wrong reason" this file exists to refuse.
+      refusals.push(
+        `the fold of ${key} on ${page} is not a direct child of its block: the applier finds it at any depth and then appends the one-sentence body after it instead of in front of it, where the stylesheet gives it the fold's spacing rather than the lead's`,
       );
     }
     if (!new RegExp(`<summary data-i18n="${SUMMARY_KEY}">`).test(body)) {
@@ -1370,6 +1420,15 @@ function fixtureMarkup(key, parts) {
     `<${tag} class="fieldDescription${p.marked ? " sso-help" : ""}">`,
     p.comment ? `<!-- a note that mentions a closing </div> tag -->` : "",
     p.lead ? `<span class="sso-help-lead"></span>` : "",
+    // `selfClosed` puts the one kind of tag that must NOT move the depth count before the
+    // fold: a void element with its slash, which is how these pages author all of them.
+    // Without this arm the self-closing branch of `depthAt` is driven by nothing, because
+    // no block on any of the four pages carries such a tag before its fold today.
+    p.selfClosed ? `<br />` : "",
+    // `wrapped` puts the fold inside a layout element, which is the edit somebody makes
+    // while rearranging a form and the shape #1684 is about. It is a near-miss of one
+    // opening tag and one closing tag, and nothing else about the block moves.
+    p.wrapped ? `<div class="sso-help-layout">` : "",
     p.details ? `<details class="sso-help-full">` : "<div>",
     p.summary
       ? `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`
@@ -1380,6 +1439,7 @@ function fixtureMarkup(key, parts) {
         : `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
       : `<div class="sso-help-body"><span data-i18n="${key}">whatever</span></div>`,
     p.details ? `</details>` : "</div>",
+    p.wrapped ? `</div>` : "",
     `</${tag}>`,
   ].join("\n");
 
@@ -1483,6 +1543,14 @@ async function calibrate(i18n) {
     ).refusals,
   );
   record(
+    "a block carrying a self-closed tag before its fold",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { selfClosed: true }),
+    ).refusals,
+  );
+  record(
     "two help blocks in two fields",
     false,
     inspectMarkup(
@@ -1497,6 +1565,7 @@ async function calibrate(i18n) {
       { flat: true, assembled: true },
     ],
     ["a fold authored inside a <p>", { tag: "p" }],
+    ["a fold wrapped in a layout element", { wrapped: true }],
     ["a help marker on a class neither reader enters", { stray: true }],
     ["a rail card with no heading", { heading: false }],
     ["a block the applier will not find", { marked: false }],
