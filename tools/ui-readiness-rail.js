@@ -1015,6 +1015,16 @@ function installHost(counter) {
               counter.park.push({ resolve, reject }),
             );
           }
+          // A 200 CARRYING WHATEVER THE ARM CHOOSES (#1694). A read that fulfils is not a read
+          // that worked, and the bodies that matter here - a proxy's error page that parses, a
+          // version-skewed member - arrive as resolved promises. A client that could only
+          // reject or answer correctly could not reach either.
+          if (
+            counter.serve !== undefined &&
+            name === "getPluginConfiguration"
+          ) {
+            return Promise.resolve(counter.serve);
+          }
           if (counter.refuseRead && name === "getPluginConfiguration") {
             return Promise.reject(new Error("the stub refused this read"));
           }
@@ -1092,7 +1102,12 @@ async function run() {
     return started;
   }
   const { arms, mustPass, faults, refuse } = started;
-  const counter = { calls: [], refuseRead: false, park: null };
+  const counter = {
+    calls: [],
+    refuseRead: false,
+    park: null,
+    serve: undefined,
+  };
   // EVERY REJECTION NOBODY HANDLED IS RECORDED, which is a thing node tells you and a
   // browser does not tell an administrator. The arm below asks for it by name, because
   // "it surfaces in the console" is exactly the reporting #1681 is about the absence of.
@@ -1804,6 +1819,136 @@ async function run() {
     }
   }
 
+  // ---- Arm: a 200 that is not the configuration, and a fill that throws ----
+  //
+  // A FULFILLED READ IS NOT A READ THAT WORKED (#1694). Each of the bodies below arrives as a
+  // resolved promise, and before this each left the editor open over the fields resetEditor
+  // blanked, the rail asserting "Still empty" about a provider that is saved and fully
+  // configured, and the only trace in the browser console. The three states are kept apart
+  // because the act they ask for differs: a server that could not be reached, a server that
+  // answered with something else, and a document this form could not be filled from.
+  for (const protocol of ["oid", "saml"]) {
+    const member = protocol === "saml" ? "SamlConfigs" : "OidConfigs";
+    const selectorId =
+      protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
+    const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+    const load = protocol === "oid" ? core.loadProvider : core.loadSamlProvider;
+    const settled = () =>
+      new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+
+    const drive = async (body) => {
+      const page = providersFixture();
+      open(page);
+      page.querySelector(selectorId).value = "a-saved-provider";
+      counter.serve = body;
+      load(page, "a-saved-provider");
+      await settled();
+      counter.serve = undefined;
+      return page;
+    };
+    const closedAndSaid = async (what, body, fragment) => {
+      const page = await drive(body);
+      if (!page.querySelector("#" + EDITORS[protocol]).hidden) {
+        refuse(
+          "not-the-configuration",
+          protocol +
+            ": " +
+            what +
+            " left the editor open over the blanks resetEditor wrote, one Save away from replacing a configured provider with them",
+        );
+      }
+      inspectRail(page, { open: null, rows: [] }).forEach((detail) =>
+        refuse(
+          "not-the-configuration",
+          protocol + " (" + what + "): " + detail,
+        ),
+      );
+      const status = page.querySelector("#sso-page-status").textContent;
+      if (!status.includes(fragment)) {
+        refuse(
+          "not-the-configuration",
+          protocol +
+            ": " +
+            what +
+            " should be reported in its own words and the page says " +
+            JSON.stringify(status),
+        );
+      }
+      if (
+        !page
+          .querySelector("#sso-page-status")
+          .classList.contains("sso-status-fail")
+      ) {
+        refuse(
+          "not-the-configuration",
+          protocol + ": " + what + " is not marked as a failure",
+        );
+      }
+    };
+
+    // A proxy's error page that happens to parse: an object with none of the members.
+    await closedAndSaid(
+      "a body carrying none of the configuration's members",
+      { error: "Bad Gateway" },
+      "is not this plugin's configuration",
+    );
+    // The member present and not an object, which is the version-skew shape: the OpenID
+    // loader threw a TypeError on it and the SAML loader presented a blank provider as read.
+    await closedAndSaid(
+      "a body whose " + member + " is not a dictionary",
+      { [member]: "unexpected" },
+      "is not this plugin's configuration",
+    );
+    // A body of null, which `typeof` calls an object and which every member lookup throws on.
+    await closedAndSaid(
+      "a body of null",
+      null,
+      "is not this plugin's configuration",
+    );
+
+    // A WHOLE DOCUMENT, because the fill reads all three members and a body short of one
+    // throws in the fill rather than failing the shape test - which the arm below would then
+    // report as a server with nothing configured having its editor closed. Found by writing
+    // the short version first and reading the refusal.
+    const document = (providers) => ({
+      OidConfigs: {},
+      SamlConfigs: {},
+      ProvisioningProfiles: {},
+      [member]: providers,
+    });
+
+    // AND A DOCUMENT THAT IS THE DOCUMENT, whose provider holds a member of the wrong type, so
+    // the FILL throws part way rather than the shape test catching it first. A different
+    // sentence, because the read worked and this page is what could not use it.
+    await closedAndSaid(
+      "a provider whose role mapping is not a list",
+      document({ "a-saved-provider": { FolderRoleMapping: 5 } }),
+      "could not be filled from it",
+    );
+
+    // THE OTHER DIRECTION, which is what stops all of the above passing on a loader that
+    // closes the editor for every reply: an EMPTY configuration is the commonest installation
+    // there is, and it must fill the form and leave the rail answering.
+    {
+      const page = await drive(document({}));
+      if (page.querySelector("#" + EDITORS[protocol]).hidden) {
+        refuse(
+          "not-the-configuration",
+          protocol +
+            ": a server with no provider of this protocol had its editor closed, which is every fresh installation",
+        );
+      }
+      if (page.querySelector("#sso-page-status").textContent !== "") {
+        refuse(
+          "not-the-configuration",
+          protocol +
+            ": a server with nothing configured was reported as a failure: " +
+            JSON.stringify(page.querySelector("#sso-page-status").textContent),
+        );
+      }
+    }
+  }
+
   // ---- Arm: the configuration read fails while an editor is being filled ----
   //
   // THE RAIL IS WHY THIS IS HERE RATHER THAN IN A GATE OF ITS OWN (#1681). An editor is
@@ -1954,6 +2099,12 @@ async function run() {
   );
   console.log(
     "                   nothing, in five orderings per protocol, and the current one still lands (#1693)",
+  );
+  console.log(
+    "  not-the-configuration  a 200 whose body is not the configuration, and a fill that throws,",
+  );
+  console.log(
+    "                   each close the editor and say so in their own words; an empty one fills (#1694)",
   );
   console.log(
     "  read-failed      a configuration read that fails closes the editor, returns the rail to its",

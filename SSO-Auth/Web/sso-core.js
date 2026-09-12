@@ -2716,7 +2716,9 @@ const ssoConfigurationPage = {
     return out;
   },
   loadProvider: (page, provider_name) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
+    const read = ApiClient.getPluginConfiguration(
+      ssoConfigurationPage.pluginUniqueId,
+    ).then(
       (config) => {
         // A reply for a provider the editor has since left writes nothing (#1693). Dropped
         // rather than queued, because it is stale by then: whatever the editor is about now
@@ -2724,6 +2726,14 @@ const ssoConfigurationPage = {
         if (
           !ssoConfigurationPage.replyStillSpeaksFor(page, "oid", provider_name)
         ) {
+          return;
+        }
+        // A 200 that is not the configuration is a state the page can reach, rather than a
+        // TypeError on the next line that nobody handles (#1694).
+        if (!ssoConfigurationPage.isProviderConfiguration(config, "oid")) {
+          ssoConfigurationPage.hideEditor(page);
+          ssoConfigurationPage.reportUnrecognisedProviderConfiguration(page);
+          ssoConfigurationPage.markPageClean(page);
           return;
         }
         const provider = config.OidConfigs[provider_name] || {};
@@ -2824,6 +2834,21 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.markPageClean(page);
       },
     );
+    // A THROW FROM THE FILL IS SETTLED HERE AND NOWHERE ELSE (#1694). This catch is on the
+    // promise the two arms above RETURN, so it sees what the fulfilled arm threw and never the
+    // original rejection - that one was handled by the second argument, which is the separation
+    // #1689 asked for and could not express. A fill that threw used to run off the end of the
+    // promise: the editor stayed open over blanks, the rail asserted "Still empty" about a
+    // configured provider, and the only trace was in the browser console.
+    //
+    // A SECOND STATEMENT RATHER THAN A THIRD LINK, so the arms above keep the depth they had.
+    // As a chain, Prettier breaks the call onto its own lines and re-indents two hundred
+    // untouched lines of fill with it, which buries the three lines that changed.
+    read.catch(() => {
+      ssoConfigurationPage.hideEditor(page);
+      ssoConfigurationPage.reportUnfillableProviderForm(page);
+      ssoConfigurationPage.markPageClean(page);
+    });
   },
   // Serial of the most recent redirect-URI request. A reply for an older provider name must never land in
   // the field after a newer one has already answered it, which per-keystroke requests otherwise allow.
@@ -3189,6 +3214,59 @@ const ssoConfigurationPage = {
       key === "saml" ? "#saml-selectProvider" : "#selectProvider",
     );
     return selector !== null && selector.value === provider_name;
+  },
+  /*
+   * Whether a body a 200 carried is this plugin's configuration at all (#1694).
+   *
+   * A FULFILLED READ IS NOT A READ THAT WORKED. A proxy's error page that happens to parse, a
+   * version-skewed endpoint, a truncated body: each arrives as a resolved promise, and the
+   * first line of the fill then reads a member of undefined. The OpenID loader threw a
+   * TypeError there and ran off the end of the promise, so the editor stayed open over the
+   * fields resetEditor blanked, the rail asserted "Still empty" about a provider that is saved
+   * and fully configured, and the only trace was in the browser console. The SAML loader read
+   * `(config.SamlConfigs || {})` and so presented a blank provider as successfully read, which
+   * is quieter and no better.
+   *
+   * THE MEMBER FOR THE PROTOCOL BEING READ, AND AN OBJECT. PluginConfiguration declares
+   * OidConfigs and SamlConfigs as dictionaries that are always serialized, so a body missing
+   * the one this loader needs is not the document whatever else it holds. Empty is fine and
+   * must stay fine - a server with no provider of that protocol is the commonest installation
+   * there is, and refusing it would close the editor on every one of them.
+   */
+  isProviderConfiguration: (config, key) => {
+    if (config === null || typeof config !== "object") {
+      return false;
+    }
+    const member = key === "saml" ? config.SamlConfigs : config.OidConfigs;
+    return member !== null && typeof member === "object";
+  },
+  // A body that arrived and is not the configuration (#1694). A SECOND SENTENCE RATHER THAN
+  // THE ONE ABOVE: the server answered, so "could not read the stored configuration" would
+  // describe the wrong failure to whoever has to act on it - the thing to look at is what is
+  // answering for Jellyfin, not whether Jellyfin is up.
+  reportUnrecognisedProviderConfiguration: (page) => {
+    ssoConfigurationPage.renderPageStatus(
+      page,
+      tr(
+        "config.provider_read_not_configuration",
+        "The server answered, but what it sent is not this plugin's configuration, so this form was closed rather than filled from it. Reload the page and try again; if it keeps happening, check whether something in front of Jellyfin is answering for it.",
+      ),
+      false,
+    );
+  },
+  // And a fill that threw part way (#1694). A third state, because the two above are both
+  // about the ANSWER and this one is about this page: the document was the document and
+  // something in it was not the shape this form expects, so the form is closed rather than
+  // left holding half of a provider.
+  reportUnfillableProviderForm: (page) => {
+    ssoConfigurationPage.renderPageStatus(
+      page,
+      tr(
+        "config.provider_fill_failed",
+        "The stored configuration was read, but this form could not be filled from it, so it was closed rather than left half filled. Reload the page and try again.",
+      ),
+      false,
+    );
   },
   reportUnreadableProviderConfiguration: (page) => {
     ssoConfigurationPage.renderPageStatus(
@@ -5098,12 +5176,22 @@ const ssoConfigurationPage = {
     };
   },
   loadSamlProvider: (page, provider_name) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
+    const read = ApiClient.getPluginConfiguration(
+      ssoConfigurationPage.pluginUniqueId,
+    ).then(
       (config) => {
         // The same drop the OpenID loader makes, for the same reason (#1693).
         if (
           !ssoConfigurationPage.replyStillSpeaksFor(page, "saml", provider_name)
         ) {
+          return;
+        }
+        // The same reading the OpenID loader makes (#1694). The `|| {}` below no longer
+        // stands in for it: a missing member used to present a blank provider as read.
+        if (!ssoConfigurationPage.isProviderConfiguration(config, "saml")) {
+          ssoConfigurationPage.hideSamlEditor(page);
+          ssoConfigurationPage.reportUnrecognisedProviderConfiguration(page);
+          ssoConfigurationPage.markPageClean(page);
           return;
         }
         const provider = (config.SamlConfigs || {})[provider_name] || {};
@@ -5199,6 +5287,12 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.markPageClean(page);
       },
     );
+    // The same catch its OpenID twin carries, for the same reason (#1694).
+    read.catch(() => {
+      ssoConfigurationPage.hideSamlEditor(page);
+      ssoConfigurationPage.reportUnfillableProviderForm(page);
+      ssoConfigurationPage.markPageClean(page);
+    });
   },
   // Canonical external base for the computed SAML URLs (mirrors the inline logic in computeRedirectUri,
   // #724): the Base URL Override when set, else this server's address, normalized the way the server's
