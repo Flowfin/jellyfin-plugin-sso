@@ -180,6 +180,9 @@ class Page {
     this.elements = elements;
     this.byId = new Map(elements.map((el) => [el.id, el]));
     this.labelFor = labels;
+    // The page is a class target too: markPageClean takes the dirty marker off it, and a
+    // stub without this throws inside the rejection arm rather than judging it.
+    this.classList = new Classes();
   }
 
   querySelector(selector) {
@@ -191,6 +194,16 @@ class Page {
       return this.labelFor.get(label[1]) || null;
     }
     throw new Error("the stub does not resolve the selector " + selector);
+  }
+
+  // TAG LISTS ONLY, which is the one form reached from here: editableControls asks for
+  // "input, select, textarea" on the way to the unsaved-changes baseline that the failed-read
+  // arm below takes. Written the same way tools/ui-unsaved-state.js writes it, because the
+  // two stubs answer the same question and two different answers to "which controls are on
+  // this page" would let one gate pass a page the other refuses.
+  querySelectorAll(selector) {
+    const tags = selector.split(",").map((part) => part.trim());
+    return this.elements.filter((el) => tags.includes(el.tag));
   }
 }
 
@@ -671,6 +684,14 @@ function installHost(counter) {
         }
         return (...args) => {
           counter.calls.push(String(name) + "(" + args.length + ")");
+          // THE ONE REPLY THIS CLIENT CAN REFUSE (#1681), because a read that fails is a
+          // state the page has to be driven through rather than reasoned about: the server
+          // unreachable, a 500, a configuration the host cannot deserialize. Served as a
+          // rejected promise and not as an empty object, which is what the success arm
+          // already gets and is a different failure.
+          if (counter.refuseRead && name === "getPluginConfiguration") {
+            return Promise.reject(new Error("the stub refused this read"));
+          }
           return Promise.resolve({});
         };
       },
@@ -718,7 +739,12 @@ async function run() {
     return started;
   }
   const { arms, mustPass, faults, refuse } = started;
-  const counter = { calls: [] };
+  const counter = { calls: [], refuseRead: false };
+  // EVERY REJECTION NOBODY HANDLED IS RECORDED, which is a thing node tells you and a
+  // browser does not tell an administrator. The arm below asks for it by name, because
+  // "it surfaces in the console" is exactly the reporting #1681 is about the absence of.
+  const unhandled = [];
+  process.on("unhandledRejection", (reason) => unhandled.push(String(reason)));
   installHost(counter);
   const core = await loadCore();
 
@@ -1101,6 +1127,84 @@ async function run() {
     });
   }
 
+  // ---- Arm: the configuration read fails while an editor is being filled ----
+  //
+  // THE RAIL IS WHY THIS IS HERE RATHER THAN IN A GATE OF ITS OWN (#1681). An editor is
+  // already open over the fields resetEditor blanked when the read is asked for, so a
+  // failure used to leave the form reading as an empty provider AND the rail asserting
+  // "Still empty" about a provider that is saved and fully configured. The rail is the
+  // confident half: it was not silent, it was wrong, and what it said was the opposite of
+  // the truth. So the three things this arm asks for are the editor, the rail and the
+  // sentence, and the fourth is that node found nobody handling the rejection.
+  for (const protocol of ["oid", "saml"]) {
+    const page = providersFixture();
+    const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+    const load = protocol === "oid" ? core.loadProvider : core.loadSamlProvider;
+    open(page);
+    if (rowsOf(page).length === 0) {
+      refuse(
+        "read-failed",
+        "the " +
+          protocol +
+          " fixture for this arm never filled the rail, so it proves nothing",
+      );
+    }
+    counter.refuseRead = true;
+    load(page, "a-saved-provider");
+    // Two turns: one for the rejection to settle and one for the handler's own work, and
+    // a third for node to decide a rejection was nobody's.
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    counter.refuseRead = false;
+
+    if (!page.querySelector("#" + EDITORS[protocol]).hidden) {
+      refuse(
+        "read-failed",
+        "the " +
+          protocol +
+          " editor stayed open after the read failed, so its blanked fields read as the provider's values and one Save would write them over it",
+      );
+    }
+    inspectRail(page, { open: null, rows: [] }).forEach((detail) =>
+      refuse("read-failed", protocol + ": " + detail),
+    );
+    const status = page.querySelector("#sso-page-status");
+    if (!status) {
+      refuse(
+        "read-failed",
+        "providersPage.html declares no #sso-page-status, so a failed read has nowhere to be reported",
+      );
+    } else {
+      if (status.textContent === "") {
+        refuse(
+          "read-failed",
+          "the " +
+            protocol +
+            " read failed and the page said nothing, so the only report is in the browser console",
+        );
+      }
+      // THE CLASS AS WELL AS THE WORDS. The page marks an outcome ok or failed, and a
+      // failure rendered in the success colour is a worse read than no colour at all.
+      if (!status.classList.contains("sso-status-fail")) {
+        refuse(
+          "read-failed",
+          "the " +
+            protocol +
+            " read failure is not marked as one: " +
+            JSON.stringify(status.textContent),
+        );
+      }
+    }
+  }
+  if (unhandled.length > 0) {
+    refuse(
+      "read-failed",
+      unhandled.length +
+        " rejection(s) reached nobody: " +
+        unhandled.join("; "),
+    );
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(faults.length + " refusal(s) in the readiness rail (#1678)");
@@ -1142,6 +1246,12 @@ async function run() {
   );
   console.log(
     "  labels           every field the rail names is named by the page's label and not by its id",
+  );
+  console.log(
+    "  read-failed      a configuration read that fails closes the editor, returns the rail to its",
+  );
+  console.log(
+    "                   invitation, says so on the page, and leaves no rejection unhandled (#1681)",
   );
   console.log(
     "  NOT driven:      the input/change listeners initProvidersPage binds on the two editors, and the",
