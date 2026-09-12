@@ -1265,6 +1265,25 @@ const ssoConfigurationPage = {
     [...page.querySelectorAll("input, select, textarea")].filter(
       (element) =>
         element.type !== "file" &&
+        // A READ-ONLY CONTROL IS NOT ONE AN ADMINISTRATOR EDITS, which is what this function is
+        // named for, and leaving the three this surface has in it cost the notice that says work is
+        // about to be lost (#1701). All three are computed addresses no save reads: the OpenID
+        // redirect URI the SERVER answers with, and the two SAML URLs. The first is the one that
+        // bit. `loadProvider` empties it, schedules the request behind a debounce, and calls
+        // `markPageClean` twenty lines later - so the baseline is taken with the field EMPTY and the
+        // reply writes into it a quarter of a second afterwards, with no second baseline. From the
+        // first load onwards `pageDiffersFromBaseline` therefore answered true on a page nobody had
+        // typed into: the tab asserted an edit that did not exist, and `refreshOnShow` took its
+        // edit-protecting arm every time, so it stopped re-reading for the life of the view.
+        //
+        // EXCLUDED HERE RATHER THAN BY RE-TAKING THE BASELINE, because the other repair swallows
+        // real work: a keystroke made while the address was in flight falls inside the window a
+        // blind re-take covers, and would afterwards read as part of what the server put there.
+        // This direction cannot lose an edit, because the fields it drops are ones no edit reaches.
+        //
+        // DERIVED FROM THE CONTROL rather than from a list of three ids, so a computed field added
+        // tomorrow is covered by being read-only, which is the property that makes it one.
+        element.readOnly !== true &&
         ssoConfigurationPage.navigationControlIds.indexOf(element.id) === -1,
     ),
   // What the tracked controls hold right now, as one comparable string. A checkbox is read from
