@@ -873,6 +873,16 @@ const ssoConfigurationPage = {
     // the next provider opened reads as "not yet tested" rather than inheriting a verdict about a
     // different endpoint.
     ssoConfigurationPage.readinessTestState.oid = null;
+    // And the same for a failed read (#1681): the editor being reset is about to hold something else, so
+    // the previous open's failure must not stand over it. The serial is bumped for the other direction -
+    // a read still in flight for whatever was here before. Every way this editor changes WHICH PROVIDER
+    // it is about goes through this function, openProvider and addProvider included, so bumping here is
+    // what makes "the newest read" mean the one for what is on screen rather than merely the last one
+    // issued: a blank New provider form takes no read at all and would otherwise still be the previous
+    // provider's to speak for. What it does not cover, and does not have to, is the form CONTENTS
+    // changing under the same provider - a preset, a refill, or somebody typing.
+    ssoConfigurationPage.readinessReadFailed.oid = false;
+    ssoConfigurationPage.loadProviderSerial += 1;
 
     page.querySelector("#OidProviderName").value = "";
 
@@ -2704,9 +2714,31 @@ const ssoConfigurationPage = {
       .filter(Boolean);
     return out;
   },
-  loadProvider: (page, provider_name) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
+  // Serial of the most recent OpenID fill, and of the most recent editor reset. A reply that is no longer
+  // the newest says nothing about the form on screen (#1681): the same rule, and the same reason,
+  // redirectUriSerial states below for the field it guards.
+  loadProviderSerial: 0,
+  // `refilled` says the editor is being re-read AFTER A SUCCESSFUL SAVE rather than filled from blanks.
+  // The two contexts fail differently and the failure arm has no other way to tell them apart: on the
+  // open path the form holds what resetEditor blanked, so a failed read leaves an editor saying nothing
+  // true about the provider; on the save path the form holds exactly what the server has just accepted,
+  // so the same failure changes nothing an administrator can see and the caller's own "Settings saved."
+  // is the true statement about it. Reporting there would put "nothing was changed" on top of a save that
+  // worked, which is a worse sentence than the silence it replaces.
+  loadProvider: (page, provider_name, refilled) => {
+    const serial = (ssoConfigurationPage.loadProviderSerial += 1);
+    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+      .then((config) => {
+        // THE SAME COMPARISON THE FAILURE ARM MAKES, AND THIS ARM NEEDED IT MORE. A reply that is no
+        // longer the newest describes a provider the editor is no longer about, and filling the form
+        // from it writes another provider's values under this one's title - which the Save then sends
+        // to the name box this fill has just overwritten. It also CLEARS the failed-read flag, so a
+        // stale success would wipe a newer read's failure and leave a derived, confident panel standing
+        // under a message saying the settings could not be read: the exact state the flag exists to
+        // prevent, arriving through the one arm the first version of this left unguarded.
+        if (serial !== ssoConfigurationPage.loadProviderSerial) {
+          return;
+        }
         const provider = config.OidConfigs[provider_name] || {};
 
         const form_elements = ssoConfigurationPage.listArgumentsByType(page);
@@ -2778,13 +2810,71 @@ const ssoConfigurationPage = {
               ssoConfigurationPage.isManagedProvider("oid", provider_name),
             ),
           );
+        // The fill reached its end, so whatever the previous open left standing is answered for (#1681).
+        // Set before the panel is built, because the panel reads it.
+        ssoConfigurationPage.readinessReadFailed.oid = false;
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "oid");
         // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
         // against what was filled in rather than against what stood here before (#1572).
         ssoConfigurationPage.markPageClean(page);
-      },
-    );
+      })
+      // THE READ CAN FAIL, AND WITHOUT THIS NOTHING SAYS SO (#1681). On the open path the editor is
+      // already showing the fields resetEditor blanked, so a rejected read leaves a form that reads as an
+      // empty provider, a rail asserting "Still empty" about a provider that is saved and fully
+      // configured, and a rejection in the browser console - three ways of being wrong and none of them
+      // anywhere an administrator looks. The message goes in the editor's own status region, which is
+      // where the delete path already puts a failed read of the same document (#1577).
+      //
+      // `.catch` AND NOT A SECOND ARGUMENT TO `.then`, for the reason saveProvider states at its own:
+      // a two-armed `then` settles the REJECTION and lets a throw from inside the fill above run off the
+      // end of the promise. That throw produces exactly the three symptoms this arm exists to remove -
+      // a half-filled form, a panel derived from it, and a console-only rejection - which is a 200
+      // carrying something that is not the configuration document, a case this file already names
+      // elsewhere. One arm covers both, and both leave the same editor.
+      //
+      // A REPLY THAT IS NO LONGER THE NEWEST IS DROPPED, which the first version of this got wrong in
+      // the direction that matters. It compared the open PROTOCOL, so a rejection for the provider just
+      // closed was attributed to the one just opened, and - because nothing re-reads while a form is
+      // being filled in - it stood for the life of that editor. The serial separates requests instead:
+      // resetEditor bumps it, so opening another provider, opening a blank form and closing the editor
+      // all make an outstanding reply stale, and only the newest read can speak.
+      //
+      // AND NOTHING IS SAID AFTER A SAVE. `refilled` is the save path re-reading what the server has just
+      // accepted; the form is the administrator's own saved content rather than blanks, so there is no
+      // wrong panel to replace and the caller's "Settings saved." is the true sentence about it. The
+      // rejection is still settled here, which is what keeps it out of the console.
+      .catch(() => {
+        if (
+          serial !== ssoConfigurationPage.loadProviderSerial ||
+          ssoConfigurationPage.openEditorKey(page) !== "oid"
+        ) {
+          return;
+        }
+        // A REFILL THAT FAILED LEAVES A FORM THAT IS STILL THE ADMINISTRATOR'S SAVED CONTENT, so this
+        // arm CLEARS rather than sets: whatever a previous open left standing is over, the panel goes
+        // back to being derived from the form, and the page is clean because the server holds exactly
+        // what is on screen. Returning here without clearing left the unread row beside the caller's
+        // "Settings saved.", about a form the server had just accepted.
+        if (refilled) {
+          ssoConfigurationPage.readinessReadFailed.oid = false;
+          ssoConfigurationPage.refreshReadiness(page, "oid");
+          ssoConfigurationPage.markPageClean(page);
+          return;
+        }
+        // SET BEFORE THE PANEL IS REBUILT, because the panel is what reads it, and the rebuild is what
+        // replaces five derived rows with one saying the answer is unavailable.
+        ssoConfigurationPage.readinessReadFailed.oid = true;
+        ssoConfigurationPage.renderSaveStatus(
+          page,
+          tr(
+            "config.provider_read_failed",
+            "Could not read this provider's stored settings. What the form shows is not its own. Reload the page and open it again.",
+          ),
+          false,
+        );
+        ssoConfigurationPage.refreshReadiness(page, "oid");
+      });
   },
   // Serial of the most recent redirect-URI request. A reply for an older provider name must never land in
   // the field after a newer one has already answered it, which per-keystroke requests otherwise allow.
@@ -3167,7 +3257,7 @@ const ssoConfigurationPage = {
             function (result) {
               Dashboard.processPluginConfigurationUpdateResult(result);
               ssoConfigurationPage.loadConfiguration(page);
-              ssoConfigurationPage.loadProvider(page, provider_name);
+              ssoConfigurationPage.loadProvider(page, provider_name, true);
 
               page.querySelector("#selectProvider").value = provider_name;
               // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
@@ -3301,6 +3391,13 @@ const ssoConfigurationPage = {
   // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
   // so a previous provider's result cannot be read as this one's.
   readinessTestState: { oid: null, saml: null },
+  // Whether the configuration read that was to fill the OPEN editor failed (#1681). The panel is built
+  // from the form's controls, and on this path those controls hold what resetEditor blanked rather than
+  // what the provider is stored as - so every derived row would be an assertion about a provider nobody
+  // read. `true` replaces the whole panel with one row saying so, which is the difference between a
+  // wrong answer and no answer. Cleared by resetEditor / resetSamlEditor, so the next open starts
+  // without the last one's failure, and set back to false by the fill that succeeds.
+  readinessReadFailed: { oid: false, saml: false },
   // What each editor's panel is made of. Everything here is an id that already exists on the form: the
   // panel adds no field, no request and no state of its own beyond the test outcome above.
   readinessSpecs: {
@@ -3447,6 +3544,25 @@ const ssoConfigurationPage = {
       return;
     }
     list.replaceChildren();
+
+    // A PANEL ABOUT A PROVIDER NOBODY READ SAYS SO, AND SAYS NOTHING ELSE (#1681). Every row below is
+    // derived from the editor's own controls, and when the configuration read that was to fill them
+    // failed those controls hold what resetEditor blanked - so the panel would report "Still empty" about
+    // a provider that is saved and fully configured. That is not a panel being silent, it is one being
+    // confidently wrong, and what it says is the opposite of the truth. One row replaces the five: the
+    // administrator is told the answer is unavailable rather than given a false one.
+    if (ssoConfigurationPage.readinessReadFailed[spec.testKey]) {
+      ssoConfigurationPage.appendReadinessRow(
+        list,
+        false,
+        tr("config.readiness_unread_row", "This provider"),
+        tr(
+          "config.readiness_unread",
+          "Its stored settings could not be read, so nothing on this form is its own. Reload the page and open it again.",
+        ),
+      );
+      return;
+    }
 
     const states = ssoConfigurationPage.readinessFieldStates(page, spec);
     ssoConfigurationPage.appendReadinessRow(
@@ -4858,8 +4974,11 @@ const ssoConfigurationPage = {
     page.querySelector("#saml-provider-name").focus();
   },
   resetSamlEditor: (page) => {
-    // Same reason as resetEditor above (#1083).
+    // Same reason as resetEditor above (#1083), and the same for the failed-read flag and the serial
+    // (#1681).
     ssoConfigurationPage.readinessTestState.saml = null;
+    ssoConfigurationPage.readinessReadFailed.saml = false;
+    ssoConfigurationPage.loadSamlProviderSerial += 1;
 
     const form_elements = ssoConfigurationPage.listSamlArgumentsByType(page);
 
@@ -4995,9 +5114,16 @@ const ssoConfigurationPage = {
       role_map_fields,
     };
   },
-  loadSamlProvider: (page, provider_name) => {
-    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId).then(
-      (config) => {
+  // The SAML twin of loadProviderSerial, which carries the reasoning (#1681).
+  loadSamlProviderSerial: 0,
+  loadSamlProvider: (page, provider_name, refilled) => {
+    const serial = (ssoConfigurationPage.loadSamlProviderSerial += 1);
+    ApiClient.getPluginConfiguration(ssoConfigurationPage.pluginUniqueId)
+      .then((config) => {
+        // The same comparison, for the reason loadProvider states at its own (#1681).
+        if (serial !== ssoConfigurationPage.loadSamlProviderSerial) {
+          return;
+        }
         const provider = (config.SamlConfigs || {})[provider_name] || {};
 
         const form_elements =
@@ -5071,13 +5197,40 @@ const ssoConfigurationPage = {
               ssoConfigurationPage.isManagedProvider("saml", provider_name),
             ),
           );
+        // The fill reached its end, so a previous open's failure is answered for (#1681).
+        ssoConfigurationPage.readinessReadFailed.saml = false;
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "saml");
         // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
         // against what was filled in rather than against what stood here before (#1572).
         ssoConfigurationPage.markPageClean(page);
-      },
-    );
+      })
+      // The SAML twin of the arm on loadProvider, which carries the reasoning (#1681). Its own status
+      // region, its own flag, its own serial, and the same silence after a save.
+      .catch(() => {
+        if (
+          serial !== ssoConfigurationPage.loadSamlProviderSerial ||
+          ssoConfigurationPage.openEditorKey(page) !== "saml"
+        ) {
+          return;
+        }
+        if (refilled) {
+          ssoConfigurationPage.readinessReadFailed.saml = false;
+          ssoConfigurationPage.refreshReadiness(page, "saml");
+          ssoConfigurationPage.markPageClean(page);
+          return;
+        }
+        ssoConfigurationPage.readinessReadFailed.saml = true;
+        ssoConfigurationPage.renderSamlSaveStatus(
+          page,
+          tr(
+            "config.provider_read_failed",
+            "Could not read this provider's stored settings. What the form shows is not its own. Reload the page and open it again.",
+          ),
+          false,
+        );
+        ssoConfigurationPage.refreshReadiness(page, "saml");
+      });
   },
   // Canonical external base for the computed SAML URLs (mirrors the inline logic in computeRedirectUri,
   // #724): the Base URL Override when set, else this server's address, normalized the way the server's
@@ -5569,7 +5722,7 @@ const ssoConfigurationPage = {
             function (result) {
               Dashboard.processPluginConfigurationUpdateResult(result);
               ssoConfigurationPage.loadConfiguration(page);
-              ssoConfigurationPage.loadSamlProvider(page, provider_name);
+              ssoConfigurationPage.loadSamlProvider(page, provider_name, true);
 
               page.querySelector("#saml-selectProvider").value = provider_name;
               // The outcome is rendered inline by the caller, in the editor's own status region (#1572).

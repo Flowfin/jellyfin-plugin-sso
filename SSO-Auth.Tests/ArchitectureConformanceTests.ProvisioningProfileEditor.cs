@@ -498,7 +498,11 @@ public partial class ArchitectureConformanceTests
         var body = ProvisioningTemplateFunctionBody(js, "syncProvisioningProfileState: (page, prefix, managed) => {");
         Assert.Contains("|| Boolean(managed)", body, StringComparison.Ordinal);
 
-        foreach (var loader in new[] { "loadProvider: (page, provider_name) => {", "loadSamlProvider: (page, provider_name) => {" })
+        // The openers carry the loaders' third parameter, which says whether the read is a post-save
+        // refill rather than a fill of a blanked editor (#1681). Spelled out rather than matched loosely:
+        // this reader finds a function by its exact opening line, and a pattern that ignored the
+        // parameter list would go on finding a function whose signature had changed underneath it.
+        foreach (var loader in new[] { "loadProvider: (page, provider_name, refilled) => {", "loadSamlProvider: (page, provider_name, refilled) => {" })
         {
             var load = ProvisioningTemplateFunctionBody(js, loader);
             var managed = load.IndexOf("applyManagedState(page,", StringComparison.Ordinal);

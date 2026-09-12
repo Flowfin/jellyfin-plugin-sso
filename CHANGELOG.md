@@ -753,6 +753,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A provider whose stored settings could not be read no longer shows an empty
+  form and a readiness panel calling it unconfigured (#1681).** Opening a
+  provider blanks the editor and then fills it from a configuration read. That
+  read had no failure arm: when it failed - the server unreachable, a 500, a
+  configuration the host cannot deserialize - the editor stayed open on the
+  blanks, the readiness rail asserted `Still empty: ...` about a provider that
+  is saved and fully configured, and the rejection surfaced only in the browser
+  console. The panel was not silent, it was confidently wrong, and what it said
+  was the opposite of the truth. Both provider loaders now report the failure in
+  the editor's own status region, and the rail replaces its five derived rows
+  with one saying the settings could not be read. A reply that is no longer the
+  newest is dropped in both directions, so a read for the provider just closed
+  can neither fill nor speak for the one just opened, and the re-read that
+  follows a successful save stays silent because the form there is what the
+  server has just accepted.
+
 - **A settings tab returned to now shows what the server holds, instead of what
   it last loaded (#1576, #1572).** The Jellyfin dashboard keeps three views
   alive and hands a cached one back without re-running its controller, so a
