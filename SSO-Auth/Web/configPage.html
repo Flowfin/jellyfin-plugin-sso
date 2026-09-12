@@ -140,6 +140,32 @@
                 >
                   No provider is configured yet. Add one on the Providers tab.
                 </div>
+                <!--
+              THE WIZARD'S ENTRY POINT ON OVERVIEW (#1665, decision D2 on #1528). A LINK and not a button,
+              on the same dashboard route the tab strip uses and carrying the flag initProvidersPage reads
+              on load - so it works before any controller has run, exactly as the strip does, and an
+              Overview whose script failed still reaches the Providers tab from here instead of doing
+              nothing when it is pressed.
+            -->
+                <a
+                  is="emby-linkbutton"
+                  class="raised button-submit sso-overview-add emby-button"
+                  href="#/configurationpage?name=SSO-Auth-providers&amp;wizard=1"
+                >
+                  <span class="material-icons add" aria-hidden="true"></span>
+                  <span data-i18n="config.wizard_start"
+                    >Add a provider, step by step</span
+                  >
+                </a>
+                <div
+                  class="fieldDescription"
+                  data-i18n="overview.add_provider_lead"
+                >
+                  Opens the step-by-step wizard on the Providers tab: the
+                  protocol and a template, the required fields, the address to
+                  register at your identity provider, a connection test, and
+                  enabling it once that test has answered.
+                </div>
               </div>
 
               <!--
