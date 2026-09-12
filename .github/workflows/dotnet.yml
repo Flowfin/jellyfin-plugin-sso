@@ -140,6 +140,18 @@ jobs:
       # it holds more, and a rail card answering a field that does not have focus. Same runtime and same
       # absence of dependencies as the steps above.
       run: node tools/ui-condensed-help.js
+    - name: The readiness rail
+      # #1664 moved the readiness panel out of the two provider editors and into ONE card in the rail, so
+      # the rail became the only place readiness appears - and nothing here could say what it DOES. The C#
+      # rules in ProviderCheckSurface read the two ids, the list shipping "hidden" and each spec's required
+      # ids; a rail that quietly stops being filled satisfies all three, and a page whose readiness list is
+      # empty looks exactly like a page where every provider is fine (#1678). Worse is the confident
+      # direction: one shared list removed the isolation two panels had, so a reply for the protocol that is
+      # no longer open could paint its answer under the other form. This drives the shipped sso-core.js over
+      # the shipped providersPage.html ids and labels and refuses each way the card can be wrong by name,
+      # behind a calibration that runs positive and negative before the real page is opened. Same runtime and
+      # same absence of dependencies as the steps above.
+      run: node tools/ui-readiness-rail.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
