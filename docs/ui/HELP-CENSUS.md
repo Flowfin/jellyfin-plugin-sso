@@ -119,9 +119,27 @@ markup and then LOADS `SSO-Auth/Web/i18n.js` and drives it over both catalogues:
 it refuses a help text still written flat, a fold with no lead line to fill, a
 summary named by anything but the row the folds share, a sentence under the
 field that is not the first sentence of the text behind it, a fold hidden while
-it holds more, and a rail card answering a field that does not have focus. The
-two are complements. This one holds "nothing is deleted"; that one holds "and
-what happened to it is what was promised".
+it holds more, a rail card answering a field that does not have focus, and two
+help blocks resolving to one field - where the card answers for the first of
+them wherever the focus lands and the second cannot be reached from it at all.
+The two are complements. This one holds "nothing is deleted"; that one holds
+"and what happened to it is what was promised".
+
+Slice 2 took the Providers page (#1663), and the `behind a <details>` figure for
+it stops one short of its site count for a reason this table can be read against
+rather than guessed at: `config.saml_base_url_override_help` sits on a
+`sso-callout sso-callout-warning`, which is a warning beside the SAML base-URL
+field rather than that field's description. A warning is not condensed - folding
+one hides the thing it exists to put in front of a reader - and the condensing
+reader's subject is `fieldDescription`, so it neither moves nor refuses it.
+
+The same slice is where the two readers stop covering the same population, which
+is stated here because the census's own figure does not show it. A help text
+whose body is marked `data-i18n-parts` has its `{n}` slots filled from the body's
+own child elements, so the sentence on the screen is assembled on the page; the
+condensing gate builds its runtime fixture from catalogue rows and has no such
+children, so those bodies are judged by its MARKUP reader and not by its applier
+run, and it prints how many per page. This table counts them as it always has.
 
 | Page                 | Help key                                      | Field                                     |
 | -------------------- | --------------------------------------------- | ----------------------------------------- |

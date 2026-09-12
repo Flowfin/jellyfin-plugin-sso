@@ -19,7 +19,8 @@
  * TWO READERS, BECAUSE THE SLICE HAS TWO HALVES AND THEY FAIL DIFFERENTLY. The
  * first reads the shipped markup and refuses a help text that is not authored as
  * a fold, a fold with no lead line to fill, a summary naming something other than
- * the catalogue row the folds share, and a marked page with no rail card. The
+ * the catalogue row the folds share, a marked page with no rail card, and two help
+ * blocks resolving to one field (#1663). The
  * second LOADS the shipped applier and drives it over the shipped catalogues,
  * refusing a lead that is not the first sentence of the text behind it, a fold
  * hiding nothing, a fold hidden while it holds more, and a rail card answering a
@@ -67,6 +68,15 @@
  * pass. The markup reader now refuses that placement by name, which closes the one
  * instance and not the class. A real-page shape the string reader cannot see is
  * still a shape nothing here judges.
+ *
+ * AND ONE HALF OF THE PAGE IS JUDGED BY THE MARKUP READER ALONE (#1663). A help text
+ * whose body is marked `data-i18n-parts` holds a catalogue value with `{n}` slots the
+ * pass fills from the body's own children, so the sentence a reader sees is assembled
+ * on the page and the raw value is not it. The built page has no such children, so
+ * those keys are kept out of the runtime half rather than judged against a lead
+ * holding `{0}`, and the run PRINTS how many of a page's blocks that was. What covers
+ * them is the markup reader, which judges both spellings, and the applier rule they
+ * share with every other block - not an arm of their own.
  *
  * THE CALIBRATION RUNS FIRST AND THE REAL PAGES SECOND. A reader that accepts
  * everything passes its own arithmetic, so the arms below drive both readers over
@@ -349,10 +359,10 @@ function inspectMarkup(page, source) {
       continue;
     }
 
-    const keys = [...body.matchAll(/data-i18n="([a-z0-9_.]+_help)"/g)].map(
-      (m) => m[1],
-    );
-    const own = /data-i18n="([a-z0-9_.]+_help)"/.exec(opening);
+    const keys = [
+      ...body.matchAll(/data-i18n(?:-parts)?="([a-z0-9_.]+_help)"/g),
+    ].map((m) => m[1]);
+    const own = /data-i18n(?:-parts)?="([a-z0-9_.]+_help)"/.exec(opening);
     if (own) {
       refusals.push(
         `${page} still writes ${own[1]} flat: the field shows the whole text under it rather than a sentence and a fold`,
@@ -374,7 +384,7 @@ function inspectMarkup(page, source) {
       continue;
     }
     blocks += 1;
-    at.push(match.index);
+    at.push({ index: match.index, key: keys[0] });
 
     const key = keys[0];
     if (!hasClassToken(opening, "sso-help")) {
@@ -397,7 +407,11 @@ function inspectMarkup(page, source) {
         `the fold of ${key} on ${page} is named by something other than ${SUMMARY_KEY}, so one page's folds can be renamed without the others`,
       );
     }
-    if (!new RegExp(`class="sso-help-body" data-i18n="${key}"`).test(body)) {
+    if (
+      !new RegExp(`class="sso-help-body" data-i18n(?:-parts)?="${key}"`).test(
+        body,
+      )
+    ) {
       refusals.push(
         `${key} on ${page} does not sit on the body of its own fold, so the catalogue writes it somewhere the applier does not read it from`,
       );
@@ -445,15 +459,97 @@ function inspectMarkup(page, source) {
       refusals.push(`the rail card on ${page} is not headed by ${SUMMARY_KEY}`);
     }
 
-    const outside = at.filter((i) => i < scope.from || i > scope.to).length;
+    const outside = at.filter(
+      (block) => block.index < scope.from || block.index > scope.to,
+    ).length;
     if (outside > 0) {
       refusals.push(
         `${outside} condensed help text(s) on ${page} sit outside the ${CONDENSE_ROOT} container, so no sentence is ever written under those fields`,
       );
     }
+
+    // TWO HELP BLOCKS IN ONE FIELD (#1663). The applier keeps the FIRST in document
+    // order and the second is then unreachable from the rail card - focus anywhere in
+    // that field shows the first block's text, whichever control the reader is in. The
+    // fold and the sentence under the field are unaffected, so nothing on the page
+    // looks wrong; the card just answers with the wrong text, which is the failure a
+    // reader is least able to name.
+    //
+    // WHY IT IS REFUSED ON THIS PAGE AND NOT ON THE THREE BEFORE IT. No page carried
+    // the shape when slice 1 landed, counted over its twenty blocks, and the applier
+    // says so at the choice it makes rather than leaving it to be discovered. The
+    // Providers page is where it can first arise: 112 sites in 98 keys over two
+    // protocol forms, fourteen keys standing twice. It does not carry the shape today
+    // either - this refusal is green on the tree it lands with, and its bite is the
+    // negative arm below rather than a page it currently catches.
+    forEachSharedField(markup, at, (first, second) =>
+      refusals.push(
+        `${first} and ${second} on ${page} are two help blocks in one field: the rail card answers for ${first} wherever the focus lands in it, and ${second} is unreachable from it`,
+      ),
+    );
   }
 
   return { refusals, blocks };
+}
+
+/*
+ * Calls back once per pair of condensed blocks that the applier would resolve to ONE
+ * field, naming the key it keeps and the key it drops.
+ *
+ * THE FIELD IS DECIDED THE WAY THE APPLIER DECIDES IT, which is the only reading that
+ * makes the refusal about the page rather than about this file: `fieldOf` in
+ * SSO-Auth/Web/i18n.js walks up from the block to the nearest `inputContainer` or
+ * `checkboxContainer`, so the innermost such element containing a block is its field.
+ * A block inside neither is its own parent's, which no two blocks can share unless
+ * they are siblings - a shape this reader does not see and the note above says so.
+ */
+function forEachSharedField(markup, blocks, say) {
+  const containers = [];
+  const opening = /<([a-z][a-z0-9]*)([^>]*)>/g;
+  let match;
+  while ((match = opening.exec(markup)) !== null) {
+    if (/\/\s*$/.test(match[2])) {
+      continue;
+    }
+    const names = (/class="([^"]*)"/.exec(match[2]) || ["", ""])[1].split(
+      /\s+/,
+    );
+    if (
+      !names.includes("inputContainer") &&
+      !names.includes("checkboxContainer")
+    ) {
+      continue;
+    }
+    const from = match.index + match[0].length;
+    const body = elementBody(markup, from, match[1]);
+    if (body !== null) {
+      containers.push({ from, to: from + body.length });
+    }
+  }
+
+  // INNERMOST WINS, because a container nested in another is the field the applier
+  // stops at first on its way up. Picking the outermost would collapse every field of
+  // a section into one and refuse a page nothing is wrong with.
+  const held = new Map();
+  blocks.forEach((block) => {
+    let field = null;
+    containers.forEach((span) => {
+      if (block.index < span.from || block.index > span.to) {
+        return;
+      }
+      if (field === null || span.from > field.from) {
+        field = span;
+      }
+    });
+    if (field === null) {
+      return;
+    }
+    if (held.has(field.from)) {
+      say(held.get(field.from), block.key);
+      return;
+    }
+    held.set(field.from, block.key);
+  });
 }
 
 // The span of the container a page marks for condensing, or null when it marks
@@ -882,7 +978,7 @@ function fixtureMarkup(key, parts) {
   if (p.flat) {
     return [
       `<div ${CONDENSE_ROOT}>`,
-      `<div class="fieldDescription" data-i18n="${key}">whatever</div>`,
+      `<div class="fieldDescription" data-i18n${p.assembled ? "-parts" : ""}="${key}">whatever</div>`,
       `</div>`,
     ].join("\n");
   }
@@ -897,7 +993,9 @@ function fixtureMarkup(key, parts) {
       ? `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`
       : `<summary data-i18n="config.something_else">More</summary>`,
     p.body
-      ? `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
+      ? p.assembled
+        ? `<div class="sso-help-body" data-i18n-parts="${key}">whatever <strong data-i18n="config.fixture_emphasis">this</strong></div>`
+        : `<div class="sso-help-body" data-i18n="${key}">whatever</div>`
       : `<div class="sso-help-body"><span data-i18n="${key}">whatever</span></div>`,
     p.details ? `</details>` : "</div>",
     `</div>`,
@@ -912,6 +1010,32 @@ function fixtureMarkup(key, parts) {
   return [`<div ${CONDENSE_ROOT}>`, block, p.card ? card : "", `</div>`].join(
     "\n",
   );
+}
+
+/*
+ * Two condensed blocks, in two field containers or in one (#1663).
+ *
+ * THE NEAR-MISS IS THE POINT AND IT IS ONE CLOSING TAG. `shared: false` is the shape
+ * every page already has - a block per field - and `shared: true` is that page with
+ * one `</div>` moved, which is exactly the edit somebody makes while rearranging a
+ * form. The refusal has to separate those two and nothing else.
+ */
+function fixturePair(key, other, shared) {
+  const block = (name) =>
+    [
+      `<div class="fieldDescription sso-help">`,
+      `<span class="sso-help-lead"></span>`,
+      `<details class="sso-help-full">`,
+      `<summary data-i18n="${SUMMARY_KEY}">Full text</summary>`,
+      `<div class="sso-help-body" data-i18n="${name}">whatever</div>`,
+      `</details>`,
+      `</div>`,
+    ].join("\n");
+  const card = `<div class="verticalSection sso-help-card" hidden><h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2><div class="sso-help-card-text"></div></div>`;
+  const fields = shared
+    ? `<div class="inputContainer">${block(key)}${block(other)}</div>`
+    : `<div class="inputContainer">${block(key)}</div><div class="inputContainer">${block(other)}</div>`;
+  return [`<div ${CONDENSE_ROOT}>`, fields, card, `</div>`].join("\n");
 }
 
 async function calibrate(i18n) {
@@ -939,8 +1063,28 @@ async function calibrate(i18n) {
       fixtureMarkup("config.fixture_0_help", { comment: true }),
     ).refusals,
   );
+  record(
+    "a fold whose text is assembled from parts",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixtureMarkup("config.fixture_0_help", { assembled: true }),
+    ).refusals,
+  );
+  record(
+    "two help blocks in two fields",
+    false,
+    inspectMarkup(
+      "fixture",
+      fixturePair("config.fixture_0_help", "config.fixture_1_help", false),
+    ).refusals,
+  );
   const markupNegatives = [
     ["a help text still written flat", { flat: true }],
+    [
+      "a parts-marked help text still written flat",
+      { flat: true, assembled: true },
+    ],
     ["a block the applier will not find", { marked: false }],
     ["a fold with no lead line to fill", { lead: false }],
     ["a whole text behind no fold", { details: false }],
@@ -956,6 +1100,14 @@ async function calibrate(i18n) {
       inspectMarkup("fixture", fixtureMarkup("config.fixture_0_help", parts))
         .refusals,
     ),
+  );
+  record(
+    "two help blocks in one field",
+    true,
+    inspectMarkup(
+      "fixture",
+      fixturePair("config.fixture_0_help", "config.fixture_1_help", true),
+    ).refusals,
   );
 
   // --- the hand-written answers, which is the only arm not derived from the rule ---
@@ -1243,11 +1395,27 @@ async function run() {
     // moment Prettier wraps the body tag, and a run that counted nothing printed
     // a green line for all three pages. That is the shape this tool exists to
     // refuse, arriving in the tool itself.
-    const keys = [
+    const bodies = [
       ...markup
         .replace(/\s+/g, " ")
-        .matchAll(/class="sso-help-body" data-i18n="([a-z0-9_.]+_help)"/g),
-    ].map((m) => m[1]);
+        .matchAll(
+          /class="sso-help-body" data-i18n(?<parts>-parts)?="(?<key>[a-z0-9_.]+_help)"/g,
+        ),
+    ].map((m) => ({ key: m.groups.key, parts: m.groups.parts !== undefined }));
+    const keys = bodies.map((body) => body.key);
+
+    // WHAT THE APPLIER IS DRIVEN OVER IS THE PLAIN-BODIED HALF, AND THE OTHER HALF IS
+    // PRINTED RATHER THAN COUNTED SILENTLY (#1663). A `data-i18n-parts` body holds a
+    // catalogue value with `{n}` slots that the pass fills from the body's own child
+    // elements, so the text a reader sees is assembled on the page and the raw value
+    // is not it. The page this file BUILDS carries no such children - buildPage writes
+    // one text node per body - so feeding a parts key into it would judge the lead
+    // against a sentence holding `{0}`, which is a refusal about this fixture rather
+    // than about the page. The markup half above judges every block on both spellings;
+    // this half judges the ones whose text is the catalogue row itself.
+    const driven = bodies.filter((body) => !body.parts).map((b) => b.key);
+    const assembled = keys.length - driven.length;
+
     if (keys.length === 0) {
       console.error(
         `REFUSED  ${page} carries ${CONDENSE_ROOT} and no condensed help text, so the applier is driven over nothing on it`,
@@ -1282,12 +1450,12 @@ async function run() {
       }
 
       const texts = Object.fromEntries(
-        keys.map((key) => [
+        driven.map((key) => [
           key,
           values[key] !== undefined ? values[key] : en[key],
         ]),
       );
-      const built = buildPage(keys, texts, summary, {});
+      const built = buildPage(driven, texts, summary, {});
       await render(i18n, built, { ...texts, [SUMMARY_KEY]: summary });
       const runtime = inspect(built, texts, summary);
       [
@@ -1299,7 +1467,10 @@ async function run() {
       });
       if (name === "en") {
         console.log(
-          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence`,
+          `${page.padEnd(20)}${String(keys.length).padStart(3)} condensed help text(s), ${runtime.counts.folded} with a fold that holds more, ${runtime.counts.flat} whose text is one sentence` +
+            (assembled === 0
+              ? ""
+              : `, ${assembled} assembled from parts and judged by the markup reader only`),
         );
       }
     }
