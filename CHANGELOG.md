@@ -508,6 +508,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A browser no longer keeps the previous build's scripts after an upgrade
+  (#1707).** Every plugin asset carries a tag a browser sends back to ask
+  whether its copy is still current, and that tag was the assembly's file
+  version, which the project pins at the line's three-part number: every build
+  of this line answered the same tag, the server said 304, and the linking page
+  ran the old build's script against the new build's markup with nothing on the
+  page saying so. It is the defect the 5.0 line repaired under #1705, and it
+  reaches furthest here, at the step from the last beta of this line to its
+  first stable release, where both carry the same three-part number. The tag is
+  now a digest of the assembly's bytes, so two builds whose bytes differ cannot
+  share one, whatever any version field says; where the bytes cannot be read it
+  falls back to the assembly version rather than to no tag.
+
 - **The OpenID provider API stored a post-logout return URL the configuration
   page would have refused (#1504).** `OID/Add` writes the provider it is given
   without the configuration save's checks, and the check that a post-logout

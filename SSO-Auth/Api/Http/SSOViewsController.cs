@@ -21,15 +21,15 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 [Route("[controller]")]
 public class SSOViewsController : ControllerBase
 {
-    // The embedded view assets only change with the plugin version, so a version-derived ETag lets clients
-    // 304-revalidate instead of re-downloading jellyfin-apiClient.esm.min.js (~79 KB) + emby-restyle.css on
-    // every linking-page load (#253). Derived from the FILE version (set per release by the build), not the
-    // AssemblyVersion (which can stay static across releases and would then serve stale assets after an
-    // update). The same tag across assets is correct: a client sends the ETag it cached for a given URL, and
-    // the server compares it against that URL's current tag.
-    private static readonly EntityTagHeaderValue AssetETag = new EntityTagHeaderValue(
-        "\"" + System.Diagnostics.FileVersionInfo.GetVersionInfo(
-            typeof(SSOViewsController).Assembly.Location).FileVersion + "\"");
+    // The embedded view assets change exactly when the assembly's bytes do, so a digest of those bytes
+    // lets clients 304-revalidate instead of re-downloading jellyfin-apiClient.esm.min.js (~79 KB) +
+    // emby-restyle.css on every linking-page load (#253). It was the FILE version until #1707, and that
+    // field is pinned at the line's three-part number: every build of this line answered one tag, so a
+    // browser kept the previous build's script after an upgrade. The derivation and its fallback live in
+    // PluginAssetVersion beside this file, where a test can drive both arms. The same tag across assets is
+    // correct: a client sends the ETag it cached for a given URL, and the server compares it against that
+    // URL's current tag.
+    private static readonly EntityTagHeaderValue AssetETag = PluginAssetVersion.ETag;
 
     private readonly ILogger<SSOViewsController> _logger;
 
