@@ -753,6 +753,17 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **Eight short English sentences on the provider page now go through the
+  translation catalogue (#1725).** The gate that counts sentences bypassing the
+  catalogue read only literals of twenty characters or more, so the field names
+  in "… is required.", the address named by the "copied to the clipboard" notice
+  under the SAML editor, the metadata import's progress line and the test
+  result's fallback stayed English on a German dashboard while the gate was
+  green. Each now reads a catalogue row with an English and a German value, the
+  two literals that are not page prose - a console label and the device name the
+  linking page registers under - are exempted by name with their reason, and the
+  gate has no length floor any more.
+
 - **The login's completion page names both addresses when it cannot finish where
   it was opened, and says what it is still waiting for after twenty seconds
   (#1714).** After the identity provider sends the browser back, the page loads

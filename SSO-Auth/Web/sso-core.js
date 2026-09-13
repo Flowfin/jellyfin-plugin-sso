@@ -4411,7 +4411,9 @@ const ssoConfigurationPage = {
     // Boolean coercion, not string interpolation: the label is fixed text, so no server value reaches the DOM here.
     heading.textContent =
       (result && result.Ok ? "✅ " : "⚠ ") +
-      (result && result.Message ? result.Message : "No result returned.");
+      (result && result.Message
+        ? result.Message
+        : tr("config.test_no_result", "No result returned."));
     container.appendChild(heading);
 
     const details =
@@ -5882,9 +5884,13 @@ const ssoConfigurationPage = {
         status.textContent = message;
       }
     };
+    const copied = () =>
+      tr("config.saml_url_copied", "{label} copied to the clipboard.", {
+        label,
+      });
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(
-        () => announce(label + " copied to the clipboard."),
+        () => announce(copied()),
         () =>
           announce(
             tr(
@@ -5906,7 +5912,7 @@ const ssoConfigurationPage = {
     field.setAttribute("readonly", "");
     announce(
       ok
-        ? label + " copied to the clipboard."
+        ? copied()
         : tr(
             "config.copy_failed",
             "Copy failed. Select the field and copy it manually.",
@@ -5937,7 +5943,10 @@ const ssoConfigurationPage = {
       return Promise.resolve();
     }
 
-    ssoConfigurationPage.renderTransferMessage(status, "Importing metadata…");
+    ssoConfigurationPage.renderTransferMessage(
+      status,
+      tr("config.metadata_importing", "Importing metadata…"),
+    );
     return ApiClient.fetch({
       type: "POST",
       url: ApiClient.getUrl("sso/SAML/ImportMetadata"),
@@ -6968,13 +6977,17 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateRequired(
         view,
         "OidClientId",
-        "OpenID Client ID",
+        tr("config.oid_client_id_name", "OpenID Client ID"),
       ),
     );
   view
     .querySelector("#RoleClaim")
     .addEventListener("blur", () =>
-      ssoConfigurationPage.validateRequired(view, "RoleClaim", "Role Claim"),
+      ssoConfigurationPage.validateRequired(
+        view,
+        "RoleClaim",
+        tr("config.role_claim_name", "Role Claim"),
+      ),
     );
   view
     .querySelector("#OidScopes")
@@ -6982,7 +6995,7 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateRequired(
         view,
         "OidScopes",
-        "Additional Scopes",
+        tr("config.oid_scopes_name", "Additional Scopes"),
       ),
     );
   view
@@ -7117,7 +7130,7 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateSamlRequired(
         view,
         "saml-SamlClientId",
-        "SAML Client ID",
+        tr("config.saml_client_id_name", "SAML Client ID"),
       ),
     );
   view
@@ -7157,12 +7170,20 @@ function initProvidersPage(view) {
   });
 
   view.querySelector("#saml-CopyAcsUrl").addEventListener("click", (e) => {
-    ssoConfigurationPage.copySamlUrl(view, "saml-AcsUrl", "ACS URL");
+    ssoConfigurationPage.copySamlUrl(
+      view,
+      "saml-AcsUrl",
+      tr("config.acs_url_name", "ACS URL"),
+    );
     e.preventDefault();
     return false;
   });
   view.querySelector("#saml-CopyMetadataUrl").addEventListener("click", (e) => {
-    ssoConfigurationPage.copySamlUrl(view, "saml-MetadataUrl", "Metadata URL");
+    ssoConfigurationPage.copySamlUrl(
+      view,
+      "saml-MetadataUrl",
+      tr("config.metadata_url_name", "Metadata URL"),
+    );
     e.preventDefault();
     return false;
   });
