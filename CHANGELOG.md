@@ -753,6 +753,15 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The Base URL Override field accepts the path a path-base deployment needs
+  (#1712).** Jellyfin mounted under a path base resolves its base URL with that
+  path and the server keeps it in an override, so the value that keeps a login
+  working there is the origin plus that path. The Providers tab flagged every
+  path as an error beside the field, listed it under "Needs attention" in the
+  readiness rail, and saved it anyway. Both validators now accept a path and
+  the help text says when one is needed. An address pasted from the plugin's
+  own `/sso/...` route, a query and a fragment are still refused, in words that
+  no longer call the path itself the error.
 - **A browser no longer keeps the previous build's scripts after an upgrade
   (#1705).** Every plugin asset carries a tag a browser sends back to ask
   whether its copy is still current, and that tag was the assembly's file
