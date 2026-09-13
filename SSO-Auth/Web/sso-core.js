@@ -6414,11 +6414,21 @@ const ssoConfigurationPage = {
       return Promise.resolve();
     }
 
+    // THE CONFIGURATION IS READ HERE RATHER THAN TAKEN FROM THE PAGE LOAD (#1727). loadConfiguration
+    // already fetches it on this tab and hands it to renderOverviewFrom, so this third member is a
+    // second read of one read-only document. The alternative is worse: two independent writers would
+    // paint one card region, the report's arm would draw the cards before the configuration's arm knew
+    // which of them carry a downgrade, and whichever answered second would decide what a reader sees.
+    // One round with one painter has no such ordering. A failed read answers null and the cards are
+    // drawn without the mark, which is the fail-quiet the other two arms already take.
     return Promise.all([
       ApiClient.getJSON(ApiClient.getUrl("sso/Config/Check")).catch(() => null),
       ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).catch(() => null),
-    ]).then(([report, roster]) =>
-      ssoConfigurationPage.paintOverview(page, report, roster),
+      ApiClient.getPluginConfiguration(
+        ssoConfigurationPage.pluginUniqueId,
+      ).catch(() => null),
+    ]).then(([report, roster, config]) =>
+      ssoConfigurationPage.paintOverview(page, report, roster, config),
     );
   },
 
@@ -6434,6 +6444,60 @@ const ssoConfigurationPage = {
     list.appendChild(item);
   },
 
+  // Which downgrade CLASSES one provider has switched on, named by the heading the Providers form
+  // gives each class (#1727). It reads the SAVED configuration through the same two id lists the
+  // Providers list's "Review" flag reads, so the two surfaces cannot disagree about what counts as a
+  // downgrade, and it answers catalogue KEYS rather than sentences, so a card and the fold it points
+  // at are one wording in every language.
+  //
+  // NO COUNT, DELIBERATELY, and this is the half to read before adding one. The editor's fold summary
+  // counts the CONTROLS INSIDE THE FOLD - the sensitive fold holds five, of which exactly one is a
+  // downgrade - so a number built from these lists and shown in that same wording would put a second
+  // population under one sentence. Which class is on is what a card owes; the count belongs where the
+  // controls are.
+  //
+  // THE SAML ADOPTION TOGGLE IS NOT BEHIND A FOLD on its own form. The heading names the CLASS, which
+  // is the same setting with the same meaning on both forms, rather than a region of that page.
+  activeDowngradeClasses: (protocol, provider) => {
+    if (!provider) {
+      return [];
+    }
+
+    const saml = protocol === "SAML";
+    const classes = [
+      {
+        ids: saml
+          ? ssoConfigurationPage.samlInsecureFieldIds
+          : ssoConfigurationPage.insecureFieldIds,
+        name: tr("config.security_insecure_heading", "Insecure options"),
+      },
+      {
+        ids: saml
+          ? ssoConfigurationPage.samlSensitiveFieldIds
+          : ssoConfigurationPage.sensitiveFieldIds,
+        name: tr(
+          "config.security_adoption_heading",
+          "Account adoption (sensitive)",
+        ),
+      },
+    ];
+
+    return classes
+      .filter((one) => one.ids.some((id) => Boolean(provider[id])))
+      .map((one) => one.name);
+  },
+  // The stored configuration of the provider a report row names, or null where the configuration did
+  // not load. Keyed by the protocol spelling the REPORT uses, so a row and the record it is matched to
+  // cannot come from two different ideas of what "OpenID" is called.
+  storedProviderFor: (row, config) => {
+    if (!config) {
+      return null;
+    }
+
+    const providers =
+      (row.Protocol === "SAML" ? config.SamlConfigs : config.OidConfigs) || {};
+    return providers[row.Provider] || null;
+  },
   // The newest recorded SSO sign-in per "protocol/provider", from the link roster. A provider with links
   // but no recorded sign-in yields nothing rather than a zero date, so a card can tell "nobody has signed
   // in" from "the roster did not load" - the second is the case the caller passes null for.
@@ -6455,7 +6519,7 @@ const ssoConfigurationPage = {
     return newest;
   },
 
-  paintOverview: (page, report, roster) => {
+  paintOverview: (page, report, roster, config) => {
     const cards = page.querySelector("#sso-overview-providers");
     const empty = page.querySelector("#sso-overview-providers-empty");
     const next = page.querySelector("#sso-overview-next");
@@ -6559,6 +6623,34 @@ const ssoConfigurationPage = {
               ssoConfigurationPage.formatLastSsoLogin(when)
           : tr("overview.never_signed_in", "No SSO sign-in recorded yet"),
       );
+
+      // Overview is the page that answers whether sign-in works here, so a provider with a security
+      // defense switched off says so HERE and not only on the card of the tab somebody opens once they
+      // already know which provider they mean (#1727). The row appears only when a class is on: a mark
+      // every card carries is furniture, and furniture stops being read - the same reason the linked-
+      // accounts table adds its count line only when it is narrowed.
+      //
+      // The sentence is the one the Providers list's own flag carries, read from the catalogue by the
+      // same key, followed by the classes that are on. Concatenated rather than substituted, for the
+      // reason given at the state line above: a placeholder is only filled once the catalogue has
+      // loaded, and that load is deliberately best-effort.
+      const downgrades = ssoConfigurationPage.activeDowngradeClasses(
+        row.Protocol,
+        ssoConfigurationPage.storedProviderFor(row, config),
+      );
+      if (downgrades.length !== 0) {
+        ssoConfigurationPage.appendOverviewRow(
+          list,
+          false,
+          tr(
+            "config.insecure_option_active",
+            "This provider has an active insecure or sensitive setting.",
+          ) +
+            " " +
+            downgrades.join(", "),
+        );
+      }
+
       card.appendChild(list);
       cards.appendChild(card);
     });
