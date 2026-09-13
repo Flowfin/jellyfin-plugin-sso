@@ -1665,6 +1665,62 @@ async function run() {
     check("no-deep-link", plain, { open: false, step: 0, refusal: null });
   }
 
+  // ---- the deep link on a view the dashboard hands back from its cache (#1721) ----
+  //
+  // The walk of 2026-09-13 found the card opening the Providers tab with the wizard closed on every
+  // press after the first in a session: the flagged address gets a view of its own on the first press,
+  // and after Leave or Finish the next press hands that view back from the cache, where no controller
+  // runs and the flag was read only in the controller. What does fire on that return is `viewshow`,
+  // so the flag is read there too, and
+  // only while the wizard is closed, because nothing strips the flag and a wizard restarted on every
+  // return would throw away the step the administrator had reached. One arm per half of that sentence:
+  // a closed wizard opens, an open one keeps its step, and a show without the flag opens nothing.
+  {
+    const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+    host.hash = "#/configurationpage?name=SSO-Auth-providers";
+    globalThis.window.location.hash = host.hash;
+    const shown = await opened();
+    check("cached-view-setup", shown, { open: false, step: 0, refusal: null });
+    host.hash = "#/configurationpage?name=SSO-Auth-providers&wizard=1";
+    globalThis.window.location.hash = host.hash;
+    shown.dispatch("viewshow", null);
+    await settled();
+    if (!check("cached-view", shown, { open: true, step: 0, refusal: null })) {
+      refuse(
+        "cached-view",
+        "a view the dashboard hands back from its cache is shown with the flag and the wizard stays closed, so once the Providers tab has been seen the card on Overview opens the tab and not the wizard",
+      );
+    }
+
+    const inProgress = await walkedToTheLastStep();
+    inProgress.dispatch("viewshow", null);
+    await settled();
+    if (
+      !check("cached-view-in-progress", inProgress, {
+        open: true,
+        step: 4,
+        refusal: null,
+      })
+    ) {
+      refuse(
+        "cached-view-in-progress",
+        "a wizard at its last step is shown again with the flag still in the address and is reset, so leaving the tab and coming back throws the walk away",
+      );
+    }
+
+    host.hash = "#/configurationpage?name=SSO-Auth-providers";
+    globalThis.window.location.hash = host.hash;
+    const unasked = await opened();
+    unasked.dispatch("viewshow", null);
+    await settled();
+    check("cached-view-no-flag", unasked, {
+      open: false,
+      step: 0,
+      refusal: null,
+    });
+  }
+
   // ---- Overview's card points at the flag this page reads ----
   {
     const overview = fs.readFileSync(
@@ -1716,6 +1772,9 @@ async function run() {
   );
   console.log(
     "the protocol switch is confirmed before it empties the editor, and leaving changes nothing",
+  );
+  console.log(
+    "the deep link opens the wizard on a view shown again from the dashboard's cache, and never restarts one in progress (#1721)",
   );
   console.log(
     "a step already passed that stops being true stops the ones after it, so the last step never",
