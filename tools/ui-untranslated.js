@@ -26,13 +26,22 @@
  * genuinely cannot reach a catalog belongs in that list with its reason beside
  * it, not in a number nobody can read a reason out of.
  *
- * WHAT COUNTS. A double-quoted literal of twenty characters or more, opening
- * with a capital and containing a space, that is not the English default of a
- * `tr(...)` or `t(...)` call. That is deliberately coarse. It matches things
- * that are not prose and misses prose written without a capital, and both are
- * fine for a ratchet: what it has to be is STABLE, so the same tree always
- * yields the same number and a change to the number is always a change somebody
- * made.
+ * WHAT COUNTS. A double-quoted literal opening with a capital and containing a
+ * space, of any length, that is not the English default of a `tr(...)` or
+ * `t(...)` call. That is deliberately coarse. It matches things that are not
+ * prose and misses prose written without a capital, and both are fine for a
+ * ratchet: what it has to be is STABLE, so the same tree always yields the same
+ * number and a change to the number is always a change somebody made.
+ *
+ * THERE IS NO FLOOR ANY MORE. Until #1725 a literal counted only from twenty
+ * characters, and eight sentences a de-DE administrator reads sat under it: the
+ * field names handed to "{label} is required.", the addresses handed to the
+ * copy notice under the SAML editor, the metadata import's progress line and the
+ * test result's fallback. Every one of them was English on a German page while
+ * this gate was green. The probe that found them ran the same scan at a floor of
+ * two and surfaced nothing else, so the floor is gone rather than lowered: a
+ * literal short enough to be a field name is exactly the kind that gets written
+ * without a second thought.
  *
  * Comments are stripped character by character rather than line by line,
  * because this file's siblings in `SSO-Auth/Web` carry paragraphs of reasoning
@@ -51,7 +60,7 @@ const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
 // The pinned count. It goes DOWN as sentences are wrapped, in the same commit
 // that wraps them, and it never goes up. ZERO since 2026-09-11: every sentence the
-// settings surface writes goes through the catalog, and the two that stay literal are
+// settings surface writes goes through the catalog, and the four that stay literal are
 // named in EXEMPT below with the reason each cannot.
 const PINNED = 0;
 
@@ -81,6 +90,22 @@ const EXEMPT = [
       "A product name, and the same string in every language. The template label beside it that " +
       "DESCRIBES rather than names - 'Generic OpenID Connect' - carries a key and is translated; this " +
       "one would be a catalog row nobody could ever change, saying Microsoft Entra ID in every locale.",
+  },
+  {
+    text: "URL candidates:",
+    why:
+      "The label of a console.debug line in ApiClient.js that lists the server addresses the linking " +
+      "page is about to probe. It is written to the browser console for whoever is debugging that " +
+      "page and never into the page itself, and the console is not a localized surface.",
+  },
+  {
+    text: "SSO Account Linking",
+    why:
+      "The device name the linking page registers its session under, which Jellyfin stores and shows " +
+      "in its device list as the name of that device. It is an identifier the server keeps rather " +
+      "than prose this page renders: translated, the same device would be listed under a different " +
+      "name depending on the language of the browser that linked, and the comment beside it in " +
+      "ApiClient.js says why it is fixed and non-identifying.",
   },
 ];
 
@@ -145,7 +170,8 @@ function withoutComments(source) {
   return out;
 }
 
-const SENTENCE = /"([A-Z][^"]{19,})"/g;
+// No length floor: see the header. The space test below is what separates a sentence from a token.
+const SENTENCE = /"([A-Z][^"]+)"/g;
 
 // The English default of a catalog call, in the two shapes this tree uses. `tr(key, english)`
 // is the core's own wrapper, which puts the default second. `t(key, params, english)` is what
@@ -171,11 +197,11 @@ const AS_DEFAULT = [
 
 // A literal handed to one of the two save-status renderers (#1723). "Settings saved." is
 // shorter than SENTENCE's floor, so the ratchet never saw it and a de-DE administrator read
-// it in English after every save while the refusal beside it was German. The floor stays
-// where it is - lowering it surfaces other short literals in two files and is a tranche of
-// its own - so the two renderers are read by name instead: the message they are handed is a
-// tr(...) call or it is refused, and the refusal names the site. The empty literal that clears
-// the region is not prose and is left alone.
+// it in English after every save while the refusal beside it was German. The floor has since
+// gone (#1725), so the ratchet counts a literal of that shape too; this arm stays because it
+// reads the two renderers by SITE rather than by shape - a literal with no space or no capital
+// handed to either is still refused, and the refusal names the renderer. The empty literal that
+// clears the region is not prose and is left alone.
 const STATUS_LITERAL = /\brender(?:Saml)?SaveStatus\(\s*\w+\s*,\s*"([^"]+)"/g;
 
 /*
