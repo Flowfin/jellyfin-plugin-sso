@@ -1165,7 +1165,7 @@ const ssoConfigurationPage = {
         "BaseUrlOverride",
         tr(
           "config.validation_base_origin_only",
-          "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+          "Enter a full URL such as https://jellyfin.example.com (scheme and host; add Jellyfin's path base if it has one).",
         ),
       );
       return;
@@ -1181,20 +1181,25 @@ const ssoConfigurationPage = {
       );
       return;
     }
-    // Full origin only: no path, query or fragment (this is the base URL, not the redirect URI).
-    if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
+    // The base URL is the origin plus Jellyfin's path base when it runs under one - the server keeps
+    // that path (#1712) - and never the plugin's own /sso/... route, a query or a fragment: an address
+    // pasted from the redirect URI would put /sso/... in front of every URL derived from it.
+    if (url.search || url.hash || ssoConfigurationPage.isPluginRoute(url)) {
       ssoConfigurationPage.setFieldError(
         page,
         "BaseUrlOverride",
         tr(
-          "config.validation_base_no_path",
-          "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... redirect URI.",
+          "config.validation_base_not_the_redirect",
+          "Enter the base URL, not the /sso/... redirect URI: the origin plus Jellyfin's path base if it runs under one, e.g. https://jellyfin.example.com or https://jellyfin.example.com/jellyfin, with no query or fragment.",
         ),
       );
       return;
     }
     ssoConfigurationPage.setFieldError(page, "BaseUrlOverride", "");
   },
+  // Whether a URL's path is one of the plugin's own routes rather than a path base: /sso alone or any
+  // path below it, case-insensitively, because the server matches its routes that way.
+  isPluginRoute: (url) => /^\/sso(\/|$)/i.test(url.pathname),
   validateProviderName: (page) => {
     const value = page.querySelector("#OidProviderName").value;
     if (!value.trim()) {
@@ -6124,7 +6129,7 @@ const ssoConfigurationPage = {
         "saml-BaseUrlOverride",
         tr(
           "config.validation_base_origin_only",
-          "Enter a full origin such as https://jellyfin.example.com (scheme + host only).",
+          "Enter a full URL such as https://jellyfin.example.com (scheme and host; add Jellyfin's path base if it has one).",
         ),
       );
       return;
@@ -6140,13 +6145,14 @@ const ssoConfigurationPage = {
       );
       return;
     }
-    if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
+    // A path base is accepted and the plugin's own route is not, for the reason validateBaseUrl gives (#1712).
+    if (url.search || url.hash || ssoConfigurationPage.isPluginRoute(url)) {
       ssoConfigurationPage.setFieldError(
         page,
         "saml-BaseUrlOverride",
         tr(
-          "config.validation_base_no_path_saml",
-          "Enter the base URL only (no path), e.g. https://jellyfin.example.com, not the /sso/... ACS URL.",
+          "config.validation_base_not_the_acs",
+          "Enter the base URL, not the /sso/... ACS URL: the origin plus Jellyfin's path base if it runs under one, e.g. https://jellyfin.example.com or https://jellyfin.example.com/jellyfin, with no query or fragment.",
         ),
       );
       return;

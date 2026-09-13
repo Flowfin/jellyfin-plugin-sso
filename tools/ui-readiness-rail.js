@@ -2433,6 +2433,91 @@ async function run() {
     }
   }
 
+  // ---- Arm: a path base in the Base URL Override is accepted, and the plugin's own route is not ----
+  //
+  // Jellyfin mounted under a path base resolves its base URL with that path and the server keeps
+  // it in an override, so the value that keeps a login working there carries the path (#1712).
+  // Both validators refused every path, and the warnings row reads the validators' own boxes, so
+  // the one correct value for that deployment stood under "Needs attention" and was saved anyway.
+  // Asked in both directions on both protocols: the path base is accepted and leaves the row
+  // Ready; an address pasted from the plugin's own /sso/... route, a query and a fragment are
+  // still refused, and the refusal no longer calls the path itself the error.
+  for (const protocol of ["oid", "saml"]) {
+    const page = providersFixture();
+    const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
+    const validate =
+      protocol === "oid" ? core.validateBaseUrl : core.validateSamlBaseUrl;
+    const field =
+      protocol === "oid" ? "BaseUrlOverride" : "saml-BaseUrlOverride";
+    const route =
+      protocol === "oid" ? "/sso/OID/redirect/one" : "/sso/SAML/post/one";
+    open(page);
+    const input = page.querySelector("#" + field);
+    const box = page.querySelector("#" + field + "-error");
+    if (!input || !box) {
+      refuse(
+        "path-base",
+        protocol +
+          ": providersPage.html declares no #" +
+          field +
+          " with its -error box, so the validator has nothing to write to",
+      );
+      continue;
+    }
+    const shown = () => Boolean(!box.hidden && box.textContent);
+
+    input.value = "https://jellyfin.example.com/jellyfin";
+    validate(page);
+    if (shown()) {
+      refuse(
+        "path-base",
+        protocol +
+          ": a path-base override is refused beside the field: " +
+          JSON.stringify(box.textContent),
+      );
+    }
+    core.refreshReadiness(page, protocol);
+    if (!rowsOf(page)[1].startsWith("Ready - Field warnings - ")) {
+      refuse(
+        "path-base",
+        protocol +
+          ": a path-base override is listed under Needs attention: " +
+          JSON.stringify(rowsOf(page)[1]),
+      );
+    }
+
+    for (const wrong of [
+      "https://jellyfin.example.com" + route,
+      "https://jellyfin.example.com/jellyfin?x=1",
+      "https://jellyfin.example.com/jellyfin#top",
+    ]) {
+      input.value = wrong;
+      validate(page);
+      if (!shown()) {
+        refuse(
+          "path-base",
+          protocol + ": " + wrong + " is accepted as a base URL",
+        );
+      } else if (/no path/i.test(box.textContent)) {
+        refuse(
+          "path-base",
+          protocol +
+            ": the refusal still calls the path itself the error: " +
+            JSON.stringify(box.textContent),
+        );
+      }
+    }
+    core.refreshReadiness(page, protocol);
+    if (!rowsOf(page)[1].includes(nameOf(core, page, field))) {
+      refuse(
+        "path-base",
+        protocol +
+          ": a refused override is not named by the warnings row: " +
+          JSON.stringify(rowsOf(page)[1]),
+      );
+    }
+  }
+
   if (faults.length) {
     faults.forEach((fault) => console.error(fault));
     console.error(faults.length + " refusal(s) in the readiness rail (#1678)");
@@ -2525,6 +2610,15 @@ async function run() {
   );
   console.log(
     "                   reply lands, and on OpenID the redirect URI arrives, on both protocols (#1710)",
+  );
+  console.log(
+    "  path-base        a Base URL Override carrying Jellyfin's path base passes the validator and",
+  );
+  console.log(
+    "                   leaves the warnings row Ready; the plugin's own /sso/... route, a query and a",
+  );
+  console.log(
+    "                   fragment are still refused without calling the path the error (#1712)",
   );
   console.log(
     "  NOT driven:      the capture phase, stopPropagation, and any ancestor with no id - the chain",
