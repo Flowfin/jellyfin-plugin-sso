@@ -753,6 +753,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The login's completion page names both addresses when it cannot finish where
+  it was opened, and says what it is still waiting for after twenty seconds
+  (#1714).** After the identity provider sends the browser back, the page loads
+  Jellyfin's web client into a hidden frame and waits for it to write the page's
+  storage, which the frame shares only at the same address. A page opened at one
+  address while the server had built the login for another - a TLS-terminating
+  proxy the server is not told about, a second hostname, an unset Base URL
+  Override - showed "Logging in..." for as long as the tab stayed open, with
+  nothing in the server log after the callback. The page now compares the two
+  addresses first and, on a mismatch, shows both, offers the way back to the
+  login and stops; while it waits at one address, twenty seconds without the web
+  client swap the status line for a notice naming the address it is expected
+  from, and the wait goes on so a slow client still completes. Reading the
+  stored server entry can no longer throw out of the wait unseen.
+
 - **The Base URL Override field accepts the path a path-base deployment needs
   (#1712).** Jellyfin mounted under a path base resolves its base URL with that
   path and the server keeps it in an override, so the value that keeps a login

@@ -20,6 +20,8 @@
   "page.account_linked": "Konto verknüpft. Sie können sich jetzt mit SSO anmelden.",
   "page.link_failed": "Dieses Konto konnte nicht verknüpft werden. Möglicherweise ist der Anbieter deaktiviert oder die Verknüpfung ist nicht zulässig.",
   "page.login_failed": "Die Anmeldung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  "page.address_mismatch": "Diese Seite wurde unter {page} geöffnet, der Server hat die Anmeldung aber für {server} gebaut. Über zwei Adressen kann eine Anmeldung nicht abschließen. Öffnen Sie Jellyfin unter {server}, oder setzen Sie beim Anbieter die übersteuerte Basis-URL auf {page} und registrieren Sie beim Identitätsanbieter die Adresse, die der Reiter Anbieter dann anzeigt.",
+  "page.still_waiting": "Warte weiter darauf, dass der Jellyfin-Web-Client unter {server} in dieser Seite startet; das Warten läuft weiter. Ändert sich nach einer Minute nichts, prüfen Sie in einem neuen Tab, ob {server} lädt. Der Link darunter führt zurück zur Anmeldung.",
   "link.home": "Startseite",
   "link.title": "SSO-Verknüpfung:",
   "link.help": "Hilfe",

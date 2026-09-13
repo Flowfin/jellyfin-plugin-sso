@@ -246,4 +246,70 @@ public class WebResponseTests
         Assert.Throws<System.ArgumentException>(
             () => WebResponse.Generator("ZGF0YQ==", "keycloak", baseUrl, "OID", "n0nce"));
     }
+
+    [Fact]
+    public void Generator_DifferentPageAndServerOrigin_IsTerminal_NamesBothAddresses_BeforeTheIframeBootstraps()
+    {
+        // #1714: the bootstrap wait can end only when the iframe shares this page's localStorage, which it
+        // does at the same origin alone. The page compares the two origins BEFORE wiping the credentials and
+        // loading the iframe, and a mismatch is terminal: the catalog message with both addresses substituted,
+        // the return link, and a `return;` ahead of the iframe load. Deleting the guard, or moving it after
+        // the load, fails this test.
+        var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "OID", "n0nce");
+
+        Assert.Contains("serverUrl = new URL(ssoBaseUrl);", html);
+        Assert.Contains("if (serverUrl === null || serverUrl.origin !== pageOrigin) {", html);
+        Assert.Contains(JsonSerializer.Serialize(SsoLocalizer.GetString("page.address_mismatch", null)), html);
+        // The page-side address keeps the server's path base, so the suggested override compares like with like.
+        Assert.Contains("var pageBase = pageOrigin + (serverUrl === null ? '' : serverUrl.pathname.replace(/\\/+$/, ''));", html);
+        Assert.Contains(".split('{page}').join(pageBase).split('{server}').join(ssoBaseUrl);", html);
+
+        var guardIdx = html.IndexOf("if (serverUrl === null || serverUrl.origin !== pageOrigin) {", System.StringComparison.Ordinal);
+        var returnAfterGuard = html.IndexOf("return;", guardIdx, System.StringComparison.Ordinal);
+        var credentialWipe = html.IndexOf("localStorage.removeItem('jellyfin_credentials');", System.StringComparison.Ordinal);
+        var iframeLoad = html.IndexOf("document.getElementById('iframe-main').src = ssoBaseUrl", System.StringComparison.Ordinal);
+        Assert.True(guardIdx >= 0 && returnAfterGuard >= 0 && credentialWipe >= 0 && iframeLoad >= 0);
+        Assert.True(
+            returnAfterGuard < credentialWipe && credentialWipe < iframeLoad,
+            "the origin guard must return before the credential wipe and the iframe load");
+    }
+
+    [Fact]
+    public void Generator_BootstrapWait_SaysWhatItWaitsForAfterTwentySeconds_AndKeepsWaiting()
+    {
+        // #1714: the same wait used to be silent for as long as it lasted. After twenty seconds the status line
+        // names the address the web client is expected from and offers the return link, and the loop is NOT
+        // left, so a slow client still completes. Pinned: the notice sits inside the while, behind a one-shot
+        // flag, with neither a `return;` nor a `break;` between the notice and the loop's own sleep.
+        var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "OID", "n0nce");
+
+        Assert.Contains("Date.now() - waitingSince > 20000", html);
+        Assert.Contains(JsonSerializer.Serialize(SsoLocalizer.GetString("page.still_waiting", null)), html);
+        Assert.Contains("while (localStorage.getItem(\"_deviceId2\") == null || storedServerId() == null) {", html);
+
+        // Anchored on the whole bootstrap loop line: the linking fast path has a `while` on `_deviceId2` alone,
+        // earlier in the page, and a prefix match would land there and pin nothing.
+        var loopIdx = html.IndexOf("while (localStorage.getItem(\"_deviceId2\") == null || storedServerId() == null) {", System.StringComparison.Ordinal);
+        var noticeIdx = html.IndexOf("waitNoticeShown = true;", loopIdx, System.StringComparison.Ordinal);
+        var sleepIdx = html.IndexOf("await sleep(100);", noticeIdx, System.StringComparison.Ordinal);
+        var returnAfterNotice = html.IndexOf("return;", noticeIdx, System.StringComparison.Ordinal);
+        var breakAfterNotice = html.IndexOf("break;", noticeIdx, System.StringComparison.Ordinal);
+        Assert.True(loopIdx >= 0 && noticeIdx > loopIdx && sleepIdx > noticeIdx);
+        Assert.True(returnAfterNotice < 0 || returnAfterNotice > sleepIdx, "the waiting notice must not leave the loop");
+        Assert.True(breakAfterNotice < 0 || breakAfterNotice > sleepIdx, "the waiting notice must not leave the loop by a break either");
+    }
+
+    [Fact]
+    public void Generator_StoredServerId_ReadsNullInsteadOfThrowing_OnAnEmptyOrUnparseableStore()
+    {
+        // The old loop indexed ['Servers'][0]['Id'] straight off JSON.parse; an empty server list or a non-JSON
+        // value threw inside main(), and a rejected promise nobody awaits is the same silent 'Logging in...'
+        // the page exists to avoid. The helper reads both as 'not yet' and the loop keeps polling.
+        var html = WebResponse.Generator("ZGF0YQ==", "keycloak", "https://jf.example.com", "OID", "n0nce");
+
+        Assert.Contains("function storedServerId() {", html);
+        Assert.Contains("var server = credentials && credentials.Servers ? credentials.Servers[0] : null;", html);
+        Assert.Contains("return server && server.Id != null ? server.Id : null;", html);
+        Assert.DoesNotContain("JSON.parse(localStorage.getItem(\"jellyfin_credentials\"))['Servers'][0]['Id']", html);
+    }
 }
