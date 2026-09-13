@@ -6808,20 +6808,34 @@ function initProvidersPage(view) {
     return false;
   });
 
-  // The deep link from Overview's Add provider card. It is read once, here, and never again: a wizard
-  // restarted on every return to a cached view would throw away whatever step the administrator had
-  // reached, and `viewshow` fires on every return.
+  // The deep link from Overview's Add provider card, read at construction AND on every later show of
+  // this view, and acted on only while the wizard is closed.
   //
-  // ITS BOUND, AND THE DISCLOSURE STAYS NEGATIVE. The dashboard hands a CACHED view back rather than
-  // building one again, and `initOverviewPage`'s own comment says what it caches on: pathname and
-  // search, neither of which is the hash this flag rides in. So whether arriving at this page with the
-  // flag CONSTRUCTS a controller at all, on a tab the reader has already opened once, is a behaviour of
-  // jellyfin-web that no reading of this tree settles - and if it does not, the card on Overview opens
-  // the Providers tab and the wizard stays closed until its own button is pressed. That is the walk's
-  // question (#1665, decision D4), and nothing here claims it is answered.
-  if (ssoConfigurationPage.wizardRequested()) {
-    ssoConfigurationPage.startWizard(view);
-  }
+  // THE SECOND READ ANSWERS A QUESTION THIS COMMENT USED TO LEAVE OPEN (#1721). It said the flag was
+  // read once, here, and never again, and that whether arriving with the flag on a tab the reader had
+  // already opened CONSTRUCTS a controller at all was the walk's question (#1665, decision D4). The
+  // walk of 2026-09-13 answered it in two halves. The FIRST press of the card builds a view of its own
+  // for the flagged address, beside the plain one, and that controller reads the flag here. The SECOND
+  // press in a session - after Leave or Finish closed the wizard and Overview was visited - hands that
+  // flagged view back from the cache, no controller runs, and the wizard stayed closed. What does fire
+  // on that return is `viewshow` (#1576), so the flag is read there too.
+  //
+  // WHY THE GUARD IS THE WIZARD'S OWN STATE AND NOT THE HASH. Nothing strips the flag, so a rule on
+  // the hash alone would restart the wizard on every return to this view and throw away whatever step
+  // the administrator had reached - the reason the read used to happen once. An open wizard is left
+  // exactly where it is; only a closed one is opened. What that leaves is a return to this view through
+  // the browser's history while the address still carries the flag after Finish or Leave, which opens
+  // the wizard at step one over the editor as it stands, because the address asked for it.
+  const openWizardIfRequested = () => {
+    if (
+      ssoConfigurationPage.wizardRequested() &&
+      view.querySelector("#sso-wizard").hidden
+    ) {
+      ssoConfigurationPage.startWizard(view);
+    }
+  };
+  openWizardIfRequested();
+  view.addEventListener("viewshow", openWizardIfRequested);
 
   // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
   //
