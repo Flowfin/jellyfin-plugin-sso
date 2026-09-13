@@ -242,6 +242,7 @@
   "config.acs_url_needs_name": "Enter a provider name above to see the ACS URL",
   "config.metadata_url_needs_name": "Enter a provider name above to see the metadata URL",
   "config.provider_save_failed": "Provider save failed",
+  "config.provider_saved": "Settings saved.",
   "config.test_needs_saved_provider": "Enter a provider name and save it first, then test.",
   "config.test_failed": "Could not run the test. Make sure the provider is saved and that you are signed in as an administrator, then try again.",
   "config.provider_save_refused": "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",

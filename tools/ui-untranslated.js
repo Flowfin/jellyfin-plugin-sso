@@ -169,6 +169,15 @@ const AS_DEFAULT = [
   /\w+Key:\s*"[a-z0-9_.]+"\s*,\s*\w+:\s*$/,
 ];
 
+// A literal handed to one of the two save-status renderers (#1723). "Settings saved." is
+// shorter than SENTENCE's floor, so the ratchet never saw it and a de-DE administrator read
+// it in English after every save while the refusal beside it was German. The floor stays
+// where it is - lowering it surfaces other short literals in two files and is a tranche of
+// its own - so the two renderers are read by name instead: the message they are handed is a
+// tr(...) call or it is refused, and the refusal names the site. The empty literal that clears
+// the region is not prose and is left alone.
+const STATUS_LITERAL = /\brender(?:Saml)?SaveStatus\(\s*\w+\s*,\s*"([^"]+)"/g;
+
 /*
  * Reads the WHOLE file rather than a line at a time, and that is not a detail. The
  * formatter breaks a long catalog call across four lines, so the key sits on the line
@@ -203,6 +212,20 @@ function findIn(file) {
     }
     const line = source.slice(0, match.index).split("\n").length;
     found.push({ file: path.basename(file), line, text });
+  }
+
+  return found;
+}
+
+function statusLiteralsIn(file) {
+  const source = withoutComments(fs.readFileSync(file, "utf8"));
+  const found = [];
+
+  STATUS_LITERAL.lastIndex = 0;
+  let match;
+  while ((match = STATUS_LITERAL.exec(source)) !== null) {
+    const line = source.slice(0, match.index).split("\n").length;
+    found.push({ file: path.basename(file), line, text: match[1] });
   }
 
   return found;
@@ -251,6 +274,15 @@ function main() {
     );
   }
 
+  files
+    .flatMap(statusLiteralsIn)
+    .forEach((entry) =>
+      faults.push(
+        `${entry.file}:${entry.line} hands the literal "${entry.text}" to a save-status renderer. ` +
+          `Wrap it in tr("<key>", "<English>") and add the key to en.json and de.json.`,
+      ),
+    );
+
   if (faults.length > 0) {
     faults.forEach((fault) => console.error("REFUSED  " + fault));
     process.exit(1);
@@ -258,6 +290,9 @@ function main() {
 
   console.log(
     `${counted.length} sentences still bypass the catalog, which is the pinned count.`,
+  );
+  console.log(
+    `  status   no save-status renderer is handed a literal; each message is a catalog call`,
   );
   console.log(
     `  exempt   ${EXEMPT.length} sentence(s) stay literal on purpose, with the reason beside each`,

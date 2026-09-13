@@ -6863,7 +6863,11 @@ function initProvidersPage(view) {
     // rejection (the rejection still exists so callers can distinguish failure from success).
     ssoConfigurationPage.saveProvider(view, target_provider).then(
       () => {
-        ssoConfigurationPage.renderSaveStatus(view, "Settings saved.", true);
+        ssoConfigurationPage.renderSaveStatus(
+          view,
+          tr("config.provider_saved", "Settings saved."),
+          true,
+        );
         ssoConfigurationPage.setEditorTitle(view, target_provider);
       },
       () =>
@@ -7012,7 +7016,7 @@ function initProvidersPage(view) {
       () => {
         ssoConfigurationPage.renderSamlSaveStatus(
           view,
-          "Settings saved.",
+          tr("config.provider_saved", "Settings saved."),
           true,
         );
         ssoConfigurationPage.setSamlEditorTitle(view, target_provider);
