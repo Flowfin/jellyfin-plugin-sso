@@ -20,6 +20,8 @@
   "page.account_linked": "Account linked. You can now log in with SSO.",
   "page.link_failed": "Could not link this account. The provider may be disabled, or linking is not permitted.",
   "page.login_failed": "Login failed. Please try again.",
+  "page.address_mismatch": "This page was opened at {page}, but the server built the login for {server}. A sign-in cannot finish across two addresses. Open Jellyfin at {server}, or set the provider's Base URL Override to {page} and register at your identity provider the address the Providers tab then shows.",
+  "page.still_waiting": "Still waiting for the Jellyfin web client at {server} to start inside this page; the wait goes on. If nothing has changed after a minute, check in a new tab that {server} loads. The link below leads back to the login.",
   "link.home": "Home",
   "link.title": "SSO Linking:",
   "link.help": "Help",

@@ -229,6 +229,19 @@ const sleep = (milliseconds) => {
     return new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
+// The server id the web client in the iframe has stored for this origin, or null while it has not: a
+// missing entry, a still-empty server list and an unparseable value all read as 'not yet', so the wait
+// below keeps polling instead of dying on an exception nobody would see.
+function storedServerId() {
+    try {
+        var credentials = JSON.parse(localStorage.getItem('jellyfin_credentials'));
+        var server = credentials && credentials.Servers ? credentials.Servers[0] : null;
+        return server && server.Id != null ? server.Id : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 // On a terminal failure the page must not dead-end (#667): offer an obvious way back to the login
 // screen. ssoBaseUrl is a JSON-encoded safe constant; the link is built via DOM APIs (never
 // innerHTML) and appended once after the status line, which carries role='status' aria-live='polite'
@@ -386,12 +399,41 @@ async function main() {
         }
     }
 
+    // The wait below ends only once the web client inside the iframe has written THIS page's localStorage,
+    // which it shares only at the same origin. A page opened at one address while the server built the
+    // login for another - a TLS-terminating proxy the server is not told about, a second hostname, an
+    // unset Base URL Override - would otherwise show 'Logging in...' forever. So the two origins are
+    // compared first (the URL parser normalizes case and default ports on both sides), and a mismatch is
+    // terminal: the page names both addresses, because no amount of waiting can end it.
+    var pageOrigin = location.origin;
+    var serverUrl = null;
+    try { serverUrl = new URL(ssoBaseUrl); } catch (e) { serverUrl = null; }
+    if (serverUrl === null || serverUrl.origin !== pageOrigin) {
+        // Both addresses are shown as base URLs: the page's origin carries the server's path base, if any,
+        // so the override the message suggests keeps a /jellyfin prefix instead of dropping it.
+        var pageBase = pageOrigin + (serverUrl === null ? '' : serverUrl.pathname.replace(/\/+$/, ''));
+        document.querySelector('p').textContent = " + JsonSerializer.Serialize(Localize("page.address_mismatch")) + @"
+            .split('{page}').join(pageBase).split('{server}').join(ssoBaseUrl);
+        showReturnLink();
+        return;
+    }
+
     localStorage.removeItem('jellyfin_credentials');
     document.getElementById('iframe-main').src = ssoBaseUrl + '/web/index.html';
 
-    while (localStorage.getItem(""_deviceId2"") == null ||
-        localStorage.getItem(""jellyfin_credentials"") == null ||
-        JSON.parse(localStorage.getItem(""jellyfin_credentials""))['Servers'][0]['Id'] == null) {
+    // The web client normally settles within a few seconds (about twelve on a cold Jellyfin 12 server;
+    // longer on a TV browser). After twenty the status line says what the page is waiting for and where,
+    // says that the wait goes on, and offers the way back - and the loop is not left, so a slow client
+    // still completes rather than being cut off.
+    var waitingSince = Date.now();
+    var waitNoticeShown = false;
+    while (localStorage.getItem(""_deviceId2"") == null || storedServerId() == null) {
+        if (!waitNoticeShown && Date.now() - waitingSince > 20000) {
+            waitNoticeShown = true;
+            document.querySelector('p').textContent = " + JsonSerializer.Serialize(Localize("page.still_waiting")) + @"
+                .split('{server}').join(ssoBaseUrl);
+            showReturnLink();
+        }
         // If localStorage isn't initialized yet, try again.
         await sleep(100);
     }
