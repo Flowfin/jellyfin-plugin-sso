@@ -178,6 +178,16 @@ jobs:
       # positive and negative before the real page is opened. Same runtime and same absence of dependencies
       # as the steps above.
       run: node tools/ui-option-folds.js
+    - name: Overview downgrade-mark check
+      # Overview is the page an administrator opens BEFORE they have decided which provider they mean, so
+      # a provider with an OpenID security defense switched off, or with account adoption widened, has to
+      # say so there and not only on the card of the tab somebody reaches once they already know (#1727).
+      # A mark that is simply always present is the same page as no mark at all, which is why every arm
+      # here pairs a flagged card with a clean one in the SAME render and refuses both directions. It
+      # drives the shipped sso-core.js renderer over a stub tree rather than reading its text: which card
+      # carries which row is a decision the renderer takes, and no reading of these assets makes it. Same
+      # runtime and same absence of dependencies as the steps above.
+      run: node tools/ui-overview-downgrade-mark.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
