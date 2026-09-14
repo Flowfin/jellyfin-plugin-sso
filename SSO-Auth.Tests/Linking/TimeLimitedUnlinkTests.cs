@@ -57,7 +57,7 @@ public class TimeLimitedUnlinkTests
         // The bound: a link with no deadline is the holder's to remove, exactly as before this rule.
         var (service, config) = Build(deadline: false);
 
-        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder);
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
         Assert.Empty(config.CanonicalLinks);

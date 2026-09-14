@@ -14,6 +14,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Flows;
+using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
@@ -113,6 +114,73 @@ public class SSOControllerLinkTests
 
         Assert.IsType<OkResult>(result);
         Assert.False(harness.Configuration.OidConfigs["keycloak"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfTheLastLink_OnAPasswordlessAccount_Is403AndAudited()
+    {
+        // The lockout this refuses is total: no password, no link, and no way back without an
+        // administrator (#1720). The refusal has to say all three things a bare 403 does not, because a
+        // button that answers with nothing readable is read as a broken page and pressed again.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: OneLink, passwordLoginDisabled: true);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, refused.StatusCode);
+        var message = Assert.IsType<string>(refused.Value);
+        Assert.Contains("last SSO link", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("password", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("administrator", message, StringComparison.OrdinalIgnoreCase);
+
+        // Nothing was touched, and no session was ended - the account is exactly as it was.
+        Assert.Equal(Target, harness.Configuration.OidConfigs["keycloak"].CanonicalLinks["sub-1"]);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
+
+        // AND THE OPERATOR HAS A TRACE. A user who reports "it will not let me remove this" is answered
+        // from the server log, and until this assertion existed the audit call could be deleted with the
+        // whole suite still green - the test named the line in its own title and read nothing.
+        Assert.Contains(
+            harness.ControllerLog.Entries,
+            entry => entry.Message.Contains("Refused a user's removal of their own last SSO link", StringComparison.Ordinal)
+                && entry.Message.Contains(Target.ToString(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfTheLastLink_OnAnOrdinaryAccount_StillRemovesIt()
+    {
+        // The bound, at the boundary: on a server that accepts the account's password, the last-link
+        // unlink is not a lockout and stays the user's own to make. Without this arm the refusal above
+        // would pass just as well if the guard took every self-unlink away.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: OneLink);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        Assert.IsType<OkResult>(result);
+        Assert.False(harness.Configuration.OidConfigs["keycloak"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_AnAdministrator_RemovesTheLastLinkOfAPasswordlessAccount()
+    {
+        // An administrator is exempt, and the exemption is read from the caller rather than from the
+        // account being changed: the admin revoke beside this one already repoints the account to the
+        // password provider, so an administrator ending somebody's SSO access is a deliberate act with a
+        // person behind it rather than a self-inflicted lockout.
+        var harness = ForCaller(isAdmin: true, callerId: Other, configure: OneLink, passwordLoginDisabled: true);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        Assert.IsType<OkResult>(result);
+        Assert.False(harness.Configuration.OidConfigs["keycloak"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    // One enabled provider holding Target's only link, with no deadline on it.
+    private static void OneLink(PluginConfiguration configuration)
+    {
+        var config = new OidConfig { Enabled = true };
+        config.CanonicalLinks["sub-1"] = Target;
+        configuration.OidConfigs["keycloak"] = config;
     }
 
     // One provider holding Target's link with a provisioned access deadline still ahead of it.
@@ -660,11 +728,20 @@ public class SSOControllerLinkTests
     // admin (or the target user themselves) with preference access passes AssertCanUpdateUser; a
     // non-admin editing another user, or any caller without EnableUserPreferenceAccess, is refused. A
     // dedicated clientIp lets a throttling test isolate its process-static limiter counter (#382).
-    private static SsoControllerHarness ForCaller(bool isAdmin, Guid callerId, Action<PluginConfiguration>? configure = null, bool enableUserPreferenceAccess = true, IPAddress? clientIp = null)
+    private static SsoControllerHarness ForCaller(bool isAdmin, Guid callerId, Action<PluginConfiguration>? configure = null, bool enableUserPreferenceAccess = true, IPAddress? clientIp = null, bool passwordLoginDisabled = false)
     {
         var harness = new SsoControllerHarness(configure, clientIp);
 
-        var user = new User("caller", "SSO-Auth", "Default") { Id = callerId, EnableUserPreferenceAccess = enableUserPreferenceAccess };
+        // The account's authentication provider decides whether it can sign in with a password at all
+        // (#1720), and BOTH spellings here are real ids rather than a placeholder. The ordinary account
+        // routes to Jellyfin's built-in password provider, which is the one value that evidences a usable
+        // password; the other is the pinned id this plugin stamps, which resolves to no registered
+        // provider. The string "SSO-Auth" stood here before and is neither of them - it read as an
+        // ordinary account only because the detector asked the narrower question.
+        var authenticationProvider = passwordLoginDisabled
+            ? SsoManagedProviderId.Value
+            : SsoAuthenticationProviders.DefaultPasswordProviderId;
+        var user = new User("caller", authenticationProvider, "Default") { Id = callerId, EnableUserPreferenceAccess = enableUserPreferenceAccess };
         user.SetPermission(PermissionKind.IsAdministrator, isAdmin);
 
         // AuthorizationInfo.UserId is derived from User.Id, so setting the user fixes the caller identity.

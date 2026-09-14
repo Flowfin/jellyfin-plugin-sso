@@ -1034,6 +1034,40 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **A user whose account accepts no password can no longer lock themselves out
+  by unlinking their last provider (#1720).** On a server where the account's
+  authentication provider is this plugin's, Jellyfin accepts no password for
+  it, so the SSO links are the only way in - and the self-service page's
+  Delete removed the last one with no warning and no fallback. The account was
+  not disabled and nothing was broken; it was simply unreachable by its owner,
+  whose session the last-link revoke had just ended, and on the default
+  provider posture (`AllowExistingAccountLink` off) a fresh sign-in could not
+  recover it either - only an administrator could. The removal now refuses it
+  in the SERVER rather than in the page, because a page can be reloaded,
+  scripted around or out of date against the server it talks to. Three facts
+  decide the refusal and each is read where it cannot drift: the caller is not
+  an administrator and their account accepts no password, both read at the
+  request boundary from the resolved account, and the link in front of the
+  removal is the last one that could still sign them IN, read inside the
+  removal's own transaction. A way in is a link on an ENABLED provider, which is
+  the reading the login path takes: a leftover link on a provider somebody
+  switched off does not clear the refusal, and removing such a link is never
+  refused, because it takes away nothing. A password door is the built-in
+  password provider and nothing else, because an id naming no registered
+  provider refuses a password exactly as this plugin's id does - an account on a
+  third-party password provider is therefore refused although its password works,
+  which is a call to undo where the other direction costs the account. An
+  administrator is not refused - that is a deliberate act with a person behind
+  it - and `Unregister` is the route that repoints an account back to password
+  sign-in. A user who still holds a link on another ENABLED provider is not
+  refused either. The refusal names what would have happened and both ways out,
+  and it is audited. **What it does not reach** is said here rather than left to
+  be discovered: an account routed to the built-in password provider reads as
+  having a password, and where that password is the unguessable one this plugin
+  mints there is no way to tell it from one somebody knows, so those accounts
+  are outside this rule; and an administrator removing their own last link
+  through the same page is exempt from it.
+
 - **An identity-provider- or request-supplied value can no longer plant an
   audit record in ANY line this plugin writes (#1557).** #1555 closed the
   forgery inside the audit emitter's own entries and said plainly what it did

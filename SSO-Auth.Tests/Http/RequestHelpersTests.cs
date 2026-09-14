@@ -7,6 +7,8 @@ using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
+using Jellyfin.Plugin.SSO_Auth.Api.Linking;
+using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using NSubstitute;
@@ -87,6 +89,59 @@ public class RequestHelpersTests
 
         Assert.False(await RequestHelpers.AssertCanUpdateUser(authContext, Request(), Other));
     }
+
+    [Fact]
+    public async Task PasswordDoor_AnAccountOnTheBuiltInPasswordProvider_HasOne()
+    {
+        // The one value that evidences a usable password, and the only one that clears the rule (#1720).
+        var authContext = ContextFor(OnProvider(SsoAuthenticationProviders.DefaultPasswordProviderId));
+
+        Assert.False(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_AnAccountOnThePluginsProvider_HasNone()
+    {
+        // The case #1720 measured: the id this plugin stamps resolves to no registered provider, so core
+        // substitutes its invalid one and every password attempt is refused.
+        var authContext = ContextFor(OnProvider(SsoManagedProviderId.Value));
+
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_AnAccountOnAnIdNoProviderIsRegisteredUnder_HasNone()
+    {
+        // THE ARM THAT WIDENED THE RULE. Asking whether the id equals the plugin's would answer "has a
+        // password" here, and this state is reached without anybody choosing it: a provider's free-text
+        // DefaultProvider is written onto the account at every login, so a typo or a plugin somebody
+        // uninstalled leaves an id no provider answers for - which refuses every password exactly as the
+        // plugin's own id does.
+        var authContext = ContextFor(OnProvider("Some.Plugin.Nobody.Installed"));
+
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_UnauthenticatedContext_FailsClosed()
+    {
+        // No resolved caller is the ambiguous case, and it answers the way that costs a call rather than
+        // the way that costs an account. Unreachable through the endpoint, which refuses one earlier, and
+        // pinned anyway because the next caller of this helper may not run that guard first.
+        var authContext = ContextFor(user: null);
+
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_NoAuthorizationContextAtAll_FailsClosed()
+    {
+        // The other fail-closed arm, which no route can reach either and which a refactor could.
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(null!, Request()));
+    }
+
+    private static User OnProvider(string authenticationProviderId) =>
+        new User("caller", authenticationProviderId, "Default") { Id = Caller };
 
     private static IAuthorizationContext ContextFor(User? user)
     {

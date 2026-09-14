@@ -1179,7 +1179,7 @@ public class CanonicalLinkServiceTests
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
         });
 
-        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing);
+        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, result.Result);
         Assert.False(cfg.OidConfigs["kc"].CanonicalLinks.ContainsKey("sub-1"));
@@ -1196,7 +1196,7 @@ public class CanonicalLinkServiceTests
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["alice"] = Existing },
         });
 
-        var result = service.TryRemoveLink(ProviderMode.Saml, "adfs", "alice", Existing);
+        var result = service.TryRemoveLink(ProviderMode.Saml, "adfs", "alice", Existing, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, result.Result);
         Assert.False(cfg.SamlConfigs["adfs"].CanonicalLinks.ContainsKey("alice"));
@@ -1213,7 +1213,7 @@ public class CanonicalLinkServiceTests
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing },
         });
 
-        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing);
+        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, result.Result);
         Assert.False(result.UserRetainsAnyLink);
@@ -1274,7 +1274,7 @@ public class CanonicalLinkServiceTests
             CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Existing, ["sub-other"] = Other },
         });
 
-        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing);
+        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, result.Result);
         Assert.False(result.UserRetainsAnyLink);
@@ -1913,7 +1913,7 @@ public class CanonicalLinkServiceTests
             CanonicalLinkIssuers = new SerializableDictionary<string, string> { ["sub-1"] = OldIssuer },
         });
 
-        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing);
+        var result = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Existing, passwordLoginDisabled: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, result.Result);
         Assert.False(cfg.OidConfigs["kc"].CanonicalLinkIssuers.ContainsKey("sub-1"));

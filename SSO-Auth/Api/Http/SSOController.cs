@@ -2414,7 +2414,16 @@ public class SSOController : ControllerBase
         // them. Read from the resolved account, never from the request, and passed in rather than decided
         // here so the check sits in the same transaction as the removal it gates.
         var callerIsAdministrator = await RequestHelpers.IsAdministrator(_authContext, HttpContext.Request).ConfigureAwait(false);
-        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator);
+
+        // WHETHER THE CALLER'S ACCOUNT HAS A PASSWORD DOOR AT ALL (#1720), for the holder's own last-link
+        // removal. Read at the boundary beside the administrator fact and from the same resolved account,
+        // because the link service holds no user manager and must not grow one to answer a question about
+        // a Jellyfin user. The detector is the one the SSO-only feature, the login-path re-assertion and
+        // the managed-status report already use, so this refusal and the report an administrator reads
+        // cannot disagree about what the stamp means.
+        var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false);
+
+        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator, passwordLoginDisabled);
 
         // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
         // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
@@ -2446,8 +2455,27 @@ public class SSOController : ControllerBase
             CanonicalLinkRemoveResult.Mismatch => StatusCode(StatusCodes.Status409Conflict, "jellyfin UID does not match id registered to that canonical name."),
             CanonicalLinkRemoveResult.UnknownProvider => BadRequest(NoMatchingProviderMessage),
             CanonicalLinkRemoveResult.TimeLimited => StatusCode(StatusCodes.Status403Forbidden, "This SSO link carries an access deadline and can be removed only by an administrator."),
+            CanonicalLinkRemoveResult.WouldStrandAccount => RefuseStrandingSelfUnlink(jellyfinUserId),
             _ => throw new InvalidOperationException($"Unhandled canonical-link remove result: {removal.Result}"),
         };
+    }
+
+    // The holder's own last-link removal, refused because it would leave them unable to sign in by any
+    // means (#1720). The message names the three facts the decision asked for - that this is their last
+    // link, that the server allows them no password, and who can help - because a bare 403 on a button
+    // the page offered is read as a broken page, and the next thing a user does about a broken page is
+    // press it again. It names no provider and no subject: the caller is the holder and already knows
+    // which link they picked, and the sentence is about the account rather than about the identity.
+    //
+    // AUDITED AS A REFUSAL, so the operator's log carries the moment a user was stopped from locking
+    // themselves out, the way a blocked bulk unlink and a blocked SSO-only activation already do. The
+    // user id is the same value the line beside it logs on the success path.
+    private ObjectResult RefuseStrandingSelfUnlink(Guid jellyfinUserId)
+    {
+        SsoAudit.SelfUnlinkRefusedWouldStrand(_logger, jellyfinUserId);
+        return StatusCode(
+            StatusCodes.Status403Forbidden,
+            "This is the last SSO link that can sign you in, and this server does not accept a password for your account, so removing it would leave you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in.");
     }
 
     /// <summary>
