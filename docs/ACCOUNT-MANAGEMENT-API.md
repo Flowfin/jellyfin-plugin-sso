@@ -498,10 +498,13 @@ an administrator one call, while the same reading here would refuse every
 last-link self-unlink on every server. Which reading this rule should take is a
 decision rather than something a reading of the tree settles.
 
-The refusal is the caller's own account only. An administrator removing anybody's
-last link is not refused, their own included: an administrator who strands
-themselves through the same self-service page is outside this rule, and where they
-were the only administrator there is no elevated call left to undo it.
+The refusal is the caller's own account only. An administrator removing somebody
+ELSE's last link is not refused. An administrator removing their OWN last usable
+link through the same self-service page is refused where their account accepts
+no password and no other administrator holds an SSO link that can sign them in
+(#1732), because where they were the only administrator there is no elevated
+call left to undo it; the refusal names that case and sends them to another
+administrator or to a second provider.
 `POST /sso/Unregister/{username}` is the route that repoints an account back to the
 built-in password provider; THIS route repoints nothing, for either caller, so an
 administrator ending somebody's SSO access here leaves them on whatever provider
@@ -651,6 +654,33 @@ fail-closed default, where adoption is off, the revoke is durable (the
 
 A revoke of one's own account terminates one's own sessions too, including the
 administrator session that issued the call.
+
+A revoke of one's own account is refused where it would take the account's last
+way in and leave the server with no administrator holding an SSO link that can
+sign them in (#1741). It is the reading the self-service unlink takes since
+#1732, measured before anything is removed: the caller is the account being
+revoked, read from the resolved caller; that account accepts no password, read
+from its authentication provider exactly as the DELETE above reads it; it holds
+a link on an enabled provider, so the revoke takes something away; and no other
+enabled administrator holds such a link, a stored password never counted, for
+the reason the per-provider purge gives. The refusal is a 403 whose body says
+what was measured and names the two remedies, another administrator performs the
+revoke, which is not refused because they are not the holder, or another
+administrator account is linked first; nothing is changed, and the refusal is
+audited. An administrator whose account routes to the built-in password provider
+is not refused, on either route; what neither route reaches is such an account
+behind a password this plugin minted, which is the residual named above and is
+#1733's. An account whose links all sit on switched-off providers, or that holds
+none, is not refused, because those links cannot sign anybody in as they stand
+and the repoint is the way back for an administrator already stranded onto this
+plugin's provider id. That reading has the cost the DELETE above writes down: a
+link on a switched-off provider is a way in again once the provider is switched
+back on, so an administrator who switches their only provider off and then
+revokes their own account is not refused, and lands on the stored password with
+their session ended.
+An API key is not the holder of any account and is never refused by this rule; a
+caller the server cannot resolve at all is treated as the account itself, and a
+server whose accounts cannot be enumerated refuses rather than proceeding.
 
 ## A worked example
 

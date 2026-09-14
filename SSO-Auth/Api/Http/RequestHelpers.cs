@@ -86,11 +86,20 @@ internal static class RequestHelpers
     /// this only ever adds information about an administrator. Fail-closed on an unresolved caller, for the
     /// same reason its two neighbours are: the answer narrows an exemption, so an ambiguous caller is
     /// treated as the one acting on itself rather than as the one the exemption was written for.
+    /// <para>
+    /// AN API KEY IS NOT THE HOLDER OF ANY ACCOUNT, and it is not an unresolved caller either (#1741). The
+    /// host admits a dashboard API key through the elevation policy with no user behind it, and the
+    /// administrator revoke is the one route here an API key reaches with no earlier refusal of a
+    /// user-less caller. Reading it as unresolved made it the holder of every account it revoked, which
+    /// refused the documented automation path on any server whose administrators sign in by password. An
+    /// API key has no account to strand, so it answers false; the host says which it is, and the answer is
+    /// read from that rather than inferred from the missing user.
+    /// </para>
     /// </remarks>
     /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
     /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
     /// <param name="userId">The account the request acts on.</param>
-    /// <returns>True when the resolved caller is that account, or when the caller cannot be resolved.</returns>
+    /// <returns>True when the resolved caller is that account, or when the caller cannot be resolved; false for an API key.</returns>
     internal static async Task<bool> CallerIsTheHolder(IAuthorizationContext authContext, HttpRequest requestContext, Guid userId)
     {
         if (authContext is null)
@@ -99,6 +108,11 @@ internal static class RequestHelpers
         }
 
         var auth = await authContext.GetAuthorizationInfo(requestContext).ConfigureAwait(false);
+        if (auth is { IsApiKey: true })
+        {
+            return false;
+        }
+
         return auth?.User is not { } authenticatedUser || authenticatedUser.Id.Equals(userId);
     }
 
