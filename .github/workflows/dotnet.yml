@@ -128,6 +128,15 @@ jobs:
       # recording ApiClient and both catalogues, and refuses each by name. Same runtime and same absence
       # of dependencies as the steps above.
       run: node tools/ui-self-service-unlink.js
+    - name: The Test Connection verdict
+      # The verdict of a Test Connection is built on the other side of an HTTP call, so no scan of the
+      # bundle can see it, and the sentence stayed English on a German dashboard while every localization
+      # gate above was green (#1728). The server now answers with catalogue keys and the page renders them,
+      # and whether it does is a decision rather than a string: a renderer writing the key, the English
+      # default or a blank line reads the same to a rule over the text. This drives the shipped renderer
+      # through the page's own localize() against both catalogues and refuses each by name. Same runtime
+      # and same absence of dependencies as the steps above.
+      run: node tools/ui-test-verdict.js
     - name: The help census
       # Stage 2 of the 4.4 surface moves every help text these five pages show - a first sentence under
       # the field, the whole text behind a `<details>`, the same text in the rail - and promises that

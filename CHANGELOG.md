@@ -753,6 +753,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The Test Connection verdict is translated (#1728).** The verdict and the
+  facts under it - the issuer, the endpoints, the JWKS key count, a certificate's
+  subject and validity - arrived as English sentences built on the server, so a
+  German dashboard showed German help around an English result, and the gate
+  that counts untranslated sentences in the page could not see them because
+  they were never in the page. The server now answers with catalogue keys and
+  the provider values beside them, the page renders each through the catalogue
+  in the administrator's language, and a fact the document did not advertise
+  reads as "(not advertised)" in that language too. The wire shape of the two
+  Test endpoints changes: `Message` and `Details` become `Key` and `Facts`, each
+  fact a `Key` with a `Value`, which the end-to-end SAML rollover probe now reads
+  for the stored thumbprint. The two screened discovery refusals keep opening
+  with the wording the server log carries, on the English side of the
+  catalogue; on a translated dashboard the log is the English half of that
+  pairing, on purpose.
+
 - **The self-service page asks before it removes your last way in, and says why
   when the server refuses (#1731).** The server refuses a last-link self-unlink
   that would strand the account (#1720), and the page around it was silent in

@@ -164,8 +164,8 @@ stage "the admin API answers for realm '$REALM'"
 # its SHA-256 thumbprint, so this reads the value in use rather than a file somebody hopes it read.
 stored_thumbprint() {
   curl -sS -H "Authorization: MediaBrowser Token=\"$JF_TOKEN\"" "$JELLYFIN/sso/SAML/Test/$PROVIDER" 2>/dev/null \
-    | jq -r '.Details[]? | select(startswith("SHA-256 thumbprint: "))' \
-    | sed 's/^SHA-256 thumbprint: //' | tr -d ' \r'
+    | jq -r '.Facts[]? | select(.Key == "test.certificate_thumbprint") | .Value // empty' \
+    | tr -d ' \r'
 }
 
 # The SHA-256 over the DER bytes, which is what a certificate thumbprint is, so the plugin's report

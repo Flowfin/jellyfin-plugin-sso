@@ -90,8 +90,8 @@ public class SSOControllerTestConnectionTests
         var result = Assert.IsType<ProviderTestResult>(ok.Value);
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Details, d => d.StartsWith("Issuer:", StringComparison.Ordinal) && d.Contains(Authority, StringComparison.Ordinal));
-        Assert.Contains(result.Details, d => d.StartsWith("JWKS: reachable", StringComparison.Ordinal));
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.Issuer, Authority), result.Facts);
+        Assert.Contains(result.Facts, f => f.Key == ProviderTestKeys.JwksReachable);
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class SSOControllerTestConnectionTests
         var result = Assert.IsType<ProviderTestResult>(ok.Value);
 
         Assert.False(result.Ok);
-        Assert.Contains("could not be parsed", result.Message, StringComparison.Ordinal);
+        Assert.Equal(ProviderTestKeys.SamlCertificateUnparsable, result.Key);
         Assert.DoesNotContain(SamlKeySentinel, JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
     }
 
