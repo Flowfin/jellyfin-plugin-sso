@@ -179,7 +179,7 @@ public class LastSsoLoginStampTests
         config.CanonicalLinks["sub-1"] = User;
         config.CanonicalLinkLastLogins["sub-1"] = Now;
 
-        LinkService(configuration, () => Now).TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User);
+        LinkService(configuration, () => Now).TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User, passwordLoginDisabled: false);
 
         Assert.Empty(config.CanonicalLinkLastLogins);
     }
@@ -221,7 +221,7 @@ public class LastSsoLoginStampTests
         service.RecordLastSsoLogin(ProviderMode.Saml, "idp", "nameid-1");
         Assert.Equal(Now, config.CanonicalLinkLastLogins["nameid-1"]);
 
-        service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", User);
+        service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", User, passwordLoginDisabled: false);
         Assert.Empty(config.CanonicalLinkLastLogins);
     }
 

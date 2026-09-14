@@ -450,14 +450,67 @@ DELETE /sso/{mode}/Link/{provider}/{jellyfinUserId}/{canonicalName}
 
 `DeleteCanonicalLink`. Removes exactly one mapping.
 
-| Status | Meaning                                                                       |
-| ------ | ----------------------------------------------------------------------------- |
-| 200    | The link was removed                                                          |
-| 400    | `mode` is neither `oid` nor `saml`, or no provider of that name is configured |
-| 403    | The caller may not edit that user's links                                     |
-| 404    | No link is registered for that canonical name                                 |
-| 409    | The canonical name is registered, but to a different Jellyfin user id         |
-| 429    | The `link` budget for this client is exhausted                                |
+| Status | Meaning                                                                                         |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| 200    | The link was removed                                                                            |
+| 400    | `mode` is neither `oid` nor `saml`, or no provider of that name is configured                   |
+| 403    | The caller may not edit that user's links, or the removal would strand the caller's own account |
+| 404    | No link is registered for that canonical name                                                   |
+| 409    | The canonical name is registered, but to a different Jellyfin user id                           |
+| 429    | The `link` budget for this client is exhausted                                                  |
+
+A user may not strand their own account (#1720). Where the caller is not an
+administrator, their account has no password door, and the link named is the last
+one that could still sign them in, the removal is refused with `403` and nothing
+is changed. Each of the three is read where it cannot drift: who is asking and
+whether their account has a password door come from the resolved account at the
+request boundary, and whether a way in survives the removal is read inside the
+removal's own transaction.
+
+**A way in is a link on an ENABLED provider**, which is the reading the login path
+takes and the one the per-provider purge below decides stranding by. It is
+deliberately NOT the any-link reading the revoke uses, and the two questions this
+one removal asks are different: who gets signed out is who holds no link at all,
+while who would be stranded is who holds no link that can still mint a session. So
+a second link on a provider an administrator has switched off does not clear the
+refusal - it cannot sign anybody in - and, in the other direction, removing a link
+that is itself on a disabled provider is never refused, because a link that is not
+a way in takes nothing away when it goes. That keeps the documented
+disable-then-clean-up workflow available to exactly the accounts this rule
+protects.
+
+**A password door is the built-in password provider and nothing else.** The test
+asks for the positive evidence - `AuthenticationProviderId` equals
+`Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider` - rather
+than asking whether the id is this plugin's, because an id naming no registered
+provider refuses every password just as this plugin's does, and a provider's
+free-text `DefaultProvider` is written onto the account verbatim at every login.
+The cost is stated rather than hidden: an account routed to a THIRD-PARTY password
+provider reads as having no door and has its last-link self-unlink refused
+although its password works. The way out is one call and the refusal names it.
+What the test still cannot see is the account on the password provider whose
+password nobody holds - which is every account this plugin provisions on a server
+whose provider names the built-in password provider as its `DefaultProvider`, a
+choice the settings page offers. Those accounts are outside this rule entirely.
+The per-provider purge below decided the same ambiguity the other way, refusing to
+count a stored password at all; it can afford that because a refusal there costs
+an administrator one call, while the same reading here would refuse every
+last-link self-unlink on every server. Which reading this rule should take is a
+decision rather than something a reading of the tree settles.
+
+The refusal is the caller's own account only. An administrator removing anybody's
+last link is not refused, their own included: an administrator who strands
+themselves through the same self-service page is outside this rule, and where they
+were the only administrator there is no elevated call left to undo it.
+`POST /sso/Unregister/{username}` is the route that repoints an account back to the
+built-in password provider; THIS route repoints nothing, for either caller, so an
+administrator ending somebody's SSO access here leaves them on whatever provider
+they were on.
+
+The service parameter behind it fails closed: a call that does not say whether
+the account has a password door is treated as one that has none, the way a call
+that does not say whether the caller is an administrator is treated as the
+holder. An unresolved caller reads the same way.
 
 Removing a user's last link across both protocols also revokes their active
 sessions, because a link removal only fails future logins closed and a token

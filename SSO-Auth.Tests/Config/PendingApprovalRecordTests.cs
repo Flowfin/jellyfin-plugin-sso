@@ -101,7 +101,12 @@ public class PendingApprovalRecordTests
         var service = BuildLinks(configuration, out var users);
         users.GetUserById(User).Returns(TestUsers.Named("alice", User));
 
-        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User);
+        // AN ADMINISTRATOR REMOVES IT, and that is the production-faithful spelling rather than a
+        // convenience: a pending-approval record only exists on an account this plugin created inert, and
+        // every such account is stamped with the provider id that accepts no password, so the holder's own
+        // removal of its last link is refused (#1720). The route that reaches this record with a link
+        // still on the account is therefore the administrator's.
+        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User, callerIsAdministrator: true);
 
         Assert.Empty(config.CanonicalLinkPendingApprovals);
     }

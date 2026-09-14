@@ -804,6 +804,34 @@ internal static class SsoAudit
             administrators?.ReplaceLineEndings(string.Empty).Replace('[', '('));
 
     /// <summary>
+    /// Records a holder's own last-link removal being REFUSED because it would leave the account with no
+    /// way to sign in (#1720), so the operator's log carries the moment somebody was stopped from locking
+    /// themselves out.
+    /// </summary>
+    /// <remarks>
+    /// Information rather than Warning: nothing is wrong with the server and nothing was changed. It is
+    /// the counterpart of the line the success path writes when a last link IS removed, and an operator
+    /// reading a user's "I cannot get in" report wants both in the same place. The user id is the only
+    /// value on it - no provider, no subject, no username - because the account is what the refusal is
+    /// about and the id is what the roster resolves.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="jellyfinUserId">The account whose own last link was kept.</param>
+    internal static void SelfUnlinkRefusedWouldStrand(ILogger logger, Guid jellyfinUserId)
+    {
+        // Guarded like every other line in this file, which the class comment states once: the guard is
+        // what keeps an argument from being evaluated for a level nobody is listening to.
+        if (!logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        logger.LogInformation(
+            "[SSO Audit] Refused a user's removal of their own last SSO link for user {UserId}: the account accepts no password, so the removal would have left it unable to sign in. Nothing was changed.",
+            jellyfinUserId);
+    }
+
+    /// <summary>
     /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail
     /// (T-R1) exactly as a blocked SSO-only activation does. The reason is a fixed verdict CODE, never
     /// caller input and never the account names the refusal itself carries (T-I1).

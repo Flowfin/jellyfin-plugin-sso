@@ -63,6 +63,9 @@ internal enum CanonicalLinkRemoveResult
 
     /// <summary>The link carries a provisioned access deadline and the caller is not an administrator; nothing was removed (#1647).</summary>
     TimeLimited,
+
+    /// <summary>Removing this link would leave its holder unable to sign in by any means, and the caller is the holder; nothing was removed (#1720).</summary>
+    WouldStrandAccount,
 }
 
 /// <summary>
@@ -1614,8 +1617,9 @@ internal sealed class CanonicalLinkService
     /// <param name="canonicalName">The provider-side identity key whose link is removed.</param>
     /// <param name="jellyfinUserId">The Jellyfin user the link must belong to.</param>
     /// <param name="callerIsAdministrator">Whether the caller is an administrator, read from the resolved account (#1647). A link that carries a provisioned access deadline is removed only when this is true; the default refuses, so a caller that does not say is treated as the holder.</param>
+    /// <param name="passwordLoginDisabled">Whether the holder's account refuses password sign-in, read from its authentication provider (#1720). The holder's own removal of their LAST link is refused when this is true; the default refuses, for the reason <paramref name="callerIsAdministrator"/> defaults the way it does - a caller that does not say is treated as the case that costs the account.</param>
     /// <returns>The remove outcome, plus whether the user retains any other link (#468).</returns>
-    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false)
+    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false, bool passwordLoginDisabled = true)
     {
         // Kept as ONE Mutate (find, ownership check, remove, and the last-link check cannot interleave). A
         // no-result outcome still persists the unchanged config. For NotFound / Mismatch that already
@@ -1660,6 +1664,77 @@ internal sealed class CanonicalLinkService
                 && config.CanonicalLinkDeadlines.ContainsKey(canonicalName))
             {
                 return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.TimeLimited, UserRetainsAnyLink: false);
+            }
+
+            // A HOLDER MAY NOT STRAND THEIR OWN ACCOUNT (#1720). On a server where the account's
+            // authentication provider is this plugin's, Jellyfin refuses its password outright, so the
+            // links ARE the account's only way in - and the self-service page's Delete removed the last
+            // one with no warning and no fallback, leaving the owner unable to sign in by any means. The
+            // account is not disabled and nothing is broken; it is simply unreachable by the person who
+            // pressed the button, and only an administrator can undo it. Whether a fresh SSO login
+            // recovers them depends on the provider's AllowExistingAccountLink, which is OFF by default,
+            // so on the fail-closed posture the lockout is permanent for the user.
+            //
+            // REFUSED RATHER THAN WARNED OR REPOINTED, decided on the issue. A warning is the right shape
+            // where the user can undo what they did, and this is the one case where they cannot.
+            // Repointing the account back to the password provider would hand it a credential nobody set
+            // and reopen, for one account, the very door an SSO-only server was configured to close.
+            //
+            // WHAT COUNTS AS A WAY IN IS A LINK ON AN ENABLED PROVIDER, which is the reading the login
+            // path takes (TryGetLinks(requireEnabled: true)) and the one TryPurgeProviderLinks already
+            // decides stranding by. It is not the any-link reading the revoke below uses, and the two
+            // are deliberately different questions over the same removal: who gets signed out is who
+            // holds no link anywhere, while who would be STRANDED is who holds no link that can still
+            // mint a session. Counting a disabled provider's link as a way in is how the neighbouring
+            // guard fail-opened before it shipped, and this one repeated it until the review of #1720
+            // walked the migration case: an account keeping a link on the OLD, switched-off provider
+            // was allowed to remove the only link that still worked.
+            //
+            // AND REMOVING A LINK THAT IS NOT A WAY IN TAKES NOTHING AWAY, which is the other half and
+            // fails the other direction. A link on a provider an administrator has switched off cannot
+            // sign anybody in, so deleting it strands nobody - refusing it would take the documented
+            // disable-then-clean-up workflow (#380) away from exactly the accounts this rule protects,
+            // and would tell them a removal costs them a way in they never had.
+            //
+            // WHAT THAT HALF COSTS, STATED RATHER THAN FOUND LATER: a provider switched off for an hour
+            // is indistinguishable here from one switched off for good, so a user who tidies up their
+            // only link during that hour has nothing to come back to when it is switched on again, and
+            // adoption is off by default. Narrowing the carve-out to the case where the account keeps
+            // some other link would close it and would re-refuse the cleanup this half exists for; the
+            // review of #1720 raised it as PLAUSIBLE and it is declined there with this sentence as the
+            // record rather than silently.
+            //
+            // AN ADMINISTRATOR IS NOT REFUSED, and that is not an oversight: removing somebody's last
+            // link from the administrator side is a deliberate act with a person behind it. THIS endpoint
+            // repoints nothing, for either caller; `Unregister` is the route that puts an account back on
+            // the password provider. `callerIsAdministrator` is the same fact the deadline refusal above
+            // reads, resolved once at the boundary.
+            //
+            // WHAT THE EXEMPTION DOES NOT COVER IS NAMED RATHER THAN CLAIMED, and the claim that stood
+            // here - that the way back is always one elevated call - is false in the case that matters
+            // most. An administrator removing their OWN last usable link through this same self-service
+            // page is exempt and strands themselves; where they were the only administrator there is no
+            // elevated call left to make, and break-glass only exists while SSO-only is on. The decision
+            // this guard implements was about an administrator acting on somebody else. This case is
+            // #1732 and is open.
+            //
+            // THE LINK READING IS TAKEN IN THIS TRANSACTION, like both refusals around it: a link added or
+            // removed between a read and this write is exactly the interleaving that would make a reading
+            // taken outside the lock say the holder keeps a way in when they do not.
+            //
+            // THE TWO FACTS ABOUT THE CALLER ARE NOT, AND THIS COMMENT CLAIMED THEY WERE. Both arrive from
+            // the request boundary, resolved before the lock, because they are facts about a Jellyfin user
+            // record this lock does not cover and could not. So an account repointed onto the SSO provider
+            // between that read and this write is judged on the older answer. The window is sub-millisecond
+            // and the reverse ordering only produces a spurious refusal; it is named here rather than
+            // claimed away, and the neighbouring administrator guard records the same bound.
+            if (!callerIsAdministrator
+                && passwordLoginDisabled
+                && TryGetProvider(configuration, mode, provider, out var removingFrom)
+                && removingFrom.Enabled
+                && !UserKeepsAnEnabledWayIn(configuration, jellyfinUserId, mode, provider, canonicalName))
+            {
+                return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.WouldStrandAccount, UserRetainsAnyLink: false);
             }
 
             links.Remove(canonicalName);
@@ -2084,6 +2159,58 @@ internal sealed class CanonicalLinkService
             if (config?.CanonicalLinks is { } links && links.ContainsValue(userId))
             {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the user would still hold a link that can sign them in after the named one is removed
+    /// (#1720): any link on an ENABLED provider of either protocol, other than the one being removed.
+    /// </summary>
+    /// <remarks>
+    /// IT IS NOT <see cref="UserHasAnyLink"/> AND MUST NOT BE COLLAPSED INTO IT. That one answers the
+    /// question the last-link revoke is decided on - does the account hold a link anywhere at all - and
+    /// counts a disabled provider's link, because a signed-in session is worth keeping while an
+    /// administrator switches a provider back on. This one answers whether the account can still get IN,
+    /// which the login path settles with <c>requireEnabled: true</c>, so a row in a disabled provider's
+    /// table is not an answer to it. The two readings sit three lines apart on purpose and
+    /// <see cref="TryPurgeProviderLinks"/> draws the same distinction over the same accounts.
+    /// </remarks>
+    /// <param name="configuration">The configuration to read, inside the caller's transaction.</param>
+    /// <param name="userId">The Jellyfin user whose remaining ways in are being counted.</param>
+    /// <param name="mode">The protocol of the link being removed.</param>
+    /// <param name="provider">The provider of the link being removed.</param>
+    /// <param name="canonicalName">The key of the link being removed, which does not count for itself.</param>
+    /// <returns>True when some other enabled provider still links this user.</returns>
+    private static bool UserKeepsAnEnabledWayIn(PluginConfiguration configuration, Guid userId, ProviderMode mode, string provider, string canonicalName)
+    {
+        foreach (var (protocol, providers) in new (ProviderMode Mode, IEnumerable<KeyValuePair<string, ProviderConfigBase>> Providers)[]
+        {
+            (ProviderMode.Oid, configuration.OidConfigs.Select(entry => new KeyValuePair<string, ProviderConfigBase>(entry.Key, entry.Value))),
+            (ProviderMode.Saml, configuration.SamlConfigs.Select(entry => new KeyValuePair<string, ProviderConfigBase>(entry.Key, entry.Value))),
+        })
+        {
+            foreach (var (name, config) in providers)
+            {
+                if (config is not { Enabled: true, CanonicalLinks: { } links })
+                {
+                    continue;
+                }
+
+                // The link being removed does not count as its own replacement. Matched on protocol,
+                // provider name and key together, because one key may legitimately exist on several
+                // providers for the same person.
+                var isTheOneBeingRemoved = protocol == mode && string.Equals(name, provider, StringComparison.Ordinal);
+                foreach (var entry in links)
+                {
+                    if (entry.Value == userId
+                        && !(isTheOneBeingRemoved && string.Equals(entry.Key, canonicalName, StringComparison.Ordinal)))
+                    {
+                        return true;
+                    }
+                }
             }
         }
 
