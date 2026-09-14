@@ -443,14 +443,31 @@ const ssoConfigLinking = {
             // not removed", which is a claim about the batch: where several links were ticked, one of
             // them may already be gone when this refusal arrives. The sentence speaks for the one
             // removal the server declined and sends the reader to a reload for the rest.
+            //
+            // TWO REFUSALS SHARE THAT OPENING AND SEND THE READER TO DIFFERENT PLACES (#1732). The first
+            // tells a user to ask an administrator; where the reader IS the last administrator who can
+            // sign in, that is advice to ask themselves. The second clause of the server's sentence is
+            // what separates them, and the fall-through is the harmless direction: a server whose
+            // wording moved shows the user sentence, which is wrong about who to ask and right about
+            // what happened, rather than no sentence at all.
             if (declined) {
+              const serverLeftUnreachable =
+                /no other administrator on this server/i.test(
+                  String(text || ""),
+                );
               ssoConfigLinking.hideError();
               ssoConfigLinking.showRefusal(
-                t(
-                  "link.delete_refused_would_strand",
-                  undefined,
-                  "The server refused to remove the last SSO link that can sign you in: it accepts no password for your account, so removing that link would have left you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in. Reload the page to see the links it holds now.",
-                ),
+                serverLeftUnreachable
+                  ? t(
+                      "link.delete_refused_would_strand_server",
+                      undefined,
+                      "The server refused to remove the last SSO link that can sign you in: no other administrator on this server holds an SSO link that can sign them in either, so removing that link could have left this server with no administrator able to reach it. Ask another administrator to remove it for you, or link another provider to your account first and then remove this one. Reload the page to see the links it holds now.",
+                    )
+                  : t(
+                      "link.delete_refused_would_strand",
+                      undefined,
+                      "The server refused to remove the last SSO link that can sign you in: it accepts no password for your account, so removing that link would have left you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in. Reload the page to see the links it holds now.",
+                    ),
               );
             }
           });

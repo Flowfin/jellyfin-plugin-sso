@@ -2423,7 +2423,23 @@ public class SSOController : ControllerBase
         // cannot disagree about what the stamp means.
         var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false);
 
-        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator, passwordLoginDisabled);
+        // WHETHER THE CALLER IS ACTING ON THEIR OWN ACCOUNT (#1732), which is what narrows the exemption
+        // #1720 gave an administrator. That exemption was decided for an administrator acting on somebody
+        // ELSE's link; this page acts on the caller's own, so an administrator who opens it is one press
+        // from the lockout the guard exists for.
+        var callerIsTheHolder = await RequestHelpers.CallerIsTheHolder(_authContext, HttpContext.Request, jellyfinUserId).ConfigureAwait(false);
+
+        // AND WHETHER ANYBODY WOULD BE LEFT TO UNDO IT. Asked only where all THREE cheap facts already hold,
+        // because answering it walks every account on the server AND takes the configuration lock every
+        // login takes. An administrator whose own account accepts a password can never reach this refusal,
+        // so on an ordinary server the rule is inert and must cost nothing; leaving that condition out made
+        // every self-delete pay the survey, including one that turns out to name no link at all.
+        var anotherAdministratorKeepsAWayIn = callerIsAdministrator
+            && callerIsTheHolder
+            && passwordLoginDisabled
+            && AnotherAdministratorKeepsAWayIn(jellyfinUserId);
+
+        var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator, passwordLoginDisabled, callerIsTheHolder, anotherAdministratorKeepsAWayIn);
 
         // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
         // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
@@ -2455,7 +2471,7 @@ public class SSOController : ControllerBase
             CanonicalLinkRemoveResult.Mismatch => StatusCode(StatusCodes.Status409Conflict, "jellyfin UID does not match id registered to that canonical name."),
             CanonicalLinkRemoveResult.UnknownProvider => BadRequest(NoMatchingProviderMessage),
             CanonicalLinkRemoveResult.TimeLimited => StatusCode(StatusCodes.Status403Forbidden, "This SSO link carries an access deadline and can be removed only by an administrator."),
-            CanonicalLinkRemoveResult.WouldStrandAccount => RefuseStrandingSelfUnlink(jellyfinUserId),
+            CanonicalLinkRemoveResult.WouldStrandAccount => RefuseStrandingSelfUnlink(jellyfinUserId, callerIsAdministrator && callerIsTheHolder),
             _ => throw new InvalidOperationException($"Unhandled canonical-link remove result: {removal.Result}"),
         };
     }
@@ -2470,12 +2486,62 @@ public class SSOController : ControllerBase
     // AUDITED AS A REFUSAL, so the operator's log carries the moment a user was stopped from locking
     // themselves out, the way a blocked bulk unlink and a blocked SSO-only activation already do. The
     // user id is the same value the line beside it logs on the success path.
-    private ObjectResult RefuseStrandingSelfUnlink(Guid jellyfinUserId)
+    //
+    // AN ADMINISTRATOR REMOVING THEIR OWN GETS THE OTHER SENTENCE (#1732), because the first one sends the
+    // reader to an administrator and in this case the reader IS the last one. It keeps the opening clause
+    // the page matches on, so a build whose page has not been reloaded still recognises the refusal, and
+    // adds the fact that separates the two, which is both what the caller has to act on and what the page
+    // keys its own sentence off.
+    //
+    // AND IT SAYS WHAT WAS MEASURED RATHER THAN WHAT WAS CONCLUDED, which the review of this change asked
+    // for. The reading behind it counts a link on an enabled provider and never counts a stored password,
+    // for the reason written at `AdministratorsWithNoWayIn`, so on the ordinary two-administrator server -
+    // a legacy owner account with a real password beside an SSO-provisioned administrator - "nobody else
+    // can sign in" is simply false. An operator who believed it might switch SSO-only off or mint an
+    // account for a server that never needed one. The sentence therefore names the SSO link, and it names
+    // the one-call remedy the earlier wording left out: another administrator performs the removal, which
+    // is exempt because they are not the holder.
+    private ObjectResult RefuseStrandingSelfUnlink(Guid jellyfinUserId, bool callerIsTheLastAdministrator)
     {
         SsoAudit.SelfUnlinkRefusedWouldStrand(_logger, jellyfinUserId);
-        return StatusCode(
-            StatusCodes.Status403Forbidden,
-            "This is the last SSO link that can sign you in, and this server does not accept a password for your account, so removing it would leave you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in.");
+        var sentence = callerIsTheLastAdministrator
+            ? "This is the last SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so removing it could leave this server with no administrator able to reach it. Ask another administrator to remove it for you, or link another provider to your account first and then remove this one."
+            : "This is the last SSO link that can sign you in, and this server does not accept a password for your account, so removing it would leave you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in.";
+        return StatusCode(StatusCodes.Status403Forbidden, sentence);
+    }
+
+    // Whether an administrator OTHER than this one can still sign in (#1732), measured with the same
+    // reading the per-provider bulk unlink's mass-lockout guard takes - a link on an enabled provider, and
+    // a stored password never counted, for the reason written at `AdministratorsWithNoWayIn`. The
+    // subtraction is what makes it one question rather than two: the set is every other enabled
+    // administrator, and the answer names those with nothing, so anybody left over is somebody who can
+    // undo this.
+    //
+    // A SERVER THAT CANNOT BE SURVEYED ANSWERS NO. `AllUsers` binds whichever accessor the loaded Jellyfin
+    // exposes and throws where it exposes neither, and reading that as an empty roster would turn the one
+    // build this plugin cannot survey into the one build where the guard is off. Refusing a removal costs a
+    // call; the other direction costs the server.
+    //
+    // CAUGHT BROADLY BECAUSE THE THROW ARRIVES WRAPPED, and a narrower catch was the review's finding on
+    // this method. The accessor is reached through `MethodInfo.Invoke` / `PropertyInfo.GetValue`, which
+    // surface anything the host's own user store raises as `TargetInvocationException` - so a catch naming
+    // only the accessor-missing exception left a transient host failure escaping as a 500 while this
+    // comment claimed the answer was no. The sweep in `TryEnableAsync` catches the same surface the same
+    // way and for the same reason.
+    private bool AnotherAdministratorKeepsAWayIn(Guid caller)
+    {
+        try
+        {
+            var others = _ssoOnly.DescribeAdministratorsOtherThan(caller);
+            return others.Count > _canonicalLinks.AdministratorsWithNoWayIn(others).Count;
+        }
+#pragma warning disable CA1031 // The whole point is that no reachable failure of the survey may be read as "somebody else can get in".
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            _logger.LogWarning(exception, "Could not survey the other administrator accounts, so the self-unlink is judged as though none of them could sign in.");
+            return false;
+        }
     }
 
     /// <summary>

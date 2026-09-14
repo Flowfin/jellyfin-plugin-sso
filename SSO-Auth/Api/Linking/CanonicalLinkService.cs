@@ -1618,8 +1618,10 @@ internal sealed class CanonicalLinkService
     /// <param name="jellyfinUserId">The Jellyfin user the link must belong to.</param>
     /// <param name="callerIsAdministrator">Whether the caller is an administrator, read from the resolved account (#1647). A link that carries a provisioned access deadline is removed only when this is true; the default refuses, so a caller that does not say is treated as the holder.</param>
     /// <param name="passwordLoginDisabled">Whether the holder's account refuses password sign-in, read from its authentication provider (#1720). The holder's own removal of their LAST link is refused when this is true; the default refuses, for the reason <paramref name="callerIsAdministrator"/> defaults the way it does - a caller that does not say is treated as the case that costs the account.</param>
+    /// <param name="callerIsTheHolder">Whether the caller IS the account named by <paramref name="jellyfinUserId"/>, read at the boundary from the resolved caller (#1732). It narrows the administrator exemption below to the act #1720 decided - an administrator acting on somebody ELSE's link - and the default refuses, so a caller that does not say is treated as one acting on its own account.</param>
+    /// <param name="anotherAdministratorKeepsAWayIn">Whether an administrator OTHER than the caller can still sign in, measured at the boundary with <see cref="AdministratorsWithNoWayIn"/> over the other administrator accounts (#1732). The default refuses, so a caller that does not say is treated as the case that leaves the server with nobody able to restore access.</param>
     /// <returns>The remove outcome, plus whether the user retains any other link (#468).</returns>
-    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false, bool passwordLoginDisabled = true)
+    internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false, bool passwordLoginDisabled = true, bool callerIsTheHolder = true, bool anotherAdministratorKeepsAWayIn = false)
     {
         // Kept as ONE Mutate (find, ownership check, remove, and the last-link check cannot interleave). A
         // no-result outcome still persists the unchanged config. For NotFound / Mismatch that already
@@ -1704,19 +1706,45 @@ internal sealed class CanonicalLinkService
             // review of #1720 raised it as PLAUSIBLE and it is declined there with this sentence as the
             // record rather than silently.
             //
-            // AN ADMINISTRATOR IS NOT REFUSED, and that is not an oversight: removing somebody's last
-            // link from the administrator side is a deliberate act with a person behind it. THIS endpoint
-            // repoints nothing, for either caller; `Unregister` is the route that puts an account back on
-            // the password provider. `callerIsAdministrator` is the same fact the deadline refusal above
-            // reads, resolved once at the boundary.
+            // AN ADMINISTRATOR ACTING ON SOMEBODY ELSE'S LINK IS NOT REFUSED, and that is not an
+            // oversight: removing somebody's last link from the administrator side is a deliberate act
+            // with a person behind it. THIS endpoint repoints nothing, for either caller; `Unregister` is
+            // the route that puts an account back on the password provider. `callerIsAdministrator` is the
+            // same fact the deadline refusal above reads, resolved once at the boundary.
             //
-            // WHAT THE EXEMPTION DOES NOT COVER IS NAMED RATHER THAN CLAIMED, and the claim that stood
-            // here - that the way back is always one elevated call - is false in the case that matters
-            // most. An administrator removing their OWN last usable link through this same self-service
-            // page is exempt and strands themselves; where they were the only administrator there is no
-            // elevated call left to make, and break-glass only exists while SSO-only is on. The decision
-            // this guard implements was about an administrator acting on somebody else. This case is
-            // #1732 and is open.
+            // AN ADMINISTRATOR ACTING ON THEIR OWN IS REFUSED WHERE NOBODY ELSE COULD UNDO IT, which is
+            // the decision taken on #1732 on 2026-09-14 and the reason this exemption is a pair of facts
+            // rather than one. `/SSOViews/linking` is not an administrator page - it acts on the caller's
+            // own account - so an administrator who opens it on an SSO-only server is one press away from
+            // the same lockout a user is, with the difference that the recovery this guard's message
+            // points a user at IS them. Where they are the last administrator who can sign in, the way
+            // back is editing the configuration file on disk, and that is not a way back a plugin may
+            // leave somebody to find.
+            //
+            // NARROWED RATHER THAN CLOSED, and the other two shapes were declined on the issue with their
+            // reasons. Refusing every administrator's removal of their own last usable link would take a
+            // legitimate cleanup - a provider retired, a link moved to a new issuer, a test account tidied
+            // away - from every server, including the ones where a second administrator stands ready; a
+            // rule that refuses a safe act to catch an unsafe one is paid for by everybody who was never
+            // in danger. Saying it on the page instead is what you write when the act is recoverable, and
+            // this one can leave a server with no way in at all.
+            //
+            // WHAT "ANOTHER ADMINISTRATOR KEEPS A WAY IN" MEANS IS THE PURGE'S READING, UNCHANGED. It is
+            // measured at the boundary with `AdministratorsWithNoWayIn`, which counts a link on an enabled
+            // provider and refuses to count a stored password at all, for the reason written at that
+            // method: this plugin mints an unrecoverable password onto every account it provisions and
+            // records nowhere which, so a stored hash is a credential somebody holds or a seal nobody can
+            // open and the two are the same bytes. The cost is stated rather than hidden - a break-glass
+            // administrator who really does sign in with a password reads here as having no way in, so an
+            // administrator's own cleanup is refused on a server that had a recovery account all along.
+            // That direction costs a call; the other costs the server. Which reading this family should
+            // take once the minted passwords can be told apart is #1733.
+            //
+            // THIS REMOVAL CANNOT CHANGE THE ANSWER, which is why the other administrators are judged
+            // outside this transaction and the caller's own link is judged inside it. The link going is
+            // the caller's, so no other administrator's ways in move with it; what the boundary reading
+            // cannot see is a concurrent removal of the LAST other administrator's link, and the cost of
+            // that window is one allowed removal rather than a wrong refusal.
             //
             // THE LINK READING IS TAKEN IN THIS TRANSACTION, like both refusals around it: a link added or
             // removed between a read and this write is exactly the interleaving that would make a reading
@@ -1728,7 +1756,7 @@ internal sealed class CanonicalLinkService
             // between that read and this write is judged on the older answer. The window is sub-millisecond
             // and the reverse ordering only produces a spurious refusal; it is named here rather than
             // claimed away, and the neighbouring administrator guard records the same bound.
-            if (!callerIsAdministrator
+            if ((!callerIsAdministrator || (callerIsTheHolder && !anotherAdministratorKeepsAWayIn))
                 && passwordLoginDisabled
                 && TryGetProvider(configuration, mode, provider, out var removingFrom)
                 && removingFrom.Enabled

@@ -1093,6 +1093,34 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An administrator can no longer strand their own server through the
+  self-service unlink (#1732).** The refusal above exempts an administrator, and that
+  exemption was decided for an administrator acting on somebody ELSE's link.
+  `/SSOViews/linking` is not an administrator page - it acts on the caller's own
+  account - so an administrator who opened it on a server that accepts no
+  password for them was one press from the same lockout a user was, with the
+  difference that the recovery the refusal points a user at IS them. Where they
+  were the only administrator who could sign in, nothing was left but editing the
+  plugin's configuration file on disk. The exemption is now a pair of facts: the
+  removal goes through when the caller is not the holder, or when some other
+  administrator can still sign in, and it is refused when neither holds. The
+  narrow shape was chosen deliberately - an administrator is also the person who
+  legitimately cleans up a retired provider or a test account, and refusing every
+  such removal would take that from every server including the ones where a
+  second administrator stands ready. What counts as another administrator's way
+  in is the reading the per-provider bulk unlink already takes, a link on an
+  enabled provider with a stored password never counted, so a break-glass
+  administrator who really does sign in with a password reads here as having
+  none and the cleanup is refused on a server that had a recovery account all
+  along; that direction costs a call and the other costs the server, and telling
+  the minted passwords apart is tracked as #1733. The refusal says which of the
+  two it is, and it states what was measured rather than what was concluded: an
+  administrator is told that no other administrator holds an SSO link that can
+  sign them in, and is sent to another administrator or to a second provider
+  rather than being told to ask an administrator. Both sentences come from the
+  localization catalogue. This covers the self-service unlink route and only it;
+  the administrator `Unregister` action is a separate one-call path with no
+  last-administrator guard of its own, which is #1741.
 - **A user whose account accepts no password can no longer lock themselves out
   by unlinking their last provider (#1720).** On a server where the account's
   authentication provider is this plugin's, Jellyfin accepts no password for

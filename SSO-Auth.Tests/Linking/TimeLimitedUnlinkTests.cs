@@ -44,7 +44,7 @@ public class TimeLimitedUnlinkTests
     {
         var (service, config) = Build(deadline: true);
 
-        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true);
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, callerIsTheHolder: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
         Assert.Empty(config.CanonicalLinks);
@@ -106,7 +106,7 @@ public class TimeLimitedUnlinkTests
         var service = new CanonicalLinkService(users, new FakeCryptoProvider(), store, new CapturingLogger(), clock: () => Now);
 
         Assert.Equal(CanonicalLinkRemoveResult.TimeLimited, service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", Holder).Result);
-        Assert.Equal(CanonicalLinkRemoveResult.Removed, service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", Holder, callerIsAdministrator: true).Result);
+        Assert.Equal(CanonicalLinkRemoveResult.Removed, service.TryRemoveLink(ProviderMode.Saml, "idp", "nameid-1", Holder, callerIsAdministrator: true, callerIsTheHolder: false).Result);
         Assert.Empty(config.CanonicalLinkDeadlines);
     }
 

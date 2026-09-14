@@ -18,6 +18,13 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// self-service Delete removed the last one with no warning and no fallback, leaving the owner unable to
 /// sign in by any means and recoverable only by an administrator. The removal now asks, inside the
 /// transaction that removes, whether this is the last link on an account with no password door.
+/// <para>
+/// AN ADMINISTRATOR IS EXEMPT ONLY FOR SOMEBODY ELSE'S LINK (#1732, decided 2026-09-14). The page acts on
+/// the caller's own account, so an administrator who opens it strands themselves exactly as a user does -
+/// and where they are the last administrator who can sign in, the recovery the user's refusal points at is
+/// them and the way back is editing the configuration file on disk. The exemption is therefore a pair of
+/// facts: the caller is not the holder, or somebody else can still get in.
+/// </para>
 /// </summary>
 /// <remarks>
 /// EVERY REFUSAL ARM IS PAIRED WITH THE CASE THAT MUST STILL GO THROUGH. A guard on a destructive action
@@ -73,19 +80,95 @@ public class StrandingSelfUnlinkTests
     }
 
     [Fact]
-    public void AnAdministrator_RemovesTheLastLinkOfAPasswordlessAccount()
+    public void AnAdministrator_RemovesTheLastLinkOfSomebodyElsesPasswordlessAccount()
     {
-        // An administrator removing somebody's last link is a deliberate act with a person behind it, and
-        // the Unregister route beside it repoints the account back to password sign-in, so the way back is
-        // one elevated call. The refusal is about who is asking, exactly as the time-limited one is. What it
-        // does NOT cover is an administrator stranding their OWN account through the same page, which the
-        // review of #1720 raised and which is #1732 rather than a case this arm claims.
+        // An administrator removing SOMEBODY ELSE's last link is a deliberate act with a person behind it,
+        // and the Unregister route beside it repoints that account back to password sign-in, so the way back
+        // is one elevated call. That is the act #1720 decided the exemption for, and it is named in the
+        // arguments now rather than assumed: the exemption is a pair of facts since #1732, and an arm that
+        // left the second one to its default would be asserting the opposite case.
         var (service, config) = Build();
 
-        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true);
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true, callerIsTheHolder: false);
 
         Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
         Assert.False(config.CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public void AnAdministratorOnTheirOwnLastLink_WithNobodyElseAbleToSignIn_IsRefused()
+    {
+        // THE CASE #1732 DECIDED. `/SSOViews/linking` acts on the caller's own account, so an administrator
+        // who opens it on an SSO-only server is one press from the lockout the guard exists for - with the
+        // difference that the recovery the user's refusal points at IS them. Where they are the last
+        // administrator who can sign in, what is left is editing the configuration file on disk.
+        var (service, config) = Build();
+
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true, callerIsTheHolder: true, anotherAdministratorKeepsAWayIn: false);
+
+        Assert.Equal(CanonicalLinkRemoveResult.WouldStrandAccount, removal.Result);
+        Assert.False(removal.UserRetainsAnyLink);
+        Assert.Equal(Holder, config.CanonicalLinks["sub-1"]);
+    }
+
+    [Fact]
+    public void AnAdministratorOnTheirOwnLastLink_WithAnotherAdministratorAbleToSignIn_StillRemovesIt()
+    {
+        // The bound of the narrowing, and the reason the other two shapes were declined on the issue. An
+        // administrator is also the person who legitimately cleans up - a provider retired, a link moved to
+        // a new issuer, a test account tidied away - and refusing every such removal would take that from
+        // every server, including the ones where a second administrator stands ready. Without this arm the
+        // rule could refuse every administrator's self-unlink and still pass the one above.
+        var (service, config) = Build();
+
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true, callerIsTheHolder: true, anotherAdministratorKeepsAWayIn: true);
+
+        Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
+        Assert.False(config.CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public void AnAdministratorOnTheirOwnAccount_WhoKeepsAnotherLink_StillRemovesIt()
+    {
+        // The last-link half still governs the narrowed case. An administrator alone on the server who holds
+        // a second link on an enabled provider is not stranding anybody, so the fact that nobody else can
+        // sign in decides nothing here - without this arm the new condition could refuse every administrator
+        // self-unlink on a single-administrator server, which is not what was decided.
+        var (service, config) = Build(second: true);
+
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true, callerIsTheHolder: true, anotherAdministratorKeepsAWayIn: false);
+
+        Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
+        Assert.True(removal.UserRetainsAnyLink);
+        Assert.False(config.CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public void AnAdministratorOnTheirOwnAccount_ThatTakesAPassword_StillRemovesIt()
+    {
+        // The password half governs the narrowed case too, and it is the same bound the holder's arm has.
+        // An administrator whose own account accepts a password is not stranded by losing a link, however
+        // alone they are on the server.
+        var (service, config) = Build();
+
+        var removal = service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: false, callerIsTheHolder: true, anotherAdministratorKeepsAWayIn: false);
+
+        Assert.Equal(CanonicalLinkRemoveResult.Removed, removal.Result);
+        Assert.False(config.CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
+    public void AnAdministratorsDefault_IsTreatedAsActingOnTheirOwnAccountWithNobodyLeft()
+    {
+        // The two facts #1732 added default to the case that costs the server, the way the two before them
+        // default to the case that costs the account. A call site that passes only `callerIsAdministrator`
+        // is a call site that has not been told about this rule, and it refuses a removal rather than
+        // performing a lockout nobody asked for.
+        var (service, _) = Build();
+
+        Assert.Equal(
+            CanonicalLinkRemoveResult.WouldStrandAccount,
+            service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", Holder, callerIsAdministrator: true, passwordLoginDisabled: true).Result);
     }
 
     [Fact]

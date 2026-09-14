@@ -203,6 +203,14 @@ public class LinkingIdentifierOneDecisionTests
 
         var user = new User("caller", "SSO-Auth", "Default") { Id = Target, EnableUserPreferenceAccess = true };
         user.SetPermission(PermissionKind.IsAdministrator, true);
+
+        // ON THE PASSWORD PROVIDER, so the stranding refusal is not what these arms measure (#1732). Since
+        // that decision an administrator removing their OWN last usable link is refused where no other
+        // administrator can sign in, and this harness is exactly one administrator removing exactly one
+        // link: the exact-name removals below would answer 403 and the identifier comparison they exist for
+        // would never be reached. An account that accepts a password is not stranded by losing a link, so
+        // this takes the neighbouring rule out of the way without weakening it.
+        user.AuthenticationProviderId = SsoAuthenticationProviders.DefaultPasswordProviderId;
         harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>()).Returns(Task.FromResult(new AuthorizationInfo { User = user }));
         return harness;
     }
