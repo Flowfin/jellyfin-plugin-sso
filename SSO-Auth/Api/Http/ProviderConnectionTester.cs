@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -31,14 +32,18 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 /// credential). SAML: parses the configured PUBLIC signing certificate and reports its non-secret facts;
 /// there is no SAML metadata-URL field, so the SAML probe makes no network call. Neither path ever puts a
 /// secret, signing key, or DEK into the <see cref="ProviderTestResult"/> or the log.
+///
+/// Every verdict and fact is a catalogue key from <see cref="ProviderTestKeys"/> (#1728), never a sentence:
+/// the page renders them in the administrator's language, and the conformance suite refuses a prose literal
+/// in this file so the next verdict cannot arrive as English the catalogue never sees.
 /// </summary>
 internal static class ProviderConnectionTester
 {
     /// <summary>
     /// Probes a stored OpenID provider: reads its discovery document under the login's hardened discovery
     /// policy and reports the issuer, endpoints, JWKS reachability and the two discovery facts. Fail-closed
-    /// and actionable - an unreadable document or an invalid endpoint returns a non-Ok result with a
-    /// generic, secret-free message rather than throwing.
+    /// and actionable - an unreadable document or an invalid endpoint returns a non-Ok result whose verdict
+    /// names what to check, never a sensitive value, rather than throwing.
     /// </summary>
     /// <param name="config">The stored OpenID provider configuration.</param>
     /// <param name="provider">The provider name, for the reader's fail-closed warning only.</param>
@@ -50,7 +55,7 @@ internal static class ProviderConnectionTester
     {
         if (string.IsNullOrWhiteSpace(config.OidEndpoint))
         {
-            return ProviderTestResult.Failure("No OpenID endpoint is configured. Set the OpenID Endpoint, save the provider, then test again.");
+            return ProviderTestResult.Failure(ProviderTestKeys.OidcNoEndpoint);
         }
 
         OidcClientOptions options;
@@ -61,7 +66,7 @@ internal static class ProviderConnectionTester
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
-            return ProviderTestResult.Failure("The configured OpenID Endpoint is not a valid absolute URL (for example https://idp.example.com).");
+            return ProviderTestResult.Failure(ProviderTestKeys.OidcInvalidEndpoint);
         }
 
         // The probe uses the provider's own transport tier, so "Test connection" reports what the login will
@@ -69,36 +74,51 @@ internal static class ProviderConnectionTester
         var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses, cancellationToken).ConfigureAwait(false);
         if (!discovery.Available)
         {
-            // The reader already logged the fail-closed warning (with the library error, never a secret).
-            // The admin-facing message stays generic: it names what to check, not any sensitive value.
-            return ProviderTestResult.Failure(CauseOf(discovery.Refusal));
+            // The reader already logged the fail-closed warning (with the library error, never a secret). The
+            // verdict describes THIS failure (#1064): the probe is the one in-product diagnostic on the recovery
+            // path, and a verdict that answers confidently and points somewhere else is worse than a vague one -
+            // an admin whose provider serves a document the screen refuses would otherwise be sent to look at
+            // reachability, the well-known path and TLS, none of which is wrong.
+            //
+            // The English rows of the two screened causes open with the SAME constant the server log carries
+            // (RepeatedMemberScreen.RefusalReason / UninspectableReason), which the probe's suite pins, so an
+            // admin matching the two on an English dashboard sees one wording rather than two paraphrases. On a
+            // translated dashboard the log is the English side of that pairing: that is the price of the page
+            // reading the administrator's language (#1728), paid on purpose. Neither row names the repeated
+            // member. The surface is elevation-gated, so that is not the login path's disclosure question, but
+            // the member name is a provider-authored string and every bound and filter it needs sits on the log
+            // entry (#1068, #1194) and nowhere else; pointing at the log spends nothing and keeps one place
+            // responsible for it.
+            return ProviderTestResult.Failure(discovery.Refusal switch
+            {
+                OidcDiscoveryRefusal.RepeatedMember => ProviderTestKeys.OidcRefusedRepeatedMember,
+                OidcDiscoveryRefusal.Uninspectable => ProviderTestKeys.OidcRefusedUninspectable,
+                _ => ProviderTestKeys.OidcUnreadable,
+            });
         }
 
         var info = discovery.ProviderInformation;
-        var jwksKeyCount = info.KeySet?.Keys?.Count ?? 0;
-        var jwksReachable = info.KeySet is not null;
-
-        var details = new List<string>
+        var facts = new List<ProviderTestFact>
         {
-            "Issuer: " + Describe(info.IssuerName),
-            "Authorization endpoint: " + Describe(info.AuthorizeEndpoint),
-            "Token endpoint: " + Describe(info.TokenEndpoint),
-            "UserInfo endpoint: " + Describe(info.UserInfoEndpoint),
-            jwksReachable
-                ? $"JWKS: reachable ({jwksKeyCount} key(s))"
-                : "JWKS: the discovery document advertised no jwks_uri",
-            "PKCE (S256) advertised: " + YesNo(discovery.Facts.PkceS256),
-            "RFC 9207 response-iss advertised: " + YesNo(discovery.Facts.ResponseIssuerAdvertised),
+            Fact(ProviderTestKeys.Issuer, info.IssuerName),
+            Fact(ProviderTestKeys.AuthorizationEndpoint, info.AuthorizeEndpoint),
+            Fact(ProviderTestKeys.TokenEndpoint, info.TokenEndpoint),
+            Fact(ProviderTestKeys.UserInfoEndpoint, info.UserInfoEndpoint),
+            info.KeySet is null
+                ? new ProviderTestFact(ProviderTestKeys.JwksNotAdvertised, null)
+                : new ProviderTestFact(ProviderTestKeys.JwksReachable, (info.KeySet.Keys?.Count ?? 0).ToString(CultureInfo.InvariantCulture)),
+            Advertised(ProviderTestKeys.PkceAdvertised, ProviderTestKeys.PkceNotAdvertised, discovery.Facts.PkceS256),
+            Advertised(ProviderTestKeys.ResponseIssuerAdvertised, ProviderTestKeys.ResponseIssuerNotAdvertised, discovery.Facts.ResponseIssuerAdvertised),
         };
 
-        return ProviderTestResult.Success("The OpenID discovery document was read successfully.", details);
+        return ProviderTestResult.Success(ProviderTestKeys.OidcDiscoveryRead, facts);
     }
 
     /// <summary>
     /// Probes a stored SAML provider: parses the configured PUBLIC signing certificate and reports its
     /// non-secret facts (subject, issuer, validity window, SHA-256 thumbprint). No network call - there is
     /// no metadata-URL field - and never the service-provider signing key. A non-parsing certificate returns
-    /// a non-Ok result with an actionable, secret-free message.
+    /// a non-Ok result whose verdict names what to paste instead.
     /// </summary>
     /// <param name="config">The stored SAML provider configuration.</param>
     /// <returns>The probe result, safe to return to an administrator.</returns>
@@ -106,7 +126,7 @@ internal static class ProviderConnectionTester
     {
         if (string.IsNullOrWhiteSpace(config.SamlCertificate))
         {
-            return ProviderTestResult.Failure("No SAML signing certificate is configured. Paste the identity provider's Base64 (DER) X.509 signing certificate, save the provider, then test again.");
+            return ProviderTestResult.Failure(ProviderTestKeys.SamlNoCertificate);
         }
 
         X509Certificate2 certificate;
@@ -118,7 +138,7 @@ internal static class ProviderConnectionTester
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
         {
-            return ProviderTestResult.Failure("The configured SAML signing certificate could not be parsed. It must be the identity provider's Base64-encoded (DER) X.509 PUBLIC signing certificate - not a PEM wrapper and not a private key.");
+            return ProviderTestResult.Failure(ProviderTestKeys.SamlCertificateUnparsable);
         }
 
         using (certificate)
@@ -127,50 +147,32 @@ internal static class ProviderConnectionTester
             var notAfter = certificate.NotAfter.ToUniversalTime();
             var now = DateTime.UtcNow;
 
-            var details = new List<string>
+            var facts = new List<ProviderTestFact>
             {
-                "Subject: " + Describe(certificate.Subject),
-                "Issuer: " + Describe(certificate.Issuer),
-                $"Valid from (UTC): {notBefore:u}",
-                $"Valid to (UTC): {notAfter:u}",
-                "SHA-256 thumbprint: " + certificate.GetCertHashString(HashAlgorithmName.SHA256),
+                Fact(ProviderTestKeys.CertificateSubject, certificate.Subject),
+                Fact(ProviderTestKeys.Issuer, certificate.Issuer),
+                new ProviderTestFact(ProviderTestKeys.CertificateValidFrom, notBefore.ToString("u", CultureInfo.InvariantCulture)),
+                new ProviderTestFact(ProviderTestKeys.CertificateValidTo, notAfter.ToString("u", CultureInfo.InvariantCulture)),
+                new ProviderTestFact(ProviderTestKeys.CertificateThumbprint, certificate.GetCertHashString(HashAlgorithmName.SHA256)),
             };
 
             if (now < notBefore || now > notAfter)
             {
-                details.Add("Note: the certificate is outside its validity period - logins may fail until it is renewed.");
+                facts.Add(new ProviderTestFact(ProviderTestKeys.CertificateOutsideValidity, null));
             }
 
-            return ProviderTestResult.Success("The SAML signing certificate parsed successfully.", details);
+            return ProviderTestResult.Success(ProviderTestKeys.SamlCertificateParsed, facts);
         }
     }
 
-    // Why the discovery read came back unavailable, in words that describe THIS failure (#1064). The probe is
-    // the one in-product diagnostic on the recovery path, so a message that answers confidently and points
-    // somewhere else is worse than a vague one: an admin whose provider serves a document the screen refuses
-    // would otherwise be sent to look at reachability, the well-known path and TLS, none of which is wrong.
-    //
-    // Each screened cause opens with the SAME constant the server log carries, so an admin matching the two
-    // sees one wording rather than two paraphrases of it. Neither names the repeated member. The surface is
-    // elevation-gated, so that is not the login path's disclosure question, but the member name is a
-    // provider-authored string and every bound and filter it needs sits on the log entry (#1068, #1194) and
-    // nowhere else; pointing at the log spends nothing and keeps one place responsible for it.
-    private static string CauseOf(OidcDiscoveryRefusal refusal) => refusal switch
-    {
-        OidcDiscoveryRefusal.RepeatedMember =>
-            RepeatedMemberScreen.RefusalReason
-            + ", so the OpenID discovery read was refused. The document was served and rejected before it was parsed, which is a defect to report to the identity provider - a document whose meaning depends on which reader parses it. The Jellyfin server log records which document and which member.",
-        OidcDiscoveryRefusal.Uninspectable =>
-            RepeatedMemberScreen.UninspectableReason
-            + ", so the OpenID discovery read was refused. That is usually a truncated body or a Content-Type naming a character set this server cannot decode, rather than a connectivity problem. The Jellyfin server log records which document and the failure it hit.",
-        _ =>
-            "Could not read the OpenID discovery document. Check that the endpoint is reachable, serves /.well-known/openid-configuration, and - unless HTTPS discovery is disabled - is served over HTTPS.",
-    };
+    // A provider value the admin can eyeball. A document that did not advertise it sends NO value, and the page
+    // renders the not-advertised row in the slot rather than an empty line, so a blank field reads as "not
+    // advertised" in the administrator's language rather than as nothing.
+    private static ProviderTestFact Fact(string key, string? value) =>
+        new(key, string.IsNullOrWhiteSpace(value) ? null : value);
 
-    // A discovery value the admin can eyeball, or an explicit marker when the document did not advertise it,
-    // so a blank field reads as "not advertised" rather than an empty line.
-    private static string Describe(string value) =>
-        string.IsNullOrWhiteSpace(value) ? "(not advertised)" : value;
-
-    private static string YesNo(bool value) => value ? "yes" : "no";
+    // A fact the discovery document either advertises or does not: two whole rows rather than a yes/no word
+    // handed to one, so each language writes the sentence its own way.
+    private static ProviderTestFact Advertised(string advertised, string notAdvertised, bool value) =>
+        new(value ? advertised : notAdvertised, null);
 }

@@ -7,28 +7,29 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.SSO_Auth.Api.Provider;
 
 /// <summary>
-/// The admin-facing result of a provider Test-connection probe (#163): whether the probe passed, a short
-/// actionable headline, and a list of non-secret detail lines (issuer, endpoints, JWKS reachability, or the
-/// SAML certificate's public facts). It NEVER carries a secret - no <c>OidSecret</c>, no signing-key/DEK
-/// material - and its <see cref="Message"/> stays generic about sensitive values (e.g. "authentication
-/// failed", not the secret). Serialized to the admin UI as JSON; the page renders every field with
-/// <c>textContent</c>/<c>createElement</c> so a reflected provider string cannot inject markup.
+/// The admin-facing result of a provider Test-connection probe (#163): whether the probe passed, the catalogue
+/// key of its verdict, and the non-secret facts it observed (issuer, endpoints, JWKS reachability, or the SAML
+/// certificate's public facts). It carries KEYS rather than sentences (#1728), so the settings page renders it
+/// through the localization catalogue in the administrator's language. It NEVER carries a secret - no
+/// <c>OidSecret</c>, no signing-key/DEK material - and a verdict names what to check, never a sensitive value.
+/// Serialized to the admin UI as JSON; the page renders every field with <c>textContent</c>/<c>createElement</c>
+/// so a reflected provider value cannot inject markup.
 /// </summary>
 /// <param name="Ok">Whether the probe's core check passed (discovery readable, or the SAML certificate parses).</param>
-/// <param name="Message">A short, actionable headline safe to show an administrator.</param>
-/// <param name="Details">Non-secret detail lines describing what the probe observed.</param>
-internal sealed record ProviderTestResult(bool Ok, string Message, IReadOnlyList<string> Details)
+/// <param name="Key">The catalogue key of the verdict, one of <see cref="ProviderTestKeys"/>.</param>
+/// <param name="Facts">The non-secret fact lines describing what the probe observed.</param>
+internal sealed record ProviderTestResult(bool Ok, string Key, IReadOnlyList<ProviderTestFact> Facts)
 {
-    /// <summary>A failed probe with an actionable, secret-free message and no details.</summary>
-    /// <param name="message">The actionable failure headline.</param>
+    /// <summary>A failed probe whose verdict names what to check, with no facts.</summary>
+    /// <param name="key">The catalogue key of the failure verdict.</param>
     /// <returns>A failed result.</returns>
-    internal static ProviderTestResult Failure(string message) =>
-        new(false, message, Array.Empty<string>());
+    internal static ProviderTestResult Failure(string key) =>
+        new(false, key, Array.Empty<ProviderTestFact>());
 
     /// <summary>A passing probe carrying the non-secret facts the administrator can confirm the config against.</summary>
-    /// <param name="message">The success headline.</param>
-    /// <param name="details">The non-secret detail lines.</param>
+    /// <param name="key">The catalogue key of the success verdict.</param>
+    /// <param name="facts">The non-secret fact lines.</param>
     /// <returns>A passing result.</returns>
-    internal static ProviderTestResult Success(string message, IReadOnlyList<string> details) =>
-        new(true, message, details);
+    internal static ProviderTestResult Success(string key, IReadOnlyList<ProviderTestFact> facts) =>
+        new(true, key, facts);
 }

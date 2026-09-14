@@ -4403,6 +4403,21 @@ const ssoConfigurationPage = {
     line.textContent = message;
     container.appendChild(line);
   },
+  // A verdict or fact the server names by catalogue key rather than by a sentence (#1728), rendered through
+  // the catalogue this page already holds, so a translated dashboard reads it translated. The key is DATA
+  // from the server and is looked up, never trusted as text: a key this catalogue does not carry renders as
+  // itself - visible rather than blank, and inert as textContent - which is the posture the server's own
+  // localizer takes for a missing row. A fact's value is provider data (an issuer, a subject, a key count)
+  // and fills the row's {value} slot; a fact the document did not advertise carries no value and reads as
+  // the not-advertised row instead of an empty line. Substitution is by function on both paths of tr(), so
+  // a value that itself contains a placeholder or a replacement pattern lands verbatim.
+  testText: (key, value) =>
+    tr(String(key), String(key), {
+      value:
+        value === null || value === undefined
+          ? tr("test.not_advertised", "(not advertised)")
+          : String(value),
+    }),
   renderTestResult: (container, result) => {
     container.replaceChildren();
 
@@ -4411,22 +4426,24 @@ const ssoConfigurationPage = {
     // Boolean coercion, not string interpolation: the label is fixed text, so no server value reaches the DOM here.
     heading.textContent =
       (result && result.Ok ? "✅ " : "⚠ ") +
-      (result && result.Message
-        ? result.Message
+      (result && result.Key
+        ? ssoConfigurationPage.testText(result.Key)
         : tr("config.test_no_result", "No result returned."));
     container.appendChild(heading);
 
-    const details =
-      result && Array.isArray(result.Details) ? result.Details : [];
-    if (details.length === 0) {
+    const facts = result && Array.isArray(result.Facts) ? result.Facts : [];
+    if (facts.length === 0) {
       return;
     }
 
     const list = document.createElement("ul");
-    details.forEach((detail) => {
+    facts.forEach((fact) => {
       const item = document.createElement("li");
       // textContent so an issuer/endpoint value echoed by the provider stays inert on the page.
-      item.textContent = String(detail);
+      item.textContent = ssoConfigurationPage.testText(
+        fact && fact.Key,
+        fact && fact.Value,
+      );
       list.appendChild(item);
     });
     container.appendChild(list);

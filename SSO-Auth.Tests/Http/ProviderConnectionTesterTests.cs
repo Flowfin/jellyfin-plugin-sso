@@ -8,9 +8,11 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Http;
+using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
@@ -26,7 +28,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// the OpenID probe reads discovery through the hardened reader and reports the issuer, endpoints and JWKS
 /// reachability; an unreadable document / invalid endpoint / missing endpoint returns a fail-closed,
 /// actionable, secret-free result rather than throwing; the SAML probe reports a parsing certificate's
-/// public facts and rejects a non-parsing one; and NEITHER path ever leaks a stored secret into the result.
+/// public facts and rejects a non-parsing one; NEITHER path ever leaks a stored secret into the result; and
+/// every verdict and fact is a catalogue key with a row in every shipped language (#1728), so the page
+/// renders it in the administrator's language rather than as English built here.
 /// </summary>
 public class ProviderConnectionTesterTests
 {
@@ -58,16 +62,41 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Details, d => d.Contains(Authority, StringComparison.Ordinal) && d.StartsWith("Issuer:", StringComparison.Ordinal));
-        Assert.Contains(result.Details, d => d.Contains(Authority + "/authorize", StringComparison.Ordinal));
-        Assert.Contains(result.Details, d => d.Contains(Authority + "/token", StringComparison.Ordinal));
+        Assert.Equal(ProviderTestKeys.OidcDiscoveryRead, result.Key);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.Issuer, Authority), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.AuthorizationEndpoint, Authority + "/authorize"), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.TokenEndpoint, Authority + "/token"), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.UserInfoEndpoint, Authority + "/userinfo"), result.Facts);
         // The JWKS was reachable (the reader fetches it as part of discovery) - one key served below.
-        Assert.Contains(result.Details, d => d.StartsWith("JWKS: reachable", StringComparison.Ordinal));
-        Assert.Contains(result.Details, d => d.StartsWith("PKCE (S256) advertised: yes", StringComparison.Ordinal));
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.JwksReachable, "1"), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.PkceAdvertised, null), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.ResponseIssuerAdvertised, null), result.Facts);
     }
 
     [Fact]
-    public async Task TestOidcAsync_UnreadableDiscovery_FailsClosedWithActionableMessage()
+    public async Task TestOidcAsync_AFactTheDocumentDidNotAdvertise_CarriesNoValue()
+    {
+        // #1728: the page fills a fact's {value} slot from the value, and a fact with NO value is rendered as the
+        // not-advertised row in the administrator's language. So a document that omits an endpoint must send
+        // the fact with a null value rather than an empty string or a sentence: an empty string would render
+        // "UserInfo endpoint: " and nothing after it, and a sentence would be English on a German page. The
+        // two facts that are true-or-false arrive as one of two keys and never as a yes/no word, for the same
+        // reason.
+        var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
+        var withoutUserInfo = FullDiscovery(Authority).Replace($"\"userinfo_endpoint\":\"{Authority}/userinfo\",", string.Empty, StringComparison.Ordinal);
+        var withoutPkce = withoutUserInfo.Replace("\"code_challenge_methods_supported\":[\"S256\"],", string.Empty, StringComparison.Ordinal);
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(withoutPkce)), Logger(), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.UserInfoEndpoint, null), result.Facts);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.PkceNotAdvertised, null), result.Facts);
+        Assert.DoesNotContain(result.Facts, f => f.Key == ProviderTestKeys.PkceAdvertised);
+        Assert.All(result.Facts, f => Assert.NotEqual(string.Empty, f.Value));
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_UnreadableDiscovery_FailsClosedWithActionableVerdict()
     {
         var config = new OidConfig { OidEndpoint = "https://idp-unreachable.example.com", OidClientId = "jf" };
         var factory = FactoryFor(_ => throw new HttpRequestException("unreachable"));
@@ -75,20 +104,21 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Contains("discovery document", result.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(result.Details);
+        Assert.Equal(ProviderTestKeys.OidcUnreadable, result.Key);
+        Assert.Contains("discovery document", SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Facts);
     }
 
     [Fact]
     public async Task TestOidcAsync_ADocumentTheScreenRefused_IsReportedUnderItsOwnCause()
     {
         // The probe is the one in-product diagnostic on the recovery path (#1064). A document the provider
-        // served fine and the screen refused used to arrive under the reachability/well-known/HTTPS message,
+        // served fine and the screen refused used to arrive under the reachability/well-known/HTTPS verdict,
         // which answers confidently and sends the admin to look at connectivity for a provider defect.
         //
-        // The generic sentence's own marker is asserted ABSENT rather than the cause merely being asserted
-        // present: a probe that appended the new cause to the old one would satisfy a presence-only check
-        // while still telling the admin to go and check their TLS.
+        // The verdict is asserted EQUAL rather than the cause merely being asserted present: a probe that
+        // reported the generic verdict for every failure would satisfy a presence-only check on a shared
+        // fragment while still telling the admin to go and check their TLS.
         var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
         var repeated = FullDiscovery(Authority).Insert(1, "\"issuer\":\"https://attacker.example\",");
         var logger = new CapturingLogger();
@@ -96,13 +126,14 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(repeated)), logger, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Contains(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
+        Assert.Equal(ProviderTestKeys.OidcRefusedRepeatedMember, result.Key);
 
-        // The wording the admin reads on screen is the wording the server log carries, byte for byte, because
-        // both render one constant. Reword either side alone and this goes red, which is what keeps an admin
-        // matching the UI against the log from having to translate between two paraphrases.
+        // The English wording the admin reads on screen opens with the wording the server log carries, byte for
+        // byte, because the English row and the log entry both render one constant. Reword either side alone
+        // and this goes red, which is what keeps an admin matching the UI against the log from having to
+        // translate between two paraphrases. A translated dashboard reads its own row, and the log stays the
+        // English side of that pairing on purpose (#1728).
+        Assert.StartsWith(RepeatedMemberScreen.RefusalReason, SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.Ordinal);
         Assert.Contains(
             logger.Entries,
             e => e.Message.StartsWith("Refused the OpenID", StringComparison.Ordinal)
@@ -111,14 +142,14 @@ public class ProviderConnectionTesterTests
         // The member name is a provider-authored string, and every bound and filter it needs sits on the log
         // entry rather than here. This surface is elevation-gated, so the reason it stays out is not the login
         // path's disclosure question - it is that one place stays responsible for bounding it.
-        Assert.DoesNotContain("attacker.example", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("attacker.example", JsonSerializer.Serialize(result), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task TestOidcAsync_AnUninspectableBody_IsReportedApartFromTheRepeatedMember()
     {
         // The two screened refusals have different remedies - one is a provider defect to report, the other is
-        // a truncation or a charset problem - so collapsing them into one message loses the thing the admin
+        // a truncation or a charset problem - so collapsing them into one verdict loses the thing the admin
         // came to the probe for. An unknown charset is the provider-reachable instance of the second.
         var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
         var factory = FactoryFor(_ => JsonWithCharset(FullDiscovery(Authority), "zzMarkerCharsetzz"));
@@ -126,13 +157,12 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Contains(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
+        Assert.Equal(ProviderTestKeys.OidcRefusedUninspectable, result.Key);
+        Assert.StartsWith(RepeatedMemberScreen.UninspectableReason, SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.Ordinal);
 
         // The charset is the provider's to choose, so it is one more untrusted string and never reaches an
         // admin-facing field, exactly as it never reaches the log entry.
-        Assert.DoesNotContain("zzMarkerCharsetzz", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("zzMarkerCharsetzz", JsonSerializer.Serialize(result), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -140,7 +170,7 @@ public class ProviderConnectionTesterTests
     {
         // The other direction, and the one that stops the new causes being reported for every failure. An
         // unreachable endpoint is refused before any body exists to screen, so the reason stays Unnamed and
-        // the message that names what to CHECK is still the right one. Without this row, a probe that reported
+        // the verdict that names what to CHECK is still the right one. Without this row, a probe that reported
         // a screen refusal unconditionally would pass every assertion above.
         var config = new OidConfig { OidEndpoint = "https://idp-unreachable.example.com", OidClientId = "jf" };
         var factory = FactoryFor(_ => throw new HttpRequestException("unreachable"));
@@ -148,9 +178,8 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Contains("/.well-known/openid-configuration", result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(RepeatedMemberScreen.RefusalReason, result.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(RepeatedMemberScreen.UninspectableReason, result.Message, StringComparison.Ordinal);
+        Assert.Equal(ProviderTestKeys.OidcUnreadable, result.Key);
+        Assert.Contains("/.well-known/openid-configuration", SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -164,6 +193,7 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
+        Assert.Equal(ProviderTestKeys.OidcInvalidEndpoint, result.Key);
     }
 
     [Theory]
@@ -183,6 +213,7 @@ public class ProviderConnectionTesterTests
         var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
+        Assert.Equal(ProviderTestKeys.OidcNoEndpoint, result.Key);
         Assert.False(contacted); // no endpoint -> no outbound fetch
     }
 
@@ -263,10 +294,27 @@ public class ProviderConnectionTesterTests
         var result = ProviderConnectionTester.TestSaml(config);
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Details, d => d.StartsWith("Subject:", StringComparison.Ordinal));
-        Assert.Contains(result.Details, d => d.StartsWith("SHA-256 thumbprint:", StringComparison.Ordinal));
+        Assert.Equal(ProviderTestKeys.SamlCertificateParsed, result.Key);
+        Assert.Contains(result.Facts, f => f.Key == ProviderTestKeys.CertificateSubject && !string.IsNullOrEmpty(f.Value));
+        Assert.Contains(result.Facts, f => f.Key == ProviderTestKeys.CertificateThumbprint && f.Value?.Length == 64);
+        // A certificate inside its validity raises no note - the negative of the row below.
+        Assert.DoesNotContain(result.Facts, f => f.Key == ProviderTestKeys.CertificateOutsideValidity);
         // The service-provider signing key (a secret) must never appear in the public-cert report.
         AssertNoSecret(result, SamlKeySentinel);
+    }
+
+    [Fact]
+    public void TestSaml_ACertificateOutsideItsValidity_SaysSo()
+    {
+        // An expired identity-provider certificate still parses, so the verdict is a pass; the note is the fact
+        // an admin acting on that pass needs, and it is a key like every other line so a German page says it in
+        // German (#1728).
+        var expired = SamlTestFactory.Create(certNotBefore: DateTimeOffset.UtcNow.AddYears(-2), certNotAfter: DateTimeOffset.UtcNow.AddYears(-1));
+
+        var result = ProviderConnectionTester.TestSaml(new SamlConfig { SamlCertificate = expired.CertificateBase64 });
+
+        Assert.True(result.Ok);
+        Assert.Contains(new ProviderTestFact(ProviderTestKeys.CertificateOutsideValidity, null), result.Facts);
     }
 
     [Theory]
@@ -278,7 +326,8 @@ public class ProviderConnectionTesterTests
         var result = ProviderConnectionTester.TestSaml(new SamlConfig { SamlCertificate = certificate });
 
         Assert.False(result.Ok);
-        Assert.Empty(result.Details);
+        Assert.Equal(ProviderTestKeys.SamlNoCertificate, result.Key);
+        Assert.Empty(result.Facts);
     }
 
     [Theory]
@@ -289,14 +338,16 @@ public class ProviderConnectionTesterTests
         var result = ProviderConnectionTester.TestSaml(new SamlConfig { SamlCertificate = certificate });
 
         Assert.False(result.Ok);
-        Assert.Contains("could not be parsed", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ProviderTestKeys.SamlCertificateUnparsable, result.Key);
+        Assert.Contains("could not be parsed", SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.OrdinalIgnoreCase);
     }
 
-    // Asserts the sentinel secret appears in NO admin-facing field of the result.
+    // Asserts the sentinel secret appears in NO admin-facing field of the result - the verdict, and every fact's
+    // key and value - by reading the same JSON the controller returns.
     private static void AssertNoSecret(ProviderTestResult result, string secret)
     {
-        Assert.DoesNotContain(secret, result.Message, StringComparison.Ordinal);
-        Assert.All(result.Details, d => Assert.DoesNotContain(secret, d, StringComparison.Ordinal));
+        Assert.DoesNotContain(secret, JsonSerializer.Serialize(result), StringComparison.Ordinal);
+        Assert.All(result.Facts, f => Assert.DoesNotContain(secret, f.Value ?? string.Empty, StringComparison.Ordinal));
     }
 
     private static Func<HttpRequestMessage, HttpResponseMessage> Serve(string discoveryJson) => request =>
