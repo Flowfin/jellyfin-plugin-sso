@@ -29,6 +29,8 @@
   "link.enable_delete": "Enable \"Delete\" button.",
   "link.section_link_provider": "Link a provider",
   "link.delete_selected": "Delete Selected",
+  "link.delete_last_confirm": "Remove the last SSO link that can sign you in? You are signed out on every device the moment it is gone, and nothing on this page will sign you back in: a Jellyfin password for this account would be the only way left in, and on a server that allows only SSO there is usually none. If there is none, you will not be able to sign in at all and only an administrator can restore your access.",
+  "link.delete_refused_would_strand": "The server refused to remove the last SSO link that can sign you in: it accepts no password for your account, so removing that link would have left you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in. Reload the page to see the links it holds now.",
   "link.no_providers": "No {mode} providers are available.",
   "link.disabled_note": " (disabled)",
   "config.title": "SSO Settings:",

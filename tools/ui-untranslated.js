@@ -189,9 +189,18 @@ const SENTENCE = /"([A-Z][^"]+)"/g;
 // catalog lookup happens where the template is rendered. The English is still the
 // fallback, still one copy, and ScriptEnglishDefaults_MatchTheCatalog still pins it
 // equal to the catalog, so the property this tool exists for is unchanged.
+//
+// THE PARAMETER SLOT TAKES `undefined` AND NOT ONLY AN OBJECT, and reading only the object counted a
+// row that goes through the catalogue as one that bypasses it (#1731). `t(key, params, fallback)`
+// substitutes nothing when `params` is falsy - that is the module's own first branch - so a sentence
+// with no placeholder is written `t("key", undefined, "English")`, which is what the linking page
+// already writes for `link.disabled_note`. That call was never counted only because its English is
+// too short to look like a sentence, so the gap sat under the ratchet rather than being absent. The
+// token is a literal and not text, so accepting it excuses exactly the calls that do go through the
+// catalogue and nothing that merely looks like one.
 const AS_DEFAULT = [
   /\btr?\(\s*"[a-z0-9_.]+"\s*,\s*$/,
-  /\bt\(\s*"[a-z0-9_.]+"\s*,\s*\{[^{}]*\}\s*,\s*$/,
+  /\bt\(\s*"[a-z0-9_.]+"\s*,\s*(?:\{[^{}]*\}|undefined)\s*,\s*$/,
   /\w+Key:\s*"[a-z0-9_.]+"\s*,\s*\w+:\s*$/,
 ];
 
