@@ -117,6 +117,17 @@ jobs:
       # reader to the dashboard for the wrong reason. This drives the shipped panel against a recording
       # ApiClient and refuses each by name. Same runtime and same absence of dependencies as the steps above.
       run: node tools/ui-pending-approvals.js
+    - name: The self-service unlink
+      # The one control a user has over their own links, on the page a non-admin actually reaches
+      # (#1731). Both properties are decisions rather than strings, and both fail silently: whether the
+      # page ASKS before the press depends on counting the links that can still sign the holder in,
+      # across rows two different branches build, and whether it SAYS why afterwards depends on telling
+      # the stranding 403 from the two other 403s this route answers. A page that never asks looks
+      # exactly like one whose condition is wrong, and the server's refusal shown as the generic banner
+      # reads as a broken page - which is pressed again. This drives the shipped linking.js against a
+      # recording ApiClient and both catalogues, and refuses each by name. Same runtime and same absence
+      # of dependencies as the steps above.
+      run: node tools/ui-self-service-unlink.js
     - name: The help census
       # Stage 2 of the 4.4 surface moves every help text these five pages show - a first sentence under
       # the field, the whole text behind a `<details>`, the same text in the rail - and promises that

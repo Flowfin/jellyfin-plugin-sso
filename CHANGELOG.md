@@ -753,6 +753,34 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The self-service page asks before it removes your last way in, and says why
+  when the server refuses (#1731).** The server refuses a last-link self-unlink
+  that would strand the account (#1720), and the page around it was silent in
+  both directions: Delete went out with no confirmation of any kind, unlike the
+  administrator revoke beside it, and a refusal landed in the generic "something
+  went wrong" banner. Pressing Delete on what would be the last link that can
+  sign you in now raises a confirmation naming the consequence, and a refused
+  removal shows the three facts the server's 403 carries - that this was the
+  last way in, that the account takes no password, and that an administrator can
+  undo it. A link on a switched-off provider is not a way in in either
+  direction, which is the reading the server's own refusal takes: it does not
+  keep the page quiet about the removal of the last working link, and removing
+  such a link on its own raises no question. The question **names the
+  consequence and never promises the refusal**: the server's guard does not
+  cover an administrator (#1732) or an account carrying a password this plugin
+  minted and never recorded (#1733), and for those two the removal goes
+  through - a dialog naming only benign outcomes would have turned a hesitant
+  press into a confident one on exactly the press that costs the account. A
+  failed removal also takes the delete control off the page, because a batch
+  that fails part-way leaves rows on screen that the page can no longer speak
+  for, and the question above is counted off those rows; the banner beside it
+  already asks for a reload, and a reload is what rebuilds them. Both sentences
+  are catalogue rows in English and German, and
+  `tools/ui-self-service-unlink.js` drives the shipped page against a recording
+  client and both catalogues so none of these properties can be lost in
+  silence. The confirmation is the courtesy and the server's refusal is still
+  the rule: declining here only stops the request.
+
 - **Eight short English sentences on the provider page now go through the
   translation catalogue (#1725).** The gate that counts sentences bypassing the
   catalogue read only literals of twenty characters or more, so the field names

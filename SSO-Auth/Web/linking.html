@@ -57,6 +57,19 @@
             Something went wrong loading or updating your links. Please reload
             the page and try again.
           </div>
+          <!-- The refusal the server can give for a removal (#1731). Empty and hidden as authored: it
+          is filled from the catalogue by linking.js and never from the server's own body, so nothing
+          the server writes reaches this page. It is authored here rather than created on demand for the
+          same reason the generic banner above it is: one element, in one place, that the script only
+          ever fills and unhides. WHAT `role="alert"` BUYS IS NOT CLAIMED HERE - the element is `hidden`
+          until it has text, and whether a client announces the change is a browser and screen-reader
+          behaviour this tree cannot read; the gate beside it says the same in its own words. -->
+          <div
+            id="sso-linking-refused"
+            class="sso-linking-error"
+            role="alert"
+            hidden
+          ></div>
           <p>
             <span data-i18n-parts="link.add_hint"
               >Use the
