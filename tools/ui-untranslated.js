@@ -33,6 +33,13 @@
  * ratchet: what it has to be is STABLE, so the same tree always yields the same
  * number and a change to the number is always a change somebody made.
  *
+ * WHAT THE SPACE TEST CANNOT REACH IS A ONE-WORD LINE, and the two by-SITE arms
+ * below exist for it: a literal handed to a save-status renderer (#1723) or to a
+ * test or transfer progress renderer (#1739) is refused whether or not it has a
+ * space in it. "Testing…" was English on a German page under every floor this
+ * tool ever had, because the space test runs before a length is considered at
+ * all - lowering the floor could not have found it and did not.
+ *
  * THERE IS NO FLOOR ANY MORE. Until #1725 a literal counted only from twenty
  * characters, and eight sentences a de-DE administrator reads sat under it: the
  * field names handed to "{label} is required.", the addresses handed to the
@@ -213,6 +220,16 @@ const AS_DEFAULT = [
 // clears the region is not prose and is left alone.
 const STATUS_LITERAL = /\brender(?:Saml)?SaveStatus\(\s*\w+\s*,\s*"([^"]+)"/g;
 
+// A literal handed to one of the two progress renderers (#1739). SENTENCE keeps only a literal
+// with a space in it, which is what separates a sentence from a token, so "Testing…" was never a
+// candidate at any floor: a de-DE administrator read the line the Test Connection button writes
+// while it works, and the configuration export's and import's, in English on a German page while
+// this gate was green. This arm reads the two renderers by SITE for the same reason STATUS_LITERAL
+// does, which is the only reading that reaches a one-word sentence. The empty literal that clears
+// the region is not prose and is left alone.
+const PROGRESS_LITERAL =
+  /\brender(?:Test|Transfer)Message\(\s*\w+\s*,\s*"([^"]+)"/g;
+
 /*
  * Reads the WHOLE file rather than a line at a time, and that is not a detail. The
  * formatter breaks a long catalog call across four lines, so the key sits on the line
@@ -252,13 +269,15 @@ function findIn(file) {
   return found;
 }
 
-function statusLiteralsIn(file) {
+// The literals one by-SITE arm finds. Both arms ask the same question of a different renderer
+// pair, so they are one function reading a pattern rather than two that drift apart.
+function siteLiteralsIn(file, pattern) {
   const source = withoutComments(fs.readFileSync(file, "utf8"));
   const found = [];
 
-  STATUS_LITERAL.lastIndex = 0;
+  pattern.lastIndex = 0;
   let match;
-  while ((match = STATUS_LITERAL.exec(source)) !== null) {
+  while ((match = pattern.exec(source)) !== null) {
     const line = source.slice(0, match.index).split("\n").length;
     found.push({ file: path.basename(file), line, text: match[1] });
   }
@@ -309,14 +328,19 @@ function main() {
     );
   }
 
-  files
-    .flatMap(statusLiteralsIn)
-    .forEach((entry) =>
-      faults.push(
-        `${entry.file}:${entry.line} hands the literal "${entry.text}" to a save-status renderer. ` +
-          `Wrap it in tr("<key>", "<English>") and add the key to en.json and de.json.`,
+  [
+    { pattern: STATUS_LITERAL, renderer: "save-status renderer" },
+    { pattern: PROGRESS_LITERAL, renderer: "progress renderer" },
+  ].forEach(({ pattern, renderer }) =>
+    files
+      .flatMap((file) => siteLiteralsIn(file, pattern))
+      .forEach((entry) =>
+        faults.push(
+          `${entry.file}:${entry.line} hands the literal "${entry.text}" to a ${renderer}. ` +
+            `Wrap it in tr("<key>", "<English>") and add the key to en.json and de.json.`,
+        ),
       ),
-    );
+  );
 
   if (faults.length > 0) {
     faults.forEach((fault) => console.error("REFUSED  " + fault));
@@ -328,6 +352,9 @@ function main() {
   );
   console.log(
     `  status   no save-status renderer is handed a literal; each message is a catalog call`,
+  );
+  console.log(
+    `  progress no test or transfer progress line is a literal; each goes through the catalog`,
   );
   console.log(
     `  exempt   ${EXEMPT.length} sentence(s) stay literal on purpose, with the reason beside each`,

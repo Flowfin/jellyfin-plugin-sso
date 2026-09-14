@@ -781,6 +781,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   silence. The confirmation is the courtesy and the server's refusal is still
   the rule: declining here only stops the request.
 
+- **The Test Connection, configuration export and configuration import progress
+  lines go through the catalogue (#1739).** `Testing…`, `Exporting…` and
+  `Importing…` were written straight into the page, so a `de-DE` administrator
+  pressing **Verbindung testen** read the line the button writes while it works
+  in English, and the same for the two configuration transfers. The untranslated
+  ratchet could not see them and no floor would have: it keeps a literal only if
+  it contains a space - the test that separates a sentence from a token - and
+  that test runs before a length is considered at all, so #1725's probe at a
+  floor of two could not reach a one-word line either. The four sites now carry
+  catalogue keys with an English and a German row, and a second by-SITE arm
+  refuses a literal handed to either progress renderer, the way the save-status
+  arm already refuses one handed to a save renderer, so the next progress line
+  cannot arrive as a word the catalogue never sees. The empty literal that clears
+  a result region is not prose and stays unrefused.
+
 - **Eight short English sentences on the provider page now go through the
   translation catalogue (#1725).** The gate that counts sentences bypassing the
   catalogue read only literals of twenty characters or more, so the field names

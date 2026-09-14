@@ -3498,7 +3498,10 @@ const ssoConfigurationPage = {
       return Promise.resolve();
     }
 
-    ssoConfigurationPage.renderTestMessage(container, "Testing…");
+    ssoConfigurationPage.renderTestMessage(
+      container,
+      tr("config.test_running", "Testing…"),
+    );
 
     return ApiClient.getJSON(
       ApiClient.getUrl("sso/OID/Test/" + encodeURIComponent(provider_name)),
@@ -4437,7 +4440,10 @@ const ssoConfigurationPage = {
   // fixed text; nothing from the document reaches the DOM as markup.
   exportConfig: (page) => {
     const container = page.querySelector("#ConfigTransferResult");
-    ssoConfigurationPage.renderTransferMessage(container, "Exporting…");
+    ssoConfigurationPage.renderTransferMessage(
+      container,
+      tr("config.config_exporting", "Exporting…"),
+    );
 
     return ApiClient.getJSON(ApiClient.getUrl("sso/Config/Export")).then(
       (document_json) => {
@@ -4481,7 +4487,10 @@ const ssoConfigurationPage = {
       return Promise.resolve();
     }
 
-    ssoConfigurationPage.renderTransferMessage(container, "Importing…");
+    ssoConfigurationPage.renderTransferMessage(
+      container,
+      tr("config.config_importing", "Importing…"),
+    );
     return file
       .text()
       .then((text) => {
@@ -6363,7 +6372,10 @@ const ssoConfigurationPage = {
       return Promise.resolve();
     }
 
-    ssoConfigurationPage.renderTestMessage(container, "Testing…");
+    ssoConfigurationPage.renderTestMessage(
+      container,
+      tr("config.test_running", "Testing…"),
+    );
 
     return ApiClient.getJSON(
       ApiClient.getUrl("sso/SAML/Test/" + encodeURIComponent(provider_name)),
