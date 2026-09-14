@@ -568,6 +568,19 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **A failed release call no longer throws away the build behind it (#1736).**
+  The daily Jellyfin 12 beta was one job: it compiled the plugin, packaged it,
+  wrote the checksum and SBOM sidecars and then created the GitHub release. When
+  the release API answered `500` three times in a few seconds on 2026-09-13,
+  everything before it was discarded with it and the whole build had to be run
+  again from the start. Building and publishing are two jobs now, the first
+  handing the finished package to the second, so re-running the failed publish
+  releases the package that was already built rather than rebuilding it. The
+  build number the version is derived from belongs to the run rather than to the
+  attempt, so the second try publishes the same version under the same tag. The
+  release ships the same assets under the same names, and the job that creates
+  it is now the only one in the workflow holding write access.
+
 - **This line is 5.0, because the Jellyfin generation under it changed
   (#1579).** Jellyfin 12.0 went GA on 2026-09-07 and its announcement is
   explicit that plugins built for 10.11 will not load on it: the server targets
