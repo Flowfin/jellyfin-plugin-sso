@@ -77,6 +77,32 @@ internal static class RequestHelpers
     }
 
     /// <summary>
+    /// Whether the caller behind the request IS the account being acted on (#1732), read from the resolved
+    /// caller and never from the route value alone.
+    /// </summary>
+    /// <remarks>
+    /// The fact that separates an administrator tidying up somebody else's link from one removing their
+    /// own. <see cref="AssertCanUpdateUser"/> already admits a non-administrator only for their own id, so
+    /// this only ever adds information about an administrator. Fail-closed on an unresolved caller, for the
+    /// same reason its two neighbours are: the answer narrows an exemption, so an ambiguous caller is
+    /// treated as the one acting on itself rather than as the one the exemption was written for.
+    /// </remarks>
+    /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
+    /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
+    /// <param name="userId">The account the request acts on.</param>
+    /// <returns>True when the resolved caller is that account, or when the caller cannot be resolved.</returns>
+    internal static async Task<bool> CallerIsTheHolder(IAuthorizationContext authContext, HttpRequest requestContext, Guid userId)
+    {
+        if (authContext is null)
+        {
+            return true;
+        }
+
+        var auth = await authContext.GetAuthorizationInfo(requestContext).ConfigureAwait(false);
+        return auth?.User is not { } authenticatedUser || authenticatedUser.Id.Equals(userId);
+    }
+
+    /// <summary>
     /// Whether the caller behind the request has no password to sign in with, read from the resolved
     /// account's authentication provider (#1720). It asks for the POSITIVE evidence - the account routes
     /// to Jellyfin's built-in password provider - and answers true for everything else.

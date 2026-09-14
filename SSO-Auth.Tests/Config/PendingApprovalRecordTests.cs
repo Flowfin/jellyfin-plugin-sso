@@ -106,7 +106,7 @@ public class PendingApprovalRecordTests
         // every such account is stamped with the provider id that accepts no password, so the holder's own
         // removal of its last link is refused (#1720). The route that reaches this record with a link
         // still on the account is therefore the administrator's.
-        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User, callerIsAdministrator: true);
+        service.TryRemoveLink(ProviderMode.Oid, "kc", "sub-1", User, callerIsAdministrator: true, callerIsTheHolder: false);
 
         Assert.Empty(config.CanonicalLinkPendingApprovals);
     }

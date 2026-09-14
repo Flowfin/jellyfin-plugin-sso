@@ -402,6 +402,21 @@ const german = catalogue("de");
       "linking.js no longer matches the endpoint's own words, so the stranding refusal cannot be told apart from the other 403s this route answers",
     );
   }
+  // The SECOND clause, which is the only thing separating the two refusals that share the opening above
+  // (#1732). Losing it in either tree collapses the administrator's refusal onto the user's sentence,
+  // which tells the last administrator on the server to go and ask an administrator.
+  if (!/no other administrator on this server/.test(controller)) {
+    refuse(
+      "server-sentence",
+      'SSOController no longer writes "no other administrator on this server" in its stranding refusal, so an administrator who strands the whole server is told to ask an administrator about it',
+    );
+  }
+  if (!/no other administrator on this server/.test(page)) {
+    refuse(
+      "server-sentence",
+      "linking.js no longer matches the clause that separates the two stranding refusals, so the administrator's refusal is shown with the user's advice",
+    );
+  }
 }
 
 // ---- Arm: removing the only way in asks first, and names the consequence ----
@@ -652,6 +667,37 @@ const german = catalogue("de");
   }
 }
 
+// ---- Arm: the administrator who would strand the SERVER gets the other sentence (#1732) ----
+//
+// The two refusals share their opening clause, so an arm that only proved "a 403 gets a refusal
+// sentence" would pass with the page showing either of them. What this pins is that the page reads the
+// clause that separates them: the reader here is the last administrator who can sign in, and the user
+// sentence beside it tells them to ask an administrator to fix it.
+{
+  const page = await render(ONE_WAY_IN);
+  answers.confirm = true;
+  answers.delete = rejectWith(
+    403,
+    "This is the last SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so removing it could leave this server with no administrator able to reach it. Ask another administrator to remove it for you, or link another provider to your account first and then remove this one.",
+  );
+  await press(page, ["alice@example.com"]);
+  if (
+    banners["sso-linking-refused"].textContent !==
+    english["link.delete_refused_would_strand_server"]
+  ) {
+    refuse(
+      "refusal-server",
+      `the refusal banner said "${banners["sso-linking-refused"].textContent}", which is not the catalogue row link.delete_refused_would_strand_server`,
+    );
+  }
+  if (!banners["sso-linking-error"].hidden) {
+    refuse(
+      "refusal-server",
+      "the generic banner was shown beside the administrator's refusal",
+    );
+  }
+}
+
 // ---- Arm: the OTHER 403 this route answers stays generic ----
 {
   const page = await render(ONE_WAY_IN);
@@ -721,7 +767,7 @@ if (faults.length) {
 }
 
 console.log(
-  "self-service unlink: twelve arms run against the shipped SSO-Auth/Web/linking.js",
+  "self-service unlink: thirteen arms run against the shipped SSO-Auth/Web/linking.js",
 );
 console.log(
   "  server-sentence          the endpoint and the page name the same refusal, read from both trees",
@@ -752,6 +798,9 @@ console.log(
 );
 console.log(
   "  refusal                  the stranding 403 gets its own sentence, and not the generic banner beside it",
+);
+console.log(
+  "  refusal-server           the administrator who would strand the server gets the OTHER sentence",
 );
 console.log(
   "  other-403 / generic      a time-limited refusal and a 500 stay generic",

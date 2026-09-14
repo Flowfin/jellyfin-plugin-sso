@@ -131,17 +131,53 @@ internal sealed class SsoOnlyLoginService
                 continue;
             }
 
-            doors.Add(new AccountDoors(
-                userId,
-                user.Username,
-                user.HasPermission(PermissionKind.IsAdministrator),
-                user.HasPermission(PermissionKind.IsDisabled),
-                SsoAuthenticationProviders.IsDefaultPasswordProvider(user.AuthenticationProviderId),
-                !string.IsNullOrEmpty(user.Password)));
+            doors.Add(Describe(user));
         }
 
         return doors;
     }
+
+    /// <summary>
+    /// Resolves every ENABLED administrator account except one into what the tree can read about their ways
+    /// in (#1732), for the self-unlink guard's question "would anybody be left who can undo this".
+    /// </summary>
+    /// <remarks>
+    /// THE SET IS DERIVED FROM THE ACCOUNTS RATHER THAN FROM A LINK TABLE, which is what separates it from
+    /// <see cref="DescribeAccountDoors"/> beside it. The purge asks about the accounts one provider's links
+    /// name; this asks who holds the administrator permission on the server at all, and an administrator
+    /// with no link is exactly the answer that matters - either they sign in some other way or the server
+    /// has nobody left. A disabled account is dropped rather than reported, because it has no way in for
+    /// anybody to take and counting it would make an empty set look populated.
+    /// <para>
+    /// COLD BY CONSTRUCTION AND GATED BY ITS CALLER. It walks every account on the server through the
+    /// reflective all-users accessor, so the caller asks it only where the two cheap facts already hold -
+    /// the caller is an administrator AND is acting on their own account - which is a rare press rather
+    /// than the ordinary self-service unlink.
+    /// </para>
+    /// </remarks>
+    /// <param name="excluded">The caller, whose own ways in are not what this question is about.</param>
+    /// <returns>One entry per other enabled administrator; empty where there is none.</returns>
+    /// <exception cref="InvalidOperationException">The loaded Jellyfin build exposes no all-users accessor, so the set cannot be derived; the caller treats that as nobody being left rather than as an empty server.</exception>
+    internal IReadOnlyList<AccountDoors> DescribeAdministratorsOtherThan(Guid excluded)
+    {
+        return AllUsers()
+            .Where(user => user.Id != excluded
+                && user.HasPermission(PermissionKind.IsAdministrator)
+                && !user.HasPermission(PermissionKind.IsDisabled))
+            .Select(Describe)
+            .ToList();
+    }
+
+    // One home for "what can the tree read about this account's ways in", so the two callers above cannot
+    // drift apart about what a password door is.
+    private static AccountDoors Describe(User user) =>
+        new(
+            user.Id,
+            user.Username,
+            user.HasPermission(PermissionKind.IsAdministrator),
+            user.HasPermission(PermissionKind.IsDisabled),
+            SsoAuthenticationProviders.IsDefaultPasswordProvider(user.AuthenticationProviderId),
+            !string.IsNullOrEmpty(user.Password));
 
     /// <summary>
     /// Re-asserts SSO-only enforcement for a resolved login on the LOGIN path (#165, Findings A/B/H1),
