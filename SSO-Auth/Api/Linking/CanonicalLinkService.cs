@@ -2154,6 +2154,22 @@ internal sealed class CanonicalLinkService
     private static IEnumerable<ProviderConfigBase> AllProviders(PluginConfiguration configuration)
         => configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values);
 
+    /// <summary>
+    /// Whether an enabled provider of either protocol still points a link at the account (#1741): the
+    /// administrator revoke asks it before refusing, because a revoke that takes no way in strands nobody.
+    /// </summary>
+    /// <remarks>
+    /// The same reading <see cref="AdministratorsWithNoWayIn"/> takes of every OTHER administrator, asked of
+    /// the one account in front of the revoke, so the two halves of that guard cannot disagree about what a
+    /// way in is. A link on a switched-off provider is not one, in both directions, for the reason the
+    /// self-service refusal gives: removing it costs the account nothing, and the repoint that follows here
+    /// is the way back for an account already left with nothing to sign in with.
+    /// </remarks>
+    /// <param name="userId">The account the revoke would act on.</param>
+    /// <returns>True when at least one enabled provider holds a link pointing at the account.</returns>
+    internal bool UserHoldsAnEnabledLink(Guid userId)
+        => _configStore.Read(configuration => UsersWithAnEnabledLink(configuration).Contains(userId));
+
     // Every account an enabled provider still points a link at - the after-the-fact form of the guard's
     // reading, with no target to exclude because the removal has already happened. One walk for the same
     // reason the guard takes one: this runs under the lock every login takes.

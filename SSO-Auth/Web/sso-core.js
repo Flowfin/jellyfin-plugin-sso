@@ -4972,6 +4972,11 @@ const ssoConfigurationPage = {
   // consequence, proceed - because refusing the action on an SSO-only server would remove the control on
   // exactly the servers where cutting one account off matters most. The server-wide setting is untouched,
   // and the text says so, because an administrator reading "revoke" expects strictly less access.
+  //
+  // ONE ROW CAN NOW BE REFUSED (#1741): the administrator's own, where the revoke would take their last
+  // way in and no other administrator holds one. The confirmation still names the consequence of the act
+  // going through; the refusal handled below is what says it did not, and the decision of #1121 stands
+  // for every other row.
   revokeLinkedAccount: (page, username) => {
     const result = page.querySelector("#LinkedAccountsRevokeResult");
     if (
@@ -5015,15 +5020,49 @@ const ssoConfigurationPage = {
               ),
             ),
           ),
-      // Generic and input-independent: it never reflects a server value.
-      () =>
+      // Generic and input-independent, with ONE refusal the page keys off rather than reflects (#1741).
+      // The endpoint refuses an administrator's revoke of their OWN account where no other administrator
+      // holds an SSO link that can sign them in, with a 403 whose body says so; shown as the generic
+      // failure, that refusal reads as a server that fell over and sends the reader to retry an act the
+      // server will refuse again. The sentence rendered is the catalogue's, never the server's bytes, and
+      // the test is the clause that separates this refusal from every other 403 the route can answer; a
+      // reword on the server side falls through to the generic sentence, which is the harmless direction.
+      //
+      // SOMETHING IS SAID NOW, BEFORE THE BODY IS READ, for the reason the self-service page gives: a body
+      // can stall behind a proxy after its headers arrived, and the progress line above would otherwise
+      // stand as a revoke still in flight. The generic sentence goes up first and the refusal replaces it
+      // once the body is in.
+      (rejection) => {
         ssoConfigurationPage.renderTransferMessage(
           result,
           tr(
             "config.linked_accounts_revoke_failed",
             "Could not revoke the SSO links. Make sure you are signed in as an administrator, then try again.",
           ),
-        ),
+        );
+        const status =
+          rejection && typeof rejection.status === "number"
+            ? rejection.status
+            : 0;
+        const body =
+          rejection && typeof rejection.text === "function"
+            ? Promise.resolve(rejection.text()).catch(() => "")
+            : Promise.resolve("");
+        return body.then((text) => {
+          if (
+            status === 403 &&
+            /no other administrator on this server/i.test(String(text || ""))
+          ) {
+            ssoConfigurationPage.renderTransferMessage(
+              result,
+              tr(
+                "config.linked_accounts_revoke_refused_would_strand_server",
+                "The server refused to revoke your own SSO links: no other administrator on this server holds an SSO link that can sign them in, so the revoke could have left this server with no administrator able to reach it. Ask another administrator to revoke them for you, or link another administrator account to a provider first and then revoke your own. Nothing was changed.",
+              ),
+            );
+          }
+        });
+      },
     );
   },
   // THE BOUND on the pending list (#1529). A provider whose audience is wider than the one meant for

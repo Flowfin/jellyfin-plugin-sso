@@ -2030,6 +2030,69 @@ public class SSOController : ControllerBase
             return NotFound();
         }
 
+        // WHETHER THE CALLER IS REVOKING THEIR OWN ACCOUNT, AND WHETHER ANYBODY WOULD BE LEFT (#1741). This
+        // route is the other way an administrator strands their own server: it removes every link the
+        // account holds, repoints it and ends its sessions in one call, and until this guard it asked
+        // nothing about who the caller was beyond elevation. The self-service unlink refuses exactly that
+        // press where no other administrator holds a way in (#1732), and an administrator meeting that
+        // refusal has an obvious next move on the settings page - Revoke on their own row - so the same
+        // reading is taken here, over the same facts, before anything is removed: the caller IS the
+        // account, read from the resolved caller and never from the route value; the account accepts no
+        // password, read from its authentication provider as the self-service route reads it; the account
+        // holds a link on an enabled provider, so the revoke TAKES a way in; and no OTHER enabled
+        // administrator holds such a link, measured with `AdministratorsWithNoWayIn`.
+        //
+        // THE LINK FACT IS WHAT KEEPS THE RULE FROM STANDING BETWEEN A STRANDED ADMINISTRATOR AND THE WAY
+        // BACK. An account whose links all sit on switched-off providers, or that holds none, cannot sign
+        // in through them as they stand, and the repoint here is the one call that puts an administrator
+        // already left on this plugin's provider id back onto a door; refusing that press would close the
+        // route out. The self-service refusal reads the same fact about the link in front of it, and the
+        // purge's guard refuses only where it would TAKE a way in. WHAT THAT READING COSTS IS WRITTEN AT
+        // THE SELF-SERVICE GUARD AND IS THE SAME HERE: a link on a switched-off provider is a way in again
+        // the moment the provider is switched back on, so an administrator alone on this plugin's provider
+        // id who switches their only provider off and then revokes their own row lands on a password that
+        // may be a minted one, with their session ended, and this rule does not stop them. It is one
+        // toggle away from the lockout the rule names, it is the reading #1732 decided for the sibling
+        // route, and it is stated rather than claimed away.
+        // It is read here in its own transaction and the removal runs in another, so a link added or a
+        // provider switched on between the two is judged on the older answer; the cost of that window is
+        // one allowed removal, the same bound the roster reading below carries, and it is named rather
+        // than claimed away.
+        //
+        // AN API KEY IS NOT THE HOLDER. The host admits one through the elevation policy with no user behind
+        // it, and `CallerIsTheHolder` answers false for it rather than treating it as unresolved, because
+        // an API key has no account to strand and reading it as the holder of every account it revoked
+        // refused the documented automation path on any server whose administrators sign in by password.
+        //
+        // THE SURVEY AND THE REMOVAL ARE TWO TRANSACTIONS, and the bound is the one the self-service route
+        // records at its own guard: two administrators revoking themselves at the same moment each see the
+        // other and both pass. The user records are the host's and are not under the configuration lock,
+        // so the survey cannot be re-derived inside the removal the way the purge re-derives its link
+        // table; the cost of that window is one allowed removal, and it is named rather than claimed away.
+        //
+        // THE DOOR IS READ FROM THE ACCOUNT AS IT STANDS, the way the self-service route reads it: an
+        // account that routes to the built-in password provider has a door this revoke does not touch, so
+        // it is not refused here any more than it is there. What the repoint LANDS on is not counted as a
+        // way in, because where the body names the built-in password provider the stored hash behind it
+        // may be one this plugin minted and never recorded - a credential somebody holds or a seal nobody
+        // can open, in the same bytes. WHAT THIS DOES NOT REACH IS THE POPULATION THE SELF-SERVICE GUARD
+        // DOES NOT REACH EITHER: an account already on the password provider behind a minted password reads
+        // as having a door on both routes, and telling the minted passwords apart is #1733, which repairs
+        // both routes at the one place the fact is read.
+        //
+        // The survey is asked only where the three cheap facts already hold, so an administrator revoking
+        // somebody else's links - the act this route exists for - pays nothing for a rule that is inert on
+        // that press. A caller the host cannot resolve at all is treated as the holder, which is the
+        // direction that costs a call rather than the server.
+        var callerIsTheHolder = await RequestHelpers.CallerIsTheHolder(_authContext, HttpContext.Request, user.Id).ConfigureAwait(false);
+        if (callerIsTheHolder
+            && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false)
+            && _canonicalLinks.UserHoldsAnEnabledLink(user.Id)
+            && !AnotherAdministratorKeepsAWayIn(user.Id))
+        {
+            return RefuseStrandingUnregister(user.Id);
+        }
+
         // SSO login resolves through the per-provider CanonicalLinks maps, not AuthenticationProviderId,
         // so revoking SSO means removing this user's canonical links from every provider - otherwise the
         // account would still sign in via SSO (#213). Done under the config lock. NOTE: with a provider's
@@ -2045,9 +2108,12 @@ public class SSOController : ControllerBase
 
         // Terminate the user's already-established sessions so a hard revoke also invalidates tokens minted
         // before it (#440). Removing the links only fails FUTURE logins closed; a token issued earlier stays
-        // valid until it expires. Scoped strictly to this one user's id; null revokes all of their tokens
-        // (including the caller's own, when an admin unregisters their own account - the durable revoke above
-        // is why that is safe). Runs LAST, after the link removal and provider switch are both persisted, so
+        // valid until it expires. Scoped strictly to this one user's id; null revokes all of their tokens,
+        // including the caller's own when an administrator revokes their own account. That press reaches
+        // this line only where the revoke takes no way in or another administrator was seen to keep one
+        // (#1741, the guard above, within the window it names): the durable revoke above is why ending the
+        // session is COMPLETE, and the guard is why it is safe, which are two different claims. Runs LAST,
+        // after the link removal and provider switch are both persisted, so
         // if the revoke throws the unregister is already complete rather than left half-done. Complement to
         // the #232 in-flight re-check, not a substitute: this kills existing sessions, #232 closes the mint race.
         await _sessionManager.RevokeUserTokens(user.Id, null).ConfigureAwait(false);
@@ -2510,7 +2576,23 @@ public class SSOController : ControllerBase
         return StatusCode(StatusCodes.Status403Forbidden, sentence);
     }
 
-    // Whether an administrator OTHER than this one can still sign in (#1732), measured with the same
+    // AUDITED AS A REFUSAL, like the self-service refusal above, so the operator's log carries the moment an
+    // administrator was stopped from revoking their own last way in. The sentence says what was measured
+    // rather than what was concluded - no other administrator holds an SSO LINK that can sign them in - for
+    // the reason the sentence above gives, and it names the two remedies that exist: another administrator
+    // performs the revoke, which is not refused because they are not the holder, or another administrator
+    // account is linked first. "Link another provider first" is deliberately NOT offered here, because this
+    // route removes every link the account holds and a second one would go with the first.
+    private ObjectResult RefuseStrandingUnregister(Guid jellyfinUserId)
+    {
+        SsoAudit.UnregisterRefusedWouldStrandServer(_logger, jellyfinUserId);
+        return StatusCode(
+            StatusCodes.Status403Forbidden,
+            "This would remove every SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so it could leave this server with no administrator able to reach it. Ask another administrator to revoke your SSO links for you, or link another administrator account to a provider first and then revoke your own.");
+    }
+
+    // Whether an administrator OTHER than this one can still sign in (#1732, and the administrator revoke
+    // since #1741), measured with the same
     // reading the per-provider bulk unlink's mass-lockout guard takes - a link on an enabled provider, and
     // a stored password never counted, for the reason written at `AdministratorsWithNoWayIn`. The
     // subtraction is what makes it one question rather than two: the set is every other enabled
@@ -2539,7 +2621,7 @@ public class SSOController : ControllerBase
         catch (Exception exception)
 #pragma warning restore CA1031
         {
-            _logger.LogWarning(exception, "Could not survey the other administrator accounts, so the self-unlink is judged as though none of them could sign in.");
+            _logger.LogWarning(exception, "Could not survey the other administrator accounts, so the removal is judged as though none of them could sign in.");
             return false;
         }
     }

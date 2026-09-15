@@ -832,6 +832,31 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records an administrator's revoke of their OWN SSO links being REFUSED because no other administrator
+    /// holds an SSO link that can sign them in (#1741), so the operator's log carries the moment somebody was
+    /// stopped from leaving the server with no administrator able to reach it.
+    /// </summary>
+    /// <remarks>
+    /// Information rather than Warning, for the reason <see cref="SelfUnlinkRefusedWouldStrand"/> gives:
+    /// nothing is wrong with the server and nothing was changed. It is the counterpart of the line the
+    /// revoke writes when it goes through, and the user id is the only value on it because the account is
+    /// what the refusal is about.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="jellyfinUserId">The administrator account whose links were kept.</param>
+    internal static void UnregisterRefusedWouldStrandServer(ILogger logger, Guid jellyfinUserId)
+    {
+        if (!logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        logger.LogInformation(
+            "[SSO Audit] Refused an administrator's revoke of their own SSO links for user {UserId}: no other administrator holds an SSO link that can sign them in, so the revoke could have left this server with no administrator able to reach it. Nothing was changed.",
+            jellyfinUserId);
+    }
+
+    /// <summary>
     /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail
     /// (T-R1) exactly as a blocked SSO-only activation does. The reason is a fixed verdict CODE, never
     /// caller input and never the account names the refusal itself carries (T-I1).

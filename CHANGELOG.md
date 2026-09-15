@@ -1110,6 +1110,39 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **An administrator can no longer strand their own server through the Revoke
+  button either (#1741).** `POST sso/Unregister/{username}` removes every SSO
+  link an account holds, repoints it and ends its sessions in one call, and it
+  asked nothing about who the caller was beyond elevation. With the self-service
+  unlink refusing an administrator's own last-link removal where no other
+  administrator can sign in (#1732), Revoke on their own row on the settings page
+  was the obvious next move and the one-call route to the same lockout. The route
+  now takes the same reading before it removes anything: where the caller is the
+  account being revoked, that account accepts no password, it holds an SSO link
+  on an enabled provider, and no other enabled administrator holds one, it
+  refuses with a 403 that says what was measured and names the remedies -
+  another administrator performs the revoke, or another administrator account is
+  linked first - and the settings page shows that sentence from the catalogue
+  rather than the generic failure. Another administrator's stored password is
+  never counted, for the reason the bulk unlink gives and the entry below
+  restates. An administrator whose own account routes to the built-in password
+  provider is not refused, on this route or the self-service one; what neither
+  reaches is such an account behind a password this plugin minted, and telling
+  the minted passwords apart is #1733. An account whose links all sit on
+  switched-off providers, or that holds none, is not refused: those links cannot
+  sign anybody in as they stand, and the repoint is the way back for an
+  administrator already stranded onto this plugin's provider id. That reading is
+  the self-service one and carries the same cost, stated rather than hidden: a
+  link on a switched-off provider is a way in again once the provider is
+  switched back on, so an administrator who switches their only provider off and
+  then revokes their own account is not refused. An
+  administrator revoking somebody else's links pays nothing for this, an API key
+  is not the holder of any account and is never refused by this rule, a caller
+  the server cannot resolve at all is treated as the account itself, and a server
+  that cannot be surveyed refuses rather than proceeding. The refusal is audited
+  like the self-service one. Two administrators revoking themselves at the same
+  moment can each see the other and both pass, the same window the self-service
+  guard names, because the user records are not under the configuration lock.
 - **An administrator can no longer strand their own server through the
   self-service unlink (#1732).** The refusal above exempts an administrator, and that
   exemption was decided for an administrator acting on somebody ELSE's link.
