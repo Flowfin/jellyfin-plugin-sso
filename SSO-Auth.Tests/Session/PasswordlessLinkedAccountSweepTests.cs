@@ -109,8 +109,7 @@ public class PasswordlessLinkedAccountSweepTests
         configuration.OidConfigs["kc"] = provider;
         configuration.ProvisionedPasswords[Other] = "a-digest-of-a-hash-nobody-can-look-up-any-more";
         var (sweep, users, _, _) = BuildFor(configuration);
-        var live = LinkedUser(users, provider, password: "the-hash-the-owner-chose");
-        users.GetUsersIds().Returns(new[] { live.Id });
+        LinkedUser(users, provider, password: "the-hash-the-owner-chose");
 
         await sweep.SweepAsync();
 
@@ -132,8 +131,7 @@ public class PasswordlessLinkedAccountSweepTests
         configuration.OidConfigs["kc"] = provider;
         provider.CanonicalLinks["sub-ghost"] = Linked;
         configuration.ProvisionedPasswords[Other] = "a-digest-of-a-hash-this-plugin-wrote";
-        var (sweep, users, _, _) = BuildFor(configuration);
-        users.GetUsersIds().Returns(Array.Empty<Guid>());
+        var (sweep, _, _, _) = BuildFor(configuration);
 
         await sweep.SweepAsync();
 
@@ -152,7 +150,6 @@ public class PasswordlessLinkedAccountSweepTests
         configuration.OidConfigs["kc"] = provider;
         var (sweep, users, _, _) = BuildFor(configuration);
         var user = LinkedUser(users, provider, password: "the-hash-this-plugin-minted-earlier");
-        users.GetUsersIds().Returns(new[] { user.Id });
         configuration.ProvisionedPasswords[user.Id] = "a-digest";
 
         await sweep.SweepAsync();

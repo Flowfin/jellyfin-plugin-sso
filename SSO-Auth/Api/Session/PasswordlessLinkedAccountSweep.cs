@@ -90,6 +90,11 @@ internal sealed class PasswordlessLinkedAccountSweep
         // does rather than to what this record says, and it is its own issue.
         var minted = new Dictionary<Guid, string>();
 
+        // EVERY ACCOUNT THE HOST ANSWERED FOR, kept so the reclaim below asks it about as few accounts as
+        // possible. A record whose account still holds a link is answered here for free, and on a healthy
+        // server that is nearly all of them.
+        var resolved = new HashSet<Guid>();
+
         foreach (var userId in _canonicalLinks.LinkedUserIds())
         {
             // A link can outlive the account it points at, which is nothing to do rather than something to
@@ -98,6 +103,8 @@ internal sealed class PasswordlessLinkedAccountSweep
             {
                 continue;
             }
+
+            resolved.Add(user.Id);
 
             // The one test that decides the population, and it is a state rather than a history: whatever
             // wrote the account, an empty stored password is the door. A password already there is left
@@ -126,27 +133,31 @@ internal sealed class PasswordlessLinkedAccountSweep
         // ever. Every key whose account no longer resolves is dropped, which is the same "a link can
         // outlive the account it points at" reading the loop above opens with.
         //
-        // ONE ROSTER QUERY RATHER THAN ONE LOOKUP PER RECORD. `GetUserById` is a database read on the
-        // builds this plugin targets, not a cache hit, so asking it once per record would put a query per
-        // sealed account on every boot of exactly the large upgraded server this pass exists for - which is
-        // the cost the single configuration write above refuses to pay one line earlier. The roster answers
-        // the same question once.
+        // ASKED ABOUT AS FEW ACCOUNTS AS POSSIBLE, because `GetUserById` is a database read on the builds
+        // this plugin targets rather than a cache hit - a query per record at every boot is the cost the
+        // single configuration write above refuses to pay one line earlier. Every record whose account the
+        // loop already resolved is answered for free, so what is asked here is the records whose account
+        // holds no link, which is the population the reclaim is hunting in the first place.
         //
-        // AN EMPTY ROSTER IS READ AS "THE HOST ANSWERED NOTHING" AND RECLAIMS NOTHING, which is the floor
-        // this needs: "not found" and "not answering" are the same silence, the loop above already reads
-        // that silence as "a link outlived its account" and skips, and reading it as "deleted" here would
-        // drop every record on the server in one write on a boot where the user store is simply not ready.
-        // That direction is not self-healing - this pass records only what it SEALS and it seals nothing
-        // that already holds a password, so nothing would ever write those records back and the refusal
-        // would silently stop firing for every account it was written for. A server with no accounts at all
-        // has no records to reclaim either, so the floor costs that case nothing.
+        // ONE ROSTER QUERY WOULD BE CHEAPER AND IS NOT AVAILABLE. `IUserManager.GetUsersIds()` answers it
+        // in one call on 10.11.11 and on 12.0.0, and the DECLARED targetAbi floor is 10.11.0, where that
+        // interface carries neither `GetUsersIds` nor `GetUsers` - which is why the SSO-only enforcement
+        // reaches the roster by reflection and fails closed when it is absent. The ABI floor build in CI is
+        // what said so; it is not a reading of the packages this machine happens to hold.
+        //
+        // AND NOTHING IS RECLAIMED UNLESS THE HOST ANSWERED AT LEAST ONCE, which is the floor this needs:
+        // "not found" and "not answering" are the same silence, the loop above already reads that silence
+        // as "a link outlived its account" and skips, and reading it as "deleted" here would drop every
+        // record on the server in one write on a boot where the user store is simply not ready. That
+        // direction is not self-healing - this pass records only what it SEALS and it seals nothing that
+        // already holds a password, so nothing would ever write those records back and the refusal would
+        // silently stop firing for every account it was written for.
         //
         // Resolved OUTSIDE the configuration lock and applied inside it, so the host's user store is never
         // asked a question while this plugin holds its own lock.
-        var liveAccounts = _userManager.GetUsersIds().ToHashSet();
-        var orphaned = liveAccounts.Count > 0
+        var orphaned = resolved.Count > 0
             ? _canonicalLinks.ProvisionedPasswordAccounts()
-                .Where(account => !liveAccounts.Contains(account))
+                .Where(account => !resolved.Contains(account) && _userManager.GetUserById(account) is null)
                 .ToList()
             : new List<Guid>();
 
