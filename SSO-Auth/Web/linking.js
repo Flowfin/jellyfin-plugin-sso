@@ -466,7 +466,7 @@ const ssoConfigLinking = {
                   : t(
                       "link.delete_refused_would_strand",
                       undefined,
-                      "The server refused to remove the last SSO link that can sign you in: it accepts no password for your account, so removing that link would have left you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in. Reload the page to see the links it holds now.",
+                      "The server refused to remove the last SSO link that can sign you in: this account has no password anybody can sign in with, so removing that link would have left you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to set a password on this account and switch it back to password sign-in. Reload the page to see the links it holds now.",
                     ),
               );
             }

@@ -443,11 +443,15 @@ const german = catalogue("de");
  * THIS IS A NEGATIVE ASSERTION ON WHAT THE ROW SAYS, and it is here because the arm
  * above only asks that the page shows the ROW: a row rewritten to promise a refusal
  * would keep every other arm green. The first draft of this change promised one, and
- * it is false in the two populations the server's guard is documented not to cover -
- * an administrator, exempt from it (#1732), and an account carrying a password this
- * plugin minted and never recorded (#1733). For both the removal goes through, so a
- * dialog whose only named outcomes are benign turns a hesitant press into a confident
- * one on the press that costs the account.
+ * it is false in the populations the server's guard is documented not to cover - an
+ * administrator, exempt from it (#1732), and an account sealed by a plugin version
+ * that kept no minted-password record, which is the residual #1733 ships with. For
+ * those the removal goes through, so a dialog whose only named outcomes are benign
+ * turns a hesitant press into a confident one on the press that costs the account.
+ *
+ * AN ACCOUNT CARRYING A RECORDED MINTED PASSWORD IS NO LONGER ONE OF THEM (#1733):
+ * the guard reads the record and refuses that removal, so it is named here as what
+ * moved rather than left in a list it has left.
  *
  * The vocabulary is per language and is the smallest set that catches the sentence
  * that was written rather than every way of writing it - a floor, like every word
@@ -463,7 +467,7 @@ const german = catalogue("de");
     if (shape.test(row)) {
       refuse(
         "promises-nothing",
-        `the ${code} confirmation says the server will refuse ("${row}"); the guard is off for an administrator (#1732) and for a minted password (#1733), so for those two the removal goes through and the sentence is the reason they pressed`,
+        `the ${code} confirmation says the server will refuse ("${row}"); the guard is off for an administrator (#1732) and for an account sealed before the minted-password record existed (#1733), so for those the removal goes through and the sentence is the reason they pressed`,
       );
     }
   });

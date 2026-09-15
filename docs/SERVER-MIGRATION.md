@@ -149,15 +149,22 @@ reason rather than a gap.
 | The SSO-only globals (`DisablePasswordLogin`, `BreakGlassAdminUsername`)                | `ConfigImport.Apply`, the `SsoOnlyLoginGuard.AssertCanActivate` guard | Validated fail-closed on import but never applied; the mode is turned on through its own elevated, audited endpoints, which also run the per-user sweep     |
 | `SsoOnlyRepointedUserIds`                                                               | `PluginConfiguration.SsoOnlyRepointedUserIds`                         | Bookkeeping about accounts this instance took a password door away from; it describes this user database, not the next one                                  |
 | `LogoutSessions`                                                                        | `PluginConfiguration.LogoutSessions`                                  | Per-session single-logout state written at login and removed at logout; nothing on a rebuilt server has a session to log out                                |
+| `ProvisionedPasswords`                                                                  | `PluginConfiguration.ProvisionedPasswords`                            | The record of which stored passwords this plugin minted; it describes this user database's accounts, and neither export carries it                          |
 | `CanonicalLinkDeadlines`                                                                | `PluginConfiguration.CanonicalLinkDeadlines`                          | The role-mapped access deadlines are not fields of the link backup document (`LinkExportDocument.cs`), so a time-limited link comes back without its expiry |
 | `CanonicalLinkLastLogins`                                                               | `LinkExport.Build`, the comment on the entry it writes                | A login instant is an observation, not restorable state: writing it back would assert a login that never happened on the new server                         |
 | A provider's `NewPath`                                                                  | `ConfigImport.MergeProviders`                                         | Runtime state recording which redirect-path spelling the last challenge used; meaningless across instances, so the target keeps its own                     |
 
-Two of those are worth planning around rather than only knowing about.
+Three of those are worth planning around rather than only knowing about.
 **Re-enter the secrets** as step 3, or every provider that arrived from the file
-fails closed. And **a link that carried an access deadline comes back without
-one**, so a deployment using role-mapped access durations has to check those
-accounts after the restore instead of assuming the expiry travelled.
+fails closed. **A link that carried an access deadline comes back without one**,
+so a deployment using role-mapped access durations has to check those accounts
+after the restore instead of assuming the expiry travelled. And **the
+minted-password record does not travel**, so on the target every migrated
+account reads as holding a password of its own and the refusal that stops a
+last-link unlink from stranding an account is inert for them until this plugin
+seals or re-seals those accounts itself. It is the safe direction - a refusal
+that does not fire takes nothing away - but it is not the state the source
+server was in.
 
 One thing is dropped at export rather than at import: a link pointing at a
 Jellyfin account that no longer exists is left out of the document entirely -

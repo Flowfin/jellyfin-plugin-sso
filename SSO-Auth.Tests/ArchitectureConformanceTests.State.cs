@@ -71,6 +71,16 @@ public partial class ArchitectureConformanceTests
         //   so an entry that outlived its link would be an offer to enable an account with no SSO route
         //   left. Its value names the account it was written about, so the bound holds over the ACCOUNT and
         //   not merely over the key, which a subject whose account was deleted does not keep.
+        // - PluginConfiguration._provisionedPasswords: the persisted per-account record of which stored
+        //   passwords this plugin minted (#1733). Serialized config mutated only under the config lock, like
+        //   the maps above, and bounded by the ACCOUNT rather than by a link: one entry per Jellyfin account
+        //   this plugin sealed, overwritten rather than appended when the same account is sealed again, and
+        //   removed on the host's own account-deletion event. The bound is what is exempted and not the
+        //   subject - a map growing an entry per SEAL rather than per account would need a cap and a sweep,
+        //   and the reason this needs neither is that the key is the account. It is keyed on the account
+        //   rather than on a link precisely because a password is a fact about the account: an unlink does
+        //   not change what password it holds, so riding on the link map would forget the record while the
+        //   seal itself stayed.
         // - DeclarativeManagedProviders._profiles: the provisioning-profile-name-to-source map (#1102), the
         //   same immutable shape as the two below and exempt for the same reason, on the object a managed
         //   provider provisions THROUGH rather than on the provider.
@@ -84,7 +94,7 @@ public partial class ArchitectureConformanceTests
         //   fields were HashSets until a refusal had to say WHICH source owns a provider, so what changed is
         //   the value beside each name, not where the state lives or how long it lives.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
-        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "ProviderConfigBase._canonicalLinkPendingApprovals", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
+        var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "PluginConfiguration._provisionedPasswords", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "ProviderConfigBase._canonicalLinkPendingApprovals", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
 
         var offenders = PluginClasses
             .Where(t => !storeLike.Any(s => SimpleName(t).EndsWith(s, StringComparison.Ordinal)))

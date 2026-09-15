@@ -22,6 +22,7 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
         property => property.CanRead && property.CanWrite && property.GetIndexParameters().Length == 0);
 
     private List<Guid>? _ssoOnlyRepointedUserIds;
+    private SerializableDictionary<Guid, string>? _provisionedPasswords;
     private SerializableDictionary<string, LogoutSession>? _logoutSessions;
 
     /// <summary>
@@ -155,6 +156,41 @@ public class PluginConfiguration : MediaBrowser.Model.Plugins.BasePluginConfigur
         // throwaway. Every access is under ReadConfiguration/MutateConfiguration, so it cannot race.
         get => _ssoOnlyRepointedUserIds ??= new List<Guid>();
         set => _ssoOnlyRepointedUserIds = value;
+    }
+
+    /// <summary>
+    /// Gets or sets a digest, per account, of the stored password this plugin minted onto it (#1733).
+    /// Server-managed bookkeeping, NOT an admin setting: the create arm and the boot-time sweep are the only
+    /// writers, the account-deletion consumer and the boot-time sweep are the only removers, and nothing here is
+    /// ever shown.
+    /// </summary>
+    /// <remarks>
+    /// WHAT QUESTION IT ANSWERS. This plugin mints an unguessable password onto every account it provisions
+    /// and used to record nowhere which, so a stored hash was a credential somebody holds or a seal nobody
+    /// can open and the two were the same bytes. Every guard that asks whether an account has a password
+    /// door had to guess, and on a server whose provider <c>DefaultProvider</c> names Jellyfin's own password
+    /// provider it guessed "has a door" for every account the plugin made.
+    /// <para>
+    /// WHY A DIGEST AND NOT A FLAG. A flag would go on describing an account after its owner set a real
+    /// password, and the guard reading it would refuse somebody who does hold a way in. A digest of the
+    /// stored value stops matching the moment anything else writes the password, so the record corrects
+    /// itself with no event to subscribe to. It is a digest rather than the hash because a password hash has
+    /// exactly one home and this is not it; the value grants nothing and verifies nothing.
+    /// </para>
+    /// <para>
+    /// Withheld from JSON (<c>[JsonIgnore]</c>) and re-injected on save like the other server-managed fields,
+    /// so a config PUT can neither read it nor forge an entry - forging one would let a save mark an
+    /// administrator's account as having no way in.
+    /// </para>
+    /// </remarks>
+    [XmlElement("ProvisionedPasswords")]
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SerializableDictionary<Guid, string> ProvisionedPasswords
+    {
+        // Self-healing lazy init (mirrors SsoOnlyRepointedUserIds): a config PUT deserializes this to null,
+        // so a later write under the config lock must land in a stored map rather than a discarded throwaway.
+        get => _provisionedPasswords ??= new SerializableDictionary<Guid, string>();
+        set => _provisionedPasswords = value;
     }
 
     /// <summary>

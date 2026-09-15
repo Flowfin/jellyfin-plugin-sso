@@ -721,6 +721,21 @@ internal sealed class CanonicalLinkService
             // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
             user.Password = ProvisionedPassword.Mint(_cryptoProvider);
 
+            // AND RECORDED, in the same breath as the mint (#1733). Without the record the stored hash is a
+            // credential somebody holds or a seal nobody can open, and the two are the same bytes - which is
+            // what let every last-link self-unlink guard read "has a password door" for accounts the plugin
+            // itself sealed. The rollback path deletes the account and the pruner takes the record with it.
+            //
+            // IT IS ITS OWN CONFIGURATION WRITE, AND THAT COSTS A SECOND WHOLE-STORE PERSIST ON THIS ARM -
+            // the one the store's own measurement puts at tens of milliseconds on a large link table, paid
+            // once per account ever provisioned rather than once per login. The cheaper shape is to fold it
+            // into the link write below, and it is declined rather than missed: that write is behind the
+            // #133 race, where the LOSER writes no link at all, so the record would be skipped for an
+            // account that is nonetheless sealed and persisted. A seal with no record reads as "holds its
+            // own password", which is the safe direction but is also the exact hole this change exists to
+            // close, and paying for it on the one arm that creates an account is the cheaper of the two.
+            _configStore.Mutate(configuration => ProvisionedPassword.Record(configuration, user.Id, user.Password));
+
             // PERSISTED HERE, once, and this write is the door rather than the two assignments above it (#1440).
             // The session mint re-resolves the account by id and writes THAT object, so everything set on the
             // instance CreateUserAsync returned reached no database: the account was persisted routed at
@@ -1395,6 +1410,107 @@ internal sealed class CanonicalLinkService
         });
     }
 
+    /// <summary>
+    /// The accounts the minted-password record names (#1733), so a caller can work out which of them are
+    /// still worth keeping without holding the configuration lock while it finds out.
+    /// </summary>
+    /// <returns>The account ids the record holds an entry for.</returns>
+    internal IReadOnlyCollection<Guid> ProvisionedPasswordAccounts()
+    {
+        return _configStore.Read(configuration => (IReadOnlyCollection<Guid>)configuration.ProvisionedPasswords.Keys.ToList());
+    }
+
+    /// <summary>
+    /// Applies a whole pass of the boot-time sweep to the minted-password record in ONE write (#1733): the
+    /// accounts it sealed, and the accounts whose records it reclaimed.
+    /// </summary>
+    /// <remarks>
+    /// ONE WRITE FOR THE PASS, and the reason is the size of the population rather than tidiness. Every
+    /// configuration write serializes and persists the WHOLE configuration, so a write per account is a
+    /// whole-store write per account on the startup path of exactly the upgraded servers that pass exists
+    /// for. The sweep is the second writer of a provisioned password and reaches the configuration through
+    /// this service rather than growing a store of its own, so both mint sites record the fact through the
+    /// same type and neither can be the one that forgot to.
+    /// </remarks>
+    /// <param name="minted">Account id to the value written to its <c>User.Password</c>.</param>
+    /// <param name="reclaimed">Accounts whose record is dropped because the account no longer exists.</param>
+    internal void UpdateProvisionedPasswords(IReadOnlyDictionary<Guid, string> minted, IReadOnlyCollection<Guid> reclaimed)
+    {
+        ArgumentNullException.ThrowIfNull(minted);
+        ArgumentNullException.ThrowIfNull(reclaimed);
+
+        _configStore.Mutate(configuration =>
+        {
+            foreach (var entry in minted)
+            {
+                ProvisionedPassword.Record(configuration, entry.Key, entry.Value);
+            }
+
+            foreach (var account in reclaimed)
+            {
+                ProvisionedPassword.Forget(configuration, account);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Forgets the minted-password record an account holds, because the account is gone (#1733/#1649).
+    /// </summary>
+    /// <remarks>
+    /// KEYED ON THE ACCOUNT AND NOT ON ITS LINKS, which is why this is its own call rather than a line
+    /// inside the revoke seam. An unlink does not change what password an account holds, so an account that
+    /// is merely unlinked keeps its record; a DELETED account keeps nothing, and a record left behind would
+    /// go on describing whatever account a recycled id names next.
+    /// </remarks>
+    /// <param name="userId">The account to forget.</param>
+    /// <returns>True when a record was removed.</returns>
+    internal bool ForgetProvisionedPassword(Guid userId)
+    {
+        // WRITES UNCONDITIONALLY, and the no-write guard is the caller's rather than this method's: a
+        // Mutate persists whether or not it changed anything, and most deleted accounts hold no record, so
+        // somebody has to ask first. <see cref="DeletionFootprint"/> is where that question is asked, in
+        // the same acquisition as the link question, so the guard costs no extra read.
+        return _configStore.Mutate(configuration => ProvisionedPassword.Forget(configuration, userId));
+    }
+
+    /// <summary>
+    /// What an account leaves behind in this plugin, in ONE configuration acquisition: whether any provider
+    /// on either protocol holds a link for it, and whether it holds a minted-password record (#1733/#1649).
+    /// </summary>
+    /// <remarks>
+    /// ONE ACQUISITION FOR BOTH ANSWERS, and it is the reason this exists rather than two calls. The
+    /// deletion consumer asks both questions for every account the host deletes, and the overwhelming
+    /// majority answer no to both - so each extra read is paid by every deletion on the server to learn
+    /// nothing. Asking them together also means the two answers describe ONE state of the configuration,
+    /// which is what lets the caller act on them without re-reading.
+    /// </remarks>
+    /// <param name="userId">The account being deleted.</param>
+    /// <returns>Whether it holds a link, and whether it holds a minted-password record.</returns>
+    internal (bool HoldsLink, bool HoldsMintedPasswordRecord) DeletionFootprint(Guid userId)
+    {
+        return _configStore.Read(configuration =>
+        {
+            var holdsLink = configuration.SamlConfigs.Values
+                .Concat<ProviderConfigBase>(configuration.OidConfigs.Values)
+                // A provider stored with a null config object (reachable via the null-body add, #350) holds
+                // no links and is skipped rather than dereferenced, as everywhere else in this file.
+                .Any(config => config?.CanonicalLinks is { } links && links.ContainsValue(userId));
+
+            return (holdsLink, configuration.ProvisionedPasswords.ContainsKey(userId));
+        });
+    }
+
+    /// <summary>
+    /// Whether the only password the given account holds is one this plugin minted (#1733).
+    /// </summary>
+    /// <param name="user">The account being asked about.</param>
+    /// <returns>True when the stored password is the recorded one and nothing has replaced it.</returns>
+    internal bool HoldsOnlyAProvisionedPassword(User user)
+    {
+        return user is not null
+            && _configStore.Read(configuration => ProvisionedPassword.IsTheOnlyPassword(configuration, user));
+    }
+
     // The shared body of every disable-a-linked-account path above. Kept private and unnamed for any caller
     // so none can acquire a guard another lacks: PermissionRolePolicy bars IsDisabled from SSO role mapping
     // precisely so no login can disable an account, and these are its sanctioned exceptions (#831, #1144,
@@ -1732,13 +1848,18 @@ internal sealed class CanonicalLinkService
             // WHAT "ANOTHER ADMINISTRATOR KEEPS A WAY IN" MEANS IS THE PURGE'S READING, UNCHANGED. It is
             // measured at the boundary with `AdministratorsWithNoWayIn`, which counts a link on an enabled
             // provider and refuses to count a stored password at all, for the reason written at that
-            // method: this plugin mints an unrecoverable password onto every account it provisions and
-            // records nowhere which, so a stored hash is a credential somebody holds or a seal nobody can
-            // open and the two are the same bytes. The cost is stated rather than hidden - a break-glass
-            // administrator who really does sign in with a password reads here as having no way in, so an
-            // administrator's own cleanup is refused on a server that had a recovery account all along.
-            // That direction costs a call; the other costs the server. Which reading this family should
-            // take once the minted passwords can be told apart is #1733.
+            // method: a mass action an administrator takes can afford a refusal where one wrong judgement
+            // about a single account cannot, so this reading declines to weigh a stored password at all.
+            // The cost is stated rather than hidden - a break-glass administrator who really does sign in
+            // with a password reads here as having no way in, so an administrator's own cleanup is refused
+            // on a server that had a recovery account all along. That direction costs a call; the other
+            // costs the server.
+            //
+            // THE PLUGIN CAN TELL ITS OWN MINTED PASSWORDS APART SINCE #1733, AND THIS READING STILL DOES
+            // NOT USE THAT. What the record buys is a floor rather than coverage - an account sealed by a
+            // plugin version that kept no record reads as holding a password of its own - and resting a
+            // MASS action on a floor is what this reading exists to refuse. The caller's own door is the
+            // other question and does read the record, at `RequestHelpers.CallerHasNoPasswordDoor`.
             //
             // THIS REMOVAL CANNOT CHANGE THE ANSWER, which is why the other administrators are judged
             // outside this transaction and the caller's own link is judged inside it. The link going is
@@ -1843,12 +1964,24 @@ internal sealed class CanonicalLinkService
     /// </summary>
     /// <param name="userId">The Jellyfin user whose links are revoked.</param>
     /// <param name="removedFrom">When given, receives every provider a link was removed from, labelled by protocol. Filled inside the same lock as the removal, so a line built from it names what this call removed and nothing a read before it saw (#1649).</param>
+    /// <param name="alsoForgetProvisionedPassword">When true, the account's minted-password record is dropped in the SAME transaction as the links (#1733), so an account deletion is one configuration write rather than two. Left false by the administrator revoke, which leaves the account standing.</param>
     /// <returns>The number of links removed.</returns>
-    internal int RemoveUserEverywhere(Guid userId, ICollection<string>? removedFrom = null)
+    internal int RemoveUserEverywhere(Guid userId, ICollection<string>? removedFrom = null, bool alsoForgetProvisionedPassword = false)
     {
         return _configStore.Mutate(configuration =>
         {
             int removed = 0;
+
+            // The minted-password record goes in the SAME transaction as the links where the caller asks
+            // for it (#1733). An account deletion that dropped one and then the other paid two whole
+            // configuration persists for one event and left a window in between where the record was gone
+            // and the links were not. It is opt-in rather than automatic, because this seam also serves the
+            // administrator revoke, which empties an account's links and leaves the ACCOUNT standing - and
+            // an account that still exists keeps whatever password it holds.
+            if (alsoForgetProvisionedPassword)
+            {
+                ProvisionedPassword.Forget(configuration, userId);
+            }
 
             // One loop over both protocols' providers, each with its name and protocol so the caller's audit
             // line can say where a link was removed from. Skip a provider stored with a null config object
@@ -2002,9 +2135,11 @@ internal sealed class CanonicalLinkService
     /// measured rather than assumed, and the measurement says the tree cannot make it. This plugin mints
     /// an unguessable password onto every account it provisions and onto every passwordless linked account
     /// it finds at boot (#1440, <c>ProvisionedPassword.Mint</c>: 64 CSPRNG bytes, "never displayed, never
-    /// stored anywhere else and never recoverable"), and it records nowhere which accounts those were. So
-    /// a non-empty <c>User.Password</c> is a hash somebody may hold or a seal nobody can open, and the two
-    /// are the same bytes. On a server whose provider routes accounts to the built-in password provider -
+    /// stored anywhere else and never recoverable"). Since #1733 it records which of those hashes it wrote,
+    /// and that record is a floor rather than coverage: an account sealed by a plugin version that kept no
+    /// record still reads as holding a password of its own, so a non-empty <c>User.Password</c> is still a
+    /// hash somebody may hold or a seal nobody can open. THIS guard weighs it neither way, because resting
+    /// a mass action on that floor is what it exists to refuse. On a server whose provider routes accounts to the built-in password provider -
     /// which the configuration page names as a common setting - counting it would have cleared this guard
     /// for every SSO-provisioned administrator on the server, silently, which is the exact lockout it
     /// exists to refuse.

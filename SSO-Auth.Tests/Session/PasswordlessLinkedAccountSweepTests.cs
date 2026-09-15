@@ -62,6 +62,102 @@ public class PasswordlessLinkedAccountSweepTests
     }
 
     [Fact]
+    public async Task ASealedAccountsPasswordIsRecordedAsOneThisPluginMinted()
+    {
+        // #1733, and this pass is the half that reaches the OLD accounts - the ones most likely to include
+        // the last administrator on an upgraded server. Sealing without recording leaves the stored hash
+        // indistinguishable from a password its owner chose, which is exactly the ambiguity that let the
+        // last-link self-unlink guard read "has a way in" for accounts this plugin had sealed itself.
+        var configuration = new PluginConfiguration();
+        var provider = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = provider;
+        var (sweep, users, _, _) = BuildFor(configuration);
+        var user = LinkedUser(users, provider, password: null);
+
+        await sweep.SweepAsync();
+
+        Assert.True(configuration.ProvisionedPasswords.ContainsKey(user.Id));
+    }
+
+    [Fact]
+    public async Task AnAccountTheSweepLeavesAlone_IsNotRecordedAsSealed()
+    {
+        // The pair to the case above, and the one that costs somebody if it is wrong. An account that
+        // already holds a password keeps it, so this pass minted nothing for it and must claim nothing
+        // about it - recording here would mark a password its owner chose as one nobody holds.
+        var configuration = new PluginConfiguration();
+        var provider = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = provider;
+        var (sweep, users, _, _) = BuildFor(configuration);
+        var user = LinkedUser(users, provider, password: "the-hash-the-owner-chose");
+
+        await sweep.SweepAsync();
+
+        Assert.False(configuration.ProvisionedPasswords.ContainsKey(user.Id));
+    }
+
+    [Fact]
+    public async Task ARecordWhoseAccountTheHostNoLongerKnows_IsReclaimedByThePass()
+    {
+        // THE ONLY ROUTE THAT REACHES A RECORD WHOSE ACCOUNT WENT WHILE THE PLUGIN WAS NOT LOADED (#1733).
+        // The deletion consumer hears the host's event, and an account deleted with this plugin unloaded
+        // raises that event at nobody, so without this pass such a record would sit in the configuration
+        // for ever - the exact class #1649 closed for the link maps. Deleting the reclaim block reddens
+        // this row.
+        var configuration = new PluginConfiguration();
+        var provider = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = provider;
+        configuration.ProvisionedPasswords[Other] = "a-digest-of-a-hash-nobody-can-look-up-any-more";
+        var (sweep, users, _, _) = BuildFor(configuration);
+        LinkedUser(users, provider, password: "the-hash-the-owner-chose");
+
+        await sweep.SweepAsync();
+
+        Assert.False(configuration.ProvisionedPasswords.ContainsKey(Other));
+    }
+
+    [Fact]
+    public async Task APassOnWhichTheHostResolvedNothing_ReclaimsNoRecord()
+    {
+        // "NOT FOUND" AND "NOT ANSWERING" ARRIVE HERE AS THE SAME NULL, and the loop above already reads
+        // that null as "a link outlived its account" and skips. Reading it as "deleted" in the reclaim
+        // would drop every record on the server in one write on a boot where the user store is simply not
+        // ready yet - and nothing would ever write them back, because this pass records only what it SEALS
+        // and it seals nothing that already holds a password. That is a silent, permanent revert of the
+        // whole rule, so a pass that resolved nothing reclaims nothing. Deleting the condition reddens
+        // this row and leaves the reclaim row above green.
+        var configuration = new PluginConfiguration();
+        var provider = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = provider;
+        provider.CanonicalLinks["sub-ghost"] = Linked;
+        configuration.ProvisionedPasswords[Other] = "a-digest-of-a-hash-this-plugin-wrote";
+        var (sweep, _, _, _) = BuildFor(configuration);
+
+        await sweep.SweepAsync();
+
+        Assert.True(configuration.ProvisionedPasswords.ContainsKey(Other));
+    }
+
+    [Fact]
+    public async Task ARecordWhoseAccountStillResolves_SurvivesThePass()
+    {
+        // The half that costs somebody if it is wrong, and the reason the reclaim asks the host rather than
+        // the link store. A record dropped from a LIVE account stops that account reading as sealed, which
+        // takes the last-link self-unlink refusal off the very account it was written for - so the pass may
+        // drop a record only where the host says the account is gone.
+        var configuration = new PluginConfiguration();
+        var provider = new OidConfig { Enabled = true };
+        configuration.OidConfigs["kc"] = provider;
+        var (sweep, users, _, _) = BuildFor(configuration);
+        var user = LinkedUser(users, provider, password: "the-hash-this-plugin-minted-earlier");
+        configuration.ProvisionedPasswords[user.Id] = "a-digest";
+
+        await sweep.SweepAsync();
+
+        Assert.True(configuration.ProvisionedPasswords.ContainsKey(user.Id));
+    }
+
+    [Fact]
     public async Task TheAuditLineStatesThePopulationAsAState_AndNamesNoVersionRange()
     {
         // #1454. The line used to end "Accounts provisioned by plugin versions up to v3.4.0.2 are the
