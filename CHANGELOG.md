@@ -7,7 +7,20 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
-## Unreleased
+## 4.3.0
+
+A feature release, and the first stable release of this line. It advances the
+plugin's maturity to **Full Release** on the back of a large login-hardening and
+code-quality pass: SSO-only login enforcement, full role-based access control, a
+redesigned configuration UI, and a broad security + perfection audit.
+
+**Not verified for this release, by decision.** The two native-client items of the
+release QA checklist, Quick Connect round trips on Android and Android TV, were not
+exercised (decided on #1511 on 2026-09-04), and the manual end-to-end QA checklist
+against a real Jellyfin 10.11 server was not walked (decided on #1511 on
+2026-09-15, because work on the Jellyfin 10.11 line ends with this release). The
+seven-provider login harness runs against the tagged build before it publishes and
+stands in for that walk.
 
 ### Added
 
@@ -443,6 +456,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   blank subject. Every link made this way is recorded as an audit event naming
   the administrator, the provider and the account, and never the subject itself.
 
+- **SSO-only login enforcement (#165).** An optional mode that closes the
+  built-in username/password door so accounts authenticate only through the
+  configured SSO provider. It is fail-closed by construction: activation is
+  refused unless a designated, enabled break-glass administrator keeps a working
+  password login, so no reachable configuration can strand the last admin. The
+  per-login enforcement and the enable sweep agree on which accounts are moved,
+  and the mode is fully reversible on disable.
+- **Full role-based access control (#164).** Providers can map identity-provider
+  roles to Jellyfin permissions through a generic permission-role mapping,
+  validated fail-closed at save so a malformed mapping is rejected at the door
+  rather than silently granting nothing at login.
+- **Redesigned configuration UI (#697).** The admin settings page was reworked
+  into clearer, native accordion sections.
+
 ### Changed
 
 - **A misspelled protocol segment on a link route now answers 400 (#1399).**
@@ -505,6 +532,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   **Community SSO for Jellyfin**. The plugin GUID, the assembly, and the
   configuration are unchanged, so the rename lands as an in-place update that
   keeps every existing setting.
+
+- **The self-service linking and auth-completion pages were polished
+  (#666, #667, #669).** The linking page renders a proper help label and an
+  empty-state placeholder instead of bare headings; the auth-completion status
+  line is an `aria-live` region that announces failures to assistive tech and
+  now offers a "Return to login" link instead of dead-ending.
+- **Browser-navigated login errors are now styled (#668).** A rejection reached
+  by direct navigation (the OpenID/SAML challenge and callback routes) is
+  rendered as a themed HTML page with a return link and a strict
+  Content-Security-Policy, instead of raw plain text on what looked like a broken
+  page. The uniform denial message was reworded to be actionable without
+  enumerating.
+- **Internal consolidation (#670, #671, #695).** The duplicated challenge
+  redirect-path resolver and a single-caller OpenID wrapper were unified, and the
+  provider-config validation doc was corrected to describe the single source of
+  truth - no behavioural change, locked in by conformance tests.
 
 ### Fixed
 
@@ -799,49 +842,6 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   (`unprocessed_critical_header`) rather than the generic signature failure, so
   an operator can tell a provider that needs a feature apart from an attempted
   forgery.
-
-## 4.3.0
-
-A feature release. This line advances the plugin's maturity to **Beta** on the
-back of a large login-hardening and code-quality pass: SSO-only login
-enforcement, full role-based access control, a redesigned configuration UI, and
-a broad security + perfection audit.
-
-### Added
-
-- **SSO-only login enforcement (#165).** An optional mode that closes the
-  built-in username/password door so accounts authenticate only through the
-  configured SSO provider. It is fail-closed by construction: activation is
-  refused unless a designated, enabled break-glass administrator keeps a working
-  password login, so no reachable configuration can strand the last admin. The
-  per-login enforcement and the enable sweep agree on which accounts are moved,
-  and the mode is fully reversible on disable.
-- **Full role-based access control (#164).** Providers can map identity-provider
-  roles to Jellyfin permissions through a generic permission-role mapping,
-  validated fail-closed at save so a malformed mapping is rejected at the door
-  rather than silently granting nothing at login.
-- **Redesigned configuration UI (#697).** The admin settings page was reworked
-  into clearer, native accordion sections.
-
-### Changed
-
-- **The self-service linking and auth-completion pages were polished
-  (#666, #667, #669).** The linking page renders a proper help label and an
-  empty-state placeholder instead of bare headings; the auth-completion status
-  line is an `aria-live` region that announces failures to assistive tech and
-  now offers a "Return to login" link instead of dead-ending.
-- **Browser-navigated login errors are now styled (#668).** A rejection reached
-  by direct navigation (the OpenID/SAML challenge and callback routes) is
-  rendered as a themed HTML page with a return link and a strict
-  Content-Security-Policy, instead of raw plain text on what looked like a broken
-  page. The uniform denial message was reworded to be actionable without
-  enumerating.
-- **Internal consolidation (#670, #671, #695).** The duplicated challenge
-  redirect-path resolver and a single-caller OpenID wrapper were unified, and the
-  provider-config validation doc was corrected to describe the single source of
-  truth - no behavioural change, locked in by conformance tests.
-
-### Security
 
 - **SAML parsing hardened (#698).**
 - **SAML `DoNotValidateAudience` is now audited (#672).** Enabling this default-on

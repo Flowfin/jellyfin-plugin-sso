@@ -6,7 +6,7 @@
 > server, and sign-in reaches any client that supports Quick Connect, not only
 > the Flowfin ones.
 >
-> **Status: Release Candidate**, the fourth rung of the maturity ladder (In-Development, Alpha, Beta, Release Candidate, Full Release). Install it by adding this plugin's own repository to Jellyfin, see [Installing](#installing).
+> **Status: Full Release**, the fifth and last rung of the maturity ladder (In-Development, Alpha, Beta, Release Candidate, Full Release). Install it by adding this plugin's own repository to Jellyfin, see [Installing](#installing).
 
 <h1 align="center">Community SSO for Jellyfin</h1>
 
