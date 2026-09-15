@@ -2074,11 +2074,16 @@ public class SSOController : ControllerBase
         // account that routes to the built-in password provider has a door this revoke does not touch, so
         // it is not refused here any more than it is there. What the repoint LANDS on is not counted as a
         // way in, because where the body names the built-in password provider the stored hash behind it
-        // may be one this plugin minted and never recorded - a credential somebody holds or a seal nobody
-        // can open, in the same bytes. WHAT THIS DOES NOT REACH IS THE POPULATION THE SELF-SERVICE GUARD
-        // DOES NOT REACH EITHER: an account already on the password provider behind a minted password reads
-        // as having a door on both routes, and telling the minted passwords apart is #1733, which repairs
-        // both routes at the one place the fact is read.
+        // may be one this plugin minted - a credential somebody holds or a seal nobody can open, in the
+        // same bytes.
+        //
+        // THE POPULATION THIS PARAGRAPH SAID NEITHER ROUTE REACHED IS REACHED NOW (#1733), and it is
+        // reached here without a line of its own. An account already on the password provider behind a
+        // password this plugin minted read as having a door on both routes, because nothing recorded which
+        // stored hashes the plugin wrote; the record exists, and the reading of it is inside
+        // CallerHasNoPasswordDoor, so this route gets it by handing the same delegate the self-service
+        // route hands. What is left unreached is that record's own residual: an account sealed by a plugin
+        // version that kept no record still reads as holding a password of its own.
         //
         // The survey is asked only where the three cheap facts already hold, so an administrator revoking
         // somebody else's links - the act this route exists for - pays nothing for a rule that is inert on
@@ -2086,7 +2091,7 @@ public class SSOController : ControllerBase
         // direction that costs a call rather than the server.
         var callerIsTheHolder = await RequestHelpers.CallerIsTheHolder(_authContext, HttpContext.Request, user.Id).ConfigureAwait(false);
         if (callerIsTheHolder
-            && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false)
+            && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request, _canonicalLinks.HoldsOnlyAProvisionedPassword).ConfigureAwait(false)
             && _canonicalLinks.UserHoldsAnEnabledLink(user.Id)
             && !AnotherAdministratorKeepsAWayIn(user.Id))
         {
@@ -2484,10 +2489,25 @@ public class SSOController : ControllerBase
         // WHETHER THE CALLER'S ACCOUNT HAS A PASSWORD DOOR AT ALL (#1720), for the holder's own last-link
         // removal. Read at the boundary beside the administrator fact and from the same resolved account,
         // because the link service holds no user manager and must not grow one to answer a question about
-        // a Jellyfin user. The detector is the one the SSO-only feature, the login-path re-assertion and
+        // a Jellyfin user. The stamp test is the one the SSO-only feature, the login-path re-assertion and
         // the managed-status report already use, so this refusal and the report an administrator reads
-        // cannot disagree about what the stamp means.
-        var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false);
+        // cannot disagree about what the STAMP means.
+        //
+        // THEY CAN DISAGREE ABOUT THE PASSWORD SINCE #1733, and this sentence said they could not. This
+        // rule discounts a password this plugin minted; the SSO-only activation guard and the status it
+        // reports still count any non-empty stored password as a way in. So on a server whose provider
+        // DefaultProvider names the built-in password provider, an SSO-provisioned account reads here as
+        // having no door and there as having one. Whether that guard should take this reading is a
+        // security question of its own and is #1746, not something to settle inside this line.
+        //
+        // The second arm (#1733) is handed in as a reading of the link store rather than reached for inside
+        // the helper: the helper's subject is the request, the minted-password record belongs to the link
+        // service, and keeping the two apart is what lets this boundary be tested with either answer. The
+        // delegate is invoked last, so an account that already failed the provider-id test never pays it.
+        var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(
+            _authContext,
+            HttpContext.Request,
+            _canonicalLinks.HoldsOnlyAProvisionedPassword).ConfigureAwait(false);
 
         // WHETHER THE CALLER IS ACTING ON THEIR OWN ACCOUNT (#1732), which is what narrows the exemption
         // #1720 gave an administrator. That exemption was decided for an administrator acting on somebody
@@ -2559,6 +2579,15 @@ public class SSOController : ControllerBase
     // adds the fact that separates the two, which is both what the caller has to act on and what the page
     // keys its own sentence off.
     //
+    // THE SENTENCE NAMES THE ACCOUNT AND NOT THE SERVER SINCE #1733, and the wording moved because the
+    // population did. It read "this server does not accept a password for your account", which is false for
+    // the reader this change added: their account IS on the password provider, and the password behind it is
+    // one this plugin minted and nobody was ever shown. The remedy moved for the same reason - "switch your
+    // account back to password sign-in" is a no-op for that reader, and performed through this plugin's own
+    // Unregister route it repoints without setting a password and completes the stranding. The sentence now
+    // names the state both populations are in and the remedy that ends it for both: a password SET on the
+    // account, and the account routed where that password is read.
+    //
     // AND IT SAYS WHAT WAS MEASURED RATHER THAN WHAT WAS CONCLUDED, which the review of this change asked
     // for. The reading behind it counts a link on an enabled provider and never counts a stored password,
     // for the reason written at `AdministratorsWithNoWayIn`, so on the ordinary two-administrator server -
@@ -2572,7 +2601,7 @@ public class SSOController : ControllerBase
         SsoAudit.SelfUnlinkRefusedWouldStrand(_logger, jellyfinUserId);
         var sentence = callerIsTheLastAdministrator
             ? "This is the last SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so removing it could leave this server with no administrator able to reach it. Ask another administrator to remove it for you, or link another provider to your account first and then remove this one."
-            : "This is the last SSO link that can sign you in, and this server does not accept a password for your account, so removing it would leave you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to switch your account back to password sign-in.";
+            : "This is the last SSO link that can sign you in, and this account has no password anybody can sign in with, so removing it would leave you unable to sign in at all. Link another provider first and then remove this one, or ask an administrator to set a password on this account and switch it back to password sign-in.";
         return StatusCode(StatusCodes.Status403Forbidden, sentence);
     }
 
@@ -2583,12 +2612,20 @@ public class SSOController : ControllerBase
     // performs the revoke, which is not refused because they are not the holder, or another administrator
     // account is linked first. "Link another provider first" is deliberately NOT offered here, because this
     // route removes every link the account holds and a second one would go with the first.
+    //
+    // A THIRD REMEDY IS NAMED SINCE #1733, because the population that reaches this refusal grew and neither
+    // of the first two exists for it. On a one-owner server there is no other administrator to ask and no
+    // second administrator account to link, and the owner's account now reaches this refusal where its only
+    // password is one this plugin minted. Setting a real password on an administrator account ends it: the
+    // recorded digest stops matching the moment anything else writes that password, by design, so the door
+    // the refusal is measuring opens. It is named as the dashboard's own act rather than as anything this
+    // plugin does, because this plugin sets no password anybody is shown.
     private ObjectResult RefuseStrandingUnregister(Guid jellyfinUserId)
     {
         SsoAudit.UnregisterRefusedWouldStrandServer(_logger, jellyfinUserId);
         return StatusCode(
             StatusCodes.Status403Forbidden,
-            "This would remove every SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so it could leave this server with no administrator able to reach it. Ask another administrator to revoke your SSO links for you, or link another administrator account to a provider first and then revoke your own.");
+            "This would remove every SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so it could leave this server with no administrator able to reach it. Ask another administrator to revoke your SSO links for you, link another administrator account to a provider first and then revoke your own, or set a password on an administrator account from the Jellyfin dashboard - a password this server generated for an account is not one anybody can sign in with, so setting one is what gives this server a way back in.");
     }
 
     // Whether an administrator OTHER than this one can still sign in (#1732, and the administrator revoke

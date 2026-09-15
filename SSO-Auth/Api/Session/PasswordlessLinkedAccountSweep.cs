@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
@@ -75,6 +77,19 @@ internal sealed class PasswordlessLinkedAccountSweep
     {
         var sealedAccounts = 0;
 
+        // Collected across the pass and written ONCE (#1733). A write per account would be a whole
+        // configuration serialization and persist per account, on the startup path of exactly the upgraded
+        // servers this pass exists for - at the measured cost of a write on a large store that is minutes of
+        // blocked startup for a population in the thousands. What a single write costs instead is a window,
+        // and it is wider than "the process died": anything thrown out of the loop below - a failing
+        // account persist is the ordinary case - abandons this map along with the pass, so every account
+        // this pass had already sealed AND persisted stays sealed and unrecorded. Those accounts read as
+        // "holds its own password", which is the same answer every account gave before this change and the
+        // safe direction, and they join the residual named at the guard rather than being lost. Narrowing
+        // that window means per-account resilience in this loop, which is a change to what a failed pass
+        // does rather than to what this record says, and it is its own issue.
+        var minted = new Dictionary<Guid, string>();
+
         foreach (var userId in _canonicalLinks.LinkedUserIds())
         {
             // A link can outlive the account it points at, which is nothing to do rather than something to
@@ -93,8 +108,51 @@ internal sealed class PasswordlessLinkedAccountSweep
             }
 
             user.Password = ProvisionedPassword.Mint(_cryptoProvider);
+
+            // AND RECORDED (#1733), collected here and written below. Without the record this pass seals an
+            // account and leaves nothing able to tell that seal from a password its owner chose, which is
+            // the ambiguity the record exists to end - and this pass reaches the OLDER accounts, the ones
+            // most likely to include the last administrator on an upgraded server.
+            minted[user.Id] = user.Password;
+
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
             sealedAccounts++;
+        }
+
+        // THE ONE PLACE A RECORD IS EVER RECLAIMED, and the reason this pass is where it happens. The
+        // account-deletion consumer drops a record when the host reports the deletion, which reaches
+        // nothing for an account deleted while the plugin was not loaded - and no roster row, endpoint or
+        // other sweep can see a record, so without this the map would keep an entry for such an account for
+        // ever. Every key whose account no longer resolves is dropped, which is the same "a link can
+        // outlive the account it points at" reading the loop above opens with.
+        //
+        // ONE ROSTER QUERY RATHER THAN ONE LOOKUP PER RECORD. `GetUserById` is a database read on the
+        // builds this plugin targets, not a cache hit, so asking it once per record would put a query per
+        // sealed account on every boot of exactly the large upgraded server this pass exists for - which is
+        // the cost the single configuration write above refuses to pay one line earlier. The roster answers
+        // the same question once.
+        //
+        // AN EMPTY ROSTER IS READ AS "THE HOST ANSWERED NOTHING" AND RECLAIMS NOTHING, which is the floor
+        // this needs: "not found" and "not answering" are the same silence, the loop above already reads
+        // that silence as "a link outlived its account" and skips, and reading it as "deleted" here would
+        // drop every record on the server in one write on a boot where the user store is simply not ready.
+        // That direction is not self-healing - this pass records only what it SEALS and it seals nothing
+        // that already holds a password, so nothing would ever write those records back and the refusal
+        // would silently stop firing for every account it was written for. A server with no accounts at all
+        // has no records to reclaim either, so the floor costs that case nothing.
+        //
+        // Resolved OUTSIDE the configuration lock and applied inside it, so the host's user store is never
+        // asked a question while this plugin holds its own lock.
+        var liveAccounts = _userManager.GetUsersIds().ToHashSet();
+        var orphaned = liveAccounts.Count > 0
+            ? _canonicalLinks.ProvisionedPasswordAccounts()
+                .Where(account => !liveAccounts.Contains(account))
+                .ToList()
+            : new List<Guid>();
+
+        if (minted.Count > 0 || orphaned.Count > 0)
+        {
+            _canonicalLinks.UpdateProvisionedPasswords(minted, orphaned);
         }
 
         // Audited once for the pass rather than once per account: the line carries a count and nothing that

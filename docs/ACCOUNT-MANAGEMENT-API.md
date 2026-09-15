@@ -479,8 +479,9 @@ a way in takes nothing away when it goes. That keeps the documented
 disable-then-clean-up workflow available to exactly the accounts this rule
 protects.
 
-**A password door is the built-in password provider and nothing else.** The test
-asks for the positive evidence - `AuthenticationProviderId` equals
+**A password door is the built-in password provider holding a password this
+plugin did not mint.** The test asks for the positive evidence -
+`AuthenticationProviderId` equals
 `Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider` - rather
 than asking whether the id is this plugin's, because an id naming no registered
 provider refuses every password just as this plugin's does, and a provider's
@@ -488,15 +489,40 @@ free-text `DefaultProvider` is written onto the account verbatim at every login.
 The cost is stated rather than hidden: an account routed to a THIRD-PARTY password
 provider reads as having no door and has its last-link self-unlink refused
 although its password works. The way out is one call and the refusal names it.
-What the test still cannot see is the account on the password provider whose
-password nobody holds - which is every account this plugin provisions on a server
-whose provider names the built-in password provider as its `DefaultProvider`, a
-choice the settings page offers. Those accounts are outside this rule entirely.
-The per-provider purge below decided the same ambiguity the other way, refusing to
+
+The second half of the test is the account ON the password provider whose
+password nobody holds. This plugin mints an unguessable password onto every
+account it provisions, and where a provider names the built-in password provider
+as its `DefaultProvider` - a choice the settings page offers - every account that
+provider creates lands in exactly that state, so the provider id alone read "has a
+door" for all of them and this rule reached none of them. The plugin records which
+passwords it minted, as a digest of the stored value, and an account holding
+nothing but a minted password has no door however its provider id reads. The
+record is a digest rather than a flag so that it corrects itself: the moment
+anything else writes that account's password it stops matching and the account
+reads as having a door again, which is why a user who sets a real password keeps
+full control of their own links.
+
+The record is read by this route and by `Unregister`, and by nothing else. The
+SSO-only activation guard and the managed-status report still count any stored
+password as a way in, so those two and this rule can disagree about one account -
+which means an account whose only password this plugin minted can still be named
+as the break-glass administrator when SSO-only login is switched on. That is a
+security question of its own rather than something this rule settles, and it is
+#1746.
+
+What the record does not reach, said rather than left to be discovered: an account
+sealed by a plugin version that kept no record. Those read as holding a password
+of their own, exactly as every account did before, and the boot-time pass does not
+re-seal them because they already hold a password. The direction is the safe one -
+a refusal that does not fire costs a user nothing they had, where a wrong refusal
+takes away control they do have.
+
+The per-provider purge below decided the same ambiguity a third way, refusing to
 count a stored password at all; it can afford that because a refusal there costs
 an administrator one call, while the same reading here would refuse every
-last-link self-unlink on every server. Which reading this rule should take is a
-decision rather than something a reading of the tree settles.
+last-link self-unlink on every server, including the ordinary one where the user
+set their own password and knows it.
 
 The refusal is the caller's own account only. An administrator removing somebody
 ELSE's last link is not refused. An administrator removing their OWN last usable
@@ -586,13 +612,18 @@ workflow this route exists for.
 **A stored password does not count, and that is deliberate.** This plugin mints
 an unguessable password onto every account it provisions, and onto every
 passwordless linked account it finds at startup, so that such an account cannot
-be signed into with an empty one. It records nowhere which accounts those were,
-and the hash it writes is the same field and the same shape as one an
-administrator set. So a non-empty stored password is a secret somebody holds or a
-seal nobody can open, and nothing in the tree separates them. Counting it would
-have cleared this guard for every SSO-provisioned administrator on a server whose
+be signed into with an empty one, and the hash it writes is the same field and the
+same shape as one an administrator set. The plugin records which of those hashes
+it minted, and the self-unlink rule above reads that record - but the record
+reaches only what was minted since it existed, so an account sealed by an earlier
+plugin version still reads as holding a password of its own. THIS rule refuses to
+count any stored password rather than resting on that floor, because counting one
+would clear the guard for every SSO-provisioned administrator on a server whose
 provider routes accounts to Jellyfin's built-in password provider - which is a
-common setting - silently, which is the lockout the guard exists to refuse.
+common setting - silently, which is the lockout the guard exists to refuse. It can
+afford the stricter reading for the reason the rest of this section gives: here a
+wrong refusal costs an administrator one call, where above it would cost a user
+control they hold.
 
 The cost of that is stated rather than hidden: an administrator who really does
 sign in with a password, and who holds a link on the provider being emptied,
@@ -668,9 +699,10 @@ what was measured and names the two remedies, another administrator performs the
 revoke, which is not refused because they are not the holder, or another
 administrator account is linked first; nothing is changed, and the refusal is
 audited. An administrator whose account routes to the built-in password provider
-is not refused, on either route; what neither route reaches is such an account
-behind a password this plugin minted, which is the residual named above and is
-#1733's. An account whose links all sit on switched-off providers, or that holds
+is not refused, on either route, unless the password behind it is one this plugin
+minted: both routes read the minted-password record described above, so that
+account is refused here as it is there, and what neither reaches is the residual
+that record names - an account sealed by a plugin version that kept no record. An account whose links all sit on switched-off providers, or that holds
 none, is not refused, because those links cannot sign anybody in as they stand
 and the repoint is the way back for an administrator already stranded onto this
 plugin's provider id. That reading has the cost the DELETE above writes down: a

@@ -161,6 +161,42 @@ public class SSOControllerLinkTests
     }
 
     [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfTheLastLink_BehindAPasswordThisPluginMinted_Is403()
+    {
+        // THE POPULATION #1720 WAS WRITTEN FOR AND DID NOT REACH (#1733), at the route that refuses. This
+        // caller routes to Jellyfin's built-in password provider - the one value the #1720 reading took as
+        // evidence of a usable password - and the hash behind it is one this plugin minted, never shown to
+        // anybody. On a server whose provider names that id as its Default Provider, every account the
+        // plugin creates is this shape, so before the record existed the refusal never fired there at all.
+        // Handing the controller a reading that answers false for every account reddens this row and
+        // leaves the two either side of it green.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: OneLink, mintedPassword: "the-hash-this-plugin-minted-and-nobody-was-ever-shown");
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, refused.StatusCode);
+        Assert.Equal(Target, harness.Configuration.OidConfigs["keycloak"].CanonicalLinks["sub-1"]);
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task DeleteCanonicalLink_TheHolderOfTheLastLink_BehindAPasswordTheRecordDoesNotName_StillRemovesIt()
+    {
+        // THE HALF THAT COSTS SOMEBODY IF THE READING IS WRONG, and the reason #1733 declined to count
+        // every stored password as no way in. This account is on the password provider holding a hash the
+        // plugin's record does not name - a password its owner chose, or one an earlier plugin version
+        // sealed it with - so the person may well hold a way in, and their last link stays their own to
+        // remove. The row above and this one differ in one fact: whether the record names that hash.
+        var harness = ForCaller(isAdmin: false, callerId: Target, configure: OneLink, mintedPassword: null);
+
+        var result = await harness.Controller.DeleteCanonicalLink("oid", "keycloak", Target, "sub-1");
+
+        Assert.IsType<OkResult>(result);
+        Assert.False(harness.Configuration.OidConfigs["keycloak"].CanonicalLinks.ContainsKey("sub-1"));
+    }
+
+    [Fact]
     public async Task DeleteCanonicalLink_AnAdministrator_RemovesTheLastLinkOfAPasswordlessAccount()
     {
         // An administrator is exempt, and the exemption is read from the caller rather than from the
@@ -728,7 +764,7 @@ public class SSOControllerLinkTests
     // admin (or the target user themselves) with preference access passes AssertCanUpdateUser; a
     // non-admin editing another user, or any caller without EnableUserPreferenceAccess, is refused. A
     // dedicated clientIp lets a throttling test isolate its process-static limiter counter (#382).
-    private static SsoControllerHarness ForCaller(bool isAdmin, Guid callerId, Action<PluginConfiguration>? configure = null, bool enableUserPreferenceAccess = true, IPAddress? clientIp = null, bool passwordLoginDisabled = false)
+    private static SsoControllerHarness ForCaller(bool isAdmin, Guid callerId, Action<PluginConfiguration>? configure = null, bool enableUserPreferenceAccess = true, IPAddress? clientIp = null, bool passwordLoginDisabled = false, string? mintedPassword = null)
     {
         var harness = new SsoControllerHarness(configure, clientIp);
 
@@ -747,6 +783,18 @@ public class SSOControllerLinkTests
         // AuthorizationInfo.UserId is derived from User.Id, so setting the user fixes the caller identity.
         var authInfo = new AuthorizationInfo { User = user };
         harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>()).Returns(Task.FromResult(authInfo));
+
+        // A PASSWORD THIS PLUGIN MINTED IS THE THIRD STATE (#1733), and it is spelled out here rather than
+        // folded into the flag above because it is the one the two ids cannot express: the account routes
+        // to the built-in password provider, exactly like an ordinary one, and the stored hash behind it is
+        // a seal nobody was ever shown. Both halves are written - the hash on the account and its record in
+        // the configuration - because the guard compares them and a test writing only one would pass for
+        // the wrong reason.
+        if (mintedPassword is not null)
+        {
+            user.Password = mintedPassword;
+            ProvisionedPassword.Record(harness.Configuration, callerId, mintedPassword);
+        }
 
         // Present the browser-binding cookie (#326) so the OID link redeem sees the id the seeded state
         // records; the Cookie header is how a DefaultHttpContext exposes Request.Cookies. Harmless for the

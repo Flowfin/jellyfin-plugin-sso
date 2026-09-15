@@ -5057,7 +5057,7 @@ const ssoConfigurationPage = {
               result,
               tr(
                 "config.linked_accounts_revoke_refused_would_strand_server",
-                "The server refused to revoke your own SSO links: no other administrator on this server holds an SSO link that can sign them in, so the revoke could have left this server with no administrator able to reach it. Ask another administrator to revoke them for you, or link another administrator account to a provider first and then revoke your own. Nothing was changed.",
+                "The server refused to revoke your own SSO links: no other administrator on this server holds an SSO link that can sign them in, so the revoke could have left this server with no administrator able to reach it. Ask another administrator to revoke them for you, link another administrator account to a provider first and then revoke your own, or set a password on an administrator account from the Jellyfin dashboard - a password this server generated for an account is not one anybody can sign in with. Nothing was changed.",
               ),
             );
           }

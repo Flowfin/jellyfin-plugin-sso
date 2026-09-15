@@ -96,7 +96,7 @@ public class RequestHelpersTests
         // The one value that evidences a usable password, and the only one that clears the rule (#1720).
         var authContext = ContextFor(OnProvider(SsoAuthenticationProviders.DefaultPasswordProviderId));
 
-        Assert.False(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+        Assert.False(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request(), NoMintedPassword));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class RequestHelpersTests
         // substitutes its invalid one and every password attempt is refused.
         var authContext = ContextFor(OnProvider(SsoManagedProviderId.Value));
 
-        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request(), NoMintedPassword));
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class RequestHelpersTests
         // plugin's own id does.
         var authContext = ContextFor(OnProvider("Some.Plugin.Nobody.Installed"));
 
-        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request(), NoMintedPassword));
     }
 
     [Fact]
@@ -130,18 +130,72 @@ public class RequestHelpersTests
         // pinned anyway because the next caller of this helper may not run that guard first.
         var authContext = ContextFor(user: null);
 
-        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request()));
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request(), NoMintedPassword));
     }
 
     [Fact]
     public async Task PasswordDoor_NoAuthorizationContextAtAll_FailsClosed()
     {
         // The other fail-closed arm, which no route can reach either and which a refactor could.
-        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(null!, Request()));
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(null!, Request(), NoMintedPassword));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_AnAccountOnTheBuiltInProviderHoldingOnlyAMintedPassword_HasNone()
+    {
+        // THE ARM #1733 ADDED, and the one the rule was written for. On a server whose provider
+        // DefaultProvider names Jellyfin's own password provider, every account the plugin creates lands
+        // here: routed at a real password provider, holding a 64-byte secret nobody was ever shown. The
+        // provider-id test alone answers "has a door" for all of them, so the refusal never fired for the
+        // population it exists to protect.
+        var authContext = ContextFor(OnProvider(SsoAuthenticationProviders.DefaultPasswordProviderId));
+
+        Assert.True(await RequestHelpers.CallerHasNoPasswordDoor(authContext, Request(), OnlyAMintedPassword));
+    }
+
+    [Fact]
+    public async Task PasswordDoor_TheRecordIsNotConsultedForAnAccountThatAlreadyHasNoDoor()
+    {
+        // The detector is invoked LAST, so an account that failed the provider-id test never pays a
+        // configuration read for an answer that cannot change. Measured rather than read off the source:
+        // the detector below records being called, and the answer is still the fail-closed one.
+        var authContext = ContextFor(OnProvider(SsoManagedProviderId.Value));
+        var consulted = false;
+
+        var answer = await RequestHelpers.CallerHasNoPasswordDoor(
+            authContext,
+            Request(),
+            _ =>
+            {
+                consulted = true;
+                return false;
+            });
+
+        Assert.True(answer);
+        Assert.False(consulted);
+    }
+
+    [Fact]
+    public async Task PasswordDoor_ADetectorThatIsNotThere_IsRefusedRatherThanDefaulted()
+    {
+        // A missing detector is a wiring fault, and neither default is safe: false silently restores the
+        // #1733 gap on every server, true refuses every last-link self-unlink on every server. So it
+        // throws, before any answer is produced.
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => RequestHelpers.CallerHasNoPasswordDoor(
+                ContextFor(OnProvider(SsoAuthenticationProviders.DefaultPasswordProviderId)),
+                Request(),
+                null!));
     }
 
     private static User OnProvider(string authenticationProviderId) =>
         new User("caller", authenticationProviderId, "Default") { Id = Caller };
+
+    // The two answers the minted-password record can give, named so every case above says which one it
+    // stands on rather than carrying an anonymous lambda a reader has to decode.
+    private static bool NoMintedPassword(User user) => false;
+
+    private static bool OnlyAMintedPassword(User user) => true;
 
     private static IAuthorizationContext ContextFor(User? user)
     {

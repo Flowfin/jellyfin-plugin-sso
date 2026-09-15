@@ -918,6 +918,53 @@ public class ConfigPreservationTests
     }
 
     [Fact]
+    public void Preserve_ReinjectsTheLiveMintedPasswordRecord_SoAConfigSaveCanNeitherWipeNorForgeIt()
+    {
+        // #1733. The map says which accounts hold a password nobody was ever shown, and a guard refuses a
+        // last-link self-unlink on exactly that answer - so both directions of a forged save matter: an
+        // added entry would mark an administrator's account as having no way in, and a dropped one would
+        // clear the refusal for an account that really is sealed. It is JSON-ignored, so a config-page PUT
+        // arrives with it empty, and the re-injection is also what keeps a save from wiping it.
+        var user = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        var forged = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var live = new PluginConfiguration();
+        live.ProvisionedPasswords[user] = "the-digest-the-mint-wrote";
+
+        var incoming = new PluginConfiguration();
+        incoming.ProvisionedPasswords[forged] = "a-digest-a-save-invented";
+
+        ServerManagedFields.Preserve(incoming, live);
+
+        Assert.Same(live.ProvisionedPasswords, incoming.ProvisionedPasswords);
+        Assert.True(incoming.ProvisionedPasswords.ContainsKey(user));
+        Assert.False(incoming.ProvisionedPasswords.ContainsKey(forged));
+    }
+
+    [Fact]
+    public void ProvisionedPasswords_AreOmittedFromJson_UnderEveryNamingPolicy_SoNoSaveCanReadOrForgeOne()
+    {
+        // #1733, and the re-injection above does not cover it. The map decides whether a guard refuses a
+        // caller's own last-link removal, so both JSON directions matter: a response echoing it would tell
+        // a reader which accounts hold a password nobody was ever shown, and a body naming it would be the
+        // forge the re-injection exists to beat. Pinned under the default policy and under camelCase - what
+        // a controller binding uses - so a later [JsonInclude], or a source-generated context that does not
+        // honour the attribute, fails here rather than on somebody's server.
+        var config = new PluginConfiguration();
+        config.ProvisionedPasswords[User] = "A-DIGEST-NOBODY-MAY-SEE";
+
+        foreach (var options in new[]
+        {
+            null,
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase },
+        })
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(config, options);
+            Assert.DoesNotContain("ProvisionedPasswords", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("A-DIGEST-NOBODY-MAY-SEE", json, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void LogoutSessions_AreOmittedFromJson_UnderEveryNamingPolicy_SoTheIdTokenNeverLeaks()
     {
         // The captured id_token is a bearer secret; the whole map is [JsonIgnore] (#727). Pin that it - its

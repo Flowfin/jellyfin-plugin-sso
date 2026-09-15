@@ -3,11 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
-using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Cryptography;
@@ -103,13 +101,30 @@ internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEvent
             // what this removal removed, whatever moved between the guard and the removal. A link that
             // arrives after an empty read is left to the next login of its subject, which treats a dangling
             // link as absent, exactly as before this consumer existed.
-            if (!HoldsAnyLink(links, user.Id))
+            // ONE READ ANSWERS BOTH QUESTIONS (#1733), which is what keeps the accounting above true after
+            // a second thing was given to this consumer to clean up. The minted-password record is keyed on
+            // the ACCOUNT rather than on a link, so an account whose last link was removed before it was
+            // deleted holds the record and no link at all - precisely the account the early return below
+            // walks away from, which is why the record is dropped on both sides of that return. A record
+            // outliving its account would go on describing whichever account a recycled id names next.
+            //
+            // AND ONE WRITE ANSWERS BOTH WHEREVER ONE WRITE CAN. An account that holds a link as well rides
+            // the removal's own transaction instead of paying a second whole-configuration persist for the
+            // same event, which also closes the window where the record was gone and the links were not.
+            var footprint = links.DeletionFootprint(user.Id);
+
+            if (!footprint.HoldsLink)
             {
+                if (footprint.HoldsMintedPasswordRecord)
+                {
+                    links.ForgetProvisionedPassword(user.Id);
+                }
+
                 return Task.CompletedTask;
             }
 
             var providers = new List<string>();
-            var removed = links.RemoveUserEverywhere(user.Id, providers);
+            var removed = links.RemoveUserEverywhere(user.Id, providers, footprint.HoldsMintedPasswordRecord);
             if (removed > 0)
             {
                 SsoAudit.DeletedAccountUnlinked(_logger, user.Id, removed, providers);
@@ -123,12 +138,5 @@ internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEvent
         }
 
         return Task.CompletedTask;
-    }
-
-    // Whether any provider on either protocol holds a link for the account.
-    private static bool HoldsAnyLink(CanonicalLinkService links, Guid userId)
-    {
-        return links.LinksByUser(ProviderMode.Oid, userId).Any(entry => entry.Value.Any())
-            || links.LinksByUser(ProviderMode.Saml, userId).Any(entry => entry.Value.Any());
     }
 }
