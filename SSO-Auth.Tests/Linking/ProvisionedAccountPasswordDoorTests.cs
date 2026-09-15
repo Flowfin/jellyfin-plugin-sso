@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
@@ -142,5 +143,133 @@ public class ProvisionedAccountPasswordDoorTests
         Assert.Equal(SsoAuthenticationProviders.DefaultPasswordProviderId, existing.AuthenticationProviderId);
         Assert.Equal("the-hash-the-owner-chose", existing.Password);
         await users.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+    }
+
+    // ---- #1733: which of the two identical-looking stored hashes this plugin wrote ----------------------
+    //
+    // Both doors above are about SHUTTING the account. These are about the plugin being able to say
+    // afterwards that it was the one who shut it. Without that, a stored hash is a credential somebody
+    // holds or a seal nobody can open, the bytes are the same either way, and every guard asking "does
+    // this account have a password door" has to guess - which on a server whose provider DefaultProvider
+    // names Jellyfin's own password provider means guessing wrong for every account the plugin made.
+
+    [Fact]
+    public async Task NewAccount_ItsMintedPasswordIsRecordedAgainstIt()
+    {
+        var (service, users, _, config) = BuildWithConfig(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        var created = ExpectCreate(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+
+        Assert.True(config.ProvisionedPasswords.ContainsKey(created.Id));
+        Assert.True(service.HoldsOnlyAProvisionedPassword(created));
+    }
+
+    [Fact]
+    public async Task AnAccountWhosePasswordWasReplacedAfterwards_StopsReadingAsSealed()
+    {
+        // THE REASON THE RECORD IS A FINGERPRINT AND NOT A FLAG, and the case that decides it. An owner who
+        // sets a real password on an account this plugin provisioned holds a way in from that moment. A
+        // flag saying "provisioned" would go on claiming otherwise for ever, and the guard reading it would
+        // refuse a user who is in no danger at all - the cost #1733 declined to impose on anybody. Nothing
+        // has to notice the password change for this to work: the recorded digest simply stops matching.
+        var (service, users, _, _) = BuildWithConfig(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
+        var created = ExpectCreate(users, "alice", Created);
+
+        await service.ResolveOrCreateAsync(ProviderMode.Oid, "kc", "sub-1", "alice", allowExistingAccountLink: false);
+        Assert.True(service.HoldsOnlyAProvisionedPassword(created));
+
+        created.Password = "the-hash-of-a-password-its-owner-chose";
+
+        Assert.False(service.HoldsOnlyAProvisionedPassword(created));
+    }
+
+    [Fact]
+    public void AnAccountTheRecordDoesNotName_ReadsAsHoldingItsOwnPassword()
+    {
+        // The residual, pinned rather than hidden: an account sealed by a plugin version that kept no
+        // record reads exactly as it did before #1733. That is the safe direction - a refusal that does
+        // not fire costs a user nothing they had, where a wrong refusal costs them their own control - and
+        // it is the answer this test exists to keep from drifting into "unknown means sealed".
+        var (service, _, _, _) = BuildWithConfig();
+        var stranger = TestUsers.Named("carol", Second);
+        stranger.Password = "some-hash-this-plugin-never-wrote";
+
+        Assert.False(service.HoldsOnlyAProvisionedPassword(stranger));
+    }
+
+    [Fact]
+    public void AnAccountWithNoStoredPasswordAtAll_IsNotRecordedAndDoesNotReadAsSealed()
+    {
+        // An empty password is an OPEN door rather than a sealed one - it is the exact state the boot-time
+        // sweep exists to end - so neither half may treat it as a seal: nothing is recorded for it, and it
+        // reads false even if a record somehow named it.
+        var (service, _, _, config) = BuildWithConfig();
+        var user = TestUsers.Named("dave", Created);
+
+        service.UpdateProvisionedPasswords(new Dictionary<Guid, string> { [user.Id] = string.Empty }, Array.Empty<Guid>());
+
+        Assert.False(config.ProvisionedPasswords.ContainsKey(user.Id));
+        Assert.False(service.HoldsOnlyAProvisionedPassword(user));
+    }
+
+    [Fact]
+    public void TheRecordIsDroppedWhenTheAccountIsForgotten()
+    {
+        // A record outliving its account would describe whichever account a recycled id names next, which
+        // is the whole class #1649 closed for the link maps.
+        var (service, _, _, config) = BuildWithConfig();
+        var user = TestUsers.Named("erin", Created);
+        user.Password = "hash";
+        service.UpdateProvisionedPasswords(new Dictionary<Guid, string> { [user.Id] = user.Password }, Array.Empty<Guid>());
+        Assert.True(service.HoldsOnlyAProvisionedPassword(user));
+
+        Assert.True(service.ForgetProvisionedPassword(user.Id));
+
+        Assert.False(config.ProvisionedPasswords.ContainsKey(user.Id));
+        Assert.False(service.HoldsOnlyAProvisionedPassword(user));
+    }
+
+    [Fact]
+    public void TheDeletionFootprint_AnswersBothQuestionsInOneConfigurationAcquisition()
+    {
+        // The no-write guard the deletion consumer depends on, and the reason both questions are asked
+        // together. Most deleted accounts hold neither a link nor a record, and an unguarded forget would
+        // turn every account deletion on the server into a configuration write; a SECOND read to find that
+        // out would be paid by every deletion too. The counter below is the whole assertion.
+        var acquisitions = 0;
+        var cfg = new PluginConfiguration();
+        cfg.OidConfigs["kc"] = new OidConfig { Enabled = true, CanonicalLinks = new SerializableDictionary<string, Guid> { ["sub-1"] = Created } };
+        cfg.ProvisionedPasswords[Created] = "a-digest";
+        var store = new ProviderConfigStore(
+            () =>
+            {
+                acquisitions++;
+                return cfg;
+            },
+            _ => { },
+            new CapturingLogger());
+        var service = new CanonicalLinkService(Substitute.For<IUserManager>(), new RecordingCryptoProvider(), store, new CapturingLogger());
+
+        var linked = service.DeletionFootprint(Created);
+        var stranger = service.DeletionFootprint(Second);
+
+        Assert.True(linked.HoldsLink);
+        Assert.True(linked.HoldsMintedPasswordRecord);
+        Assert.False(stranger.HoldsLink);
+        Assert.False(stranger.HoldsMintedPasswordRecord);
+        Assert.Equal(2, acquisitions);
+    }
+
+    private static (CanonicalLinkService Service, IUserManager Users, RecordingCryptoProvider Crypto, PluginConfiguration Config) BuildWithConfig(Action<PluginConfiguration>? seed = null)
+    {
+        // The same rig as Build above, with the configuration handed back: the #1733 cases assert on what
+        // the store now holds rather than only on what the account object carries.
+        var cfg = new PluginConfiguration();
+        seed?.Invoke(cfg);
+        var store = new ProviderConfigStore(() => cfg, _ => { }, new CapturingLogger());
+        var users = Substitute.For<IUserManager>();
+        var crypto = new RecordingCryptoProvider();
+        return (new CanonicalLinkService(users, crypto, store, new CapturingLogger()), users, crypto, cfg);
     }
 }

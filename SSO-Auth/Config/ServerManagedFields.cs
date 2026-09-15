@@ -54,6 +54,15 @@ internal static class ServerManagedFields
             // can neither read the stored id_tokens nor forge session entries - the login/logout paths are the
             // only writers, exactly as for the SSO-only bookkeeping above.
             incoming.LogoutSessions = live.LogoutSessions;
+
+            // The minted-password record is server-managed for BOTH reasons the fields above are (#1733), and
+            // the forging direction is the one that decides it. The map says which accounts hold a password
+            // nobody was ever shown, and a guard refuses a last-link self-unlink on exactly that answer - so a
+            // config PUT able to add an entry could mark an administrator's account as having no way in, and
+            // one able to drop an entry could clear the refusal for an account that really is sealed. It is
+            // withheld from JSON, so a config-page save arrives with it empty and re-injecting the live map is
+            // also what keeps a save from wiping it; the two mint sites and the pruner stay the only writers.
+            incoming.ProvisionedPasswords = live.ProvisionedPasswords;
         }
     }
 

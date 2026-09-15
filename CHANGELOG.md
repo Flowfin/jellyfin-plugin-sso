@@ -1110,6 +1110,37 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **The self-unlink refusal now reaches the accounts it was written for
+  (#1733).** This plugin mints an unguessable password onto every account it
+  provisions - 64 random bytes, never displayed, never stored anywhere else and
+  never recoverable - and used to record nowhere which accounts those were. A
+  stored password was therefore a credential somebody holds or a seal nobody can
+  open, and the two were the same bytes, so the guard that asks whether an
+  account has a way in other than its SSO links could only read the account's
+  authentication provider. On a server whose provider sets the built-in password
+  provider as its **Default Provider** - which the settings page offers as a
+  common choice - every account this plugin creates lands on that provider
+  holding a password nobody has, so the guard answered "has a way in" for all of
+  them and the lockout it exists to refuse was reachable exactly as before. The
+  plugin now records which passwords it minted, and only those count as no way
+  in. The record is a digest of the stored value rather than a flag, so it stops
+  applying the moment anything else writes that account's password: a user who
+  sets a real password on an account the plugin created keeps full control of
+  their own links, with nothing to notice the change and nothing to migrate. It
+  is written where the password is minted - both on account creation and by the
+  boot-time pass that seals older accounts - never leaves the server, and is
+  dropped when the account is deleted. A configuration save can neither read it
+  nor invent an entry.
+
+  **What it does not reach, said rather than left to be discovered:** an account
+  sealed by an earlier version of this plugin, which kept no record. Those
+  accounts read as holding a password of their own, exactly as every account did
+  before this change, and the boot-time pass does not re-seal them because they
+  already hold a password. That is the safe direction - a refusal that does not
+  fire costs a user nothing they had, where a wrong refusal would take away
+  control they do have - and the way in for such an account is unchanged: link a
+  second provider first, or ask an administrator.
+
 - **An administrator can no longer strand their own server through the Revoke
   button either (#1741).** `POST sso/Unregister/{username}` removes every SSO
   link an account holds, repoints it and ends its sessions in one call, and it
@@ -1126,9 +1157,9 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   rather than the generic failure. Another administrator's stored password is
   never counted, for the reason the bulk unlink gives and the entry below
   restates. An administrator whose own account routes to the built-in password
-  provider is not refused, on this route or the self-service one; what neither
-  reaches is such an account behind a password this plugin minted, and telling
-  the minted passwords apart is #1733. An account whose links all sit on
+  provider is not refused, on this route or the self-service one, unless the
+  password behind it is one this plugin minted: both routes read the record the
+  entry above adds, so that account is refused on both. An account whose links all sit on
   switched-off providers, or that holds none, is not refused: those links cannot
   sign anybody in as they stand, and the repoint is the way back for an
   administrator already stranded onto this plugin's provider id. That reading is

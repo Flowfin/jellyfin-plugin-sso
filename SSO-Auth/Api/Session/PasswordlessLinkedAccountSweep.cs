@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
@@ -75,6 +77,15 @@ internal sealed class PasswordlessLinkedAccountSweep
     {
         var sealedAccounts = 0;
 
+        // Collected across the pass and written ONCE (#1733). A write per account would be a whole
+        // configuration serialization and persist per account, on the startup path of exactly the upgraded
+        // servers this pass exists for - at the measured cost of a write on a large store that is minutes of
+        // blocked startup for a population in the thousands. What a single write costs instead is a window:
+        // a process that dies between an account's seal and this write leaves that account sealed and
+        // unrecorded, which reads as "holds its own password" - the same answer every account gave before
+        // this change, and the safe direction.
+        var minted = new Dictionary<Guid, string>();
+
         foreach (var userId in _canonicalLinks.LinkedUserIds())
         {
             // A link can outlive the account it points at, which is nothing to do rather than something to
@@ -93,8 +104,33 @@ internal sealed class PasswordlessLinkedAccountSweep
             }
 
             user.Password = ProvisionedPassword.Mint(_cryptoProvider);
+
+            // AND RECORDED (#1733), collected here and written below. Without the record this pass seals an
+            // account and leaves nothing able to tell that seal from a password its owner chose, which is
+            // the ambiguity the record exists to end - and this pass reaches the OLDER accounts, the ones
+            // most likely to include the last administrator on an upgraded server.
+            minted[user.Id] = user.Password;
+
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
             sealedAccounts++;
+        }
+
+        // THE ONE PLACE A RECORD IS EVER RECLAIMED, and the reason this pass is where it happens. The
+        // account-deletion consumer drops a record when the host reports the deletion, which reaches
+        // nothing for an account deleted while the plugin was not loaded - and no roster row, endpoint or
+        // other sweep can see a record, so without this the map would keep an entry for such an account for
+        // ever. Every key whose account no longer resolves is dropped, which is the same "a link can
+        // outlive the account it points at" reading the loop above opens with.
+        //
+        // Resolved OUTSIDE the configuration lock and applied inside it, so the host's user store is never
+        // asked a question while this plugin holds its own lock.
+        var orphaned = _canonicalLinks.ProvisionedPasswordAccounts()
+            .Where(account => !minted.ContainsKey(account) && _userManager.GetUserById(account) is null)
+            .ToList();
+
+        if (minted.Count > 0 || orphaned.Count > 0)
+        {
+            _canonicalLinks.UpdateProvisionedPasswords(minted, orphaned);
         }
 
         // Audited once for the pass rather than once per account: the line carries a count and nothing that

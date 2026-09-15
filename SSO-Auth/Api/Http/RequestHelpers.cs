@@ -13,6 +13,7 @@
 using System;
 using System.Threading.Tasks;
 using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using MediaBrowser.Controller.Net;
@@ -117,9 +118,10 @@ internal static class RequestHelpers
     }
 
     /// <summary>
-    /// Whether the caller behind the request has no password to sign in with, read from the resolved
-    /// account's authentication provider (#1720). It asks for the POSITIVE evidence - the account routes
-    /// to Jellyfin's built-in password provider - and answers true for everything else.
+    /// Whether the caller behind the request has no password to sign in with (#1720/#1733), read from the
+    /// resolved account. It asks for the POSITIVE evidence - the account routes to Jellyfin's built-in
+    /// password provider AND holds a password this plugin did not mint for it - and answers true for
+    /// everything else.
     /// </summary>
     /// <remarks>
     /// THE CALLER'S OWN ACCOUNT IS THE SUBJECT, and on the route that reads this it is also the account
@@ -144,22 +146,34 @@ internal static class RequestHelpers
     /// costs the account.
     /// </para>
     /// <para>
-    /// WHAT IT STILL CANNOT SEE is the account ON the password provider whose password nobody holds, and
-    /// that gap is a real one rather than a technicality. This plugin mints an unguessable password onto
-    /// every account it provisions and never records which, so a stored hash is a credential somebody has
-    /// or a seal nobody can open and the two are the same bytes. Where a provider's <c>DefaultProvider</c>
-    /// names the built-in password provider - which the settings page offers as a common choice - every
-    /// account it provisions lands in exactly that state, and this reading answers "has a door" for all
-    /// of them, so the rule above does not reach them at all.
-    /// <para>
-    /// THE NEIGHBOURING GUARD DECIDED THE SAME AMBIGUITY THE OTHER WAY and is not precedent for this one.
-    /// The administrator-stranding guard in <c>CanonicalLinkService</c> refuses to count a stored password
-    /// as a way in at all, and says why in its own words. It can afford that because its subject is a
-    /// mass action an administrator takes, where a refusal costs one call; this rule sits on the only
-    /// control a user has over their own links, where the same reading would refuse every last-link
-    /// self-unlink on every server. Which of the two this rule should follow is a decision rather than a
-    /// reading, and it is #1733.
+    /// THE SECOND ARM IS THE ACCOUNT ON THE PASSWORD PROVIDER WHOSE PASSWORD NOBODY HOLDS (#1733). This
+    /// plugin mints an unguessable password onto every account it provisions - never displayed, never
+    /// stored anywhere else, never recoverable - so a stored hash used to be a credential somebody has or
+    /// a seal nobody can open, and the two were the same bytes. Where a provider's <c>DefaultProvider</c>
+    /// names the built-in password provider, which the settings page offers as a common choice, EVERY
+    /// account that provider creates lands in exactly that state, and the first arm answers "has a door"
+    /// for all of them - so on those servers this rule did not reach the population it was written for.
+    /// The plugin records which passwords it minted now, and <paramref name="holdsOnlyAMintedPassword"/>
+    /// is that record being read: an account holding nothing but a minted password has no door, whatever
+    /// its provider id says.
     /// </para>
+    /// <para>
+    /// THE THIRD READING - count no stored password as a way in at all - WAS DECLINED ON #1733 and is
+    /// worth naming, because the neighbouring guard takes it. The administrator-stranding guard in
+    /// <c>CanonicalLinkService</c> refuses to count a stored password as a way in, and says why in its
+    /// own words: its subject is a mass action an administrator takes, where a refusal costs one call.
+    /// This rule sits on the only control a user has over their own links, and the same reading here
+    /// would refuse every last-link self-unlink on every server - including the ordinary one where the
+    /// user set their own password and knows it. A rule that refuses to see a password somebody chose is
+    /// not being careful about that user, it is being wrong about them.
+    /// </para>
+    /// <para>
+    /// WHAT THE RECORD CANNOT SEE, stated rather than hidden: an account provisioned by a plugin version
+    /// that did not keep the record and whose password was never re-minted since. The boot-time sweep
+    /// mints and records for every linked account holding NO password, so the population left is the one
+    /// sealed by an earlier version of this plugin - those read as having a door, exactly as every
+    /// account did before this change. The direction is the safe one: a refusal that does not fire costs
+    /// a user nothing they had, where a wrong refusal costs them their own control.
     /// </para>
     /// <para>
     /// Fail-closed on an unresolved caller, for the same reason <see cref="IsAdministrator"/> is: the
@@ -169,9 +183,15 @@ internal static class RequestHelpers
     /// </remarks>
     /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
     /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
+    /// <param name="holdsOnlyAMintedPassword">Reads the minted-password record for a resolved account (#1733). Passed in rather than reached for here, so this helper stays a reading of the request and the test can hand it either answer.</param>
     /// <returns>True when the caller's account accepts no password, or when the caller cannot be resolved.</returns>
-    internal static async Task<bool> CallerHasNoPasswordDoor(IAuthorizationContext authContext, HttpRequest requestContext)
+    internal static async Task<bool> CallerHasNoPasswordDoor(IAuthorizationContext authContext, HttpRequest requestContext, Func<User, bool> holdsOnlyAMintedPassword)
     {
+        // A missing detector is a wiring fault rather than an ambiguous caller, and it is refused here
+        // rather than defaulted either way: defaulting to false would silently restore the #1733 gap on
+        // every server, and defaulting to true would refuse every self-unlink on the planet.
+        ArgumentNullException.ThrowIfNull(holdsOnlyAMintedPassword);
+
         if (authContext is null)
         {
             return true;
@@ -179,6 +199,7 @@ internal static class RequestHelpers
 
         var auth = await authContext.GetAuthorizationInfo(requestContext).ConfigureAwait(false);
         return auth?.User is not { } authenticatedUser
-            || !SsoAuthenticationProviders.IsDefaultPasswordProvider(authenticatedUser.AuthenticationProviderId);
+            || !SsoAuthenticationProviders.IsDefaultPasswordProvider(authenticatedUser.AuthenticationProviderId)
+            || holdsOnlyAMintedPassword(authenticatedUser);
     }
 }

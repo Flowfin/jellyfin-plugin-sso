@@ -103,7 +103,20 @@ internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEvent
             // what this removal removed, whatever moved between the guard and the removal. A link that
             // arrives after an empty read is left to the next login of its subject, which treats a dangling
             // link as absent, exactly as before this consumer existed.
-            if (!HoldsAnyLink(links, user.Id))
+            // ONE READ ANSWERS BOTH QUESTIONS (#1733), which is what keeps the accounting above true after
+            // a second thing was given to this consumer to clean up. The minted-password record is keyed on
+            // the ACCOUNT rather than on a link, so it cannot ride along inside the removal: an account
+            // whose last link was removed before it was deleted holds the record and no link at all, and
+            // that is precisely the account the early return below walks away from. A record outliving its
+            // account would go on describing whichever account a recycled id names next.
+            var footprint = links.DeletionFootprint(user.Id);
+
+            if (footprint.HoldsMintedPasswordRecord)
+            {
+                links.ForgetProvisionedPassword(user.Id);
+            }
+
+            if (!footprint.HoldsLink)
             {
                 return Task.CompletedTask;
             }
@@ -123,12 +136,5 @@ internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEvent
         }
 
         return Task.CompletedTask;
-    }
-
-    // Whether any provider on either protocol holds a link for the account.
-    private static bool HoldsAnyLink(CanonicalLinkService links, Guid userId)
-    {
-        return links.LinksByUser(ProviderMode.Oid, userId).Any(entry => entry.Value.Any())
-            || links.LinksByUser(ProviderMode.Saml, userId).Any(entry => entry.Value.Any());
     }
 }

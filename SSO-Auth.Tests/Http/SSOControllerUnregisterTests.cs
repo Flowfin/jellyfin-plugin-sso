@@ -300,7 +300,8 @@ public class SSOControllerUnregisterTests
         // The password half is the same bound the self-service route has. An administrator whose account
         // routes to the built-in password provider keeps that door through the repoint, so revoking their
         // own links strands nobody, however alone they are on the server - and the ordinary single-owner
-        // server is exactly this shape. The survey is not even asked.
+        // server is exactly this shape. The survey is not even asked. Since #1733 the door has to be one
+        // somebody could actually use, which the row below is the other half of.
         var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] = LinkedProvider(("sub-alice", UserId)));
         var alice = SeedUser(harness, administrator: true);
         alice.AuthenticationProviderId = SsoAuthenticationProviders.DefaultPasswordProviderId;
@@ -407,6 +408,31 @@ public class SSOControllerUnregisterTests
         AssertRefused(await harness.Controller.Unregister("alice", "Jellyfin"));
         await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
         Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("Could not survey the other administrator accounts", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Unregister_AnAdministratorRevokingTheirOwnAccount_BehindAPasswordThisPluginMinted_IsRefused()
+    {
+        // THE POPULATION BOTH GUARDS USED TO MISS (#1733), reached here by the same reading the
+        // self-service route hands in rather than by a rule of this route's own. Alice routes to the
+        // built-in password provider, which is exactly what let the row above through - and the stored
+        // hash behind it is one this plugin minted, never displayed and never recoverable, so the repoint
+        // would land her on a door nobody can open while she is the only administrator holding a link.
+        // Dropping the record argument at the call site reddens this row and leaves the row above green.
+        var minted = "the-hash-this-plugin-minted-and-nobody-was-ever-shown";
+        var harness = new SsoControllerHarness(c =>
+        {
+            c.OidConfigs["keycloak"] = LinkedProvider(("sub-alice", UserId));
+            ProvisionedPassword.Record(c, UserId, minted);
+        });
+        var alice = SeedUser(harness, administrator: true);
+        alice.AuthenticationProviderId = SsoAuthenticationProviders.DefaultPasswordProviderId;
+        alice.Password = minted;
+        ActingAs(harness, alice);
+        harness.UserManager.GetUsers().Returns(new[] { alice });
+
+        AssertRefused(await harness.Controller.Unregister("alice", "Jellyfin"));
+        await harness.SessionManager.DidNotReceive().RevokeUserTokens(Arg.Any<Guid>(), Arg.Any<string?>());
     }
 
     private static void AssertRefused(ActionResult result)

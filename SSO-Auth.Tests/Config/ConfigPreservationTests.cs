@@ -918,6 +918,29 @@ public class ConfigPreservationTests
     }
 
     [Fact]
+    public void Preserve_ReinjectsTheLiveMintedPasswordRecord_SoAConfigSaveCanNeitherWipeNorForgeIt()
+    {
+        // #1733. The map says which accounts hold a password nobody was ever shown, and a guard refuses a
+        // last-link self-unlink on exactly that answer - so both directions of a forged save matter: an
+        // added entry would mark an administrator's account as having no way in, and a dropped one would
+        // clear the refusal for an account that really is sealed. It is JSON-ignored, so a config-page PUT
+        // arrives with it empty, and the re-injection is also what keeps a save from wiping it.
+        var user = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        var forged = Guid.Parse("77777777-7777-7777-7777-777777777777");
+        var live = new PluginConfiguration();
+        live.ProvisionedPasswords[user] = "the-digest-the-mint-wrote";
+
+        var incoming = new PluginConfiguration();
+        incoming.ProvisionedPasswords[forged] = "a-digest-a-save-invented";
+
+        ServerManagedFields.Preserve(incoming, live);
+
+        Assert.Same(live.ProvisionedPasswords, incoming.ProvisionedPasswords);
+        Assert.True(incoming.ProvisionedPasswords.ContainsKey(user));
+        Assert.False(incoming.ProvisionedPasswords.ContainsKey(forged));
+    }
+
+    [Fact]
     public void LogoutSessions_AreOmittedFromJson_UnderEveryNamingPolicy_SoTheIdTokenNeverLeaks()
     {
         // The captured id_token is a bearer secret; the whole map is [JsonIgnore] (#727). Pin that it - its

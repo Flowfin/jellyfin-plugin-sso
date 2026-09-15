@@ -47,6 +47,41 @@ public class DeletedAccountLinkPrunerTests
     }
 
     [Fact]
+    public async Task ADeletedAccount_AlsoLosesItsMintedPasswordRecord()
+    {
+        // #1733 hangs off the ACCOUNT rather than off a link, so it is dropped ahead of the link walk. A
+        // record left behind would go on saying that whichever account a recycled id names next holds a
+        // password nobody was ever shown - and the guard reading it refuses that account's last-link
+        // self-unlink on the strength of it.
+        var (pruner, configuration, _) = Build();
+        configuration.ProvisionedPasswords[Gone] = "a-digest-of-the-hash-this-plugin-wrote";
+        configuration.ProvisionedPasswords[Other] = "the-neighbours-digest";
+
+        await pruner.OnEvent(new UserDeletedEventArgs(TestUsers.Named("alice", Gone)));
+
+        Assert.False(configuration.ProvisionedPasswords.ContainsKey(Gone));
+
+        // The neighbour keeps its own, for the same reason it keeps its link: this is keyed on the deleted
+        // account and is not a sweep.
+        Assert.True(configuration.ProvisionedPasswords.ContainsKey(Other));
+    }
+
+    [Fact]
+    public async Task ADeletedAccountThatHeldNoLink_StillLosesItsMintedPasswordRecord()
+    {
+        // The case that folding this into the link removal would have missed, and it is not a corner: an
+        // account whose last link was removed before it was deleted holds the record and no link at all.
+        // The pruner returns early for exactly that account, so the drop has to happen before the check.
+        var (pruner, configuration, _) = Build();
+        var unlinked = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        configuration.ProvisionedPasswords[unlinked] = "a-digest-of-the-hash-this-plugin-wrote";
+
+        await pruner.OnEvent(new UserDeletedEventArgs(TestUsers.Named("carol", unlinked)));
+
+        Assert.False(configuration.ProvisionedPasswords.ContainsKey(unlinked));
+    }
+
+    [Fact]
     public async Task TheAuditLine_NamesTheProvidersAndTheAccount_AndNotTheSubject()
     {
         var (pruner, _, audit) = Build();

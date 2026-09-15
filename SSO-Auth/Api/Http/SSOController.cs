@@ -2074,11 +2074,16 @@ public class SSOController : ControllerBase
         // account that routes to the built-in password provider has a door this revoke does not touch, so
         // it is not refused here any more than it is there. What the repoint LANDS on is not counted as a
         // way in, because where the body names the built-in password provider the stored hash behind it
-        // may be one this plugin minted and never recorded - a credential somebody holds or a seal nobody
-        // can open, in the same bytes. WHAT THIS DOES NOT REACH IS THE POPULATION THE SELF-SERVICE GUARD
-        // DOES NOT REACH EITHER: an account already on the password provider behind a minted password reads
-        // as having a door on both routes, and telling the minted passwords apart is #1733, which repairs
-        // both routes at the one place the fact is read.
+        // may be one this plugin minted - a credential somebody holds or a seal nobody can open, in the
+        // same bytes.
+        //
+        // THE POPULATION THIS PARAGRAPH SAID NEITHER ROUTE REACHED IS REACHED NOW (#1733), and it is
+        // reached here without a line of its own. An account already on the password provider behind a
+        // password this plugin minted read as having a door on both routes, because nothing recorded which
+        // stored hashes the plugin wrote; the record exists, and the reading of it is inside
+        // CallerHasNoPasswordDoor, so this route gets it by handing the same delegate the self-service
+        // route hands. What is left unreached is that record's own residual: an account sealed by a plugin
+        // version that kept no record still reads as holding a password of its own.
         //
         // The survey is asked only where the three cheap facts already hold, so an administrator revoking
         // somebody else's links - the act this route exists for - pays nothing for a rule that is inert on
@@ -2086,7 +2091,7 @@ public class SSOController : ControllerBase
         // direction that costs a call rather than the server.
         var callerIsTheHolder = await RequestHelpers.CallerIsTheHolder(_authContext, HttpContext.Request, user.Id).ConfigureAwait(false);
         if (callerIsTheHolder
-            && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false)
+            && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request, _canonicalLinks.HoldsOnlyAProvisionedPassword).ConfigureAwait(false)
             && _canonicalLinks.UserHoldsAnEnabledLink(user.Id)
             && !AnotherAdministratorKeepsAWayIn(user.Id))
         {
@@ -2484,10 +2489,25 @@ public class SSOController : ControllerBase
         // WHETHER THE CALLER'S ACCOUNT HAS A PASSWORD DOOR AT ALL (#1720), for the holder's own last-link
         // removal. Read at the boundary beside the administrator fact and from the same resolved account,
         // because the link service holds no user manager and must not grow one to answer a question about
-        // a Jellyfin user. The detector is the one the SSO-only feature, the login-path re-assertion and
+        // a Jellyfin user. The stamp test is the one the SSO-only feature, the login-path re-assertion and
         // the managed-status report already use, so this refusal and the report an administrator reads
-        // cannot disagree about what the stamp means.
-        var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request).ConfigureAwait(false);
+        // cannot disagree about what the STAMP means.
+        //
+        // THEY CAN DISAGREE ABOUT THE PASSWORD SINCE #1733, and this sentence said they could not. This
+        // rule discounts a password this plugin minted; the SSO-only activation guard and the status it
+        // reports still count any non-empty stored password as a way in. So on a server whose provider
+        // DefaultProvider names the built-in password provider, an SSO-provisioned account reads here as
+        // having no door and there as having one. Whether that guard should take this reading is a
+        // security question of its own and is #1746, not something to settle inside this line.
+        //
+        // The second arm (#1733) is handed in as a reading of the link store rather than reached for inside
+        // the helper: the helper's subject is the request, the minted-password record belongs to the link
+        // service, and keeping the two apart is what lets this boundary be tested with either answer. The
+        // delegate is invoked last, so an account that already failed the provider-id test never pays it.
+        var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(
+            _authContext,
+            HttpContext.Request,
+            _canonicalLinks.HoldsOnlyAProvisionedPassword).ConfigureAwait(false);
 
         // WHETHER THE CALLER IS ACTING ON THEIR OWN ACCOUNT (#1732), which is what narrows the exemption
         // #1720 gave an administrator. That exemption was decided for an administrator acting on somebody
