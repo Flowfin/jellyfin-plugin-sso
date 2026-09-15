@@ -13,13 +13,13 @@ name: Publish Release
 # and publishes the release from the tag in CI - never minted out of band, because a
 # deleted immutable release permanently burns its tag.
 #
-# NO PROVIDER MATRIX HERE, DELIBERATELY, AND IT IS A PROMISE RATHER THAN A GATE (#1464). #1462 wired the
-# seven-stack harness into publish-beta.yml and #1464 into publish-jf12-beta.yml, both of which publish
-# daily. This leg has published nothing since #954 retired the stable channel - `manifest-release` is
-# empty and the first `-stable` tag re-opens it - so wiring a gate in now would add a job no run has
-# ever started, which is the defect #1462 was about rather than a fix for it. It is wired when the
-# stable channel re-opens, in the same change that cuts the first stable tag, and this sentence is the
-# whole of the coverage this leg has until then.
+# THE PROVIDER MATRIX GATES THIS LEG, AND THE PROMISE IT REPLACES IS KEPT (#1464, #1511). Until
+# 2026-09-15 this header said no matrix ran here on purpose: the leg had published nothing since #954
+# retired the stable channel, and a gate no run had ever started would have been the defect #1462
+# was about rather than a fix for it. It was to be wired in the same change that cuts the first
+# stable tag, and this is that change. The seven-stack harness runs against the tagged commit before
+# `build` starts, the way publish-beta.yml runs it before a beta, so a red provider publishes
+# nothing and `manifest-release` stays as it was.
 on:
   push:
     tags:
@@ -43,8 +43,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Calling the harness as a job runs it INSIDE this run, at the tagged commit, with no credential to
+  # create. e2e-login.yml denies everything at its top level and its harness job asks for
+  # `contents: read` to check out and build the plugin, so that is granted and nothing else is: this
+  # job publishes nothing. `generation` is left at its default, jf10.11, which is the build this leg
+  # ships.
+  provider-matrix:
+    name: Provider matrix
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-login.yml
+    with:
+      providers: all
+
   build:
     name: Build package
+    needs: provider-matrix
     # A called reusable workflow is capped by the calling job's permissions, so
     # grant the signing scopes here (least privilege: only this job gets them) for
     # build.yml's provenance attestation. id-token: write mints the OIDC token
