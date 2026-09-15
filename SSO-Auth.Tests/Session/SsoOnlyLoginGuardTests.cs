@@ -97,6 +97,19 @@ public class SsoOnlyLoginGuardTests
     }
 
     [Fact]
+    public void TheRefusalNamesTheMintedPasswordRemedy_SoItIsNotADeadEnd()
+    {
+        // #1746 added a population to this refusal that the sentence did not reach. An account this plugin
+        // provisioned holds a password by every signal an operator can see - the Jellyfin dashboard shows
+        // one and the account routes to the built-in password provider - so "designate an account that
+        // still has a password" reads as an instruction to do what they already did, and the refusal
+        // becomes a dead end on a one-owner server. Naming the fact costs nothing under T-I1: the caller is
+        // elevated and supplied the username themselves, so this discloses no account and no roster.
+        Assert.Contains("not one anybody can sign in with", SsoOnlyLoginGuard.PublicRefusalMessage, StringComparison.Ordinal);
+        Assert.Contains("Jellyfin dashboard", SsoOnlyLoginGuard.PublicRefusalMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void IsEnforcedNonExempt_ModeOn_NonExemptUser_IsEnforced()
     {
         var config = new PluginConfiguration { DisablePasswordLogin = true, BreakGlassAdminUsername = "root" };

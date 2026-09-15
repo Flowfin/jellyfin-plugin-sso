@@ -71,10 +71,29 @@ internal sealed class SsoOnlyLoginService
     /// <summary>
     /// Resolves an account by username into the <see cref="BreakGlassAdminState"/> the guard consumes. A
     /// missing account yields <c>Exists = false</c> (default), which the guard fails closed. "Usable
-    /// password login" means the account currently routes to Jellyfin's built-in password provider AND has
-    /// a non-empty stored password - an admin already switched to SSO (or to a third-party provider) cannot
-    /// serve as the break-glass door, and a passwordless account cannot log in without SSO.
+    /// password login" means the account currently routes to Jellyfin's built-in password provider AND
+    /// holds a password somebody could type - an admin already switched to SSO (or to a third-party
+    /// provider) cannot serve as the break-glass door, and a passwordless account cannot log in without SSO.
     /// </summary>
+    /// <remarks>
+    /// A PASSWORD THIS PLUGIN MINTED IS NOT A DOOR (#1746), and counting one was the defect this reading
+    /// carried. On a server whose provider <c>DefaultProvider</c> names Jellyfin's built-in password
+    /// provider, every SSO login writes that id back onto the account, so an SSO-provisioned account
+    /// satisfies the provider half - and the stored password behind it is 64 CSPRNG bytes nobody was ever
+    /// shown. An operator naming such an account as the break-glass administrator passed this guard and
+    /// switched SSO-only login on, and the recovery door the guard exists to prove opened for nobody.
+    /// <para>
+    /// THE STRICTER READING REFUSES MORE AND NEVER FEWER, which is why it needs no weighing against the
+    /// cost the same question carried on the self-unlink route (#1733). Nobody loses a WAY IN - the thing
+    /// that is lost is the ability to switch the mode on with a sealed account, and the remedy is in the
+    /// refusal: <see cref="SsoOnlyLoginGuard.PublicRefusalMessage"/> names the minted password and sends
+    /// the operator to the Jellyfin dashboard to set a real one, which makes the recorded digest stop
+    /// matching by design. Without that sentence this refusal would be a dead end, because a sealed
+    /// account holds a password by every signal the operator can see. The residual #1733 ships with
+    /// carries over unchanged: an account sealed by a plugin version that kept no record reads as holding
+    /// its own password, so this is a floor rather than coverage.
+    /// </para>
+    /// </remarks>
     /// <param name="username">The candidate break-glass admin username.</param>
     /// <returns>The resolved login state.</returns>
     internal BreakGlassAdminState DescribeBreakGlass(string? username)
@@ -90,8 +109,11 @@ internal sealed class SsoOnlyLoginService
             return default;
         }
 
+        // The minted-password read is LAST, so an account that already fails the two free tests never pays
+        // the configuration lock for it - and the lock is the one every login takes.
         var usablePasswordLogin = SsoAuthenticationProviders.IsDefaultPasswordProvider(user.AuthenticationProviderId)
-            && !string.IsNullOrEmpty(user.Password);
+            && !string.IsNullOrEmpty(user.Password)
+            && !_configStore.Read(configuration => ProvisionedPassword.IsTheOnlyPassword(configuration, user));
 
         return new BreakGlassAdminState(
             Exists: true,
@@ -104,16 +126,20 @@ internal sealed class SsoOnlyLoginService
     /// Resolves the named accounts into what the tree can read about their ways in (#1519), for the
     /// per-provider bulk unlink's mass-lockout guard. The same reading <see cref="DescribeBreakGlass"/>
     /// makes, and it lives here rather than beside the caller so "can this account use a password" has one
-    /// home: the built-in password provider plus a non-empty stored password. The mode-dependent half - that
-    /// while SSO-only login is on only the break-glass admin's password door survives - is left to the
-    /// caller, which is the only side holding the configuration.
+    /// home: the built-in password provider plus a stored password that is not one this plugin minted
+    /// (#1746). The mode-dependent half - that while SSO-only login is on only the break-glass admin's
+    /// password door survives - is left to the caller, which is the only side holding the configuration.
     /// </summary>
     /// <remarks>
-    /// Called OUTSIDE the configuration lock, deliberately: the accounts come from a snapshot of one
-    /// provider's link table, that table can carry thousands of entries, and a user-manager call per entry
-    /// inside the lock would block every login for the duration. An id that resolves to no account is
-    /// reported as disabled rather than dropped, so the caller's set stays exactly the set it asked about -
-    /// an account that is not there has no way in for a purge to take, which is the same answer.
+    /// EVERY ACCOUNT IS RESOLVED BEFORE THE LOCK IS TAKEN AND ALL OF THEM ARE JUDGED IN ONE ACQUISITION.
+    /// The user-manager half is what must stay outside: the accounts come from a snapshot of one provider's
+    /// link table, that table can carry thousands of entries, and a call per entry inside the lock would
+    /// block every login for the duration. The minted-password record lives in the configuration, so the
+    /// judging half needs the lock - once for the whole set rather than once per account, which is the
+    /// same distinction the walk in <c>TryPurgeProviderLinks</c> draws for the same reason. An id that
+    /// resolves to no account is reported as disabled rather than dropped, so the caller's set stays
+    /// exactly the set it asked about - an account that is not there has no way in for a purge to take,
+    /// which is the same answer.
     /// </remarks>
     /// <param name="userIds">The accounts to resolve, as the link-table snapshot named them.</param>
     /// <returns>One entry per requested id, in the order asked.</returns>
@@ -121,20 +147,27 @@ internal sealed class SsoOnlyLoginService
     {
         ArgumentNullException.ThrowIfNull(userIds);
 
-        var doors = new List<AccountDoors>(userIds.Count);
+        // The id travels WITH its account rather than beside it in a second list, so the two passes cannot
+        // be correlated by position: the caller's list is enumerated exactly once, and an unresolvable id
+        // still knows which id it was when the lock is taken.
+        var resolved = new List<(Guid Id, User? User)>(userIds.Count);
         foreach (var userId in userIds)
         {
-            var user = _userManager.GetUserById(userId);
-            if (user is null)
-            {
-                doors.Add(new AccountDoors(userId, string.Empty, IsAdministrator: false, IsDisabled: true, RoutesToPasswordProvider: false, HasStoredPassword: false));
-                continue;
-            }
-
-            doors.Add(Describe(user));
+            resolved.Add((userId, _userManager.GetUserById(userId)));
         }
 
-        return doors;
+        return _configStore.Read(configuration =>
+        {
+            var doors = new List<AccountDoors>(resolved.Count);
+            foreach (var (userId, user) in resolved)
+            {
+                doors.Add(user is null
+                    ? new AccountDoors(userId, string.Empty, IsAdministrator: false, IsDisabled: true, RoutesToPasswordProvider: false, HoldsAPasswordSomebodySet: false)
+                    : Describe(configuration, user));
+            }
+
+            return (IReadOnlyList<AccountDoors>)doors;
+        });
     }
 
     /// <summary>
@@ -160,24 +193,34 @@ internal sealed class SsoOnlyLoginService
     /// <exception cref="InvalidOperationException">The loaded Jellyfin build exposes no all-users accessor, so the set cannot be derived; the caller treats that as nobody being left rather than as an empty server.</exception>
     internal IReadOnlyList<AccountDoors> DescribeAdministratorsOtherThan(Guid excluded)
     {
-        return AllUsers()
+        // The walk stays outside the lock and the judging goes inside it, for the reason
+        // <see cref="DescribeAccountDoors"/> gives: this one walks EVERY account on the server, so a
+        // per-account configuration read would take the login path's lock once per account on it.
+        var administrators = AllUsers()
             .Where(user => user.Id != excluded
                 && user.HasPermission(PermissionKind.IsAdministrator)
                 && !user.HasPermission(PermissionKind.IsDisabled))
-            .Select(Describe)
             .ToList();
+
+        return _configStore.Read(configuration =>
+            (IReadOnlyList<AccountDoors>)administrators.Select(user => Describe(configuration, user)).ToList());
     }
 
     // One home for "what can the tree read about this account's ways in", so the two callers above cannot
-    // drift apart about what a password door is.
-    private static AccountDoors Describe(User user) =>
+    // drift apart about what a password door is. A stored password this plugin minted is not a credential
+    // anybody holds (#1746): it is 64 CSPRNG bytes nobody was shown, so an account holding only that has
+    // nothing behind its password field however its provider id reads. The two password facts stay APART
+    // in the record - `AccountDoors` says why - so a caller that wants a door ANDs them; this writes each
+    // one and judges neither. The configuration is passed in rather than read here so one acquisition
+    // covers the whole set.
+    private static AccountDoors Describe(PluginConfiguration configuration, User user) =>
         new(
             user.Id,
             user.Username,
             user.HasPermission(PermissionKind.IsAdministrator),
             user.HasPermission(PermissionKind.IsDisabled),
             SsoAuthenticationProviders.IsDefaultPasswordProvider(user.AuthenticationProviderId),
-            !string.IsNullOrEmpty(user.Password));
+            !string.IsNullOrEmpty(user.Password) && !ProvisionedPassword.IsTheOnlyPassword(configuration, user));
 
     /// <summary>
     /// Re-asserts SSO-only enforcement for a resolved login on the LOGIN path (#165, Findings A/B/H1),

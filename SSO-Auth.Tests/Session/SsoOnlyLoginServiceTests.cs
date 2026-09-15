@@ -280,6 +280,98 @@ public class SsoOnlyLoginServiceTests
         Assert.False(config.DisablePasswordLogin); // designation alone does not enable the mode
     }
 
+    // --- #1746: a password this plugin minted is not the recovery door the guard exists to prove ---------
+    //
+    // The population is not exotic. On a server whose provider DefaultProvider names Jellyfin's built-in
+    // password provider, the session mint writes that id back onto the account at EVERY SSO login, so an
+    // SSO-provisioned account satisfies the provider half of this reading for ever - and the stored
+    // password behind it is 64 CSPRNG bytes nobody was shown. Before this, naming such an account as the
+    // break-glass administrator passed the guard and switched the mode on, and the one door the mode
+    // deliberately leaves open opened for nobody.
+
+    [Fact]
+    public async Task Enable_BreakGlassAccountWhoseOnlyPasswordIsMinted_Refused_AndChangesNothing()
+    {
+        // The negative arm, and it is the whole point of the change: every free test the guard makes still
+        // passes here - the account exists, is an administrator, is enabled, routes to the built-in
+        // password provider and carries a non-empty stored password - and the activation is refused anyway,
+        // because the only thing behind that password is a seal this plugin wrote.
+        var root = PasswordAdmin("root", RootId);
+        var (service, config, users) = Build(
+            new[] { root },
+            c => ProvisionedPassword.Record(c, RootId, root.Password!));
+
+        var outcome = await service.TryEnableAsync("root");
+
+        Assert.Equal(SsoOnlyGuardVerdict.BreakGlassNoPasswordLogin, outcome.Verdict);
+        Assert.False(config.DisablePasswordLogin);
+        Assert.Equal(SsoAuthenticationProviders.DefaultPasswordProviderId, root.AuthenticationProviderId);
+        await users.DidNotReceive().UpdateUserAsync(Arg.Any<User>());
+    }
+
+    [Fact]
+    public async Task Enable_BreakGlassAccountWhosePasswordIsItsOwners_IsStillAdmitted()
+    {
+        // THE NEAR-MISS, and the arm that keeps the refusal from swallowing the operator's remedy. The
+        // record still names this account, so a guard reading a FLAG would refuse it for ever and the only
+        // way out of the refusal above would be deleting and recreating the administrator. The record is a
+        // fingerprint of the stored hash, so the moment the dashboard writes a real password the digest
+        // stops matching and the door is a door again - which is exactly the remedy the refusal names.
+        var root = PasswordAdmin("root", RootId);
+        var (service, config, _) = Build(
+            new[] { root },
+            c => ProvisionedPassword.Record(c, RootId, root.Password!));
+        root.Password = "the-hash-of-a-password-its-owner-chose";
+
+        var outcome = await service.TryEnableAsync("root");
+
+        Assert.Equal(SsoOnlyGuardVerdict.Allow, outcome.Verdict);
+        Assert.True(config.DisablePasswordLogin);
+    }
+
+    [Fact]
+    public void DesignateBreakGlass_TargetWhoseOnlyPasswordIsMinted_Refused_AndDoesNotDesignate()
+    {
+        // The second door onto the same reading. Designation is a separate press from activation and an
+        // operator reaches it while the mode is off, so a refusal that bit only on enable would let the
+        // exemption be pointed at a sealed account and then be believed by everything downstream of it.
+        var root = PasswordAdmin("root", RootId);
+        var (service, config, _) = Build(
+            new[] { root },
+            c => ProvisionedPassword.Record(c, RootId, root.Password!));
+
+        var outcome = service.TryDesignateBreakGlass("root");
+
+        Assert.Equal(SsoOnlyGuardVerdict.BreakGlassNoPasswordLogin, outcome.Verdict);
+        Assert.True(string.IsNullOrEmpty(config.BreakGlassAdminUsername));
+    }
+
+    [Fact]
+    public void DescribeAccountDoors_ReadsAMintedPasswordAsNoDoor_AndKeepsTheSetItWasAsked()
+    {
+        // The second reading (#1746), the one the per-provider bulk unlink's mass-lockout guard is handed.
+        // Both arms in one case because the set is the unit: an account sealed by this plugin reports no
+        // password door, an account holding its owner's password reports one, and an id that resolves to no
+        // account at all is still reported - disabled, in the position it was asked about - so the caller's
+        // set stays exactly the set it passed in.
+        var root = PasswordAdmin("root", RootId);
+        var alice = PasswordUser("alice", AliceId);
+        var (service, _, _) = Build(
+            new[] { root, alice },
+            c => ProvisionedPassword.Record(c, RootId, root.Password!));
+        var vanished = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000000f");
+
+        var doors = service.DescribeAccountDoors(new[] { RootId, AliceId, vanished });
+
+        Assert.Equal(3, doors.Count);
+        Assert.True(doors[0].RoutesToPasswordProvider);
+        Assert.False(doors[0].HoldsAPasswordSomebodySet);
+        Assert.True(doors[1].HoldsAPasswordSomebodySet);
+        Assert.Equal(vanished, doors[2].UserId);
+        Assert.True(doors[2].IsDisabled);
+        Assert.False(doors[2].HoldsAPasswordSomebodySet);
+    }
+
     // --- Finding 2: config.xml total-lockout recovery works via boot reconciliation ---
 
     [Fact]

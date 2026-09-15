@@ -503,13 +503,16 @@ anything else writes that account's password it stops matching and the account
 reads as having a door again, which is why a user who sets a real password keeps
 full control of their own links.
 
-The record is read by this route and by `Unregister`, and by nothing else. The
-SSO-only activation guard and the managed-status report still count any stored
-password as a way in, so those two and this rule can disagree about one account -
-which means an account whose only password this plugin minted can still be named
-as the break-glass administrator when SSO-only login is switched on. That is a
-security question of its own rather than something this rule settles, and it is
-#1746.
+The record is read by this route, by `Unregister`, and - since #1746 - by the
+SSO-only activation guard, which counted any stored password as a way in until
+then. So an account whose only password this plugin minted can no longer be named
+as the break-glass administrator when SSO-only login is switched on: both the
+activation and the designation are refused, and the refusal says that a password
+this server generated is not one anybody can sign in with, so the way forward is
+to set a real password on the account from the Jellyfin dashboard. The
+managed-status report is not one of these readings and never was - it reports the
+account's authentication provider and does not look at the stored password at
+all.
 
 What the record does not reach, said rather than left to be discovered: an account
 sealed by a plugin version that kept no record. Those read as holding a password

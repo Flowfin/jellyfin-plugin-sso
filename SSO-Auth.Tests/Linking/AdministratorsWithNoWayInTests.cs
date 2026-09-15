@@ -72,8 +72,8 @@ public class AdministratorsWithNoWayInTests
         // This line exists for the accounts that keep a server administrable. An ordinary account without a
         // link is the normal outcome of the run, and a disabled administrator had no way in before it.
         var service = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
-        var alice = new AccountDoors(AliceId, "alice", IsAdministrator: false, IsDisabled: false, RoutesToPasswordProvider: true, HasStoredPassword: true);
-        var disabled = new AccountDoors(RootId, "root", IsAdministrator: true, IsDisabled: true, RoutesToPasswordProvider: false, HasStoredPassword: false);
+        var alice = new AccountDoors(AliceId, "alice", IsAdministrator: false, IsDisabled: false, RoutesToPasswordProvider: true, HoldsAPasswordSomebodySet: true);
+        var disabled = new AccountDoors(RootId, "root", IsAdministrator: true, IsDisabled: true, RoutesToPasswordProvider: false, HoldsAPasswordSomebodySet: false);
 
         Assert.Empty(service.AdministratorsWithNoWayIn(new[] { alice, disabled }));
     }
@@ -85,13 +85,13 @@ public class AdministratorsWithNoWayInTests
         // provisions (#1440) and records nowhere which those were, so a non-empty stored password proves
         // nothing about whether anybody can sign in with it.
         var service = Build(c => c.OidConfigs["kc"] = new OidConfig { Enabled = true });
-        var withPassword = new AccountDoors(RootId, "root", IsAdministrator: true, IsDisabled: false, RoutesToPasswordProvider: true, HasStoredPassword: true);
+        var withPassword = new AccountDoors(RootId, "root", IsAdministrator: true, IsDisabled: false, RoutesToPasswordProvider: true, HoldsAPasswordSomebodySet: true);
 
         Assert.Equal(new[] { "root" }, service.AdministratorsWithNoWayIn(new[] { withPassword }));
     }
 
     private static AccountDoors Admin(string name, Guid id)
-        => new(id, name, IsAdministrator: true, IsDisabled: false, RoutesToPasswordProvider: false, HasStoredPassword: false);
+        => new(id, name, IsAdministrator: true, IsDisabled: false, RoutesToPasswordProvider: false, HoldsAPasswordSomebodySet: false);
 
     private static CanonicalLinkService Build(Action<PluginConfiguration> configure)
     {

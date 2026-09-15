@@ -33,23 +33,32 @@ internal enum ProviderLinkPurgeResult
 /// What the tree can read about one account's ways in, resolved through the user manager OUTSIDE the
 /// configuration lock and judged inside it (#1519, T-D1). "Can use a password" is not a single field on a
 /// Jellyfin account and is not asked of the host: it is the same reading the SSO-only break-glass guard
-/// already makes - the account routes to the built-in password provider AND carries a stored password -
-/// and the mode-dependent half of it (SSO-only login is on, and this account is not the break-glass
-/// admin) is applied by the purge, because only the purge holds the configuration.
+/// already makes - the account routes to the built-in password provider AND holds a password somebody
+/// could type - and the mode-dependent half of it (SSO-only login is on, and this account is not the
+/// break-glass admin) is applied by the purge, because only the purge holds the configuration.
 /// </summary>
+/// <remarks>
+/// THE PASSWORD DOOR IS TWO FIELDS AND NEITHER OF THEM IS IT, which is the thing to read before using
+/// one alone. A password door is <c>RoutesToPasswordProvider</c> AND
+/// <c>HoldsAPasswordSomebodySet</c>: an account on a third-party provider (an LDAP plugin, say) can hold
+/// a password of its own while that password reaches no Jellyfin login form, and an account on the
+/// built-in provider can hold only a seal this plugin minted. They are reported apart because the purge
+/// is the only side that can apply the mode-dependent half, and collapsing them here would take that
+/// decision away from it.
+/// </remarks>
 /// <param name="UserId">The account.</param>
 /// <param name="Username">The account's own username, the basis the break-glass exemption is judged on.</param>
 /// <param name="IsAdministrator">Whether the account holds the administrator permission.</param>
 /// <param name="IsDisabled">Whether the account is disabled, and so already has no way in for this run to take.</param>
 /// <param name="RoutesToPasswordProvider">Whether the account's authentication provider is Jellyfin's built-in password provider.</param>
-/// <param name="HasStoredPassword">Whether the account carries a non-empty stored password.</param>
+/// <param name="HoldsAPasswordSomebodySet">Whether the account carries a non-empty stored password that is not one this plugin minted (#1746); a minted one is a seal nobody was shown rather than a credential anybody holds. Says nothing on its own about which login form that password reaches - pair it with <paramref name="RoutesToPasswordProvider"/>.</param>
 internal readonly record struct AccountDoors(
     Guid UserId,
     string Username,
     bool IsAdministrator,
     bool IsDisabled,
     bool RoutesToPasswordProvider,
-    bool HasStoredPassword);
+    bool HoldsAPasswordSomebodySet);
 
 /// <summary>
 /// What one provider's link table looks like to the bulk unlink before it acts (#1519): whether the
