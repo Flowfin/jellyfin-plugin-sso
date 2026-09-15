@@ -330,7 +330,7 @@
   "config.sso_only_per_account": "je Konto",
   "config.sso_only_quoted_scope": "\"nur SSO für jedes Konto außer einem benannten Notfall-Administrator\"",
   "config.sso_only_breakglass_title": "Ein Notfall-Administrator behält immer die Passwortanmeldung.",
-  "config.sso_only_breakglass": "{0} Sie müssen ein bestehendes, aktiviertes Administratorkonto benennen, das noch ein Passwort hat. Dieses Konto wird nie umgeleitet, kann sich also immer mit einem Passwort anmelden, auch wenn der Identitätsanbieter nicht erreichbar ist. Halten Sie sein Passwort stark und offline verwahrt — es ist die Wurzel der Wiederherstellung. Das Einschalten des Modus wird {1}, solange kein solcher Administrator nachweisbar ist.",
+  "config.sso_only_breakglass": "{0} Sie müssen ein bestehendes, aktiviertes Administratorkonto benennen, das noch ein Passwort hat — und ein Passwort, das dieser Server für ein Konto erzeugt hat, ist keines, mit dem sich jemand anmelden kann; ein Konto, das dieses Plugin angelegt hat, braucht deshalb zuerst ein Passwort, das Sie im Jellyfin-Dashboard setzen. Dieses Konto wird nie umgeleitet, kann sich also immer mit einem Passwort anmelden, auch wenn der Identitätsanbieter nicht erreichbar ist. Halten Sie sein Passwort stark und offline verwahrt — es ist die Wurzel der Wiederherstellung. Das Einschalten des Modus wird {1}, solange kein solcher Administrator nachweisbar ist.",
   "config.sso_only_refused": "abgelehnt",
   "config.sso_only_reversible_title": "Der Modus lässt sich ohne SSO zurücknehmen.",
   "config.sso_only_reversible": "{0} Ihn auszuschalten stellt die native Passwortleitung für die Konten wieder her, die der Modus umgeleitet hat, und setzt kein Passwort zurück und gibt keines preis.",
