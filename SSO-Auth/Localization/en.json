@@ -330,7 +330,7 @@
   "config.sso_only_per_account": "per account",
   "config.sso_only_quoted_scope": "\"SSO-only for every account except a designated break-glass admin\"",
   "config.sso_only_breakglass_title": "A break-glass admin always keeps password login.",
-  "config.sso_only_breakglass": "{0} You must designate one existing, enabled administrator account that still has a password. That account is never repointed, so it can always log in with a password even if the identity provider is unreachable. Keep its password strong and stored offline — it is the org's root of recovery. Enabling the mode is {1} unless such an admin is provable.",
+  "config.sso_only_breakglass": "{0} You must designate one existing, enabled administrator account that still has a password — and a password this server generated for an account is not one anybody can sign in with, so an account this plugin created needs a password set on it from the Jellyfin dashboard first. That account is never repointed, so it can always log in with a password even if the identity provider is unreachable. Keep its password strong and stored offline — it is the org's root of recovery. Enabling the mode is {1} unless such an admin is provable.",
   "config.sso_only_refused": "refused",
   "config.sso_only_reversible_title": "The mode is reversible without SSO.",
   "config.sso_only_reversible": "{0} Turning it off restores native password routing for the accounts the mode repointed and never resets or reveals any password.",

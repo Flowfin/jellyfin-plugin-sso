@@ -7,6 +7,7 @@ using System.Linq;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Library;
@@ -68,6 +69,38 @@ public class AdministratorRosterTests
     }
 
     [Fact]
+    public void AnAdministratorWhoseOnlyPasswordIsMinted_IsNamedWithNoPasswordDoor()
+    {
+        // #1746, and the reason this roster reports doors rather than a permission list. Every account this
+        // plugin provisions on a server whose provider DefaultProvider names the built-in password provider
+        // looks exactly like an administrator holding a password: the right provider id and a non-empty
+        // stored hash. What is behind that hash is 64 CSPRNG bytes nobody was shown.
+        var alice = Admin("alice", AliceId);
+        var service = Build(c => ProvisionedPassword.Record(c, AliceId, alice.Password!), Admin("root", RootId), alice);
+
+        var named = Assert.Single(service.DescribeAdministratorsOtherThan(RootId));
+
+        Assert.True(named.RoutesToPasswordProvider);
+        Assert.False(named.HoldsAPasswordSomebodySet);
+    }
+
+    [Fact]
+    public void AnAdministratorWhosePasswordWasReplacedAfterwards_IsNamedWithADoor()
+    {
+        // The falsifier for the arm above, one write apart from it: the record still names this account and
+        // the stored password is no longer the one it recorded. A reading that answered from the record's
+        // PRESENCE would report no door here for ever, and every guard downstream would count an
+        // administrator who does hold a way in as one who does not.
+        var alice = Admin("alice", AliceId);
+        var service = Build(c => ProvisionedPassword.Record(c, AliceId, alice.Password!), Admin("root", RootId), alice);
+        alice.Password = "the-hash-of-a-password-its-owner-chose";
+
+        var named = Assert.Single(service.DescribeAdministratorsOtherThan(RootId));
+
+        Assert.True(named.HoldsAPasswordSomebodySet);
+    }
+
+    [Fact]
     public void ADisabledAdministrator_IsNotNamed()
     {
         // A disabled account has no way in for anybody to take, so counting it would make an empty roster
@@ -113,7 +146,9 @@ public class AdministratorRosterTests
         return user;
     }
 
-    private static SsoOnlyLoginService Build(params User[] allUsers)
+    private static SsoOnlyLoginService Build(params User[] allUsers) => Build(seed: null, allUsers);
+
+    private static SsoOnlyLoginService Build(Action<PluginConfiguration>? seed, params User[] allUsers)
     {
         var users = Substitute.For<IUserManager>();
         users.GetUsers().Returns(allUsers.ToList());
@@ -122,7 +157,9 @@ public class AdministratorRosterTests
             users.GetUserById(user.Id).Returns(user);
         }
 
-        var store = new ProviderConfigStore(() => new PluginConfiguration(), _ => { }, new CapturingLogger());
+        var configuration = new PluginConfiguration();
+        seed?.Invoke(configuration);
+        var store = new ProviderConfigStore(() => configuration, _ => { }, new CapturingLogger());
         return new SsoOnlyLoginService(users, store, new CapturingLogger());
     }
 }

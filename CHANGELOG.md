@@ -1110,6 +1110,31 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Security
 
+- **The break-glass check no longer accepts a password nobody can type
+  (#1746).** Turning SSO-only login on asks one account to prove it can still
+  sign in without the identity provider, and that check counted any stored
+  password as proof. On a server whose provider names the built-in password
+  provider as its **Default Provider**, every SSO sign-in writes that provider
+  back onto the account, and the password behind it on an account this plugin
+  provisioned is 64 random bytes nobody was ever shown. So an operator could
+  name such an account as the break-glass administrator, pass the check, switch
+  SSO-only login on, and end up with a recovery door that opens for nobody - the
+  one outcome the check exists to prevent. Both readings in the SSO-only service
+  now ask the same question the self-unlink refusal asks since #1733: is the
+  stored password one this plugin minted. The direction only ever refuses more,
+  never fewer: nobody loses a **way in**, though an operator whose chosen account
+  is sealed does lose the ability to switch the mode on with that account until
+  they act. The refusal now says so and says what to do about it - a password
+  this server generated for an account is not one anybody can sign in with, so
+  setting a real one from the Jellyfin dashboard is what makes the account
+  eligible, and it is what makes the recorded digest stop matching and the door a
+  door again. The same reading now also describes accounts to the per-provider
+  bulk unlink, so the two cannot drift apart about what a password door is;
+  stated plainly, that unlink's mass-lockout guard does not consult the password
+  fields today and weighs only links, so this half changes no refusal on its own.
+  What it inherits from #1733 is that record's own floor: an account sealed by a
+  plugin version that kept no record still reads as holding a password of its
+  own, so this is a floor rather than coverage.
 - **The self-unlink refusal now reaches the accounts it was written for
   (#1733).** This plugin mints an unguessable password onto every account it
   provisions - 64 random bytes, never displayed, never stored anywhere else and
@@ -1133,12 +1158,15 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   nor invent an entry.
 
   **Two things it does not reach, said rather than left to be discovered.** The
-  SSO-only activation guard and the managed-status report still count any stored
-  password as a way in, so on a server whose provider names the built-in password
-  provider as its **Default Provider** an account whose only password this plugin
-  minted can still be named as the break-glass administrator and still pass the
-  check that is supposed to prove a way back in. That is a security question of
-  its own rather than something this change settles, and it is tracked as #1746.
+  SSO-only activation guard still counted any stored password as a way in, so on
+  a server whose provider names the built-in password provider as its **Default
+  Provider** an account whose only password this plugin minted could still be
+  named as the break-glass administrator and still pass the check that is
+  supposed to prove a way back in. That was a security question of its own rather
+  than something this change settled, it was tracked as #1746, and the entry
+  above records how it was answered. The managed-status report is a separate
+  case and is not one of them: it reads the account's authentication provider and
+  never its stored password, so nothing in it changed either way.
   The migration document's list of what a rebuilt server does not get back now
   names this record too.
 

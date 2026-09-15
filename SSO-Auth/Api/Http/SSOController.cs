@@ -2493,12 +2493,13 @@ public class SSOController : ControllerBase
         // the managed-status report already use, so this refusal and the report an administrator reads
         // cannot disagree about what the STAMP means.
         //
-        // THEY CAN DISAGREE ABOUT THE PASSWORD SINCE #1733, and this sentence said they could not. This
-        // rule discounts a password this plugin minted; the SSO-only activation guard and the status it
-        // reports still count any non-empty stored password as a way in. So on a server whose provider
-        // DefaultProvider names the built-in password provider, an SSO-provisioned account reads here as
-        // having no door and there as having one. Whether that guard should take this reading is a
-        // security question of its own and is #1746, not something to settle inside this line.
+        // THEY AGREE ABOUT THE PASSWORD AGAIN SINCE #1746, and they disagreed for the length of #1733. This
+        // rule discounts a password this plugin minted, and between the two changes the SSO-only activation
+        // guard still counted any non-empty stored password as a way in - so on a server whose provider
+        // DefaultProvider names the built-in password provider, an SSO-provisioned account read here as
+        // having no door and there as having one. #1746 took that reading into the guard, in the direction
+        // that refuses more rather than fewer: SsoOnlyLoginService now asks the same question, so a
+        // break-glass administrator whose only password is a minted one no longer proves a recovery door.
         //
         // The second arm (#1733) is handed in as a reading of the link store rather than reached for inside
         // the helper: the helper's subject is the request, the minted-password record belongs to the link

@@ -29,7 +29,7 @@ internal enum SsoOnlyGuardVerdict
     /// <summary>The designated administrator is disabled, so it cannot log in.</summary>
     BreakGlassDisabled,
 
-    /// <summary>The designated administrator has no usable password login path (wrong provider routing or no password).</summary>
+    /// <summary>The designated administrator has no usable password login path (wrong provider routing, no password, or only one this plugin minted - #1746).</summary>
     BreakGlassNoPasswordLogin,
 }
 
@@ -43,7 +43,7 @@ internal enum SsoOnlyGuardVerdict
 /// <param name="Exists">Whether an account with the designated username exists at all.</param>
 /// <param name="IsAdministrator">Whether that account holds <c>PermissionKind.IsAdministrator</c> (the exemption may only spare an EXISTING admin, never grant admin - T-E1).</param>
 /// <param name="IsEnabled">Whether the account is enabled (not <c>PermissionKind.IsDisabled</c>).</param>
-/// <param name="HasUsablePasswordLogin">Whether the account currently routes to Jellyfin's password provider AND has a non-empty stored password - i.e. it can actually log in without SSO.</param>
+/// <param name="HasUsablePasswordLogin">Whether the account currently routes to Jellyfin's password provider AND holds a password somebody could type - i.e. it can actually log in without SSO. A password this plugin minted does not count (#1746): nobody was ever shown it.</param>
 internal readonly record struct BreakGlassAdminState(bool Exists, bool IsAdministrator, bool IsEnabled, bool HasUsablePasswordLogin);
 
 /// <summary>
@@ -61,8 +61,18 @@ internal static class SsoOnlyLoginGuard
     /// The single, actionable, non-enumerating refusal message every rejected activation surfaces (T-I1):
     /// it names the reason and the fix without leaking which accounts are admins or their login state.
     /// </summary>
+    /// <remarks>
+    /// THE MINTED-PASSWORD REMEDY IS NAMED SINCE #1746, because without it this refusal is a dead end for
+    /// the population that change added. An account this plugin provisioned holds a password by every
+    /// signal an operator can see - the Jellyfin dashboard shows one, the account routes to the built-in
+    /// password provider - so a message that says "designate an account that still has a password" tells
+    /// them to do what they already did. The account is named by the caller, who is already elevated and
+    /// supplied the username, so saying which of the two refusals this is discloses nothing about the
+    /// roster and leaves T-I1 intact. The sibling refusals on the unlink and unregister routes name the
+    /// same fact in the same words.
+    /// </remarks>
     internal const string PublicRefusalMessage =
-        "Cannot enable SSO-only login: no administrator would keep a working password login path. Designate an existing, enabled administrator account that still has a password as the break-glass admin first.";
+        "Cannot enable SSO-only login: no administrator would keep a working password login path. Designate an existing, enabled administrator account that still has a password as the break-glass admin first - and note that a password this server generated for an account is not one anybody can sign in with, so an account this plugin created needs a password set on it from the Jellyfin dashboard before it can serve as the break-glass administrator.";
 
     /// <summary>
     /// Classifies whether the resolved break-glass admin satisfies the survivor guard. Fail-closed by
