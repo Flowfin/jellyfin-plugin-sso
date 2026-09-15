@@ -1,18 +1,20 @@
 name: Nightly betas
 
 # Publish betas on a daily cadence instead of on every push (#632). GitHub `schedule` events only run
-# a workflow from the DEFAULT branch, so this single scheduler lives on the default branch and
-# dispatches both beta legs: publish-beta.yml (JF10.11) and publish-jf12-beta.yml (JF12).
+# a workflow from the DEFAULT branch, so this single scheduler lives on the default branch. It
+# dispatches one beta leg, publish-jf12-beta.yml (JF12).
 #
-# THE TWO LEGS TAKE DIFFERENT REFS, and that is the whole point of this file (#1585). `main` is frozen
-# on the 4.3 stable candidate for its soak, and 4.3 is the LAST release for Jellyfin 10.11 - so the
-# JF10.11 leg keeps building from `main`, which is exactly the artifact the soak is about. The JF12
-# leg does not: the 5.0 line is developed here, and while this leg pointed at the frozen `main` it
-# published the same code every night with a rising build number while the work sat unreleased.
+# THE JF10.11 LEG ENDED WITH 4.3.0-stable (#1511). 4.3 was the last release for Jellyfin 10.11, and
+# on 2026-09-15 it was promoted and work on that line stopped by decision. Its nightly dispatch of
+# publish-beta.yml is removed rather than left to mint betas after the stable: a JF10.11 beta built
+# after the stable would sit above it on the beta channel for a line nobody works on. publish-beta.yml
+# itself stays in the tree and can still be dispatched by hand.
 #
-# So the JF12 ref is the DEVELOPMENT branch and the JF10.11 ref is `main`. If the development branch
-# is ever renamed, this line is the one that has to follow it, and nothing else here does. It was
-# renamed from `4.4` to `5.0` on 2026-09-09 and this line followed one merge too late (#1592).
+# THE JF12 REF IS THE DEVELOPMENT BRANCH (#1585). While the JF12 leg pointed at the frozen `main` it
+# published the same code every night with a rising build number while the work sat unreleased, so
+# it builds from the branch the 5.0 line is developed on. If that branch is ever renamed, the `--ref`
+# below is the one line that has to follow it. It was renamed from `4.4` to `5.0` on 2026-09-09 and
+# this line followed one merge too late (#1592).
 #
 # Each dispatched workflow has its own gate job that skips the build unless its ref has advanced since
 # that lineage's last beta, so an unchanged day mints nothing.
@@ -39,15 +41,10 @@ jobs:
     permissions:
       actions: write
     steps:
-      - name: Trigger the JF10.11 beta (the frozen 4.3 candidate on main)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: gh workflow run publish-beta.yml --repo "$REPO" --ref main
       - name: Trigger the JF12 beta (the 5.0 development branch)
-        # Dispatch the JF12 leg even if the JF10.11 dispatch above failed, so one API hiccup cannot
-        # silently take out both generations' nightly build. The job still fails if either dispatch
-        # failed, and "Publish failure alert" watches this workflow, so the failure is surfaced (#982).
+        # The job fails if the dispatch fails, and "Publish failure alert" watches this workflow, so the
+        # failure is surfaced (#982). The `if:` below dates from when a JF10.11 step ran first and this
+        # one had to run whether or not that one failed; with one step it changes nothing and is kept.
         #
         # The ref is the development branch rather than `main`, for the reason in the header. The
         # first run after this lands publishes: that leg's gate compares its ref's HEAD to the commit
