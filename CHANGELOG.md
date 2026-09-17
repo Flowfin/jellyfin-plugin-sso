@@ -770,6 +770,23 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A provider address that does not answer no longer uses up the whole
+  request, and a failed connect says what the address guard skipped (#1760).**
+  The outbound connect tries a host's allowed addresses one after another, and
+  an attempt had no bound of its own: an address that dropped the connection
+  silently - an IPv6 address a container cannot route, a public address that
+  needs NAT loopback - held it until the caller's whole timeout, so a working
+  address listed after it was never tried and the log said only that the
+  request timed out (#1759). Each attempt is now bounded at five seconds, so a
+  discovery read with its ten-second budget reaches the next address. When the
+  connect fails anyway, its message counts the addresses the guard refused and,
+  where they are on a private network, names **Allow Private Network Addresses**
+  as the setting that would allow them; it names no address, because the
+  message reaches the server log. Loopback, link-local and cloud-metadata
+  addresses are counted but never pointed at that setting, which does not relax
+  them. The guard's policy is unchanged: every address is still classified
+  before anything connects to it.
+
 - **The Test Connection verdict is translated (#1728).** The verdict and the
   facts under it - the issuer, the endpoints, the JWKS key count, a certificate's
   subject and validity - arrived as English sentences built on the server, so a
