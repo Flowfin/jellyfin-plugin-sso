@@ -4,6 +4,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
@@ -59,6 +60,29 @@ internal static class SsoHttp
     /// </summary>
     internal static readonly string UserAgent =
         $"Jellyfin-Plugin-SSO-Auth +{FileVersionInfo.GetVersionInfo(typeof(SsoHttp).Assembly.Location).FileVersion} (https://github.com/Flowfin/jellyfin-plugin-sso)";
+
+    /// <summary>
+    /// How long one connection attempt to one resolved address may take before the next address is tried
+    /// (#1760).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A connect callback replaces the handler's own connect, and with it the fallback between address families
+    /// a default client has. Unbounded, an address that drops the connection silently - an IPv6 address the
+    /// container cannot route, a public address that needs NAT loopback - held the attempt until the caller's
+    /// whole request timeout cancelled it, so a working address listed after it was never tried and the
+    /// administrator read only a timeout (#1759).
+    /// </para>
+    /// <para>
+    /// FIVE SECONDS, AND THE REASON IS THE TWO BUDGETS AROUND IT. A TCP connect that works completes in well
+    /// under a second, and one that lost two SYNs to a bad link still completes in about three; the discovery
+    /// fetch around it is bounded at ten (<c>OidcDiscoveryReader.FetchTimeout</c>), so one silent address and one
+    /// working one fit inside it. The bound applies to every attempt, the last one included, so a host whose only
+    /// allowed address is silent fails with this callback's own message, which names what the guard skipped,
+    /// rather than with the caller's cancellation, which names nothing.
+    /// </para>
+    /// </remarks>
+    internal static readonly TimeSpan ConnectAttemptTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Returns an SSRF-hardened outbound client from the factory (whose primary handler is
@@ -118,51 +142,150 @@ internal static class SsoHttp
     // the admin's own network is additionally reachable, while loopback, link-local and the cloud-metadata
     // ranges stay refused. The policy comes from the handler that captured it, never from the request, so a
     // redirect hop is re-checked under the same tier the connection started on.
-    private static async ValueTask<Stream> ConnectToAllowedAddressAsync(SocketsHttpConnectionContext context, AddressPolicy policy, CancellationToken cancellationToken)
+    private static ValueTask<Stream> ConnectToAllowedAddressAsync(SocketsHttpConnectionContext context, AddressPolicy policy, CancellationToken cancellationToken) =>
+        ConnectToAllowedAddressAsync(
+            context.DnsEndPoint.Host,
+            context.DnsEndPoint.Port,
+            policy,
+            System.Net.Dns.GetHostAddressesAsync,
+            ConnectSocketAsync,
+            ConnectAttemptTimeout,
+            cancellationToken);
+
+    /// <summary>
+    /// The connect guard with its resolver, its socket connect and its per-attempt bound handed in, so a test
+    /// can drive a resolver answer this machine's DNS cannot produce (a refused address beside a silent one) and
+    /// production passes the real three. The policy test is the same one either way: every address is classified
+    /// before anything connects to it.
+    /// </summary>
+    /// <param name="host">The host the request names.</param>
+    /// <param name="port">The port the request names.</param>
+    /// <param name="policy">The address tier the handler captured.</param>
+    /// <param name="resolve">Resolves the host to its addresses, in the resolver's order.</param>
+    /// <param name="connect">Connects to one address and returns the stream, or throws.</param>
+    /// <param name="attemptTimeout">How long one attempt may take before the next address is tried.</param>
+    /// <param name="cancellationToken">The caller's cancellation, which ends the whole connect.</param>
+    /// <returns>A connected stream to the first allowed address that answered.</returns>
+    internal static async ValueTask<Stream> ConnectToAllowedAddressAsync(
+        string host,
+        int port,
+        AddressPolicy policy,
+        Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
+        TimeSpan attemptTimeout,
+        CancellationToken cancellationToken)
     {
-        var addresses = await System.Net.Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(resolve);
+        ArgumentNullException.ThrowIfNull(connect);
+
+        var addresses = await resolve(host, cancellationToken).ConfigureAwait(false);
 
         // Try every non-blocked address in turn (a per-address connect fallback for dual-stack / multi-record
         // hosts, since supplying a ConnectCallback replaces the handler's built-in one), connecting to the
         // validated IP rather than the hostname so a DNS rebind cannot redirect the connection internally.
         Exception? lastError = null;
         var attempted = false;
+
+        // WHAT THE GUARD SKIPPED IS COUNTED, NOT NAMED (#1760). A read that fails after the guard refused an
+        // address reported only a timeout, and nothing pointed at the setting that would have allowed it. The
+        // count goes into the message; the addresses do not, because this message reaches the server log.
+        var refusedRelaxable = 0;
+        var refusedNeverRelaxable = 0;
         foreach (var address in addresses)
         {
             if (IpAddressClassifier.IsBlockedAddress(address, policy))
             {
+                // Relaxable means the private-permitted tier would have allowed it; only then does naming the
+                // setting help. Loopback, link-local and cloud-metadata addresses stay refused under both tiers.
+                if (policy == AddressPolicy.Strict && !IpAddressClassifier.IsBlockedAddress(address, AddressPolicy.PrivateNetworkPermitted))
+                {
+                    refusedRelaxable++;
+                }
+                else
+                {
+                    refusedNeverRelaxable++;
+                }
+
                 continue;
             }
 
             attempted = true;
-            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            var connected = false;
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            attempt.CancelAfter(attemptTimeout);
             try
             {
-                await socket.ConnectAsync(address, context.DnsEndPoint.Port, cancellationToken).ConfigureAwait(false);
-                connected = true;
-                return new NetworkStream(socket, ownsSocket: true);
+                return await connect(address, port, attempt.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The attempt's own bound ended it, not the caller: the next address is tried.
+                lastError = new TimeoutException(
+                    $"A connection attempt did not complete within {attemptTimeout.TotalSeconds:0.#} seconds.",
+                    ex);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 lastError = ex;
             }
-            finally
-            {
-                // Dispose unless ownership passed to the returned NetworkStream. Runs on the cancellation path
-                // too, where the catch filter is skipped and the socket would otherwise leak.
-                if (!connected)
-                {
-                    socket.Dispose();
-                }
-            }
         }
 
+        var skipped = DescribeSkipped(refusedRelaxable, refusedNeverRelaxable);
         if (attempted)
         {
-            throw new HttpRequestException("Could not connect to any allowed address for the outbound host.", lastError);
+            throw new HttpRequestException("Could not connect to any allowed address for the outbound host." + skipped, lastError);
         }
 
-        throw new HttpRequestException("The outbound host resolves only to blocked addresses.");
+        throw new HttpRequestException("The outbound host resolves only to blocked addresses." + skipped);
+    }
+
+    // The sentence that follows a failed connect when the guard skipped anything, or nothing when it did not.
+    private static string DescribeSkipped(int refusedRelaxable, int refusedNeverRelaxable)
+    {
+        var total = refusedRelaxable + refusedNeverRelaxable;
+        if (total == 0)
+        {
+            return string.Empty;
+        }
+
+        var skipped = total == 1
+            ? " 1 of the host's addresses was skipped because the address guard refuses it."
+            : $" {total} of the host's addresses were skipped because the address guard refuses them.";
+        if (refusedRelaxable == 0)
+        {
+            return skipped;
+        }
+
+        // THE SETTING IS NAMED WITH ITS REACH (#1764). This transport also serves the avatar fetch and the SAML
+        // metadata importer, which stay strict by construction, so a sentence that only said to enable the setting
+        // sent a reader whose provider serves pictures from the local network to switch it on for an avatar it
+        // never covers.
+        return skipped
+            + (refusedRelaxable == total
+                ? " Each is on a private network."
+                : $" {refusedRelaxable} of them are on a private network.")
+            + " An OpenID provider's AllowPrivateNetworkAddresses setting allows private addresses for that provider's"
+            + " discovery, token and userinfo requests; avatars and SAML metadata are fetched without it.";
+    }
+
+    // The production connect: a socket to the validated address, disposed unless its stream is returned.
+    private static async ValueTask<Stream> ConnectSocketAsync(IPAddress address, int port, CancellationToken cancellationToken)
+    {
+        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        var connected = false;
+        try
+        {
+            await socket.ConnectAsync(address, port, cancellationToken).ConfigureAwait(false);
+            connected = true;
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        finally
+        {
+            // Dispose unless ownership passed to the returned NetworkStream, on every failure path including a
+            // cancelled attempt.
+            if (!connected)
+            {
+                socket.Dispose();
+            }
+        }
     }
 }

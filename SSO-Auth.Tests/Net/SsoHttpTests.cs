@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
@@ -154,6 +155,162 @@ public class SsoHttpTests
         factory.Received(1).CreateClient(SsoHttp.PrivateOutboundClientName);
         factory.DidNotReceive().CreateClient(SsoHttp.OutboundClientName);
         Assert.Equal(SsoHttp.UserAgent, client.DefaultRequestHeaders.UserAgent.ToString());
+    }
+
+    // Two public addresses the strict tier allows, one playing a host that never answers and one that does.
+    // Neither is ever dialled: the connect is handed in. (The documentation ranges of RFC 5737 would read
+    // better and cannot serve: the guard refuses them as special-purpose.)
+    private static readonly IPAddress SilentPublic = IPAddress.Parse("1.1.1.1");
+    private static readonly IPAddress AnsweringPublic = IPAddress.Parse("8.8.8.8");
+    private static readonly IPAddress LanAddress = IPAddress.Parse("10.1.2.3");
+
+    // A connect that never completes for the silent address and returns a stream for any other, recording
+    // every address it was asked for so a test can say what the guard let through.
+    private static Func<IPAddress, int, CancellationToken, ValueTask<Stream>> FakeConnect(System.Collections.Generic.List<IPAddress> dialled) =>
+        async (address, _, token) =>
+        {
+            lock (dialled)
+            {
+                dialled.Add(address);
+            }
+
+            if (address.Equals(SilentPublic))
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+            }
+
+            return new MemoryStream();
+        };
+
+    private static Func<string, CancellationToken, Task<IPAddress[]>> Resolving(params IPAddress[] addresses) =>
+        (_, _) => Task.FromResult(addresses);
+
+    [Fact]
+    public async Task ConnectGuard_TriesTheNextAddress_WhenOneDoesNotAnswer()
+    {
+        // #1759: a silent address first in the resolver's answer held the attempt until the caller's whole
+        // timeout, so the working address after it was never reached. Each attempt is bounded now.
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+        var connect = SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test",
+            443,
+            AddressPolicy.Strict,
+            Resolving(SilentPublic, AnsweringPublic),
+            FakeConnect(dialled),
+            TimeSpan.FromMilliseconds(200),
+            TestContext.Current.CancellationToken).AsTask();
+
+        var finished = await Task.WhenAny(connect, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        Assert.Same(connect, finished);
+        await using var stream = await connect;
+        Assert.Equal(new[] { SilentPublic, AnsweringPublic }, dialled);
+    }
+
+    [Fact]
+    public async Task ConnectGuard_NamesTheSkippedPrivateAddress_WhenTheOnlyAllowedOneIsSilent()
+    {
+        // #1759's likely shape: split-horizon DNS answers a LAN address the strict guard skips, beside one that
+        // does not answer. The failure now says what was skipped and which setting allows it, and not where.
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+
+        var connect = SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test",
+            443,
+            AddressPolicy.Strict,
+            Resolving(LanAddress, SilentPublic),
+            FakeConnect(dialled),
+            TimeSpan.FromMilliseconds(200),
+            TestContext.Current.CancellationToken).AsTask();
+
+        // Bounded from outside as well, so a regression that drops the per-attempt bound fails here instead of
+        // hanging the suite.
+        var finished = await Task.WhenAny(connect, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.Same(connect, finished);
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => connect);
+
+        Assert.StartsWith("Could not connect to any allowed address for the outbound host.", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("1 of the host's addresses was skipped", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AllowPrivateNetworkAddresses", ex.Message, StringComparison.Ordinal);
+
+        // The same transport serves the avatar fetch and the SAML metadata importer, which the setting never
+        // relaxes (#1764), so the sentence carries the setting's reach rather than a bare "enable it".
+        Assert.Contains("avatars and SAML metadata are fetched without it", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("10.1.2.3", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("1.1.1.1", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<TimeoutException>(ex.InnerException);
+        Assert.Equal(new[] { SilentPublic }, dialled);
+    }
+
+    [Fact]
+    public async Task ConnectGuard_OnlyBlockedAddresses_KeepsItsSentence_AndNamesTheSettingOnlyWhereItWouldHelp()
+    {
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+
+        var lan = await Assert.ThrowsAsync<HttpRequestException>(async () => await SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test", 443, AddressPolicy.Strict, Resolving(LanAddress), FakeConnect(dialled), TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
+        Assert.StartsWith("The outbound host resolves only to blocked addresses.", lan.Message, StringComparison.Ordinal);
+        Assert.Contains("AllowPrivateNetworkAddresses", lan.Message, StringComparison.Ordinal);
+
+        // Loopback stays refused under both tiers, so naming the setting would send the reader the wrong way.
+        var loopback = await Assert.ThrowsAsync<HttpRequestException>(async () => await SsoHttp.ConnectToAllowedAddressAsync(
+            "localhost", 443, AddressPolicy.Strict, Resolving(IPAddress.Loopback), FakeConnect(dialled), TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
+        Assert.StartsWith("The outbound host resolves only to blocked addresses.", loopback.Message, StringComparison.Ordinal);
+        Assert.Contains("1 of the host's addresses was skipped", loopback.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowPrivateNetworkAddresses", loopback.Message, StringComparison.Ordinal);
+
+        Assert.Empty(dialled);
+    }
+
+    [Fact]
+    public async Task ConnectGuard_UnderTheOptIn_DialsThePrivateAddress_AndStillRefusesLoopback()
+    {
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+
+        await using (var stream = await SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test", 443, AddressPolicy.PrivateNetworkPermitted, Resolving(IPAddress.Loopback, LanAddress), FakeConnect(dialled), TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken))
+        {
+            Assert.NotNull(stream);
+        }
+
+        Assert.Equal(new[] { LanAddress }, dialled);
+    }
+
+    [Fact]
+    public async Task ConnectGuard_ResolvesOnce_AndDialsOnlyTheAddressesItJudged()
+    {
+        // DNS rebinding at the guard: a name that answers a public address to the check and a private one to
+        // anything that asks again. The guard must ask once and dial only what it judged.
+        var resolutions = 0;
+        Func<string, CancellationToken, Task<IPAddress[]>> rebinding = (_, _) =>
+        {
+            var call = Interlocked.Increment(ref resolutions);
+            return Task.FromResult(call == 1 ? new[] { LanAddress, AnsweringPublic } : new[] { LanAddress, LanAddress });
+        };
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+
+        await using (var stream = await SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test", 443, AddressPolicy.Strict, rebinding, FakeConnect(dialled), TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken))
+        {
+            Assert.NotNull(stream);
+        }
+
+        Assert.Equal(1, resolutions);
+        Assert.Equal(new[] { AnsweringPublic }, dialled);
+    }
+
+    [Fact]
+    public async Task ConnectGuard_TheCallersCancellation_EndsTheConnect_AndIsNotReadAsASilentAddress()
+    {
+        // The per-attempt bound must not swallow the caller's own cancellation and walk on to the next address.
+        var dialled = new System.Collections.Generic.List<IPAddress>();
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        caller.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await SsoHttp.ConnectToAllowedAddressAsync(
+            "auth.example.test", 443, AddressPolicy.Strict, Resolving(SilentPublic, AnsweringPublic), FakeConnect(dialled), TimeSpan.FromSeconds(30), caller.Token));
+
+        Assert.Equal(new[] { SilentPublic }, dialled);
     }
 
     [Fact]
