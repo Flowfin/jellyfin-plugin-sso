@@ -55,7 +55,7 @@ public partial class ArchitectureConformanceTests
     [InlineData("Routing")] // leaf - the plugin's route-shape contract: RouteSuffix ({protocol}/{path-kind}/{provider} reader), ChallengePath (new/legacy classifier)
     [InlineData("Crypto")] // leaf - the shared asymmetric signing-key strength policy (min RSA bits / approved EC curves), referenced by both protocol paths so they cannot drift (#733)
     [InlineData("LoginButtons")] // leaf - login-page button rendering (#722): pure injector/builder over the config + a branding-sync hosted service; imports no other Api module
-    [InlineData("Logout")] // leaf - Single Logout session-state store (#727): pure bounded operations over the config's LogoutSessions map; imports no other Api module
+    [InlineData("Logout", "RateLimit")] // Single Logout session-state store (#727): pure bounded operations over the config's LogoutSessions map. It stopped being a leaf with the one-time logout ticket (#1768), which borrows the throttled-sweep gate and the per-key occupancy limiter the login stores already bound themselves with rather than growing a second copy of either. THIS LINE SAID "RateLimit is a leaf itself, so no cycle", and the row five above declares RateLimit importing Net - so the premise handed to a reader was false against an adjacent line of the same file. The conclusion holds for the reason it now gives: neither RateLimit nor Net imports Logout, so the edge closes nothing
     [InlineData("Localization")] // leaf - served-surface string localizer (#913): loads embedded per-culture JSON catalogs and resolves keys through a fallback chain; imports no other Api module
 
 

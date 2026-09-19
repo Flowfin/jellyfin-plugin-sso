@@ -18,11 +18,24 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </summary>
 /// <param name="Method">The HTTP method to use.</param>
 /// <param name="Url">A concrete request path with the route parameters filled by placeholders.</param>
-/// <param name="Policy">The named authorization policy, or <c>null</c> for a bare <c>[Authorize]</c>.</param>
+/// <param name="Policy">The named authorization policy; <c>null</c> both for a bare <c>[Authorize]</c> and for an endpoint with no authorization requirement at all.</param>
+/// <param name="Requirement">What the endpoint requires when <paramref name="Policy"/> is null, so the two meanings of null are told apart in every rendering.</param>
 /// <param name="Action">The controller action method name, for a readable completeness assertion.</param>
-public sealed record GatedEndpoint(string Method, string Url, string? Policy, string Action)
+public sealed record GatedEndpoint(string Method, string Url, string? Policy, string Requirement, string Action)
 {
-    public override string ToString() => $"{Method} {Url} [{Policy ?? "authenticated"}] ({Action})";
+    /// <summary>The requirement an endpoint guarded by a bare <c>[Authorize]</c> carries.</summary>
+    public const string Authenticated = "authenticated";
+
+    /// <summary>The requirement an endpoint carries when it has no authorization attribute, or an explicit <c>[AllowAnonymous]</c>.</summary>
+    public const string Anonymous = "anonymous";
+
+    // NULL MEANT ONE THING HERE UNTIL THE ANONYMOUS BUCKET ARRIVED, AND THE RENDERING RESOLVED THE SECOND
+    // MEANING THE WRONG WAY. A policy-less entry printed as "authenticated" because a bare [Authorize] was
+    // the only policy-less case; the bucket for endpoints requiring nothing carries a null policy too, so
+    // every one of them printed as requiring authentication - in exactly the assertion messages a reader
+    // consults to find out which route lost its guard. The requirement travels beside the policy instead of
+    // being inferred from its absence.
+    public override string ToString() => $"{Method} {Url} [{Policy ?? Requirement}] ({Action})";
 }
 
 /// <summary>
@@ -34,23 +47,24 @@ public sealed class EndpointCatalog
 {
     private readonly List<GatedEndpoint> _elevationGated = new();
     private readonly List<GatedEndpoint> _authenticatedOnly = new();
+    private readonly List<GatedEndpoint> _anonymous = new();
 
     public EndpointCatalog(IServiceProvider services)
     {
         var source = services.GetRequiredService<EndpointDataSource>();
         foreach (var endpoint in source.Endpoints.OfType<RouteEndpoint>())
         {
-            // An explicit [AllowAnonymous] beats any [Authorize]; such an endpoint is not gated.
-            if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
-            {
-                continue;
-            }
-
+            // An explicit [AllowAnonymous] beats any [Authorize]; such an endpoint is UNGATED rather than
+            // absent, and it lands in the third bucket below with the endpoints that carry no attribute.
+            var allowAnonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             var authorizeAttributes = endpoint.Metadata.GetOrderedMetadata<AuthorizeAttribute>();
-            if (authorizeAttributes.Count == 0)
-            {
-                continue;
-            }
+
+            // AN UNGATED ENDPOINT IS CLASSIFIED, NOT SKIPPED (#1768). It was skipped until the RP-initiated
+            // OpenID logout had to become reachable by a top-level navigation: taking [Authorize] off an
+            // action then did not move it between buckets, it removed the action from the only suite that
+            // exercises authorization through real ASP.NET routing, silently and at the moment the decision
+            // most deserved a reader. Naming the bucket is what lets a rule assert over it.
+            var ungated = allowAnonymous || authorizeAttributes.Count == 0;
 
             var policy = authorizeAttributes.Select(a => a.Policy).FirstOrDefault(p => !string.IsNullOrEmpty(p));
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? new[] { HttpMethods.Get };
@@ -59,8 +73,17 @@ public sealed class EndpointCatalog
 
             foreach (var method in methods)
             {
-                var gated = new GatedEndpoint(method, url, policy, action);
-                if (string.IsNullOrEmpty(policy))
+                var gated = new GatedEndpoint(
+                    method,
+                    url,
+                    ungated ? null : policy,
+                    ungated ? GatedEndpoint.Anonymous : GatedEndpoint.Authenticated,
+                    action);
+                if (ungated)
+                {
+                    _anonymous.Add(gated);
+                }
+                else if (string.IsNullOrEmpty(policy))
                 {
                     _authenticatedOnly.Add(gated);
                 }
@@ -77,6 +100,13 @@ public sealed class EndpointCatalog
 
     /// <summary>Gets the endpoints guarded by a bare <c>[Authorize]</c> (any authenticated caller).</summary>
     public IReadOnlyList<GatedEndpoint> AuthenticatedOnly => _authenticatedOnly;
+
+    /// <summary>
+    /// Gets the endpoints carrying no authorization requirement at all - no attribute, or an explicit
+    /// <c>[AllowAnonymous]</c>. Reachable by anybody, so it is the bucket a route must never enter by
+    /// accident (#1768).
+    /// </summary>
+    public IReadOnlyList<GatedEndpoint> Anonymous => _anonymous;
 
     // Fills every route parameter with a placeholder segment. A GUID is used everywhere: it is a valid
     // non-empty value for a string parameter and also parses for a Guid-typed one, so routing always reaches

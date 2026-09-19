@@ -42,8 +42,21 @@ public partial class ArchitectureConformanceTests
     // import - an authenticated admin must not be able to spin the outbound probe unthrottled), plus
     // the account-link and unregister mutations. Adding a route here without wiring the gate fails the
     // test; the reverse - an unclassified NEW route - fails EverySensitiveRoute_IsClassified below.
+    // OID/logout/{provider} MOVED HERE FROM THE EXEMPT LIST IN #1768, and the move is the point rather
+    // than bookkeeping. That route lost its [Authorize] so a top-level navigation could reach it with a
+    // one-time ticket, so it calls the gate now, and the exempt entry that described it as "[Authorize]
+    // user logout" described neither half of it any more. IT IS NOT THE ONLY ROUTE HERE REACHABLE WITH NO
+    // CREDENTIAL THAT ENDS A SESSION, WHICH IS WHAT THIS COMMENT SAID: the inbound back-channel OpenID
+    // logout and the inbound SAML LogoutRequest are both on the roster above and both end sessions.
+    // WHERE the call sits is the half a membership
+    // list cannot say: the gate is charged on a FAILED redeem rather than at the head of the route, so a
+    // legitimate sign-out is never throttled while a failed redeem is charged for. The reason that
+    // asymmetry is load-bearing is at the call site: the limiter keys on the client ADDRESS, the default
+    // window equals the ticket lifetime, and a throttle at the head would let one source deny the ticket
+    // sign-out to everybody behind one public address with no credential at all.
     private static readonly string[] MustThrottleRoutes =
     {
+        "OID/logout/{provider}",
         "OID/r/{provider}", "OID/redirect/{provider}", "OID/p/{provider}", "OID/start/{provider}",
         "OID/Test/{provider}", "OID/Auth/{provider}", "OID/backchannel-logout/{provider}",
         "SAML/p/{provider}", "SAML/post/{provider}", "SAML/start/{provider}", "SAML/metadata/{provider}",
@@ -77,7 +90,17 @@ public partial class ArchitectureConformanceTests
     // one of the two lists, which is the classification decision this conformance test forces.
     private static readonly string[] RateLimitExemptRoutes =
     {
-        "OID/logout/{provider}", "SAML/logout/{provider}", // [Authorize] user logout, no fetch
+        "SAML/logout/{provider}", // [Authorize] user logout, no fetch
+        // The logout-ticket mint (#1768). [Authorize] and no outbound fetch. THE REASON RECORDED HERE WAS
+        // THE ROUTE ABOVE'S AND IS NOT THIS ONE'S: a throttled sign-out is a session left live, and this
+        // endpoint is not a sign-out - it ends nothing, and a refused mint leaves nothing live, which the
+        // call site says in its own words. The operative reason is the one stated next, and it is narrower
+        // than an exemption usually is. What bounds this endpoint is the ticket store's per-account
+        // sub-cap, which is an OCCUPANCY bound and not a rate: past its share an account may keep asking
+        // and each ask is still served, so the sub-cap protects the store and NOT this endpoint's cost.
+        // Nothing bounds that cost today, and that is a decision recorded here rather than a protection
+        // claimed.
+        "OID/logout-ticket/{provider}",
         "OID/Add/{provider}", "SAML/Add/{provider}", "OID/Del/{provider}", "SAML/Del/{provider}", // elevated config CRUD
         "OID/Get", "SAML/Get", "OID/GetNames", "SAML/GetNames", "OID/States", // read-only listings
         "SAML/Test/{provider}", // LOCAL certificate parse - no outbound fetch (unlike OID/Test)
@@ -251,8 +274,14 @@ public partial class ArchitectureConformanceTests
     }
 
     // Every controller action as (its route templates, its method-body text): the body runs from an action's
-    // HTTP-attribute cluster to the next action's cluster, which is enough to see whether the (always-first)
-    // RateLimitCheck statement is present. Stacked route attributes on one method (consecutive lines) are one
+    // HTTP-attribute cluster to the next action's cluster, which is enough to see whether a RateLimitCheck
+    // statement is present ANYWHERE in the action. It read "the (always-first) RateLimitCheck statement"
+    // until #1768, and that stopped being true: OID/logout/{provider} charges the gate on each of its two
+    // anonymously reachable REFUSAL arms rather than at its head, because a head throttle there is spent by
+    // any request carrying any ticket string and would deny the ticket sign-out to everybody behind one
+    // public address. So the rule this feeds proves the wiring EXISTS and no longer proves WHERE; what
+    // holds the placement is SSOControllerLogoutTicketTests and the argument written at the call site.
+    // Stacked route attributes on one method (consecutive lines) are one
     // action. Route-template source scan, in the ControllerSourceFiles idiom (#388) so a controller split
     // cannot hide an endpoint.
     private static IReadOnlyList<(IReadOnlyList<string> Routes, string Body)> ControllerActionBlocks()
@@ -319,6 +348,11 @@ public partial class ArchitectureConformanceTests
         "SAML/p/{provider}", "SAML/post/{provider}", "SAML/start/{provider}", // SAML challenge: resolves a stored provider
         "OID/r/{provider}", "OID/redirect/{provider}", "OID/Auth/{provider}", "SAML/Auth/{provider}", // callback/auth: the IdP is answering with a name it was already given
         "OID/logout/{provider}", "SAML/logout/{provider}", "SAML/Logout/{provider}", "OID/backchannel-logout/{provider}", // logout: resolves a stored provider
+        // The logout-ticket mint (#1768) registers nothing: the name is carried into the ticket unexamined
+        // and the ticket is spendable only at the same name, so a name no provider has yields a ticket the
+        // logout route answers exactly as it answers that name today. It never becomes a key in the
+        // provider maps and never reaches a callback URL.
+        "OID/logout-ticket/{provider}",
         "OID/Del/{provider}", "SAML/Del/{provider}", // removal: an already-stored name, or a no-op
         "OID/Test/{provider}", "SAML/Test/{provider}", // admin probe of a STORED provider, 404 on a miss
         "OID/RedirectUri/{provider}", // admin read of a STORED provider's redirect_uri, 404 on a miss (#1303)

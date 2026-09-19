@@ -326,7 +326,7 @@ public sealed class AuthorizationProbeTests
 
     private static IReadOnlyList<GatedEndpoint> Endpoints(int count) =>
         Enumerable.Range(0, count)
-            .Select(i => new GatedEndpoint("GET", "/e" + N(i), "RequiresElevation", "A" + N(i)))
+            .Select(i => new GatedEndpoint("GET", "/e" + N(i), "RequiresElevation", GatedEndpoint.Authenticated, "A" + N(i)))
             .ToList();
 
     private static async Task<IReadOnlyList<string>> Walk(

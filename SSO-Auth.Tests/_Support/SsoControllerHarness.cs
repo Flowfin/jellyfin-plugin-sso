@@ -78,6 +78,10 @@ internal sealed class SsoControllerHarness
         // outstanding-SAML-request cache is the same kind of static and is cleared for the same reason (#415).
         OidcLoginService.ResetOidStateForTests();
         SamlLoginService.ResetSamlRequestsForTests();
+        // The logout-ticket store is the same kind of static (#1768), and it is the one whose leakage would
+        // be hardest to read: a ticket left over from a prior test is redeemable by token alone, so a route
+        // test could pass on somebody else's ticket and say nothing about its own.
+        Jellyfin.Plugin.SSO_Auth.Api.Logout.LogoutTicketService.ResetForTests();
         // The one-time SAML login-outcome store (#251) and the one-time replay cache are process-wide
         // statics too; clear them so a prior test's stored outcome or consumed assertion id cannot leak in.
         SamlLoginService.ResetSamlOutcomesForTests();

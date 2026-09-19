@@ -11,6 +11,32 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **The RP-initiated OpenID logout accepts a one-time ticket, so a client never
+  has to put an access token in a URL (#1768).** That route sends the browser on
+  to the identity provider, so it is reached by a top-level navigation and a
+  navigation carries no `Authorization` header; the only form that worked was the
+  caller's own access token as an `api_key` query parameter, a long-lived
+  credential that lands in browser history, in a referrer and in every proxy log
+  on the way. An authenticated `POST` to `OID/logout-ticket/{provider}` now mints
+  a 256-bit ticket bound to that caller's user, that caller's session and that
+  provider, valid for one minute and redeemable exactly once, and the route
+  accepts it in place of the session. **Read this before upgrading:**
+  `GET OID/logout/{provider}` no longer carries `[Authorize]`, because that
+  attribute refuses a request before the method runs and the ticket path could
+  never satisfy it. The route refuses in the method instead - no ticket and no
+  session is 401, and a ticket that is unknown, expired, already spent or minted
+  for another provider is 401 too, never a silent local sign-out - and both
+  refusals are rate-limited and recorded in the audit trail under a fixed reason
+  code. The mint sits behind the existing `EnableSingleLogout` switch, so no
+  server gains a new _minting_ surface without turning Single Logout on - but the
+  attribute came off the logout route on every install, whatever that switch
+  says, so a server that never enabled Single Logout does gain an
+  anonymously reachable route there. The `api_key` form
+  still works for a client that cannot mint where it carries a user's own access
+  token; a Jellyfin server API key names no user and is now refused, which a bare
+  `[Authorize]` used to admit. There is **no sign-out button yet**:
+  this is the mechanism, and the surface that uses it is still open on #1768.
+
 - **A login refused by the provider's role allow-list now reaches a
   notification destination (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
   single sign-on turned somebody away: Jellyfin raises its own
