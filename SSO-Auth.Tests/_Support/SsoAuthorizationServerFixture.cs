@@ -82,6 +82,12 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
 
     private long _completed;
 
+    /// <summary>
+    /// The substituted user manager the hosted controller resolves, so a row can decide what an account
+    /// resolves to: the ticket arm reads the account behind a ticket again at the redeem (#1793).
+    /// </summary>
+    public IUserManager UserManager { get; }
+
     public SsoAuthorizationServerFixture()
     {
         // Set the process-wide SSOPlugin.Instance the controller reads at construction
@@ -103,7 +109,8 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
         // the controller. They are substitutes: this fixture proves the AUTHORIZATION gate, not the action
         // bodies (those are covered by the in-process SsoControllerHarness tests).
         builder.Services.AddSingleton(Substitute.For<ISessionManager>());
-        builder.Services.AddSingleton(Substitute.For<IUserManager>());
+        UserManager = Substitute.For<IUserManager>();
+        builder.Services.AddSingleton(UserManager);
         builder.Services.AddSingleton(BuildAuthorizationContext());
         builder.Services.AddSingleton<ICryptoProvider>(new FakeCryptoProvider());
         builder.Services.AddSingleton(Substitute.For<IProviderManager>());

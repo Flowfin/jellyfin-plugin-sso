@@ -370,7 +370,12 @@ public class SSOController : ControllerBase
         var viaTicket = false;
         if (!string.IsNullOrEmpty(ticket))
         {
-            var redeemed = _logoutTickets.Redeem(ticket, provider, DateTime.UtcNow);
+            // THE SWITCH REACHES THE REDEEM AND NOT ONLY THE MINT (#1793). Turning Single Logout off is what
+            // an operator does during an incident, and a ticket minted a moment before that stayed spendable
+            // for the rest of its minute while the served page said both surfaces reject. Under the switch
+            // the service refuses every ticket and empties its store, so what the page says is what happens.
+            var singleLogoutEnabled = SSOPlugin.Instance.ReadConfiguration(configuration => configuration.EnableSingleLogout);
+            var redeemed = _logoutTickets.Redeem(ticket, provider, DateTime.UtcNow, singleLogoutEnabled);
             if (redeemed is null)
             {
                 // Unknown, expired, already spent, or minted for a different provider. Refused rather than
@@ -407,6 +412,36 @@ public class SSOController : ControllerBase
                 }
 
                 SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_ticket_not_redeemable");
+                return Unauthorized();
+            }
+
+            // THE ACCOUNT BEHIND THE TICKET IS DECIDED HERE, AND NOT ONLY THE TICKET (#1793). The redeem
+            // compares the token, the provider and the lifetime, which is the whole of what a ticket can say;
+            // the attribute this arm replaced refused on the CALLER'S ACCOUNT STATE, and a ticket minted in
+            // the second before an administrator disabled the account stayed spendable for the rest of its
+            // minute. So the account is read again at the moment it is acted on, by the same two conditions
+            // IsAuthenticatedCaller reads on the other arm - it exists, and it is not disabled - and the two
+            // arms refuse the same set on the account, differing only in how the caller is named. Read after
+            // the ticket is spent, so a refused account's ticket is gone rather than retried; throttled and
+            // audited like the other refusals on this arm, under its own fixed code, so an operator can tell
+            // a refused account from a guess.
+            //
+            // WHAT IS DELIBERATELY NOT READ: whether the session token the ticket carries was revoked after
+            // the mint. Nothing in this tree reads a token's standing without a host lookup this project's
+            // package graph cannot verify. What a revoked token reaches here is a Logout call on a token the
+            // host has already ended, plus the redirect: where the revocation came through the back-channel
+            // logout, that route removed the capture and the redirect is local; where an administrator
+            // revoked the tokens, the capture stands and the account's own id_token is handed to whoever
+            // presents the ticket, for the rest of its minute. That is the residual, and it is stated rather
+            // than closed.
+            if (_userManager.GetUserById(redeemed.UserId) is not { } account || account.HasPermission(PermissionKind.IsDisabled))
+            {
+                if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledAccount)
+                {
+                    return throttledAccount;
+                }
+
+                SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_account_unavailable");
                 return Unauthorized();
             }
 

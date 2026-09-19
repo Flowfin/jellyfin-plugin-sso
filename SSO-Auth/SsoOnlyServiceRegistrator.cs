@@ -68,6 +68,12 @@ public sealed class SsoOnlyServiceRegistrator : IPluginServiceRegistrator
         // splicing a managed block into the server's branding login disclaimer on every config change.
         serviceCollection.AddHostedService<LoginButtonManager>();
 
+        // Empties the one-time logout-ticket store the moment Single Logout is switched off (#1793), so the
+        // access tokens outstanding tickets hold do not wait in memory for a request that may never come:
+        // with the feature off the mint returns early and the redeem is reached only by a visitor, so
+        // nothing else would sweep them.
+        serviceCollection.AddHostedService<Api.Logout.LogoutTicketSwitchService>();
+
         // The plugin's SSRF-hardened outbound client (#755). The OpenID discovery / token / JWKS fetches
         // resolve this named client through SsoHttp.CreateClient, so a provider endpoint that resolves to a
         // private/loopback address is rejected at the transport layer - the same connect-time guard the

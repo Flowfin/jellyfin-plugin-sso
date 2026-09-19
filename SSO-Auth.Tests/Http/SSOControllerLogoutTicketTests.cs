@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
@@ -83,6 +84,10 @@ public class SSOControllerLogoutTicketTests
         var user = userId is null ? null : TestUsers.Named("caller", userId.Value);
         harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
             .Returns(Task.FromResult(new AuthorizationInfo { User = user, Token = token }));
+
+        // The account the ticket arm re-reads at the redeem (#1793): present and enabled unless a row says
+        // otherwise, so every redeem row below exercises the account check on its positive side.
+        harness.UserManager.GetUserById(Caller).Returns(TestUsers.Named("caller", Caller));
         return harness;
     }
 
@@ -354,6 +359,93 @@ public class SSOControllerLogoutTicketTests
         Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogoutTicket("kc"));
         Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc"));
         await harness.SessionManager.DidNotReceive().Logout(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ATicketForAnAccountDisabledAfterTheMint_IsRefusedAtTheRedeem()
+    {
+        // The ticket arm decided about the ticket and about nothing else (#1793): a ticket minted in the
+        // second before an administrator disabled the account stayed spendable for the rest of its minute,
+        // while the attribute this arm replaced refused on the caller's account state. The account is read
+        // again at the redeem, on the same two conditions the session-bearing arm reads.
+        var harness = ForCaller(CallerToken, Caller);
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        var disabled = TestUsers.Named("caller", Caller);
+        disabled.SetPermission(PermissionKind.IsDisabled, true);
+        harness.UserManager.GetUserById(Caller).Returns(disabled);
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc", ticket));
+
+        await harness.SessionManager.DidNotReceive().Logout(Arg.Any<string>());
+        var lines = string.Join(" | ", harness.ControllerLog.Entries.ConvertAll(e => e.Message));
+        Assert.Contains("logout_account_unavailable", lines, StringComparison.Ordinal);
+
+        // Spent, not retried: the refused ticket does not become redeemable again when the account does.
+        harness.UserManager.GetUserById(Caller).Returns(TestUsers.Named("caller", Caller));
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc", ticket));
+    }
+
+    [Fact]
+    public async Task ATicketForAnAccountDeletedAfterTheMint_IsRefused()
+    {
+        // The other half of "exists and is not disabled": an account the host no longer resolves names
+        // nobody, and a ticket for it ends nothing.
+        var harness = ForCaller(CallerToken, Caller);
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        harness.UserManager.GetUserById(Caller).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc", ticket));
+        await harness.SessionManager.DidNotReceive().Logout(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task WithSingleLogoutOff_AnOutstandingTicketIsRefused_AndTheStoreIsEmptied()
+    {
+        // The switch gated the mint and not the redeem (#1793), so turning Single Logout off - what an
+        // operator does during an incident - left every outstanding ticket spendable for the rest of its
+        // minute while the served page said both surfaces reject. The redeem sits behind the switch too, and
+        // it empties the store on the way out, so the tokens those entries hold do not wait for a visitor.
+        var harness = ForCaller(CallerToken, Caller);
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        Assert.Equal(1, LogoutTicketService.OutstandingForTests);
+        SSOPlugin.Instance.MutateConfiguration(c => c.EnableSingleLogout = false);
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc", ticket));
+
+        await harness.SessionManager.DidNotReceive().Logout(Arg.Any<string>());
+        Assert.Equal(0, LogoutTicketService.OutstandingForTests);
+    }
+
+    [Fact]
+    public async Task TurningSingleLogoutOff_EmptiesTheStoreAtTheSave_AndASaveWithItOnDoesNot()
+    {
+        // The hosted service half of #1793: with no request arriving at either surface, the store still
+        // empties at the moment the switch is saved off, and a save that leaves the switch on empties
+        // nothing, because an unrelated configuration write must not refuse a sign-out already under way.
+        var harness = ForCaller(CallerToken, Caller);
+        var watcher = new LogoutTicketSwitchService();
+        await watcher.StartAsync(CancellationToken.None);
+        try
+        {
+            MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+            Assert.Equal(1, LogoutTicketService.OutstandingForTests);
+
+            SSOPlugin.Instance.MutateConfiguration(c => c.OidConfigs["kc"].OidClientId = "client-kc-2");
+            Assert.Equal(1, LogoutTicketService.OutstandingForTests);
+
+            SSOPlugin.Instance.MutateConfiguration(c => c.EnableSingleLogout = false);
+            Assert.Equal(0, LogoutTicketService.OutstandingForTests);
+        }
+        finally
+        {
+            await watcher.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]

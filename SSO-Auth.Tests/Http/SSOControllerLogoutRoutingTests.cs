@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
+using NSubstitute;
 using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
@@ -68,17 +69,31 @@ public sealed class SSOControllerLogoutRoutingTests : IClassFixture<SsoAuthoriza
         // the request cannot carry a header, so a request holding one must pass where the request above is
         // refused. Then the same URL again, which is the one-time claim observed end to end rather than on
         // the store - a browser that fires the navigation twice ends one session, not two.
+        // The account behind the ticket has to resolve, because the redeem reads it again (#1793): a ticket
+        // for an account the host no longer resolves is refused, which is a different row.
+        var userId = Guid.NewGuid();
+        _fixture.UserManager.GetUserById(userId).Returns(TestUsers.Named("routing-probe", userId));
         var ticket = LogoutTicketStore.NewToken();
         LogoutTicketService.SeedForTests(
-            new LogoutTicket(ticket, Provider, Guid.NewGuid(), "routing-probe-session", DateTime.UtcNow));
+            new LogoutTicket(ticket, Provider, userId, "routing-probe-session", DateTime.UtcNow));
 
         using var client = NoRedirectClient();
 
-        using var admitted = await client.GetAsync($"{Route}?ticket={ticket}", TestContext.Current.CancellationToken);
-        using var spent = await client.GetAsync($"{Route}?ticket={ticket}", TestContext.Current.CancellationToken);
+        // The redeem sits behind the Single Logout switch (#1793), and this host's configuration is the
+        // default, where it is off; under the switch every ticket is refused, which is a different row.
+        SSOPlugin.Instance.MutateConfiguration(c => c.EnableSingleLogout = true);
+        try
+        {
+            using var admitted = await client.GetAsync($"{Route}?ticket={ticket}", TestContext.Current.CancellationToken);
+            using var spent = await client.GetAsync($"{Route}?ticket={ticket}", TestContext.Current.CancellationToken);
 
-        Assert.Equal((int)HttpStatusCode.Found, (int)admitted.StatusCode);
-        Assert.Equal(Unauthorized, (int)spent.StatusCode);
+            Assert.Equal((int)HttpStatusCode.Found, (int)admitted.StatusCode);
+            Assert.Equal(Unauthorized, (int)spent.StatusCode);
+        }
+        finally
+        {
+            SSOPlugin.Instance.MutateConfiguration(c => c.EnableSingleLogout = false);
+        }
     }
 
     [Fact]

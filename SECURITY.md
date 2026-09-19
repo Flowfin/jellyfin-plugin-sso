@@ -184,10 +184,15 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   neither a ticket nor a session. Read what that covers precisely: the route
   refuses in place of the attribute on the **session-bearing** path, where it
   requires a resolved, non-disabled user. On the **ticket-bearing** path it
-  decides about the ticket - freshness, provider, one use - and makes no check
-  of the account the ticket names, so a ticket minted in the second before an
-  account is disabled stays spendable for the rest of its minute. What that
-  reaches is a sign-out of that account's own session. A refusal on either path
+  decides about the ticket - freshness, provider, one use - and then reads the
+  account the ticket names again, on the same two conditions: it exists and it
+  is not disabled. A ticket minted in the second before an account is disabled
+  or deleted is refused at the redeem, and the refusal spends it. What is not
+  read on that path is whether the session token the ticket carries was
+  revoked after the mint; where the revocation came through the back-channel
+  logout the capture is gone and the redirect is local, and where an
+  administrator revoked the tokens the account's own `id_token` is still
+  handed to whoever presents the ticket, for the rest of its minute. A refusal on either path
   records a fixed reason code in the audit trail, as every other logout refusal
   does, and a ticket-bearing request that completes records a line of its own,
   naming the provider and whether the browser was sent on to the provider's
@@ -205,10 +210,11 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   limiter is **off unless `EnableRateLimit` is set** (it is unset on a fresh
   install), and it deliberately creates no bucket for a non-public source, so
   behind a reverse proxy whose address Jellyfin has not been told to resolve
-  nothing is throttled even when the setting is on. The mint is behind the
-  `EnableSingleLogout` switch like the surfaces it serves; the redeem is not,
-  so turning the switch off does not invalidate tickets already outstanding.
-  The ticket store is
+  nothing is throttled even when the setting is on. The mint and the redeem
+  are both behind the `EnableSingleLogout` switch: turning it off refuses
+  every outstanding ticket, and the ticket store is emptied at the save by a
+  hosted service subscribed to the configuration change, so the access tokens
+  those entries hold do not wait in memory for the next request. The ticket store is
   held **in memory and never in
   the plugin configuration**, bounded globally and **per account** at a
   hundredth of the global cap, so no single signed-in user can refuse everybody
