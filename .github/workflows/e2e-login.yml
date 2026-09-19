@@ -46,6 +46,14 @@ on:
         description: "Which provider harnesses to run"
         type: string
         default: canonical
+    # A called workflow sees no repository secret unless the caller hands it one, so the pairwise
+    # token is declared here and passed by publish-jf12-beta.yml by name. Optional on purpose: absent,
+    # the pairwise job falls back to the workflow token, which sees no private sibling, and it then
+    # reports that no pair was checked rather than failing (#1773).
+    secrets:
+      PAIRWISE_READ_TOKEN:
+        description: "A token that can read the sibling plugin repositories and their releases"
+        required: false
   # On-demand from any branch. `providers: all` runs the FULL matrix, which is the only way to exercise a
   # newly-added provider harness before a publish actually happens - without it a new entry's first-ever
   # run would be on publish day.
@@ -391,6 +399,15 @@ jobs:
   #
   # No identity provider and no login round-trip. What a pair goes wrong at is co-existence, and every
   # form of that is visible on a server that has merely come up with both plugins installed.
+  #
+  # WHAT THE SIBLING SET IS DEPENDS ON THE TOKEN, since 2026-09-19 (#1773). The sibling repositories
+  # are private, so the listing under this job's own token sees this repository and nothing beside it.
+  # The script does not die on that: it ends green, and it writes into the job log, an annotation and
+  # the step summary that no pair was checked, how many repositories the token could see, and why. A
+  # listing that fails as a call stays fatal. The secret PAIRWISE_READ_TOKEN, where it exists, is used
+  # for the listing and the downloads instead, and the day it exists the phase pairs again with no
+  # further change here; whether it is created is a decision made by hand, and until then a green
+  # conclusion of this job is not co-existence evidence, which is why the run says so out loud.
   pairwise:
     needs: select
     name: Pairwise co-existence
@@ -398,7 +415,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       # To check this repository out and to build the packaged plugin. The sibling listing and the
-      # artefact downloads are public reads that need no more than this token already carries.
+      # artefact downloads run under the token the step below chooses, not under this grant.
       contents: read
     env:
       # The same pin as the login matrix above, for the same reason.
@@ -427,7 +444,11 @@ jobs:
           # publishing its first release joins without an edit here.
           PAIRWISE_OWNER: ${{ github.repository_owner }}
           PAIRWISE_SELF: ${{ github.event.repository.name }}
-          GH_TOKEN: ${{ github.token }}
+          # The token is the switch, not a precondition: the secret where the repository holds one and
+          # the caller passed it, the workflow token otherwise. Under the workflow token the private
+          # siblings are invisible and the script reports an unchecked run; under a token that can read
+          # them it pairs.
+          GH_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN || github.token }}
         run: bash test/e2e/pairwise/run-pairwise.sh
 
       - name: Tear down
