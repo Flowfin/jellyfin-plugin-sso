@@ -3216,12 +3216,17 @@
                                 ⚠ Insecure: relaxes the outbound SSRF /
                                 DNS-rebind guard for this provider, allowing
                                 connection to an OIDC provider hosted on a
-                                private network. Permits RFC 1918, CGNAT and
-                                IPv6 unique-local addresses. Loopback,
-                                link-local and cloud-metadata ranges remain
-                                blocked. Leave off for any provider reachable on
-                                the public internet. Enabling it is recorded as
-                                an audit warning.
+                                private network. The setting covers this
+                                provider's discovery, token and userinfo
+                                requests, and an avatar served from the origin
+                                of those endpoints up to the first redirect;
+                                every other avatar and SAML metadata are fetched
+                                without it. Permits RFC 1918, CGNAT and IPv6
+                                unique-local addresses. Loopback, link-local and
+                                cloud-metadata ranges remain blocked. Leave off
+                                for any provider reachable on the public
+                                internet. Enabling it is recorded as an audit
+                                warning.
                               </div>
                             </details>
                           </div>
