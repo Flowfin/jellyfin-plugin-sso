@@ -81,12 +81,60 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     };
 
     // The endpoints guarded by a bare [Authorize] (any authenticated caller, no elevation) - the canonical
-    // link management surface, plus the RP-initiated OpenID logout and the SP-initiated SAML logout (#727),
-    // where a user logs THEMSELVES out (every action is scoped to the caller's own user id), so they are
+    // link management surface, plus the SP-initiated SAML logout (#727) and the logout-ticket mint (#1768),
+    // where a user acts on THEMSELVES (every action is scoped to the caller's own user id), so they are
     // deliberately non-elevated.
+    //
+    // OidLogout LEFT THIS LIST IN #1768 AND DID NOT BECOME AN UNGUARDED ROUTE, which is the one line in
+    // this file a reviewer should stop at. That route has to be reachable by a top-level NAVIGATION, so it
+    // can accept a one-time ticket in place of a session header, and [Authorize] refuses a request the
+    // ticket would have authorised before the method ever runs. So the attribute came off and the method
+    // took the decision itself, refusing in every case the attribute refused: no ticket and no session is
+    // 401, and a ticket that is unknown, expired, already spent or minted for another provider is 401 too.
+    // What holds that is SSOControllerLogoutTicketTests, one row per refusal, with a positive control for
+    // the session-bearing form beside them - because a list this route has left cannot say anything about
+    // it, and a reader of this comment should be sent to the rows rather than to the sentence.
     private static readonly string[] ExpectedAuthenticatedActions =
     {
-        "AddCanonicalLink", "DeleteCanonicalLink", "GetSamlLinksByUser", "GetOidLinksByUser", "OidLogout", "SamlSpLogout",
+        "AddCanonicalLink", "DeleteCanonicalLink", "GetSamlLinksByUser", "GetOidLinksByUser", "OidLogoutTicket", "SamlSpLogout",
+    };
+
+    // The actions on THIS controller that carry no authorization attribute at all. Every login-path endpoint
+    // is here by design - a challenge, a callback and a metadata read are reached before anybody is signed in -
+    // and so, since #1768, is the RP-initiated OpenID logout, which has to be reachable by a top-level
+    // navigation carrying a one-time ticket instead of a session header.
+    //
+    // THIS ROSTER EXISTS BECAUSE ITS ABSENCE WAS THE GAP. EndpointCatalog skipped an endpoint with no
+    // AuthorizeAttribute, so such a route landed in neither bucket above and the two rules over them said
+    // nothing about it. Taking [Authorize] off an action therefore did not move it between rosters, it
+    // removed it from the only suite that exercises authorization through real ASP.NET routing - silently,
+    // and at exactly the moment the decision most deserved a reader. Every neighbouring decision in this
+    // repository carries a roster with a completeness rule (RateLimitExemptRoutes, ProviderNameExemptRoutes);
+    // "this route is deliberately anonymous" was the one that did not, so the next removal failed nothing.
+    // It does now.
+    private static readonly string[] ExpectedAnonymousActions =
+    {
+        // The login path, reached before anybody is signed in: a challenge, the identity provider's callback,
+        // the session-minting leg, and the SAML service-provider metadata a provider fetches.
+        "OidChallenge", "OidCallback", "OidAuth",
+        "SamlChallenge", "SamlCallback", "SamlAuth", "SamlMetadata",
+
+        // The inbound Single Logout endpoints, where the identity provider is the caller and a signature is
+        // the only authenticator.
+        "OidBackChannelLogout", "SamlLogout",
+
+        // The RP-initiated OpenID logout (#1768). It has to be reachable by a top-level navigation, which
+        // carries no Authorization header, so it accepts a one-time ticket instead and refuses in the method.
+        // This is the entry to read twice: it is the only one here that ends a session.
+        "OidLogout",
+
+        // The enabled-provider name lists, anonymous by the decision recorded at their own call sites (#540):
+        // the same names are already in the served linking page's DOM for an anonymous visitor.
+        "OidProviderNames", "SamlProviderNames",
+
+        // The served pages and their UI strings, on SSOViewsController rather than SSOController: a
+        // read-only embedded asset and the catalog that localizes it (#913).
+        "GetView", "GetLocalizationCatalog",
     };
 
     private readonly SsoAuthorizationServerFixture _fixture;
@@ -110,6 +158,16 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     {
         var discovered = _fixture.Endpoints.AuthenticatedOnly.Select(e => e.Action).Distinct().OrderBy(n => n, StringComparer.Ordinal);
         Assert.Equal(ExpectedAuthenticatedActions.OrderBy(n => n, StringComparer.Ordinal), discovered);
+    }
+
+    [Fact]
+    public void TheAnonymousSurfaceIsExactlyTheDeclaredOne()
+    {
+        // The third bucket, asserted set-equal like the other two. A route that loses its authorization
+        // attribute now has to be added here in the same change, where a reader meets the decision; a route
+        // that gains one has to be removed. Neither can happen in silence.
+        var discovered = _fixture.Endpoints.Anonymous.Select(e => e.Action).Distinct().OrderBy(n => n, StringComparer.Ordinal);
+        Assert.Equal(ExpectedAnonymousActions.OrderBy(n => n, StringComparer.Ordinal), discovered);
     }
 
     [Fact]

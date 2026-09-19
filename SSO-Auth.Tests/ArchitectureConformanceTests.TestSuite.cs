@@ -83,6 +83,12 @@ public partial class ArchitectureConformanceTests
         // Opened by the harness constructor, so every test that builds a harness clears the one-time
         // SAML outcome store; no test names it directly.
         ["SamlLoginService.ResetSamlOutcomesForTests"] = HarnessDoor,
+
+        // Opened by the harness constructor for the same reason and in the same breath as the line above:
+        // the one-time logout ticket store (#1768) is process-wide, a ticket is redeemable by token alone,
+        // and a leftover one would let a route test pass on a ticket it never minted. Tests name the SEED
+        // hook beside it directly; nothing names this one.
+        ["LogoutTicketService.ResetForTests"] = HarnessDoor,
     };
 
     /// <summary>

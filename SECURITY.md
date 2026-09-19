@@ -158,6 +158,62 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   ignored at runtime), and validated at both points by one shared predicate. A
   missing or unreachable `end_session_endpoint` degrades to a local-only logout -
   it never breaks sign-out.
+- **The RP-initiated logout route accepts a one-time ticket, so a client never
+  has to put an access token in a URL.** That route sends the browser on to the
+  identity provider, so it is reached by a top-level navigation, and a
+  navigation carries no `Authorization` header; the only form that worked
+  before was the caller's own access token as an `api_key` query parameter, a
+  long-lived credential that lands in browser history, in a referrer and in
+  every proxy log on the way. An authenticated `POST` to
+  `OID/logout-ticket/{provider}` now mints a **256-bit CSPRNG ticket bound to
+  that caller's user, that caller's session and that provider**, valid for one
+  minute and redeemable **exactly once** by an atomic claim. The route refuses -
+  it does not degrade to a local sign-out - when a ticket is unknown, expired,
+  already spent, or minted for another provider, and refuses a request carrying
+  neither a ticket nor a session. Read what that covers precisely: the route
+  refuses in place of the attribute on the **session-bearing** path, where it
+  requires a resolved, non-disabled user. On the **ticket-bearing** path it
+  decides about the ticket - freshness, provider, one use - and makes no check
+  of the account the ticket names, so a ticket minted in the second before an
+  account is disabled stays spendable for the rest of its minute. What that
+  reaches is a sign-out of that account's own session. A refusal on either path
+  records a fixed reason code in the audit trail, as every other logout refusal
+  does; a ticket-bearing request that SUCCEEDS records nothing, so an anonymous
+  session termination leaves no line of its own.
+  The ticket-bearing form charges the Logout rate-limit class on a **failed**
+  redeem - never on a successful one, so a legitimate sign-out is never
+  throttled; the credential-less form charges it too, before it audits. The
+  charge is made **after** the redeem has been evaluated, so what the limiter
+  bounds is the answer and the audit line rather than the guessing or the work.
+  Read all of that as a floor and not as a guarantee: the
+  limiter is **off unless `EnableRateLimit` is set** (it is unset on a fresh
+  install), and it deliberately creates no bucket for a non-public source, so
+  behind a reverse proxy whose address Jellyfin has not been told to resolve
+  nothing is throttled even when the setting is on. The mint is behind the
+  `EnableSingleLogout` switch like the surfaces it serves; the redeem is not,
+  so turning the switch off does not invalidate tickets already outstanding.
+  The ticket store is
+  held **in memory and never in
+  the plugin configuration**, bounded globally and **per account** at a
+  hundredth of the global cap, so no single signed-in user can refuse everybody
+  else a sign-out - a hundred accounts holding their full share can, and the
+  mint is deliberately not rate-limited. The `api_key`
+  form still works for a client that cannot mint **where it carries a user's own
+  access token**; a Jellyfin server API key names no user and is refused here,
+  which a bare `[Authorize]` used to admit.
+- **The residual the ticket leaves, stated because this entry's own framing is
+  what creates it.** A ticket is presented as a query parameter of a top-level
+  navigation, so it travels the same three channels the access token was
+  condemned for above: browser history, the server's own request log, and every
+  reverse-proxy access log between the browser and Jellyfin. The redeem binds
+  nothing about the presenting request - not its address, not its user agent -
+  so whoever reads a ticket out of one of those channels inside its minute and
+  wins the race against the user's own navigation can spend it: they end that
+  user's Jellyfin session and receive that user's `id_token` in the redirect to
+  the identity provider. The trade against a long-lived access token in the same
+  place is a large improvement and it is not an elimination, and the property
+  the ticket removes is the credential's LIFETIME rather than its presence in a
+  URL.
 - **SP-initiated outbound SAML logout** ends the caller's own local session and
   then redirects the browser to the provider's configured `SamlSloEndpoint` (a
   validated absolute-`https` URL, never request-derived) with a `LogoutRequest`

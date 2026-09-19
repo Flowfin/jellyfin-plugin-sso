@@ -188,6 +188,19 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
     /// unresolved would make the helper deny (a clean 403) and make an in-body denial indistinguishable from a
     /// mistaken elevation-gate; seeding an administrator with preference access isolates these tests to the
     /// middleware so any remaining 401/403 is genuinely the attribute pipeline's doing.
+    /// <para>
+    /// IT ANSWERS PER REQUEST, AND THAT IS WHAT MAKES A ROUTE WITHOUT AN ATTRIBUTE TESTABLE HERE. It returned
+    /// one fixed resolved administrator for every request regardless of what the request carried, which was
+    /// harmless while every endpoint this host is walked over sat behind an attribute: the middleware refused
+    /// a credential-less caller before any action body could consult this collaborator. It stopped being
+    /// harmless when a route began refusing in its own body - a credential-less request at such a route was
+    /// handed a resolved administrator and ran to completion, so the suite reported the in-body gate open and
+    /// could not have reported anything else. Measured before this changed: an unauthenticated
+    /// <c>GET /SSO/OID/logout/{provider}</c> through this pipeline answered 302, and deleting the route's
+    /// refusal altogether reddened no row in this class. The credential a request carries here is the
+    /// <see cref="TestRoles.Header"/> header the scheme below reads, so this mirrors the host in the one
+    /// respect that matters: no credential resolves no user.
+    /// </para>
     /// </summary>
     private static IAuthorizationContext BuildAuthorizationContext()
     {
@@ -196,9 +209,17 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
 
         var authContext = Substitute.For<IAuthorizationContext>();
         authContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
-            .Returns(Task.FromResult(new AuthorizationInfo { User = hostUser }));
+            .Returns(call => Task.FromResult(
+                CarriesTestCredential(call.Arg<HttpRequest>())
+                    ? new AuthorizationInfo { User = hostUser }
+                    : new AuthorizationInfo()));
         return authContext;
     }
+
+    // The same reading TestAuthHandler makes, so the substitute and the authentication scheme cannot
+    // disagree about who is calling: an absent or empty header is a request that proved nothing.
+    private static bool CarriesTestCredential(HttpRequest? request) =>
+        request is not null && request.Headers.TryGetValue(TestRoles.Header, out var role) && role.Count != 0;
 
     public async ValueTask DisposeAsync()
     {
