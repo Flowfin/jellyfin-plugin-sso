@@ -770,6 +770,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **The refused-login line follows the code the provider returned (#1763).**
+  When an authorization request cannot be prepared, the plugin writes one line
+  to the server log, and that line always ended by naming the redirect URI and
+  telling the administrator the provider must hold it exactly as written. That
+  sentence was written for one refusal: a callback the client does not hold,
+  which the provider answers `invalid_request`, and which happens server to
+  server under pushed authorization so the URI appears on no page the
+  administrator can reach. The same endpoint also refuses the **client** - a
+  secret or client ID that does not match, or a client the provider holds as
+  public while a secret is sent - and answers **401**, which reaches the log as
+  `Unauthorized`. An administrator who had already checked the redirect URI
+  against the provider was sent back to check it again (#1762). The closing
+  sentence now follows what came back: `invalid_request` keeps the redirect URI
+  sentence, a client refusal names the client ID and secret and the
+  public-or-confidential registration instead, and anything else gets a
+  sentence that interprets nothing. That third sentence is not a leftover: the
+  identity library hands this line one field, and for any status but a 400 it
+  holds the HTTP reason phrase or a transport failure rather than a code the
+  provider chose, so a line that named a cause there would be naming one the
+  answer does not carry. For the same reason no sentence rules the other cause
+  **out** - the provider's own description never reaches this log. The browser
+  still sees the same fixed generic message, and the refusal is unchanged.
+
 - **A provider address that does not answer no longer uses up the whole
   request, and a failed connect says what the address guard skipped (#1760).**
   The outbound connect tries a host's allowed addresses one after another, and
