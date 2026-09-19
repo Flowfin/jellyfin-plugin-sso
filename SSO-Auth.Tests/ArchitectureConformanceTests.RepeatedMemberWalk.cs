@@ -76,9 +76,10 @@ public partial class ArchitectureConformanceTests
     /// interoperability-unsafe document problem moved one layer down.
     /// </para>
     /// <para>
-    /// #1043 decides whether this rule retires together with the walk: with net9.0 gone the preset is a
-    /// candidate implementation, and a denylist standing after a swap would refuse the replacement it was
-    /// written to protect.
+    /// #1043 measured the preset against the walk's own corpus and kept the walk, so this rule does not
+    /// retire with it. What that measurement found is in <c>StrictJsonTests</c>; the short of it is that
+    /// the denylist is refusing a delegation nothing is going to make on purpose, which is the case a
+    /// denylist is for. It retires the day that measurement is re-taken and comes out the other way.
     /// </para>
     /// </summary>
     [Fact]
@@ -98,8 +99,8 @@ public partial class ArchitectureConformanceTests
     /// <summary>
     /// The walk carries no conditional compilation, which is the other half of "one code path" and the one
     /// an ordinary test cannot see - a per-target branch is invisible to a suite that runs each target
-    /// separately and passes on both. One target is built today (#1770); the rule stays until #1043 decides
-    /// the walk's future, so a second target cannot bring a branch back unnoticed.
+    /// separately and passes on both. One target is built today (#1770) and #1043 kept the walk, so the
+    /// rule stays and a second target cannot bring a branch back unnoticed.
     /// </summary>
     [Fact]
     public void TheRepeatedMemberWalk_HasOneCodePathOnBothTargets()

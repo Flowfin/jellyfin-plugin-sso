@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Xunit;
@@ -270,11 +271,11 @@ public class StrictJsonTests
     [Fact]
     public void TheStrictPresetTakesTheSameDecisionOnCase()
     {
-        // #1043 decides whether JsonSerializerOptions.Strict replaces this walk now that net10.0 is the one
-        // target, so the decision above may not contradict what that preset does with case without saying
-        // so. It does not, and this is the measurement rather than a reading of the documentation: Strict
-        // refuses a member named twice and does not treat a case-variant pair as one, which is this walk's
-        // posture in both directions.
+        // #1043 measured JsonSerializerOptions.Strict against this walk now that net10.0 is the one
+        // target and kept the walk, so the decision above may not contradict what that preset does with
+        // case without saying so. It does not, and this is the measurement rather than a reading of the
+        // documentation: Strict refuses a member named twice and does not treat a case-variant pair as
+        // one, which is this walk's posture in both directions.
         //
         // This was compiled on net10.0 alone while the Jellyfin 10.11 line bound .NET 9's System.Text.Json,
         // where the preset does not exist; that leg ended in #1770 and the guard around it went with it.
@@ -286,6 +287,137 @@ public class StrictJsonTests
         var admitted = JsonSerializer.Deserialize<CaseVariantCarrier>(CaseVariantIssuers, JsonSerializerOptions.Strict);
         Assert.Equal("https://good.example", admitted!.Lower);
         Assert.Equal("https://evil.example", admitted.Upper);
+    }
+
+    [Fact]
+    public void ThePresetNamesTheSameRepeatedMember_OnEveryFixtureItCanRead()
+    {
+        // #1043 asked whether JsonSerializerOptions.Strict replaces this walk now that net10.0 is the one
+        // target. This row and the gap rows after it are that measurement rather than a preference, and
+        // this is the half where the preset is the walk's equal: run against the corpus the walk is
+        // pinned on, it refuses every repeat the walk refuses - at the root, in a nested object, inside
+        // an object in an array, straddling a nested scope, under an escape-spelled name and under the
+        // empty name - and its message names the member, which is the datum RepeatedMemberScreen logs.
+        //
+        // The BOM-prefixed rows are excluded HERE and are the subject of the row below, which is where the
+        // preset and the walk part company.
+        foreach (var (json, member) in Repeated.Where(row => !row.Json.StartsWith(Bom, StringComparison.Ordinal)))
+        {
+            Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect(json, out var walked));
+            Assert.Equal(member, walked);
+
+            var refusal = Assert.Throws<JsonException>(
+                () => JsonSerializer.Deserialize<JsonElement>(json, JsonSerializerOptions.Strict));
+
+            // The name travels inside an English sentence rather than as a field, which is the whole of what
+            // a caller could recover from it: "Duplicate property 'issuer' encountered during
+            // deserialization." A screen that needs the name for its log entry would have to cut it back out
+            // of that sentence, and the sentence is the framework's to reword.
+            Assert.Contains($"'{member}'", refusal.Message, StringComparison.Ordinal);
+        }
+
+        // The depth cap agrees too, so nesting is not one of the places the two differ: both stop at 64.
+        var past = new string('[', 65) + new string(']', 65);
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(past, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonElement>(past, JsonSerializerOptions.Strict));
+    }
+
+    [Fact]
+    public void ThePresetRefusesABomPrefixedDocumentTheWalkAdmits()
+    {
+        // The BOM. The walk strips ONE leading BOM because a provider serving a BOM-prefixed file emits
+        // one and Utf8JsonReader treats it as content. The preset has no such strip, so a document that is
+        // otherwise perfect is refused - and because Unreadable is a refusal at every seam that consumes
+        // this, swapping the walk for the preset would lock every such provider out of a login it completes
+        // today.
+        Assert.Equal(StrictJson.Verdict.Clean, StrictJson.Inspect(Bom + "{\"issuer\":\"https://one.example\"}", out _));
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<JsonElement>(Bom + "{\"issuer\":\"https://one.example\"}", JsonSerializerOptions.Strict));
+
+        // And the diagnostic goes with it. A BOM-prefixed document that DOES repeat a member is refused by
+        // the preset for the BOM, so the message names the byte and never the member - the operator is told
+        // the document is malformed when the fact worth reporting to the provider is the repeat.
+        const string RepeatBehindABom = "{\"issuer\":1,\"issuer\":2}";
+        Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect(Bom + RepeatBehindABom, out var member));
+        Assert.Equal("issuer", member);
+
+        var refusal = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<JsonElement>(Bom + RepeatBehindABom, JsonSerializerOptions.Strict));
+        Assert.DoesNotContain("issuer", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ThePresetCannotNarrowToTheScopesACallersReaderEnters()
+    {
+        // The scope narrowing, which is what #1032's availability argument is about. Two of this walk's
+        // callers - OidcRoleExtractor and OidcAuthorizeStateBuilder - name the scopes their reader
+        // descends through, so a repeat in a sibling the reader never opens changes nothing they read and
+        // is admitted. The preset refuses a repeat anywhere in the document and has no narrowing to
+        // offer, so a vendor extension repeating a name beside the role claim would take the role set of
+        // every login offline.
+        const string RepeatOutsideTheReadersPath = "{\"roles\":{\"a\":1},\"vendor\":{\"x\":1,\"x\":2}}";
+
+        Assert.Equal(
+            StrictJson.Verdict.Clean,
+            StrictJson.Inspect(RepeatOutsideTheReadersPath, new[] { "roles" }, out _));
+
+        // The same bytes with no narrowing are Repeated, so the row is about the narrowing and not about a
+        // repeat the walk fails to see.
+        Assert.Equal(StrictJson.Verdict.Repeated, StrictJson.Inspect(RepeatOutsideTheReadersPath, out _));
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<JsonElement>(RepeatOutsideTheReadersPath, JsonSerializerOptions.Strict));
+    }
+
+    [Fact]
+    public void ThePresetSignalsARepeatAndAnUnreadableDocumentTheSameWay()
+    {
+        // The signalling, which costs a wrapper rather than a behaviour. This walk answers in three
+        // verdicts and never throws, and its callers act on the difference: RepeatedMemberScreen reports
+        // RepeatedMember or Uninspectable as separate refusals that reach the operator and the admin
+        // probe, and OidcRoleExtractor separates RepeatedMember from Unreadable in its audit trail. The
+        // preset carries one channel for both, so a caller keeping that distinction has to read the
+        // framework's own English message - and the same goes for the member name, which arrives inside
+        // that sentence and nowhere else.
+        //
+        // What this row is honest about: unlike the ones beside it, it does NOT redden a swap on its own.
+        // A wrapper that catches both throw types and cuts the name out of the message satisfies every
+        // assertion here, which was measured by writing that wrapper. The gap it records is the wrapper
+        // itself - a screen whose verdict and whose logged member name are recovered from prose the
+        // framework may reword.
+        var repeat = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<JsonElement>("{\"a\":1,\"a\":2}", JsonSerializerOptions.Strict));
+        var malformed = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<JsonElement>("{\"a\":1,", JsonSerializerOptions.Strict));
+        Assert.Equal(repeat.GetType(), malformed.GetType());
+
+        // Nor is JsonException the whole of what the preset raises. A RAW unpaired surrogate cannot be
+        // transcoded to UTF-8 at all, and that arrives as an ArgumentException - so a caller catching the
+        // documented exception of the JSON stack takes the crash instead of a refusal. The walk reports it
+        // as Unreadable, which is the same fail-closed answer without the throw.
+        Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(RawLoneSurrogateName, out _));
+        Assert.Throws<ArgumentException>(
+            () => JsonSerializer.Deserialize<JsonElement>(RawLoneSurrogateName, JsonSerializerOptions.Strict));
+
+        // And which exception a repeat raises depends on the type the caller deserializes INTO, which is a
+        // second thing the walk does not make its callers know: the same bytes that give a JsonException for
+        // JsonElement give an ArgumentException for JsonNode.
+        Assert.Throws<ArgumentException>(
+            () => JsonSerializer.Deserialize<JsonNode>("{\"a\":1,\"a\":2}", JsonSerializerOptions.Strict));
+    }
+
+    [Fact]
+    public void ThePresetAdmitsADocumentCarryingNoObject_WhereTheWalkEstablishesNothing()
+    {
+        // The objectless document, and this is the one that fails open rather than closed. A bare scalar
+        // and an array of scalars have no object scope in which a member could repeat, so the walk says
+        // it established nothing. The preset deserializes both without complaint, and a caller reading
+        // "no exception" as approval would have an affirmative answer about a document nothing screened.
+        foreach (var (json, kind) in new[] { ("\"bare\"", JsonValueKind.String), ("[1,2]", JsonValueKind.Array) })
+        {
+            Assert.Equal(StrictJson.Verdict.Unreadable, StrictJson.Inspect(json, out _));
+            Assert.Equal(kind, JsonSerializer.Deserialize<JsonElement>(json, JsonSerializerOptions.Strict).ValueKind);
+        }
     }
 
     [Fact]
