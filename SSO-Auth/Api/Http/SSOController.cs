@@ -287,6 +287,16 @@ public class SSOController : ControllerBase
             return Unauthorized();
         }
 
+        // ISSUANCE IS NOT AUDITED, AND THAT IS DECIDED RATHER THAN OMITTED (#1795). The distinction a mint
+        // line would buy - a flood of spent tickets from a flood of guesses - is drawn where a ticket is
+        // SPENT: a spent one records a completion on the logout route and a guess records a refusal there,
+        // so a line here adds nothing to it. What it would add is a line at request rate from any signed-in
+        // account, because this endpoint is deliberately unthrottled and serves every ask until the account's
+        // share is full - the log amplification the refusal placement on the logout route exists to avoid,
+        // reachable here by a credential rather than by none. And a mint by itself changes nothing: the
+        // ticket can end only the minting caller's own session, and until it is spent no session has ended.
+        // The capacity refusals below are the mint's only lines, throttled and naming no account.
+        // SSOControllerLogoutTicketTests pins the absence so it cannot drift back in unargued.
         var ticket = _logoutTickets.Mint(auth.UserId, provider, auth.Token, DateTime.UtcNow);
         if (ticket is null)
         {
@@ -338,6 +348,7 @@ public class SSOController : ControllerBase
     {
         Guid userId;
         string? sessionToken;
+        var viaTicket = false;
         if (!string.IsNullOrEmpty(ticket))
         {
             var redeemed = _logoutTickets.Redeem(ticket, provider, DateTime.UtcNow);
@@ -382,6 +393,7 @@ public class SSOController : ControllerBase
 
             userId = redeemed.UserId;
             sessionToken = redeemed.SessionToken;
+            viaTicket = true;
         }
         else
         {
@@ -471,6 +483,22 @@ public class SSOController : ControllerBase
                 // local-only logout, never surface a 500 - honouring the endpoint's stated contract.
                 _logger.LogError(ex, "Building the OpenID end-session redirect failed; the local logout stands and the browser returns to this server.");
             }
+        }
+
+        // THE COMPLETION IS AUDITED ON THE TICKET ARM, AND ONLY THERE (#1795). That arm ends a session for a
+        // request whose only credential was a bearer string in a query parameter, and until this line its
+        // success wrote nothing while both refusals did - so an operator asking who ended a session had, for
+        // the ticket form, nothing to correlate, and a flood of spent tickets read as silence beside a flood
+        // of guesses. The session-bearing arm is the authenticated self-logout it has always been, attributed
+        // to its principal by the framework, and is left as it was. Written after the local sign-out has
+        // completed and after the redirect has been decided, so the outcome code says what actually happened;
+        // a Logout call that throws writes no line and surfaces as the 500 it always did. Nothing here is the
+        // ticket, the session token or the user: the provider is route input and carries both sanitizers at
+        // the emitter, and the outcome is a fixed code. The mint records no issuance, for the reason written
+        // at OidLogoutTicket.
+        if (viaTicket)
+        {
+            SsoAudit.OpenIdTicketLogoutCompleted(_logger, provider, endSessionUrl is null ? "local_only" : "end_session_redirect");
         }
 
         // Redirect to the IdP end-session URL (an absolute URL host-bound to the discovered issuer by

@@ -178,8 +178,13 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   account is disabled stays spendable for the rest of its minute. What that
   reaches is a sign-out of that account's own session. A refusal on either path
   records a fixed reason code in the audit trail, as every other logout refusal
-  does; a ticket-bearing request that SUCCEEDS records nothing, so an anonymous
-  session termination leaves no line of its own.
+  does, and a ticket-bearing request that completes records a line of its own,
+  naming the provider and whether the browser was sent on to the provider's
+  end-session endpoint or returned to this server; the ticket and the session
+  token never reach it. The mint records nothing on issuance, deliberately: a
+  spent ticket and a guessed one are already told apart where the ticket is
+  spent, and a per-mint line would be writable at request rate by any signed-in
+  account on an endpoint that is deliberately not throttled.
   The ticket-bearing form charges the Logout rate-limit class on a **failed**
   redeem - never on a successful one, so a legitimate sign-out is never
   throttled; the credential-less form charges it too, before it audits. The

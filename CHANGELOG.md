@@ -27,7 +27,10 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   session is 401, and a ticket that is unknown, expired, already spent or minted
   for another provider is 401 too, never a silent local sign-out - and both
   refusals are rate-limited and recorded in the audit trail under a fixed reason
-  code. The mint sits behind the existing `EnableSingleLogout` switch, so no
+  code. A ticket-borne sign-out that completes is recorded too, naming the
+  provider and whether the browser was sent on to the provider or returned to
+  this server (#1795); the mint records nothing on issuance, and the reason is
+  written at the endpoint. The mint sits behind the existing `EnableSingleLogout` switch, so no
   server gains a new _minting_ surface without turning Single Logout on - but the
   attribute came off the logout route on every install, whatever that switch
   says, so a server that never enabled Single Logout does gain an
