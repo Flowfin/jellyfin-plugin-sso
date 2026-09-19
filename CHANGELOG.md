@@ -789,6 +789,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **An administrator refusal names the two ways to link that account (#1765).**
+  An administrator account is never adopted by name, so a first SSO login cannot
+  turn into administrator access, and turning `AllowExistingAccountLink` on does
+  not change that. The rule is right and is unchanged; what the server log said
+  after it was "link it explicitly via the admin endpoints", which names a
+  category rather than a route, and the reporter searched the documentation
+  before finding the page that does it (#1762). Both refusals that state this
+  rule - the adoption refusal and the legacy username-keyed link that points at
+  an administrator - now name both ways in: sign in to that account with its own
+  password and link it at `/SSOViews/linking`, or pre-provision the link with an
+  elevated call to the account-management API. The second matters on a server
+  running SSO-only login, where the account being refused may have no password
+  door left and the page is not reachable for it. The refusals themselves are
+  unchanged, and no account becomes linkable that was not before.
+
 - **The refused-login line follows the code the provider returned (#1763).**
   When an authorization request cannot be prepared, the plugin writes one line
   to the server log, and that line always ended by naming the redirect URI and

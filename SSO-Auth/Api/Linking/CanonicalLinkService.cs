@@ -441,13 +441,14 @@ internal sealed class CanonicalLinkService
         // admin's legacy link onto their own subject and take the account over. Admin-only gate
         // (AdoptionGate.None): the verified-email requirement is deliberately not applied to the
         // re-key, which continues a relationship established under the pre-#155 scheme rather than
-        // forming a new one. Link an admin account explicitly via the admin endpoint instead.
+        // forming a new one. The two ways to link an admin account deliberately are the self-service
+        // page, signed in to that account, and the elevated pre-provision route (#1765).
         if (AdoptionEligibilityResolver.Resolve(existingAccount.HasPermission(PermissionKind.IsAdministrator), AdoptionGate.None) != AdoptionVerdict.Allow)
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
-                    "SSO login for {Name} via {Mode}/{Provider} refused: a legacy username-keyed link points at an administrator account, which is not adopted by name. Link it explicitly via the admin endpoints.",
+                    "SSO login for {Name} via {Mode}/{Provider} refused: a legacy username-keyed link points at an administrator account, which is not adopted by name. Sign in to that account with its own password and link it at /SSOViews/linking, or pre-provision the link with an elevated call to the account-management API.",
                     username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                     mode.ToToken(),
                     provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
@@ -584,8 +585,9 @@ internal sealed class CanonicalLinkService
         // Same-name adoption trusts the identity provider to make usernames unique and
         // non-reassignable (#218): a new principal asserting an existing user's name is otherwise
         // routed straight to that account. Before writing the link, clear the eligibility gate -
-        // an administrator target is never adopted by name (link it explicitly via the admin
-        // endpoint), and a provider that requires a verified email must have carried
+        // an administrator target is never adopted by name - the two ways in are the self-service page
+        // signed in to that account, and the elevated pre-provision route, and the refusal names both
+        // (#1765) - and a provider that requires a verified email must have carried
         // email_verified == true. Fail closed: a refusal writes no link and emits no adoption audit.
         var verdict = AdoptionEligibilityResolver.Resolve(
             existingAccount.HasPermission(PermissionKind.IsAdministrator),
@@ -618,7 +620,9 @@ internal sealed class CanonicalLinkService
         return adoptedUserId;
     }
 
-    // Maps an adoption refusal verdict to a fixed, non-PII reason phrase for the log line above. The
+    // Maps an adoption refusal verdict to a fixed, non-PII reason phrase for the log line above. Internal
+    // rather than private so the phrases can be read by a test: what the administrator arm says is the
+    // whole remedy an operator gets, and #1765 is what it cost when that half was vague. The
     // AdoptionVerdict is a reason CODE (RefusePrivileged / RefuseUnverifiedEmail), never an email or any
     // user data - but logging the enum value directly makes CodeQL's cs/exposure-of-private-information
     // heuristic trip on the "Email" in the RefuseUnverifiedEmail member name (a false positive, latent on
@@ -626,9 +630,15 @@ internal sealed class CanonicalLinkService
     // Returning a literal phrase per arm keeps the refusal reason in the audit line - and reads clearer than
     // the raw enum name - while cutting the data flow the heuristic followed. The Allow arm is unreachable
     // (the caller logs only on a refusal); it is a belt for a future verdict value.
-    private static string DescribeAdoptionRefusal(AdoptionVerdict verdict) => verdict switch
+
+    /// <summary>
+    /// The fixed reason phrase the refusal line carries for an adoption this gate turned down.
+    /// </summary>
+    /// <param name="verdict">The eligibility verdict the resolver returned.</param>
+    /// <returns>A non-PII phrase naming what was refused and, where there is one, the way through.</returns>
+    internal static string DescribeAdoptionRefusal(AdoptionVerdict verdict) => verdict switch
     {
-        AdoptionVerdict.RefusePrivileged => "the target account is an administrator; link it explicitly via the admin endpoints",
+        AdoptionVerdict.RefusePrivileged => "the target account is an administrator; sign in to that account with its own password and link it at /SSOViews/linking, or pre-provision the link with an elevated call to the account-management API",
         AdoptionVerdict.RefuseUnverifiedEmail => "the provider requires a verified email for adoption and the login carried none",
         _ => "the account is not eligible for name-based adoption",
     };
