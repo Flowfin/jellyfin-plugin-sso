@@ -34,6 +34,12 @@ public class AvatarUrlValidatorTests
     [InlineData("http://service.localhost/x")]
     [InlineData("http://localhost./x")]
     [InlineData("http://service.localhost./x")]
+    // #1789: fullwidth spellings of localhost. DnsSafeHost keeps them as typed, so a check on it admitted
+    // them while the transport dials "localhost"; the check reads IdnHost now, which maps them to ASCII.
+    [InlineData("http://ｌｏｃａｌｈｏｓｔ/x")]
+    [InlineData("http://service.ｌｏｃａｌｈｏｓｔ/x")]
+    [InlineData("http://ｌｏｃａｌｈｏｓｔ./x")]
+    [InlineData("http://１２７.０.０.１/x")]
     [InlineData("http://127.0.0.1/x")]
     [InlineData("http://169.254.169.254/latest/meta-data/")]
     [InlineData("http://192.0.0.192/")]
