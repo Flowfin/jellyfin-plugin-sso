@@ -69,5 +69,14 @@ jobs:
             echo
             echo "Code revision read: \`${GITHUB_SHA}\` (trigger: \`${GITHUB_EVENT_NAME}\`)"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Prove the dead-source-link check bites before trusting its verdict
+        # A source link names a ref, and the check resolves the path at that ref
+        # rather than in the checkout (#1780). The proof runs against a local
+        # bare-repository fixture, so a green lint below is a verdict from a
+        # check that was just shown to refuse a path absent at its named ref.
+        run: python3 scripts/wiki-lint-test.py
       - name: Lint the wiki against the code tree
+        # A link naming a ref other than the checked-out branch is fetched from
+        # origin; the checkout is public and the fetch is anonymous, like the
+        # wiki clone above.
         run: python3 scripts/wiki-lint.py "${RUNNER_TEMP}/wiki" "${GITHUB_WORKSPACE}"
