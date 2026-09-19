@@ -603,6 +603,22 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
+  `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
+  different causes, and three of them are permanent for the request that met
+  them: a caller that resolves to no user, a caller whose access token is empty,
+  and a request naming no provider all meet exactly the same refusal on every
+  retry. 503 is the status that tells a client to come back, so the one caller
+  that could never succeed was the one being asked to keep asking, at an endpoint
+  that is deliberately not rate-limited, where each ask costs a configuration
+  read and a store sweep. The three permanent causes now answer `401` for a
+  caller a ticket cannot be bound to and `400` for a request naming no provider,
+  which are the statuses the route already gives those shapes elsewhere. The
+  capacity ceiling keeps its `503` and its body saying that signing out of
+  Jellyfin still ends the local session, because that is the one class a caller
+  can clear by waiting. A client that treats 503 as retryable and 4xx as final
+  needs no change; one that retried every refusal will now stop on the three it
+  could never have got past.
 - **An avatar served by an OpenID provider on the administrator's own network is
   fetched when that provider has Allow Private Network Addresses set (#1764).** The
   opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,

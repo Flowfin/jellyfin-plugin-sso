@@ -264,7 +264,7 @@ public class SSOController : ControllerBase
     /// </para>
     /// </summary>
     /// <param name="provider">The OpenID provider the ticket may be spent at, and at no other.</param>
-    /// <returns>The ticket token, or 503 when no ticket could be issued.</returns>
+    /// <returns>The ticket token; 503 when a capacity bound refused it and a retry may clear it, 401 or 400 when this request could never have been issued one.</returns>
     [Authorize]
     [HttpPost("OID/logout-ticket/{provider}")]
     public async Task<ActionResult> OidLogoutTicket(string provider)
@@ -301,16 +301,30 @@ public class SSOController : ControllerBase
         // ticket can end only the minting caller's own session, and until it is spent no session has ended.
         // The capacity refusals below are the mint's only lines, throttled and naming no account.
         // SSOControllerLogoutTicketTests pins the absence so it cannot drift back in unargued.
-        var ticket = _logoutTickets.Mint(auth.UserId, provider, auth.Token, DateTime.UtcNow);
-        if (ticket is null)
+        var ticket = _logoutTickets.Mint(auth.UserId, provider, auth.Token, DateTime.UtcNow, out var outcome);
+        if (ticket is not null)
         {
-            // The mint refuses on a capacity ceiling or on a caller it cannot bind a ticket to. 503 rather
-            // than 500 because the condition is temporary and the caller's own sign-out still works; the
-            // warning that says which it was is the service's, throttled, and names no account.
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, LogoutTicketUnavailableMessage);
+            return Ok(new LogoutTicketResponse(ticket));
         }
 
-        return Ok(new LogoutTicketResponse(ticket));
+        // ONE STATUS PER CLASS OF ANSWER (#1796), because 503 stood for four causes and only one of them
+        // clears by waiting. 503 means the caller should come back, and a caller whose access token is empty
+        // has an empty access token on the retry as well: the endpoint was telling the one client that could
+        // never succeed to keep asking, and it is deliberately unthrottled, so each ask costs a configuration
+        // read and a store sweep. The capacity bound keeps 503 and keeps the body that says the local
+        // sign-out still works, because that is the answer a waiting caller can act on.
+        //
+        // The two permanent shapes get the statuses they already have elsewhere on this endpoint: a caller
+        // this request cannot bind a ticket to is a 401, which is what the gate above answers for the
+        // neighbouring shapes, and a request naming no provider is a 400. Neither carries a body, so neither
+        // says more about the server than the status does. The unassigned-outcome arm lands in the 401 with
+        // them rather than in the retryable answer, which is the direction that fails closed.
+        return outcome switch
+        {
+            MintOutcome.AtCapacity => StatusCode(StatusCodes.Status503ServiceUnavailable, LogoutTicketUnavailableMessage),
+            MintOutcome.NoProvider => BadRequest(),
+            _ => Unauthorized(),
+        };
     }
 
     /// <summary>
