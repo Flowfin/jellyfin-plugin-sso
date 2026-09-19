@@ -120,6 +120,12 @@ jobs:
       # and is correct for every other caller - so the artifact this leg publishes was the one
       # stack the harness never booted.
       generation: jf12
+    # By name rather than `inherit`: the called workflow gets the one secret its pairwise job can use
+    # and none of the others this repository holds. Where the secret does not exist the value is empty,
+    # the pairwise job falls back to the workflow token, sees no private sibling, and reports a run in
+    # which no pair was checked instead of dying and stopping this publish at the matrix (#1773).
+    secrets:
+      PAIRWISE_READ_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN }}
 
   build:
     name: Build & publish JF12 beta
