@@ -1055,6 +1055,36 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records a ticket-borne RP-initiated OpenID logout that COMPLETED (#1795): the one-time ticket was
+    /// redeemed and the Jellyfin session it was minted from has been ended. <see cref="OpenIdLogoutRefused"/>
+    /// was the only event that route wrote, which was defensible while <c>[Authorize]</c> attributed every
+    /// request reaching the method to an authenticated principal, and stopped being so when the ticket path
+    /// made the route reachable with a bearer string in a query parameter. The two inbound logout routes that
+    /// share that property both record their success, so this is the line that brings the ticket form level
+    /// with them - and it is what lets an operator tell a flood of spent tickets from a flood of guesses: a
+    /// spent ticket writes this line and a guess writes the refusal. The outcome is a FIXED code saying
+    /// whether the browser was sent on to the provider's end-session endpoint or returned to this server,
+    /// never request-derived text. The provider is route input and carries both inline sanitizers. No account
+    /// is named, like every logout event beside it, and neither the ticket nor the session token is accepted
+    /// by the signature at all.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="provider">The OpenID provider named in the route.</param>
+    /// <param name="outcomeCode">The fixed outcome code: where the browser was sent after the local sign-out (not request-derived).</param>
+    internal static void OpenIdTicketLogoutCompleted(ILogger logger, string provider, string outcomeCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        logger.LogInformation(
+            "[SSO Audit] OpenID logout completed for provider '{Provider}' ({OutcomeCode}): a one-time ticket ended the Jellyfin session it was minted from.",
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            outcomeCode);
+    }
+
+    /// <summary>
     /// Records a back-channel logout the plugin could NOT perform (#1184) - the inverse of
     /// <see cref="BackChannelLogoutRejected"/> and the reason the two are separate events. Here the identity
     /// provider ordered a termination and the plugin declined it, so an authenticated session is still running

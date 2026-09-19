@@ -398,6 +398,25 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void OpenIdTicketLogoutCompleted_LogsInformation_NamingProviderAndOutcome_AndNotSaml()
+    {
+        var logger = new CapturingLogger();
+
+        // The outcome is a FIXED code the route chooses, never request-derived text; the provider is route
+        // input and is the one foreign value on the line, so both sanitizers are asserted on it (#1795).
+        SsoAudit.OpenIdTicketLogoutCompleted(logger, "corp\r\n[X", "end_session_redirect");
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("[SSO Audit]", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("OpenID logout completed", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("'corp(X'", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("end_session_redirect", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("SAML", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BackChannelLogoutNotPerformed_IsAnErrorAndSaysTheTerminationDidNotHappen()
     {
         var logger = new CapturingLogger();
@@ -449,6 +468,7 @@ public class SsoAuditTests
         SsoAudit.PkceNotAdvertised(off, "corp");
         SsoAudit.LogoutRejected(off, "corp", "Replay");
         SsoAudit.BackChannelLogoutRejected(off, "corp", OidcLogoutTokenValidator.RejectReason.Replay);
+        SsoAudit.OpenIdTicketLogoutCompleted(off, "corp", "local_only");
 
         Assert.Empty(off.Entries);
     }

@@ -11,6 +11,7 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -346,6 +347,94 @@ public class SSOControllerLogoutTicketTests
 
         Assert.True(audited > 0, "no refusal was audited at all, so this row would pass on a route that logs nothing");
         Assert.True(audited < 12, $"every one of 12 credential-less requests wrote a warning line despite the throttle closing: {audited}");
+    }
+
+    [Fact]
+    public async Task ACompletedTicketLogout_LeavesAnAuditLine_NamingTheProtocolAndProvider()
+    {
+        // The refusals on this route were audited and its success was not, so a session ended for a request
+        // whose only credential was a query-string ticket left no line of its own (#1795). The two inbound
+        // logout routes that share the credential-less property both record their success; this row brings
+        // the ticket form level with them, and asserts the words an operator filters on rather than a count.
+        var harness = ForCaller(CallerToken, Caller);
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<RedirectResult>(await harness.Controller.OidLogout("kc", ticket));
+
+        var entry = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("OpenID logout completed", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("'kc'", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("end_session_redirect", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("SAML", entry.Message, StringComparison.Ordinal);
+
+        // Neither credential reaches the line: not the ticket, which is a bearer for its minute, and not the
+        // session token it was bound to.
+        Assert.DoesNotContain(ticket, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(CallerToken, entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ATicketLogoutThatReturnsLocally_SaysSoInItsAuditLine()
+    {
+        // "entra" has no captured session in the fixture, so the route ends the local session and returns
+        // the browser to this server. The line says which of the two happened, as a fixed code, because an
+        // operator reading a completion needs to know whether the provider was told.
+        var harness = ForCaller(CallerToken, Caller);
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("entra"));
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<LocalRedirectResult>(await harness.Controller.OidLogout("entra", ticket));
+
+        var entry = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("OpenID logout completed", StringComparison.Ordinal));
+        Assert.Contains("'entra'", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("local_only", entry.Message, StringComparison.Ordinal);
+        await harness.SessionManager.Received(1).Logout(CallerToken);
+    }
+
+    [Fact]
+    public async Task AMint_RecordsNoIssuance()
+    {
+        // Decided rather than forgotten (#1795), and pinned so the decision cannot drift either way unargued.
+        // The distinction a mint line would buy - spent tickets from guesses - is already drawn where a
+        // ticket is spent, and this endpoint is authenticated and unthrottled, so a per-mint line would be
+        // writable at request rate by any signed-in account. The reason is written at the endpoint.
+        var harness = ForCaller(CallerToken, Caller);
+
+        MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Message.Contains("[SSO Audit]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TheCompletionLine_CarriesNothingTheCallerWrote()
+    {
+        // The provider is the one caller-authored value the line prints: it is route input, and the mint
+        // carries it through unexamined, so a ticket can be minted for a name shaped like a second audit
+        // record and spent at that same name. Both sanitizers are asserted on the RENDERED line, which is the
+        // property the refusal event beside it already holds: no second physical line, and no second record
+        // on this one.
+        var harness = ForCaller(CallerToken, Caller);
+        const string forged = "kc\r\n[SSO Audit] forged";
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket(forged));
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        Assert.IsType<LocalRedirectResult>(await harness.Controller.OidLogout(forged, ticket));
+
+        var entry = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("OpenID logout completed", StringComparison.Ordinal));
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", entry.Message, StringComparison.Ordinal);
+
+        // Only the OPENING bracket is substituted, because the prefix every entry is filtered on can only
+        // begin with one; the closing bracket is left as the caller wrote it.
+        Assert.Contains("'kc(SSO Audit] forged'", entry.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            entry.Message.IndexOf("[SSO Audit]", StringComparison.Ordinal),
+            entry.Message.LastIndexOf("[SSO Audit]", StringComparison.Ordinal));
     }
 
     [Fact]
