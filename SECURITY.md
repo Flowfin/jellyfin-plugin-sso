@@ -166,8 +166,19 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   long-lived credential that lands in browser history, in a referrer and in
   every proxy log on the way. An authenticated `POST` to
   `OID/logout-ticket/{provider}` now mints a **256-bit CSPRNG ticket bound to
-  that caller's user, that caller's session and that provider**, valid for one
-  minute and redeemable **exactly once** by an atomic claim. The route refuses -
+  that caller's user and that provider**, carrying the caller's own session
+  token so the redeem ends exactly the session the ticket was minted from,
+  valid for one minute and redeemable **exactly once** by an atomic claim.
+  Read the session binding for what it covers: the local sign-out. The
+  `id_token_hint` the redeem sends to the provider is chosen per user, newest
+  capture first, and the ticket carries nothing that names a captured entry,
+  so with a browser and a television signed in through the same provider a
+  ticket minted in the browser ends the browser session locally, sends the
+  television's `id_token` as the hint, and removes the television's capture
+  with it; that session stays signed in to Jellyfin with its provider session
+  gone and its Single Logout state erased, so a later back-channel logout
+  naming it can no longer match it. The effect stays within one account. The
+  route refuses -
   it does not degrade to a local sign-out - when a ticket is unknown, expired,
   already spent, or minted for another provider, and refuses a request carrying
   neither a ticket nor a session. Read what that covers precisely: the route
