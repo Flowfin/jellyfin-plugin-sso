@@ -253,7 +253,7 @@ internal sealed class SamlAssertionValidator
             Folders = derived.Folders,
             EnableLiveTv = derived.EnableLiveTv,
             EnableLiveTvManagement = derived.EnableLiveTvManagement,
-            AvatarUrl = null,
+            Avatar = null,
             PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = derived.MaxParentalRatingScore,
             ExpiresAtUtc = ReadExpiry(config, samlResponse),

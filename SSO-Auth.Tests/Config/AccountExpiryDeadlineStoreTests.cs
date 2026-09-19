@@ -303,7 +303,7 @@ public class AccountExpiryDeadlineStoreTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: expiresAtUtc));
 
     private static (LoginCompletionService Service, IUserManager Users, ISessionManager Sessions) BuildLogin(OidConfig config)

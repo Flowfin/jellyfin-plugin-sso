@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
+using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 
@@ -94,7 +95,8 @@ internal sealed class SessionParameters
     public required string? DefaultProvider { get; init; }
 
     /// <summary>
-    /// Gets the avatar URL to fetch and set as the user's profile image, or null to skip.
+    /// Gets the avatar to fetch and set as the user's profile image - its URL bound to the address tier it
+    /// earned at the point it was chosen (#1764) - or null to skip.
     /// </summary>
-    public required string? AvatarUrl { get; init; }
+    public required AvatarTarget? Avatar { get; init; }
 }

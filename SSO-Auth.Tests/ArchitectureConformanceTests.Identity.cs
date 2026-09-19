@@ -165,28 +165,60 @@ public partial class ArchitectureConformanceTests
     }
 
     [Fact]
-    public void PrivateNetworkRelaxation_NeverReachesTheAvatarFetchOrTheSamlMetadataImporter()
+    public void PrivateNetworkRelaxation_NeverReachesTheSamlMetadataImporter_AndReachesTheAvatarFetchOnlyAsAnEarnedVerdict()
     {
         // #1179's stated failure mode is a leak of the private-network relaxation to a caller that never
-        // opted in. Two files are named on the issue as out of scope for #1058 and must stay strict: the
-        // avatar fetch, which builds its own handler and would otherwise let an IdP-supplied picture URL
-        // reach the admin's LAN, and the SAML metadata importer, which resolves the named outbound client
-        // and must keep resolving the strict one. SsoHttp's strict-by-default signature is what makes them
-        // correct today, but a default protects nothing against someone later passing the flag explicitly -
-        // so pin the call sites, not just the default. A source scan because this is a call-level property.
-        foreach (var relativePath in new[]
-        {
-            Path.Combine("SSO-Auth", "Api", "Avatar", "AvatarService.cs"),
-            Path.Combine("SSO-Auth", "Api", "Http", "SamlMetadataImporter.cs"),
-        })
-        {
-            var source = File.ReadAllText(Path.Combine(RepoTree.Root, relativePath));
+        // opted in. The SAML metadata importer resolves the named outbound client and must keep resolving
+        // the strict one; SsoHttp's strict-by-default signature is what makes it correct today, but a default
+        // protects nothing against someone later passing the flag explicitly - so pin the call site, not just
+        // the default. A source scan because this is a call-level property.
+        var importer = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Http", "SamlMetadataImporter.cs"));
+        Assert.DoesNotContain("PrivateNetworkPermitted", importer, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrivateOutboundClientName", importer, StringComparison.Ordinal);
+        Assert.DoesNotContain("allowPrivateNetworkAddresses", importer, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowPrivateNetworkAddresses", importer, StringComparison.Ordinal);
 
-            Assert.DoesNotContain("PrivateNetworkPermitted", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("PrivateOutboundClientName", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("allowPrivateNetworkAddresses", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("AllowPrivateNetworkAddresses", source, StringComparison.Ordinal);
-        }
+        // The avatar fetch reaches the private tier since #1764, and only in the shape that decision fixed:
+        // the verdict arrives bound to the URL (AvatarTarget), so the fetch reads no provider configuration
+        // and resolves no named client to decide; the private client it builds follows no redirect, and a
+        // redirect it answers with is re-judged by the STRICT validator before the strict client is asked.
+        var fetch = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Avatar", "AvatarService.cs"));
+        Assert.DoesNotContain("PrivateOutboundClientName", fetch, StringComparison.Ordinal);
+        Assert.DoesNotContain("allowPrivateNetworkAddresses", fetch, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowPrivateNetworkAddresses", fetch, StringComparison.Ordinal);
+        Assert.Contains("SsoHttp.CreateHardenedHandler(policy, followRedirects: policy == AddressPolicy.Strict)", fetch, StringComparison.Ordinal);
+        Assert.Contains("AvatarUrlValidator.IsAllowedUrl(avatar.Url, avatar.Policy, out var avatarUri)", fetch, StringComparison.Ordinal);
+        Assert.Contains("AvatarUrlValidator.IsAllowedUrl(target.AbsoluteUri, out var redirectUri)", fetch, StringComparison.Ordinal);
+        Assert.Contains("return await SendAsync(_httpClient, user, redirectUri, cancellationToken)", fetch, StringComparison.Ordinal);
+
+        // And the verdict is earned in exactly one place, from both facts at once: the opt-in and an exact
+        // origin match against the provider's own endpoints. The state builder is the one caller that reads
+        // the opt-in for it, beside the discovered endpoints the callback hands in.
+        var target = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Avatar", "AvatarTarget.cs"));
+        Assert.Contains("if (allowPrivateNetworkAddresses", target, StringComparison.Ordinal);
+        Assert.Contains("&& IsOriginOfAny(avatar, providerEndpoints))", target, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowPrivateNetworkAddresses", target.Replace("<c>AllowPrivateNetworkAddresses</c>", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+        var builder = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Oidc", "OidcAuthorizeStateBuilder.cs"));
+        Assert.Contains("AvatarTarget.Resolve(ResolveAvatarUrl(claimList, config), config.AllowPrivateNetworkAddresses, providerEndpoints", builder, StringComparison.Ordinal);
+
+        // The constructor is private, so the compiler refuses a caller that would bind the private tier to a
+        // URL by hand; what it cannot refuse is a caller of Resolve that hands the URL in as its own endpoint,
+        // so the plugin's Resolve call sites are counted and there is exactly the one in the state builder.
+        Assert.Contains("private AvatarTarget(string url, AddressPolicy policy)", target, StringComparison.Ordinal);
+        var resolvers = Directory
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .Where(path => File.ReadAllText(path).Contains("AvatarTarget.Resolve(", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(new[] { "OidcAuthorizeStateBuilder.cs" }, resolvers);
+
+        // And the origin set is exactly the endpoints the private tier already serves for this login: the
+        // userinfo endpoint counts only while the login reads it, so an origin the plugin never contacts under
+        // DoNotLoadProfile earns nothing.
+        var callback = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Flows", "OidcLoginService.cs"));
+        Assert.Contains("new[] { config.OidEndpoint, pending.ProviderInformation?.TokenEndpoint, config.DoNotLoadProfile ? null : pending.ProviderInformation?.UserInfoEndpoint }", callback, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -195,13 +227,16 @@ public partial class ArchitectureConformanceTests
         // The other direction: enumerate every file that may name the relaxation at all, so a new caller
         // wiring itself to the private-permitted tier has to be added here deliberately rather than
         // arriving unnoticed. The roster is the OIDC backchannel (the login flow, the discovery reader and
-        // the admin "Test connection" probe), the config surface that stores and audits the flag, and the
-        // transport plus its composition root that define and register the two tiers.
+        // the admin "Test connection" probe), the config surface that stores and audits the flag, the
+        // transport plus its composition root that define and register the two tiers, and since #1764 the
+        // avatar path: the state builder reads the opt-in beside the discovered endpoints, AvatarTarget earns
+        // the tier from both, and the validator and the fetch apply the tier they were handed.
         var allowed = new[]
         {
             "AddressPolicy.cs", "IpAddressClassifier.cs", "SsoHttp.cs", "SsoOnlyServiceRegistrator.cs",
             "OidcLoginService.cs", "OidcDiscoveryReader.cs", "ProviderConnectionTester.cs",
             "PluginConfiguration.cs", "OidcInsecureToggles.cs",
+            "OidcAuthorizeStateBuilder.cs", "AvatarTarget.cs", "AvatarUrlValidator.cs", "AvatarService.cs",
         }.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var strays = Directory

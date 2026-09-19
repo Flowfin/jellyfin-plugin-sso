@@ -34,7 +34,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Net;
 /// The relaxation is baked into which client is resolved rather than carried as an ambient per-request mode.
 /// Both handlers are long-lived and shared across concurrent logins, so a mode that was not part of the
 /// client's identity could leak the relaxation to a provider that never opted in. Callers that name no tier
-/// - the SAML metadata importer, the avatar fetch, and any future one - stay strict by construction.
+/// - the SAML metadata importer and any future one - stay strict by construction. The avatar fetch names a
+/// tier per target (#1764): the private one only for a URL that earned it at the point it was chosen, on the
+/// origin of the opted-in provider's own endpoints, and the strict one for everything else.
 /// </para>
 /// </remarks>
 internal static class SsoHttp
@@ -108,22 +110,27 @@ internal static class SsoHttp
     /// <summary>
     /// The SSRF-hardened transport handler: routes every connection (including redirect targets) through a
     /// callback that resolves the host and connects only to a non-blocked (public) address, closing the SSRF
-    /// and DNS-rebinding vectors. Redirects stay enabled but bounded; the system proxy is disabled so the
-    /// guard validates the real host, not a proxy; and a pooled connection is recycled periodically so DNS
-    /// changes are honoured despite reuse. The one implementation shared by the OpenID backchannel (via the
-    /// named outbound clients) and the avatar fetch.
+    /// and DNS-rebinding vectors. Redirects stay enabled but bounded unless the caller turns them off; the
+    /// system proxy is disabled so the guard validates the real host, not a proxy; and a pooled connection is
+    /// recycled periodically so DNS changes are honoured despite reuse. The one implementation shared by the
+    /// OpenID backchannel (via the named outbound clients) and the avatar fetch's two tier clients.
     /// </summary>
     /// <param name="policy">
     /// Which address tier the connect guard classifies under. Defaults to <see cref="AddressPolicy.Strict"/>,
-    /// so the avatar fetch and the strict named client keep the full guard unchanged;
+    /// so the strict named client and the strict avatar client keep the full guard unchanged;
     /// <see cref="AddressPolicy.PrivateNetworkPermitted"/> builds the handler behind
     /// <see cref="PrivateOutboundClientName"/>. The policy is captured per handler rather than read
     /// per-request, so a shared handler cannot serve two tiers (#1179).
     /// </param>
+    /// <param name="followRedirects">
+    /// Whether the handler follows redirects itself, under its own guard on every hop. The private-tier avatar
+    /// client passes <see langword="false"/> (#1764): a verdict earned for one origin must not carry to a
+    /// redirect target, so that client re-issues a redirect over the strict client instead of following it.
+    /// </param>
     /// <returns>A hardened <see cref="SocketsHttpHandler"/>.</returns>
-    internal static SocketsHttpHandler CreateHardenedHandler(AddressPolicy policy = AddressPolicy.Strict) => new()
+    internal static SocketsHttpHandler CreateHardenedHandler(AddressPolicy policy = AddressPolicy.Strict, bool followRedirects = true) => new()
     {
-        AllowAutoRedirect = true,
+        AllowAutoRedirect = followRedirects,
         MaxAutomaticRedirections = 5,
         ConnectCallback = (context, cancellationToken) => ConnectToAllowedAddressAsync(context, policy, cancellationToken),
 
@@ -256,15 +263,18 @@ internal static class SsoHttp
         }
 
         // THE SETTING IS NAMED WITH ITS REACH (#1764). This transport also serves the avatar fetch and the SAML
-        // metadata importer, which stay strict by construction, so a sentence that only said to enable the setting
-        // sent a reader whose provider serves pictures from the local network to switch it on for an avatar it
-        // never covers.
+        // metadata importer, so a sentence that only said to enable the setting sent a reader whose provider
+        // serves pictures from the local network to switch it on for a fetch it may not cover. The avatar is
+        // covered on the opted-in provider's own origin and nowhere else (AvatarTarget), and a redirect from it
+        // is judged strictly again (AvatarService.FetchAsync), which is the hop an operator meets this sentence
+        // on when the provider redirects its own picture; the importer never is covered.
         return skipped
             + (refusedRelaxable == total
                 ? " Each is on a private network."
                 : $" {refusedRelaxable} of them are on a private network.")
             + " An OpenID provider's AllowPrivateNetworkAddresses setting allows private addresses for that provider's"
-            + " discovery, token and userinfo requests; avatars and SAML metadata are fetched without it.";
+            + " discovery, token and userinfo requests, and for an avatar served from the origin of those endpoints"
+            + " up to the first redirect; every other avatar and SAML metadata are fetched without it.";
     }
 
     // The production connect: a socket to the validated address, disposed unless its stream is returned.

@@ -391,7 +391,7 @@ public class ProvisioningProfileRoleSelectionTests
                 EnableLiveTv: false,
                 EnableLiveTvManagement: false,
                 Folders: new List<string>(),
-                AvatarUrl: null,
+                Avatar: null,
                 ProvisioningProfile: "guest")),
             new AuthResponse { AppName = "app", AppVersion = "1", DeviceID = "d", DeviceName = "dev" },
             config,
@@ -656,7 +656,7 @@ public class ProvisioningProfileRoleSelectionTests
     }
 
     // The full completion path, wired exactly as LoginCompletionServiceTests wires it. A real AvatarService
-    // (deps stubbed) is safe here because a null AvatarUrl early-returns, so no network is reached.
+    // (deps stubbed) is safe here because a null Avatar early-returns, so no network is reached.
     private static (LoginCompletionService Service, PluginConfiguration Config, IUserManager Users, ISessionManager Sessions) BuildCompletion(Action<PluginConfiguration> seed)
     {
         var cfg = new PluginConfiguration();

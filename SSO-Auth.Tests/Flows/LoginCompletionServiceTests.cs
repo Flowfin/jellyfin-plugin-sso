@@ -52,7 +52,7 @@ public class LoginCompletionServiceTests
         var sessions = Substitute.For<ISessionManager>();
         var store = new ProviderConfigStore(() => cfg, _ => { }, new CapturingLogger());
         var canonicalLinks = new CanonicalLinkService(users, new FakeCryptoProvider(), store, new CapturingLogger());
-        // A real AvatarService (its deps stubbed): a null AvatarUrl early-returns, so no network is reached.
+        // A real AvatarService (its deps stubbed): a null Avatar early-returns, so no network is reached.
         var avatar = new AvatarService(users, Substitute.For<IProviderManager>(), Substitute.For<IServerConfigurationManager>(), new CapturingLogger(), "test-agent");
         var minter = new SessionMinter(users, avatar, sessions, new CapturingLogger());
         var ssoOnly = new SsoOnlyLoginService(users, store, new CapturingLogger());
@@ -91,7 +91,7 @@ public class LoginCompletionServiceTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             MaxParentalRatingScore: maxParentalRatingScore));
 
     private static VerifiedIdentity SamlIdentity(string provider, string nameId) =>
