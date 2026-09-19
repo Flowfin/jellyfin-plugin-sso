@@ -249,7 +249,11 @@ internal sealed class LogoutTicketStore
         }
     }
 
-    /// <summary>Test-only: drops every entry, restoring a fresh store between tests.</summary>
+    /// <summary>
+    /// Drops every entry. Production reaches it when Single Logout is switched off (#1793), where every
+    /// outstanding ticket is unredeemable and the tokens the entries hold should not wait in memory; the
+    /// test harness reaches it between tests.
+    /// </summary>
     internal void Clear()
     {
         _tickets.Clear();

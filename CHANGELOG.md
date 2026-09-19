@@ -35,7 +35,10 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   code. A ticket-borne sign-out that completes is recorded too, naming the
   provider and whether the browser was sent on to the provider or returned to
   this server (#1795); the mint records nothing on issuance, and the reason is
-  written at the endpoint. The mint sits behind the existing `EnableSingleLogout` switch, so no
+  written at the endpoint. The redeem reads the account the ticket names again
+  and refuses a disabled or deleted one, and it sits behind the switch too:
+  turning Single Logout off refuses every outstanding ticket and empties the
+  ticket store at the save (#1793). The mint sits behind the existing `EnableSingleLogout` switch, so no
   server gains a new _minting_ surface without turning Single Logout on - but the
   attribute came off the logout route on every install, whatever that switch
   says, so a server that never enabled Single Logout does gain an

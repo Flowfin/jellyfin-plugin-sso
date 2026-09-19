@@ -94,6 +94,15 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
     // What holds that is SSOControllerLogoutTicketTests, one row per refusal, with a positive control for
     // the session-bearing form beside them - because a list this route has left cannot say anything about
     // it, and a reader of this comment should be sent to the rows rather than to the sentence.
+    //
+    // THAT SENTENCE PRESENTED TWO PROPERTIES AS ONE UNTIL #1793, AND THE DIFFERENCE IS THE ACCOUNT. The
+    // attribute refused on the caller's ACCOUNT STATE; the ticket arm refused on the TICKET'S freshness,
+    // provider and one use, and made no check of the account the ticket named, so a ticket minted in the
+    // second before an administrator disabled the account stayed spendable for the rest of its minute. The
+    // ticket arm now reads the account again at the redeem, on the same two conditions the session-bearing
+    // arm reads - it exists and it is not disabled - so the two arms refuse the same set on the account and
+    // differ only in how the caller is named. What neither arm reads is whether the session token was
+    // revoked after the mint; the route says what that reaches and it is bounded by the ticket's minute.
     private static readonly string[] ExpectedAuthenticatedActions =
     {
         "AddCanonicalLink", "DeleteCanonicalLink", "GetSamlLinksByUser", "GetOidLinksByUser", "OidLogoutTicket", "SamlSpLogout",

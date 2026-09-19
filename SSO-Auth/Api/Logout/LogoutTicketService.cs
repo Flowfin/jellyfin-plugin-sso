@@ -35,6 +35,9 @@ internal sealed class LogoutTicketService
         _logger = logger;
     }
 
+    /// <summary>Gets the live entry count of the process-wide store. Test-only, like ResetForTests and SeedForTests.</summary>
+    internal static int OutstandingForTests => Tickets.Count;
+
     /// <summary>
     /// Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot.
     /// </summary>
@@ -95,9 +98,31 @@ internal sealed class LogoutTicketService
     /// <param name="token">The ticket token presented on the request.</param>
     /// <param name="provider">The provider named in the request's route.</param>
     /// <param name="nowUtc">The current UTC time.</param>
+    /// <param name="singleLogoutEnabled">Whether Single Logout is on. Off refuses every ticket and empties the store (#1793).</param>
     /// <returns>The redeemed ticket, or null when it was not redeemable.</returns>
-    internal LogoutTicket? Redeem(string? token, string provider, DateTime nowUtc) =>
-        string.IsNullOrEmpty(provider) ? null : Tickets.TryRedeem(token, provider, nowUtc);
+    internal LogoutTicket? Redeem(string? token, string provider, DateTime nowUtc, bool singleLogoutEnabled)
+    {
+        // THE SWITCH REACHES THE REDEEM, AND THE STORE EMPTIES UNDER IT (#1793). The mint has always been
+        // behind Single Logout; the redeem was not, so turning the switch off left every outstanding ticket
+        // spendable for the rest of its minute, and the served page's sentence that both surfaces reject
+        // under the switch was false for one of them. Emptied here as well as at the save, because the two
+        // cover different moments: LogoutTicketSwitchService clears at the save, and this clears for a ticket
+        // that was minted between the read that admitted the mint and the save that turned the switch off.
+        // Cheap on an empty store, and every entry it drops is one the switch has already made unredeemable.
+        if (!singleLogoutEnabled)
+        {
+            Tickets.Clear();
+            return null;
+        }
+
+        return string.IsNullOrEmpty(provider) ? null : Tickets.TryRedeem(token, provider, nowUtc);
+    }
+
+    /// <summary>
+    /// Empties the process-wide store: every outstanding ticket is refused from now on and the access tokens
+    /// the entries held are released. Reached when Single Logout is switched off (#1793).
+    /// </summary>
+    internal static void ClearOutstanding() => Tickets.Clear();
 
     /// <summary>
     /// Test-only: empties the process-wide store so one test's tickets cannot be seen by the next. A test
