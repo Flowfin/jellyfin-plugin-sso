@@ -34,23 +34,24 @@ public sealed class EndpointCatalog
 {
     private readonly List<GatedEndpoint> _elevationGated = new();
     private readonly List<GatedEndpoint> _authenticatedOnly = new();
+    private readonly List<GatedEndpoint> _anonymous = new();
 
     public EndpointCatalog(IServiceProvider services)
     {
         var source = services.GetRequiredService<EndpointDataSource>();
         foreach (var endpoint in source.Endpoints.OfType<RouteEndpoint>())
         {
-            // An explicit [AllowAnonymous] beats any [Authorize]; such an endpoint is not gated.
-            if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
-            {
-                continue;
-            }
-
+            // An explicit [AllowAnonymous] beats any [Authorize]; such an endpoint is UNGATED rather than
+            // absent, and it lands in the third bucket below with the endpoints that carry no attribute.
+            var allowAnonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             var authorizeAttributes = endpoint.Metadata.GetOrderedMetadata<AuthorizeAttribute>();
-            if (authorizeAttributes.Count == 0)
-            {
-                continue;
-            }
+
+            // AN UNGATED ENDPOINT IS CLASSIFIED, NOT SKIPPED (#1768). It was skipped until the RP-initiated
+            // OpenID logout had to become reachable by a top-level navigation: taking [Authorize] off an
+            // action then did not move it between buckets, it removed the action from the only suite that
+            // exercises authorization through real ASP.NET routing, silently and at the moment the decision
+            // most deserved a reader. Naming the bucket is what lets a rule assert over it.
+            var ungated = allowAnonymous || authorizeAttributes.Count == 0;
 
             var policy = authorizeAttributes.Select(a => a.Policy).FirstOrDefault(p => !string.IsNullOrEmpty(p));
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? new[] { HttpMethods.Get };
@@ -59,8 +60,12 @@ public sealed class EndpointCatalog
 
             foreach (var method in methods)
             {
-                var gated = new GatedEndpoint(method, url, policy, action);
-                if (string.IsNullOrEmpty(policy))
+                var gated = new GatedEndpoint(method, url, ungated ? null : policy, action);
+                if (ungated)
+                {
+                    _anonymous.Add(gated);
+                }
+                else if (string.IsNullOrEmpty(policy))
                 {
                     _authenticatedOnly.Add(gated);
                 }
@@ -77,6 +82,13 @@ public sealed class EndpointCatalog
 
     /// <summary>Gets the endpoints guarded by a bare <c>[Authorize]</c> (any authenticated caller).</summary>
     public IReadOnlyList<GatedEndpoint> AuthenticatedOnly => _authenticatedOnly;
+
+    /// <summary>
+    /// Gets the endpoints carrying no authorization requirement at all - no attribute, or an explicit
+    /// <c>[AllowAnonymous]</c>. Reachable by anybody, so it is the bucket a route must never enter by
+    /// accident (#1768).
+    /// </summary>
+    public IReadOnlyList<GatedEndpoint> Anonymous => _anonymous;
 
     // Fills every route parameter with a placeholder segment. A GUID is used everywhere: it is a valid
     // non-empty value for a string parameter and also parses for a Guid-typed one, so routing always reaches

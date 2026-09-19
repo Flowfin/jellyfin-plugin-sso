@@ -41,7 +41,16 @@ internal static class SsoRateLimitClass
     /// <summary>The authenticated account link/unlink write surface (#382).</summary>
     internal const string Link = "link";
 
-    /// <summary>The anonymous inbound SAML <c>LogoutRequest</c> Single Logout surface (#727, SLO-3b). (The authenticated OIDC RP-initiated logout route is caller-scoped and not rate-limited today.)</summary>
+    /// <summary>
+    /// The logout surfaces a caller reaches without a session: the inbound SAML <c>LogoutRequest</c>
+    /// endpoint (#727, SLO-3b), the inbound OpenID back-channel logout (#962), and the refusal arms of the
+    /// RP-initiated OpenID logout (#1768). The SESSION-bearing form of that last route is not rate-limited
+    /// and neither is its SAML twin, because throttling a caller who already holds a session risks leaving
+    /// that session live under throttle; a request that has proved nothing when it arrives is what belongs
+    /// in this budget. No claim is made that this sentence is the whole membership - which endpoints charge
+    /// this class is read from the call sites, and the rate-limit conformance rules are what keep that set
+    /// accounted for.
+    /// </summary>
     internal const string Logout = "logout";
 
     /// <summary>

@@ -77,6 +77,13 @@ public class SSOController : ControllerBase
     // answered by adding one.
     private const string ServingDefaultsMessage = "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. An administrator who has a Jellyfin password can sign in and restore the configuration.";
 
+    // The refusal body a logout-ticket mint answers with when the ticket store is at capacity (#1768). It
+    // says what still works, because the caller is a signed-in user pressing sign-out and the honest answer
+    // is that the local session can still be ended the ordinary way. It names no capacity figure and no
+    // provider: a caller learns that this one convenience is unavailable, and the operator reads the rest
+    // in the server log.
+    private const string LogoutTicketUnavailableMessage = "A single sign-out ticket could not be issued right now. Signing out of Jellyfin still ends this session.";
+
     // Display names for the audit log (the internal link-map mode tokens are the lowercase "oid"/"saml").
     private const string OpenIdProtocol = "OpenID";
     private const string SamlProtocol = "SAML";
@@ -104,6 +111,11 @@ public class SSOController : ControllerBase
     // The account-linking workflow (resolve/adopt/create, legacy re-key, revoke); the controller keeps
     // the authz guards, the one-time-use replay/state consume, and the HTTP mapping (#318).
     private readonly CanonicalLinkService _canonicalLinks;
+
+    // The one-time logout tickets the RP-initiated OpenID logout accepts in place of a session (#1768).
+    // It owns the process-wide ticket store as its own static, the way the login flows own theirs, so the
+    // controller still holds no mutable static state. New'd per request like the other collaborators.
+    private readonly LogoutTicketService _logoutTickets;
 
     // The SSO-only login enforcement (#165): the fail-closed last-admin guard, the per-user provider-id
     // sweep, and the reversible off-switch. The controller keeps the RequiresElevation guards, the actor
@@ -159,6 +171,7 @@ public class SSOController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _canonicalLinks = new CanonicalLinkService(userManager, cryptoProvider, SSOPlugin.Instance.ConfigStore, logger, displayPreferences: displayPreferencesManager);
         _ssoOnly = new SsoOnlyLoginService(userManager, SSOPlugin.Instance.ConfigStore, logger);
+        _logoutTickets = new LogoutTicketService(logger);
         var avatarService = new AvatarService(userManager, providerManager, serverConfigurationManager, logger, SsoHttp.UserAgent);
         var sessionMinter = new SessionMinter(userManager, avatarService, sessionManager, logger);
         _loginCompletion = new LoginCompletionService(_canonicalLinks, sessionMinter, _ssoOnly, SSOPlugin.Instance.ConfigStore, sessionManager, logger);
@@ -229,20 +242,165 @@ public class SSOController : ControllerBase
     }
 
     /// <summary>
+    /// Mints a one-time ticket a browser may spend at <see cref="OidLogout"/> in place of a session (#1768).
+    /// <para>
+    /// The logout route is a top-level NAVIGATION, because it has to send the browser on to the identity
+    /// provider, and a navigation carries no Authorization header. Before this endpoint the only way a client
+    /// could reach that route was to put the caller's own access token in the query string, which is a
+    /// long-lived credential in a URL that lands in browser history, in a referrer and in every proxy log on
+    /// the way. A ticket is the short-lived stand-in: it is bound to this caller's user, this caller's session
+    /// and the named provider, it is worthless after a minute, and it is accepted exactly once.
+    /// </para>
+    /// <para>
+    /// A POST rather than a GET because it MAKES something. That also means no browser navigation or prefetch
+    /// can reach it by accident, so a ticket exists only where a client asked for one. The provider name is
+    /// carried through unexamined: a ticket for a name no provider has is spendable only at the same name, and
+    /// the logout route already answers a name it cannot act on with the local-only sign-out. Validating the
+    /// name here would add a second place the provider set is consulted without changing any outcome.
+    /// </para>
+    /// </summary>
+    /// <param name="provider">The OpenID provider the ticket may be spent at, and at no other.</param>
+    /// <returns>The ticket token, or 503 when no ticket could be issued.</returns>
+    [Authorize]
+    [HttpPost("OID/logout-ticket/{provider}")]
+    public async Task<ActionResult> OidLogoutTicket(string provider)
+    {
+        // Deliberately NOT rate-limited, for the reason the authenticated self-logout below and its SAML twin
+        // both carry: a security action must always be able to complete for the caller. What bounds this
+        // endpoint instead is the store's own per-account sub-cap. That is an OCCUPANCY bound and not a rate,
+        // which is the honest way to state it: past its share an account may keep asking and each ask is still
+        // served, so what the sub-cap protects is the store rather than this endpoint's cost.
+        //
+        // BEHIND THE SINGLE LOGOUT SWITCH, like the surfaces it exists for. With the feature off the logout
+        // route captures nothing and degrades to the local sign-out, so a ticket minted there could never do
+        // anything - and minting one anyway would add an always-on authenticated surface, holding a live
+        // session token in memory, to every server that never turned the feature on. The server page documents
+        // the switch as gating the logout surfaces; this is one of them.
+        if (!SSOPlugin.Instance.ReadConfiguration(configuration => configuration.EnableSingleLogout))
+        {
+            return NotFound();
+        }
+
+        var auth = await _authContext.GetAuthorizationInfo(HttpContext.Request).ConfigureAwait(false);
+        if (!IsAuthenticatedCaller(auth))
+        {
+            return Unauthorized();
+        }
+
+        var ticket = _logoutTickets.Mint(auth.UserId, provider, auth.Token, DateTime.UtcNow);
+        if (ticket is null)
+        {
+            // The mint refuses on a capacity ceiling or on a caller it cannot bind a ticket to. 503 rather
+            // than 500 because the condition is temporary and the caller's own sign-out still works; the
+            // warning that says which it was is the service's, throttled, and names no account.
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, LogoutTicketUnavailableMessage);
+        }
+
+        return Ok(new LogoutTicketResponse(ticket));
+    }
+
+    /// <summary>
     /// RP-initiated OpenID logout (#727, SLO-2). Ends the CALLER's local Jellyfin session, then - when the
     /// caller has a captured OpenID session for this provider (Single Logout enabled) - redirects the browser
     /// to the identity provider's <c>end_session_endpoint</c> with the stored <c>id_token_hint</c>, so the IdP
     /// session is terminated too. Fail-safe: a missing/unsafe endpoint or a disabled feature degrades to a
-    /// local-only logout (the browser returns to this server). Authenticated, and every action is scoped
-    /// strictly to the caller's own user id - a user can only log THEMSELVES out.
+    /// local-only logout (the browser returns to this server). Every action is scoped strictly to ONE user id
+    /// - a user can only log THEMSELVES out.
+    /// <para>
+    /// TWO WAYS TO SAY WHO IS CALLING, AND NEITHER OF THEM IS OPTIONAL (#1768). With no <c>ticket</c> the route
+    /// is the authenticated self-logout it has always been: the request carries a session and the framework's
+    /// own authentication resolves it. With a <c>ticket</c> the caller is a top-level navigation that cannot
+    /// carry a header, and the ticket - minted a minute ago by an authenticated call from the same user, bound
+    /// to that user's session and to this provider - is what names them. A request carrying neither is refused,
+    /// and so is one carrying a ticket that is unknown, expired, already spent, or minted for another provider.
+    /// </para>
+    /// <para>
+    /// WHAT REPLACING <c>[Authorize]</c> DOES AND DOES NOT ESTABLISH. The attribute is gone from the method
+    /// because the ticket path could never satisfy it - it refuses a request before the method runs - and
+    /// <see cref="IsAuthenticatedCaller"/> is what stands in its place. That helper reads the resolved user and
+    /// the account's disabled flag rather than only testing the user id for
+    /// <see cref="Guid.Empty"/>, because the id test alone admitted a disabled account's still-live token,
+    /// which Jellyfin's default policy refuses. It is NOT CLAIMED here that the two are equivalent: the host
+    /// policy is not in this project's package graph and the test fixture substitutes its own scheme, so
+    /// nothing in this repository can compare them, and a claim of equivalence would be a claim no reading of
+    /// this tree supports. What is established is the set of refusals held by
+    /// <c>SSOControllerLogoutTicketTests</c>, one row per case, with a positive control beside them. The
+    /// residual is stated rather than closed: a condition the host policy enforces that this helper does not
+    /// read would be admitted here - <c>IsAuthenticated</c> is the known one, declined at the helper with its
+    /// reason - and the action that would reach is a sign-out of the caller's own session.
+    /// </para>
     /// </summary>
     /// <param name="provider">The OpenID provider to end the session at.</param>
+    /// <param name="ticket">A one-time ticket from <see cref="OidLogoutTicket"/>, for a caller that cannot send a session header. Absent for the authenticated form.</param>
     /// <returns>A redirect to the IdP end-session URL, or to this server for a local-only logout.</returns>
-    [Authorize]
     [HttpGet("OID/logout/{provider}")]
-    public async Task<ActionResult> OidLogout(string provider)
+    public async Task<ActionResult> OidLogout(string provider, [FromQuery] string? ticket = null)
     {
-        var auth = await _authContext.GetAuthorizationInfo(HttpContext.Request).ConfigureAwait(false);
+        Guid userId;
+        string? sessionToken;
+        if (!string.IsNullOrEmpty(ticket))
+        {
+            var redeemed = _logoutTickets.Redeem(ticket, provider, DateTime.UtcNow);
+            if (redeemed is null)
+            {
+                // Unknown, expired, already spent, or minted for a different provider. Refused rather than
+                // silently degraded to a local-only logout: a caller that supplied a ticket is asking to act
+                // as somebody, and answering a redirect to a request that named nobody would make this route
+                // do work for an unauthenticated caller. One uniform refusal for all four, so a guesser
+                // learns nothing about which it was, and one audited reason code so an operator can see a
+                // flood of them - this is the only route on this controller reachable with no credential that
+                // ends a session, and every other logout refusal beside it is audited.
+                //
+                // THE THROTTLE SITS ON THE FAILURE RATHER THAN IN FRONT OF THE ROUTE, AND IN FRONT OF THE
+                // AUDIT RATHER THAN BEHIND IT. Both halves are load-bearing and both were wrong in an
+                // earlier draft. A ticket-bearing request is anonymously reachable, so a guessing flood must
+                // cost something; but the limiter keys on the client ADDRESS, so a throttle at the HEAD of
+                // the route is spent by any request carrying any ticket string, and everybody behind one
+                // public address shares that bucket - and with the default window equal to the ticket
+                // lifetime a caller refused there cannot retry, because their ticket has expired by the time
+                // the window reopens. Charging only the failures leaves a legitimate sign-out never
+                // throttled. And the audit goes AFTER the gate, because a per-refusal log line in front of
+                // it amplifies the very flood the limiter blunts into unbounded log volume - which is this
+                // repository's own stated hazard at SsoRateLimiter, and what every neighbouring anonymous
+                // logout surface avoids by gating first.
+                if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledTicket)
+                {
+                    return throttledTicket;
+                }
+
+                SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_ticket_not_redeemable");
+                return Unauthorized();
+            }
+
+            userId = redeemed.UserId;
+            sessionToken = redeemed.SessionToken;
+        }
+        else
+        {
+            var auth = await _authContext.GetAuthorizationInfo(HttpContext.Request).ConfigureAwait(false);
+            if (!IsAuthenticatedCaller(auth))
+            {
+                // What [Authorize] used to answer, made explicit because the attribute had to go for the
+                // ticket path to exist at all. Audited for the same reason the ticket refusal above is: this
+                // route is reachable without a credential now, and a refusal nobody can see is a refusal
+                // nobody can count - and throttled first, for the same reason, because THIS is the arm a
+                // caller reaches with no credential and no ticket at all. The attribute used to refuse such
+                // a request before the method ran, at no cost and writing nothing; without a gate here the
+                // replacement would answer it by writing a warning line, at request rate, for anybody.
+                // A caller holding a valid session never reaches this arm, so the throttle cannot leave one
+                // of their sessions live.
+                if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledAnonymous)
+                {
+                    return throttledAnonymous;
+                }
+
+                SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_unauthenticated");
+                return Unauthorized();
+            }
+
+            userId = auth.UserId;
+            sessionToken = auth.Token;
+        }
 
         // The caller's most recent captured OpenID session for this provider (an id_token distinguishes an
         // OpenID capture from a SAML one). Scoped to the caller's own user id, read under the config lock.
@@ -251,16 +409,18 @@ public class SSOController : ControllerBase
         // the same subject at the same issuer, so RP-initiated logout is still correct - a within-user,
         // best-effort SLO, never a cross-user effect (FindByUser is user-id-scoped and empty for Guid.Empty).
         var match = SSOPlugin.Instance.ReadConfiguration(configuration =>
-            SessionLogoutStore.FindByUser(configuration, auth.UserId)
+            SessionLogoutStore.FindByUser(configuration, userId)
                 .FirstOrDefault(pair =>
                     string.Equals(pair.Value.Provider, provider, StringComparison.Ordinal)
                     && !string.IsNullOrEmpty(pair.Value.IdToken)));
 
         // End the caller's local Jellyfin session (their current token only), then drop the consumed entry so
-        // the id_token is not retained past the logout.
-        if (!string.IsNullOrEmpty(auth.Token))
+        // the id_token is not retained past the logout. On the ticket path the token is the one the MINTING
+        // request carried, so the session that is ended is the session that asked for the ticket, and not
+        // merely some session of that user.
+        if (!string.IsNullOrEmpty(sessionToken))
         {
-            await _sessionManager.Logout(auth.Token).ConfigureAwait(false);
+            await _sessionManager.Logout(sessionToken).ConfigureAwait(false);
         }
 
         if (match.Value is not null)
@@ -2964,6 +3124,34 @@ public class SSOController : ControllerBase
     // IP classifier, endpoint-class keying, the #195 observability signal); this wrapper only supplies the
     // three request-scoped inputs it needs - the endpoint class, the connection's remote address, and the
     // response the retry-delay header is set on - so the controller keeps no rate-limit state of its own.
+    // What the bare [Authorize] attribute used to answer, spelled out because the attribute had to come off
+    // OidLogout for the ticket path to exist (#1768). Two readings rather than one:
+    //
+    //   * A resolved User. Every caller of this helper goes on to act on a user, and a token that resolved
+    //     to none names nobody. This SUBSUMES the user-id test the route used to make, rather than sitting
+    //     beside it: the host derives the id FROM the user - `UserId => User?.Id ?? Guid.Empty`, read off
+    //     the decompiled MediaBrowser.Controller.Net.AuthorizationInfo - so once a User has matched, an
+    //     empty id would mean a user entity with an empty Id, which is not a state that exists. A second
+    //     condition testing for it would be dead weight presented as an independent reading.
+    //   * IsDisabled, the condition Jellyfin's default policy enforces that a user-id test misses: a
+    //     disabled account's token keeps a non-empty user id until it is revoked, so testing the id alone
+    //     admitted a caller the attribute refused. It is read off the resolved user rather than looked up
+    //     again, so this makes no second query and cannot disagree with the id beside it.
+    //
+    // WHAT IS DELIBERATELY NOT READ, AND WHY, because the obvious candidate is one line away.
+    // AuthorizationInfo exposes IsAuthenticated, the host's own answer about the token, and requiring it
+    // here would be strictly more fail-closed. It is not required, for one reason: the same structure sets
+    // IsApiKey, the `api_key` query-parameter form is the documented fallback this route keeps for clients
+    // that cannot mint a ticket, and what IsAuthenticated reads for such a request is a fact about the host
+    // that this tree cannot observe - Jellyfin.Api is not in this project's package graph and the test
+    // fixture substitutes its own authentication scheme. Requiring a flag whose value on a supported path
+    // is unmeasurable here would trade a proved gap for an unproved regression on a documented one.
+    //
+    // So this is NOT asserted to be the whole of the host's policy - the residual is stated at OidLogout -
+    // and it is the part a reading of this tree can establish.
+    private static bool IsAuthenticatedCaller(AuthorizationInfo auth) =>
+        auth is { User: { } user } && !user.HasPermission(PermissionKind.IsDisabled);
+
     private ActionResult? RateLimitCheck(string endpointClass) =>
         SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
 

@@ -158,6 +158,34 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   ignored at runtime), and validated at both points by one shared predicate. A
   missing or unreachable `end_session_endpoint` degrades to a local-only logout -
   it never breaks sign-out.
+- **The RP-initiated logout route accepts a one-time ticket, so a client never
+  has to put an access token in a URL.** That route sends the browser on to the
+  identity provider, so it is reached by a top-level navigation, and a
+  navigation carries no `Authorization` header; the only form that worked
+  before was the caller's own access token as an `api_key` query parameter, a
+  long-lived credential that lands in browser history, in a referrer and in
+  every proxy log on the way. An authenticated `POST` to
+  `OID/logout-ticket/{provider}` now mints a **256-bit CSPRNG ticket bound to
+  that caller's user, that caller's session and that provider**, valid for one
+  minute and redeemable **exactly once** by an atomic claim. The route refuses -
+  it does not degrade to a local sign-out - when a ticket is unknown, expired,
+  already spent, or minted for another provider, and refuses a request carrying
+  neither a ticket nor a session, so the surface the `[Authorize]` attribute
+  used to cover is covered by the route itself. A refusal on either path records
+  a fixed reason code in the audit trail, as every other logout refusal does.
+  The ticket-bearing form charges the Logout rate-limit class on a **failed**
+  redeem - never on a successful one, so a legitimate sign-out is never
+  throttled while a guesser pays for every attempt; the session-bearing form is
+  not throttled at all. Read that as a floor and not as a guarantee: the
+  limiter is **off unless `EnableRateLimit` is set** (it is unset on a fresh
+  install), and it deliberately creates no bucket for a non-public source, so
+  behind a reverse proxy whose address Jellyfin has not been told to resolve
+  nothing is throttled even when the setting is on. The mint is behind the
+  `EnableSingleLogout` switch like the surfaces it serves. The ticket store is
+  held **in memory and never in
+  the plugin configuration**, bounded globally and **per account**, so no
+  single signed-in user can refuse everybody else a sign-out. The `api_key`
+  form still works for a client that cannot mint.
 - **SP-initiated outbound SAML logout** ends the caller's own local session and
   then redirects the browser to the provider's configured `SamlSloEndpoint` (a
   validated absolute-`https` URL, never request-derived) with a `LogoutRequest`

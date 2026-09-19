@@ -1025,6 +1025,32 @@ internal static class SsoAudit
     }
 
     /// <summary>
+    /// Records an RP-initiated OpenID logout REFUSING a caller (#1768). Separate from
+    /// <see cref="LogoutRejected"/> for exactly the reason <see cref="BackChannelLogoutRejected"/> is: that
+    /// one is worded for the SAML <c>LogoutRequest</c> sites it is shared by, and an operator filtering
+    /// their log for OpenID logout failures used to find every one of them filed under "SAML" (#1184).
+    /// These are the two refusals on the one route reachable with no credential that ends a session - an
+    /// unusable ticket and a caller naming nobody - so a flood of them is the thing an operator most needs
+    /// to find under the protocol it belongs to. The reason is a FIXED code, never request-derived, and the
+    /// caller still receives the one uniform 401, so nothing here becomes a branch oracle.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="provider">The OpenID provider named in the route.</param>
+    /// <param name="reasonCode">The fixed refusal reason code (not request-derived).</param>
+    internal static void OpenIdLogoutRefused(ILogger logger, string provider, string reasonCode)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] OpenID logout REFUSED for provider '{Provider}' ({ReasonCode}). No session was terminated.",
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            reasonCode);
+    }
+
+    /// <summary>
     /// Records a back-channel logout the plugin could NOT perform (#1184) - the inverse of
     /// <see cref="BackChannelLogoutRejected"/> and the reason the two are separate events. Here the identity
     /// provider ordered a termination and the plugin declined it, so an authenticated session is still running

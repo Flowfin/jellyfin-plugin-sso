@@ -298,11 +298,16 @@
                             session and can redirect the browser on to the
                             identity provider's end-session endpoint) and the
                             inbound SAML LogoutRequest endpoint (which ends the
-                            Jellyfin session matched by the request). While off,
-                            no per-session logout state is captured and both
-                            surfaces reject; local Jellyfin logout is unaffected
-                            either way. Set each OpenID provider's optional
-                            post-logout redirect URL in its editor below.
+                            Jellyfin session matched by the request). The OpenID
+                            route also accepts a one-time ticket, minted by an
+                            authenticated call, so a client can send a browser
+                            there without putting an access token in the
+                            address; that call is gated by this switch too.
+                            While off, no per-session logout state is captured,
+                            both surfaces reject and no ticket is issued; local
+                            Jellyfin logout is unaffected either way. Set each
+                            OpenID provider's optional post-logout redirect URL
+                            in its editor below.
                           </div>
                         </details>
                       </div>
