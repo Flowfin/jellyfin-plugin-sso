@@ -11,11 +11,10 @@
 #   detection. The standing bar stays "every security branch has a negative
 #   test"; mutation score measures whether we actually met it.
 #
-# NON-BLOCKING for the SCORE, loud for BREAKAGE (#899):
+# NON-BLOCKING for the SCORE, loud for BREAKAGE (#899, #1784):
 #   1. No `pull_request` trigger. This workflow never runs as a PR check, so it
 #      is not - and cannot silently become - a required status check on the
-#      protected branch. It runs on manual dispatch (and, when re-enabled,
-#      weekly).
+#      protected branch. It runs on manual dispatch and weekly.
 #   2. `thresholds.break` is 0 in stryker-config.json, so `dotnet stryker` never
 #      exits non-zero on a LOW SCORE. The score is reported, not enforced.
 #   3. An infrastructure failure, by contrast, MUST show red: the former
@@ -24,15 +23,25 @@
 #      migration's Stryker breakage stayed invisible until the #718 review
 #      predicted it and a dispatch confirmed it. A run with no report now fails
 #      visibly (fail-closed reporting; the run is still never a merge gate).
+#   4. A shard that ends CANCELLED - the timeout below - is not a failure to
+#      GitHub, so for eight weeks two of three shards uploaded nothing and no
+#      alert saw it (#1784): the release alert reads the default branch's
+#      workflows for failure, and this run has no pull request to hang a check
+#      on. The `verdict` job below runs after the matrix whatever happened to it
+#      and fails the RUN unless every shard succeeded, so a cancelled or
+#      report-less shard is a red run the alert does see.
 #
-# RUNS AGAINST THE VSTEST TWIN (#899): dotnet-stryker (<= 4.16.0) drives its
-# runs through VSTest and cannot mutate the Microsoft.Testing.Platform-v2 test
-# project (stryker-mutator/stryker-net#3094; upstream's in-progress MTP runner
-# targets MTP v1 first). SSO-Auth.Tests.Stryker compiles the SAME test sources
-# as a classic VSTest container purely for this run - verified empirically:
-# a scoped mutation run kills mutants again (40/40 on RolePrivilegeMapper).
-# Delete the twin and point this back at SSO-Auth.Tests when Stryker ships
-# MTP v2 support.
+# RUNS THE REAL TEST PROJECT THROUGH THE MICROSOFT TESTING PLATFORM RUNNER
+# (#1784). Until dotnet-stryker 5.0.0 the run went through a VSTest twin of the
+# test project, because Stryker's runner spoke VSTest only. That twin ran xunit
+# v3 out of process, so Stryker's per-test coverage capture failed on every run
+# ("It looks like the test coverage capture failed. Disable coverage based
+# optimisation.") and every mutant ran the whole suite: about 83 seconds per
+# mutant, 90 minutes for the 65 core mutants, and the 764 oidc and 945 saml
+# mutants never fit the limit. dotnet-stryker 5.0.0 added per-test coverage to
+# its MTP runner (`test-runner: mtp` in stryker-config.json), which drives
+# SSO-Auth.Tests as it is: measured on the same scope, 40 mutants ran in 25
+# seconds after a 100-second coverage capture over 4070 tests.
 #
 # Hardened per the repo workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
@@ -47,8 +56,15 @@ on:
     # scheduled runs do not contend for a runner at the same minute. Re-enabled
     # with the VSTest twin (#899) after the MTP migration had paused it.
     - cron: "41 5 * * 1"
-  # Let me run it on demand from the Actions tab.
+  # Let me run it on demand from the Actions tab. The one input exists so the
+  # verdict job can be shown biting: a dispatch with a limit of one minute ends
+  # every shard cancelled and the run red (#1784).
   workflow_dispatch:
+    inputs:
+      timeout_minutes:
+        description: "Per-shard time limit in minutes (the scheduled run uses 90)"
+        required: false
+        default: "90"
 
 # Read-only: this job only reads the code and uploads a run artifact. It never
 # writes to the repo, a release, or the security dashboard.
@@ -65,12 +81,12 @@ jobs:
   mutation:
     name: Mutation testing (${{ matrix.scope.name }})
     runs-on: ubuntu-latest
-    # Mutation testing re-runs the covered tests once per mutant. The full scoped
-    # core is ~1379 mutants - ~3.5h serial on a 2-core runner, which killed the
-    # first VSTest-twin run at the old 60-minute limit. The matrix splits the
-    # scope into three parallel legs (~1-1.5h each); the timeout is sized for the
-    # largest leg with headroom. Weekly + informational, so wall clock is cheap.
-    timeout-minutes: 240
+    # Sized against the measurement in the header: with per-test coverage a
+    # shard is minutes, not hours, so a shard that needs more than this is a
+    # regression in the tests or in the runner and is meant to end red rather
+    # than to be waited out. The dispatch input only exists for the verdict
+    # job's own dry run.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.timeout_minutes) || 90 }}
     strategy:
       # One leg failing (e.g. a timeout) must not cancel the others' reports.
       fail-fast: false
@@ -102,12 +118,7 @@ jobs:
       - name: Restore dependencies
         # --locked-mode fails the restore if the committed packages.lock.json
         # files would change, matching the main build job's supply-chain posture.
-        # The VSTest twin is deliberately outside the solution (it must never join
-        # the normal build/test path), so it is restored explicitly - otherwise
-        # Stryker's implicit build would restore it WITHOUT locked-mode.
-        run: |
-          dotnet restore --locked-mode
-          dotnet restore SSO-Auth.Tests.Stryker/SSO-Auth.Tests.Stryker.csproj --locked-mode
+        run: dotnet restore --locked-mode
 
       - name: Restore pinned .NET tools (Stryker)
         # Installs dotnet-stryker at the version pinned in .config/dotnet-tools.json.
@@ -116,11 +127,11 @@ jobs:
       - name: Run Stryker (scoped, score-non-blocking)
         # break=0 in config keeps a LOW SCORE from exiting non-zero (the score is
         # a signal, not a gate). A tool/infrastructure failure, however, exits
-        # non-zero and now fails the run visibly - no continue-on-error, per the
-        # fail-closed-reporting note at the top (#899). Run from the VSTest twin
-        # directory so Stryker picks up stryker-config.json and drives the twin
-        # (the MTP-v2 test project is not VSTest-mutable - see the header note).
-        working-directory: SSO-Auth.Tests.Stryker
+        # non-zero and fails the run visibly - no continue-on-error, per the
+        # fail-closed-reporting note at the top (#899). Run from the test project
+        # directory so Stryker picks up its stryker-config.json, which names the
+        # MTP runner and per-test coverage (#1784).
+        working-directory: SSO-Auth.Tests
         env:
           # This leg's mutate scope (comma-separated globs). CLI -m REPLACES the
           # config's mutate list, so each leg mutates exactly its slice.
@@ -140,6 +151,27 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stryker-mutation-report-${{ matrix.scope.name }}
-          path: SSO-Auth.Tests.Stryker/StrykerOutput/**/reports/**
+          path: SSO-Auth.Tests/StrykerOutput/**/reports/**
           retention-days: 14
           if-no-files-found: error
+
+  verdict:
+    name: Every shard reported
+    runs-on: ubuntu-latest
+    # Runs whatever became of the matrix, including a cancellation, and turns
+    # anything but three successes into a failed run (#1784). A cancelled shard
+    # is what the 240-minute limit produced weekly for eight weeks while the
+    # run's own conclusion stayed "cancelled", which no alert reads as broken.
+    needs: mutation
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Fail the run unless every shard succeeded
+        env:
+          RESULT: ${{ needs.mutation.result }}
+        run: |
+          echo "matrix result: $RESULT"
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::At least one mutation shard did not succeed (result: $RESULT); a cancelled or report-less shard is a failed run, not a quiet one."
+            exit 1
+          fi

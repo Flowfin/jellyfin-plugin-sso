@@ -209,12 +209,12 @@ dialog, with:
 SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net10.0/SSO-Auth.Tests.exe
 ```
 
-Nothing else in the three test-side projects listens off loopback, writes a
+Nothing else in the test-side projects listens off loopback, writes a
 certificate into a store, or shells out to a tool that needs elevation. Before
 adding something that does, check what is there now:
 
 ```sh
-git grep -rniE "\.Bind\(|HttpListener|netsh|sc\.exe|runas|X509Store|dev-certs" -- SSO-Auth.Tests SSO-Auth.Tests.Stryker SSO-Auth.Fuzz
+git grep -rniE "\.Bind\(|HttpListener|netsh|sc\.exe|runas|X509Store|dev-certs" -- SSO-Auth.Tests SSO-Auth.Fuzz
 ```
 
 **Developing the admin UI.** The settings pages and the account-linking page are **embedded resources**, not files served from disk. The settings surface is five pages joined by a tab strip - `configPage.html` (Overview), `providersPage.html`, `accountsPage.html`, `policiesPage.html`, `serverPage.html` - each with a ten-line controller module beside it (`overview.js` and friends) that loads the shared `sso-core.js`, where all the behaviour is; those, plus the `linking.*` assets, are compiled into `SSO-Auth.dll` (see the `<EmbeddedResource>` entries in `SSO-Auth.csproj`). Every page name is registered in `SSOPlugin.GetPages`, and `node tools/ui-mock-fields.js` refuses a tab link, a `data-controller` or a core reference that names something the table does not register, along with a form control that has moved off the tab `docs/ui/mock/FIELDS.md` gives it. Run it after touching any of them; the `.NET` workflow does.

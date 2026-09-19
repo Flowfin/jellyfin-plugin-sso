@@ -16,9 +16,3 @@ using System.Runtime.CompilerServices;
 // the document version its import fixture posts. Non-shipping and outside the normal build/test path, the
 // same standing the fuzz harness has above.
 [assembly: InternalsVisibleTo("SSO-Auth.Bench")]
-
-// The VSTest twin of the test project (SSO-Auth.Tests.Stryker, #899) compiles the SAME test sources
-// for the Stryker mutation run only - Stryker's runner speaks VSTest and cannot drive the MTP-v2
-// test project. Non-shipping, outside the normal build/test path; delete with the twin when Stryker
-// gains MTP v2 support.
-[assembly: InternalsVisibleTo("SSO-Auth.Tests.Stryker")]
