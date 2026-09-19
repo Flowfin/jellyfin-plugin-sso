@@ -130,7 +130,7 @@ internal sealed class SessionMinter
             }
         }
 
-        await _avatarService.TrySetAsync(user, parameters.AvatarUrl).ConfigureAwait(false);
+        await _avatarService.TrySetAsync(user, parameters.Avatar).ConfigureAwait(false);
 
         // Set the default-provider id before the single user write so it persists in one round-trip
         // (#391). The pre-extraction Authenticate wrote the user a second time just for this field.

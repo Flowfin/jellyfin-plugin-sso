@@ -500,8 +500,9 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   and scoped to the one provider it is set on: it permits RFC 1918, carrier-grade
   NAT and IPv6 unique-local only, while loopback, link-local and the cloud
   metadata ranges (`169.254.169.254`, `192.0.0.192`) stay blocked regardless.
-  Every other provider, the avatar fetch and the SAML metadata importer keep the
-  full guard. Enabling it is surfaced as a security downgrade in the config page
+  Every other provider and the SAML metadata importer keep the full guard, and
+  so did the avatar fetch until #1764 below covered a picture served from the
+  provider's own origin. Enabling it is surfaced as a security downgrade in the config page
   and recorded in the insecure-toggle audit log.
 - **OpenID role claims carried as an object map.** A new per-provider option,
   **Role claim is an object map**, reads the roles from the property _names_ of
@@ -568,6 +569,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **An avatar served by an OpenID provider on the administrator's own network is
+  fetched when that provider has Allow Private Network Addresses set (#1764).** The
+  opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,
+  userinfo and back-channel logout), and the avatar fetch stayed on the strict tier
+  for every origin, so a provider
+  that serves its pictures from its own host was refused one request to a host it
+  already reached for everything else (#1762). The avatar now earns the private
+  tier at the moment its URL is chosen, when both facts hold at once: the provider
+  carries the opt-in, and the URL's origin, meaning scheme, host and port compared
+  exactly, is the origin of that provider's own discovery, token or userinfo
+  endpoint, the last counting only while the login reads it. The URL travels bound
+  to that verdict, so the fetch never applies it to
+  another address and re-reads nothing to decide. A private address literal on
+  that origin passes the URL validator under the same tier and nowhere else. A
+  redirect from a private-tier avatar is followed only to a target the strict tier
+  admits, so the verdict never carries past the origin it was earned for. Every
+  other origin, and every provider without the opt-in, is fetched exactly as
+  before, and the refusal an operator reads names what the setting covers now.
 - **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target, net10.0, for Jellyfin 12 (#1770).**
   `4.3.0-stable` of 2026-09-15 was the last build for Jellyfin 10.11 and .NET 9,
   and nothing is developed for that generation any more. This is the end of
@@ -839,8 +858,9 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   connect fails anyway, its message counts the addresses the guard refused and,
   where they are on a private network, names **Allow Private Network Addresses**
   with its reach: it allows them for an OpenID provider's discovery, token and
-  userinfo requests, while avatars and SAML metadata are fetched without it
-  (#1764). It names no address, because the message reaches the server log.
+  userinfo requests, while SAML metadata and, until #1764 below widened it to
+  the provider's own origin, avatars are fetched without it. It names no
+  address, because the message reaches the server log.
   Loopback, link-local and cloud-metadata
   addresses are counted but never pointed at that setting, which does not relax
   them. The guard's policy is unchanged: every address is still classified

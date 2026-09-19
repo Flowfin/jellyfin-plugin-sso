@@ -369,7 +369,7 @@ public class AuthorizeValueBindingConformanceTests
             PendingFor(token, provider),
             new OidcAuthorizeStateBuilder.OidcAuthorizeState(
                 Username: "alice", Subject: "sub-1", Issuer: null, EmailVerified: null, Valid: true, Admin: false,
-                EnableLiveTv: false, EnableLiveTvManagement: false, Folders: new List<string>(), AvatarUrl: null)));
+                EnableLiveTv: false, EnableLiveTvManagement: false, Folders: new List<string>(), Avatar: null)));
 
         var user = TestUsers.Named("alice", Target);
         harness.UserManager.CreateUserAsync("alice").Returns(user);

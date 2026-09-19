@@ -406,7 +406,7 @@ public class PendingApprovalRecordTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: null));
 
     private static CanonicalLinkService BuildLinks(PluginConfiguration configuration, out IUserManager users)

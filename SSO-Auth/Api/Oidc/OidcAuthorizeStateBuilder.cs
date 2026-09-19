@@ -56,13 +56,23 @@ internal static class OidcAuthorizeStateBuilder
     /// property and unit tests that ask this builder a pure question keep calling it with two arguments.
     /// </param>
     /// <param name="provider">The provider name the audit entry names; ignored when no logger is supplied.</param>
+    /// <param name="providerEndpoints">
+    /// The provider's own backchannel endpoints as the callback knows them - the configured discovery address
+    /// and the token and userinfo endpoints discovery advertised - against which the avatar URL earns the
+    /// private address tier (#1764). Null, the default for the tests that ask this builder a pure question,
+    /// names no origin, so the avatar keeps the strict tier.
+    /// </param>
     /// <returns>The derived authorize-state values.</returns>
-    internal static OidcAuthorizeState Build(IEnumerable<Claim> claims, OidConfig config, string? issuer = null, ILogger? logger = null, string? provider = null)
+    internal static OidcAuthorizeState Build(IEnumerable<Claim> claims, OidConfig config, string? issuer = null, ILogger? logger = null, string? provider = null, IReadOnlyList<string?>? providerEndpoints = null)
     {
         // Materialize so the claims can be enumerated more than once (avatar format, role claim, sub fallback).
         var claimList = claims as IReadOnlyList<Claim> ?? claims.ToList();
 
-        var avatarUrl = ResolveAvatarUrl(claimList, config);
+        // The avatar URL is bound to its address tier HERE, where the provider's discovered endpoints are still
+        // in hand (#1764): the fetch receives one value and re-reads nothing to decide. Rows: opt-in on and the
+        // URL on the provider's own origin earns the private tier; every other origin, and every provider
+        // without the opt-in, stays strict.
+        var avatar = AvatarTarget.Resolve(ResolveAvatarUrl(claimList, config), config.AllowPrivateNetworkAddresses, providerEndpoints ?? Array.Empty<string?>());
         var (username, valid, roles) = ScanClaims(claimList, config, logger, provider);
 
         // The stable subject identifier used to key the account link (#155): the "sub" claim, which
@@ -139,7 +149,7 @@ internal static class OidcAuthorizeStateBuilder
         // validation rejects it anyway, so no legitimate login can carry one.
         valid = valid && !string.IsNullOrWhiteSpace(username);
 
-        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatarUrl, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration, provisioningProfile, syncPlayAccess);
+        return new OidcAuthorizeState(username, subject, issuer, emailVerified, valid, admin, enableLiveTv, enableLiveTvManagement, folders, avatar, permissionGrants, maxParentalRatingScore, expiresAtUtc, guestAccessDuration, provisioningProfile, syncPlayAccess);
     }
 
     // The last "sub" claim value, or null when none is present. Kept separate from the username
@@ -270,9 +280,10 @@ internal static class OidcAuthorizeStateBuilder
     // (null or empty) the resolver falls back to the standard OIDC `picture` claim verbatim (#723) so a
     // standards-compliant IdP yields an avatar with zero configuration - UNLESS the admin has opted out
     // via DisableAvatarFromPictureClaim, in which case no candidate is produced and nothing is fetched.
-    // Either way this only produces a CANDIDATE URL: AvatarService.TrySetAsync still gates the fetch
-    // through AvatarUrlValidator, so a `picture` (or templated) URL to a private/loopback host is refused
-    // exactly the same.
+    // Either way this only produces a CANDIDATE URL: Build binds it to the address tier it earns (#1764),
+    // and AvatarService.TrySetAsync still gates the fetch through AvatarUrlValidator under that tier, so a
+    // `picture` (or templated) URL to a loopback host is refused whatever the tier, and one to a private host
+    // is fetched only on an opted-in provider's own origin.
     private static string? ResolveAvatarUrl(IReadOnlyList<Claim> claims, OidConfig config)
     {
         if (string.IsNullOrEmpty(config.AvatarUrlFormat))
@@ -428,7 +439,7 @@ internal static class OidcAuthorizeStateBuilder
     /// <param name="EnableLiveTv">Whether the login grants Live TV access.</param>
     /// <param name="EnableLiveTvManagement">Whether the login grants Live TV management.</param>
     /// <param name="Folders">The enabled folders (statically enabled plus role-granted).</param>
-    /// <param name="AvatarUrl">The resolved avatar candidate URL: the configured AvatarUrlFormat template with @{claim} tokens substituted, or - when no template is configured (null/empty) - the standard OIDC "picture" claim (#723); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator.</param>
+    /// <param name="Avatar">The resolved avatar candidate - the configured AvatarUrlFormat template with @{claim} tokens substituted, or - when no template is configured (null/empty) - the standard OIDC "picture" claim (#723) - bound to the address tier it earned against the provider's own endpoints (#1764); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator under that tier.</param>
     /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
     /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
     /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
@@ -445,7 +456,7 @@ internal static class OidcAuthorizeStateBuilder
         bool EnableLiveTv,
         bool EnableLiveTvManagement,
         List<string> Folders,
-        string? AvatarUrl,
+        AvatarTarget? Avatar,
         IReadOnlyList<PermissionGrant>? PermissionGrants = null,
         int? MaxParentalRatingScore = null,
         DateTime? ExpiresAtUtc = null,

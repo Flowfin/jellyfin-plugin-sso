@@ -444,7 +444,7 @@ public class PendingApprovalActionTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: null));
 
     private static (LoginCompletionService Service, IUserManager Users, PluginConfiguration Configuration) BuildLogin(OidConfig config)

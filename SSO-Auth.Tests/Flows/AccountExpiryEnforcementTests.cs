@@ -255,7 +255,7 @@ public class AccountExpiryEnforcementTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: expiresAtUtc));
 
     private static (LoginCompletionService Service, OidConfig Config, IUserManager Users, ISessionManager Sessions, CapturingLogger Audit) Build(string? expiryClaim = ExpiryClaim)

@@ -208,7 +208,7 @@ public class OidcAccountExpiryClaimTests
         Assert.Equal(without.EnableLiveTv, with.EnableLiveTv);
         Assert.Equal(without.EnableLiveTvManagement, with.EnableLiveTvManagement);
         Assert.Equal(without.Folders, with.Folders);
-        Assert.Equal(without.AvatarUrl, with.AvatarUrl);
+        Assert.Equal(without.Avatar, with.Avatar);
         Assert.Equal(without.PermissionGrants, with.PermissionGrants);
         Assert.Equal(without.MaxParentalRatingScore, with.MaxParentalRatingScore);
         Assert.Null(without.ExpiresAtUtc);

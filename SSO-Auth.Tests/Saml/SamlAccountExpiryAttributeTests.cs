@@ -151,7 +151,7 @@ public class SamlAccountExpiryAttributeTests
         Assert.Equal(without.EnableLiveTvManagement, with.EnableLiveTvManagement);
         Assert.Equal(without.Folders, with.Folders);
         Assert.Equal(without.EmailVerified, with.EmailVerified);
-        Assert.Equal(without.AvatarUrl, with.AvatarUrl);
+        Assert.Equal(without.Avatar, with.Avatar);
         Assert.Equal(without.MaxParentalRatingScore, with.MaxParentalRatingScore);
         Assert.Null(without.ExpiresAtUtc);
         Assert.Equal(ExpectedUtc, with.ExpiresAtUtc);
