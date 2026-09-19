@@ -12,11 +12,11 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// refusal, naming the redirect URI, and a reporter who had already confirmed that URI against the
 /// provider was told to check it again for a refusal that was about the client secret (#1762).
 /// <para>
-/// Every row below is a value the identity library can actually produce at this call. That is not a
-/// detail: the library hands on ONE field, and what is in it depends on the status. A 400 yields the
-/// provider's own <c>error</c> member; any other unsuccessful status yields the HTTP reason phrase; a
-/// request that never arrived yields the exception message. Rows invented outside those three shapes
-/// would certify behaviour no caller can reach.
+/// Every row below is a value the identity library can produce at this call, with one exception that is
+/// named where it sits. That is not a detail: the library hands on ONE field, and what is in it depends
+/// on the status. A 400 yields the provider's own <c>error</c> member; any other unsuccessful status
+/// yields the HTTP reason phrase; a request that never arrived yields the exception message. Rows
+/// invented outside those three shapes would certify behaviour no caller can reach.
 /// </para>
 /// </summary>
 public class OidcChallengeRefusalTests
@@ -72,6 +72,10 @@ public class OidcChallengeRefusalTests
     }
 
     [Theory]
+    // THE ONE EXCEPTION THE CLASS DOC NAMES, and it is a guard rather than a row. The caller cannot reach
+    // these: the switch sits under `if (state.IsError)`, and the library's IsError is IsPresent, which is
+    // not-null-or-whitespace. They are here because Classify is a pure function that anything may call,
+    // and an empty answer must fall to the sentence that interprets nothing rather than to a set match.
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
