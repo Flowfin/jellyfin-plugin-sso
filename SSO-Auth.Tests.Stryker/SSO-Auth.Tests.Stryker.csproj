@@ -11,12 +11,12 @@
 
        Deliberately NOT part of the solution build or any CI job except stryker-mutation.yml:
        the MTP project remains the one gate for test correctness; this twin exists so mutants
-       can be exercised at all. net9.0 only - Stryker mutates the net9.0 target
-       (stryker-config.json target-framework) and one TFM keeps the twin cheap.
+       can be exercised at all. net10.0, the one target the plugin builds since #1770
+       (stryker-config.json target-framework names the same one).
        Delete this project when Stryker ships MTP v2 support. -->
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RollForward>Major</RollForward>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>

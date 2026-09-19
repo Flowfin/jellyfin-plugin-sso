@@ -40,9 +40,9 @@ public partial class ArchitectureConformanceTests
     // frameworks. Declared as a path rather than found by name so a rename has to come past this rule.
     private const string RepeatedMemberWalk = "SSO-Auth/Api/Oidc/StrictJson.cs";
 
-    // Spellings that would move the duplicate-member decision off this walk and onto whichever
-    // System.Text.Json the HOST happens to bind - .NET 9's in the Jellyfin 10.11 line, .NET 10's in the 12.0
-    // line. Each was checked to exist rather than assumed, in the reference assemblies this repository
+    // Spellings that would move the duplicate-member decision off this walk and onto the System.Text.Json
+    // the HOST binds - .NET 10's, now that the Jellyfin 12.0 line is the one target (#1770). Each was
+    // checked to exist rather than assumed, in the reference assemblies this repository
     // restores against:
     //
     //   grep -a -c AllowDuplicateProperties <NETCore.App.Ref>/10.0.9/ref/net10.0/System.Text.Json.dll   -> 1
@@ -52,11 +52,10 @@ public partial class ArchitectureConformanceTests
     // A name nothing implements would be dead weight in a denylist, which is why a fourth candidate,
     // JsonDuplicatePropertyHandling, is absent: the same grep answered 0 for it.
     //
-    // The three are not equally reachable, and saying which is which is what keeps this rule from being sold
-    // as more than it is. The two System.Text.Json spellings are refused by the net9.0 compiler before this
-    // rule sees them - writing the first one into the walk fails that leg with CS1061, measured. The
-    // Newtonsoft one is netstandard2.0 and compiles on BOTH legs, so nothing but this rule refuses it, and it
-    // is the row the guard was proven against.
+    // All four compile on net10.0, so this rule is the only thing that refuses any of them. While the net9.0
+    // leg existed the two System.Text.Json spellings were refused by its compiler before this rule saw them
+    // (writing the first one into the walk failed that leg with CS1061, measured); the Newtonsoft one is
+    // netstandard2.0 and compiled on both legs, which is why it is the row the guard was proven against.
     private static readonly string[] FrameworkDuplicatePolicies =
     {
         "AllowDuplicateProperties",
@@ -69,17 +68,17 @@ public partial class ArchitectureConformanceTests
     /// The repeated-member walk decides duplicates itself and never delegates that decision to the host's
     /// JSON stack (#1189, carried from the review of #1061).
     /// <para>
-    /// The failure this refuses is not a build break. Naming .NET 10's preset outright fails the net9.0 leg
-    /// with CS0117 and the compiler is the guard for that. What compiles on BOTH legs is the same name behind
-    /// a conditional, and that is the edit worth catching: the walk would then answer one way on the Jellyfin
-    /// 10.11 line and another on the 12.0 line, while every test in this project - which loads its own
-    /// System.Text.Json, never the host's - kept reporting the verdict of whichever leg it ran on. A screen
-    /// whose answer depends on the host is the interoperability-unsafe document problem moved one layer down.
+    /// The failure this refuses is not a build break. With one target (#1770) every spelling below compiles,
+    /// so nothing but this rule stands between the walk and the host's duplicate policy. The edit worth
+    /// catching is the walk handing its verdict to whichever System.Text.Json the host binds, while every
+    /// test in this project - which loads its own System.Text.Json, never the host's - kept reporting the
+    /// verdict of the runtime it ran on. A screen whose answer depends on the host is the
+    /// interoperability-unsafe document problem moved one layer down.
     /// </para>
     /// <para>
-    /// #1043 retires this rule together with the walk: once net9.0 is dropped the preset IS the intended
-    /// implementation, and a denylist standing after that would refuse the replacement it was written to
-    /// protect.
+    /// #1043 decides whether this rule retires together with the walk: with net9.0 gone the preset is a
+    /// candidate implementation, and a denylist standing after a swap would refuse the replacement it was
+    /// written to protect.
     /// </para>
     /// </summary>
     [Fact]
@@ -97,9 +96,10 @@ public partial class ArchitectureConformanceTests
     }
 
     /// <summary>
-    /// The walk carries no conditional compilation, which is the other half of "one code path on both
-    /// targets" and the one an ordinary test cannot see - a per-target branch is invisible to a suite that
-    /// runs each target separately and passes on both.
+    /// The walk carries no conditional compilation, which is the other half of "one code path" and the one
+    /// an ordinary test cannot see - a per-target branch is invisible to a suite that runs each target
+    /// separately and passes on both. One target is built today (#1770); the rule stays until #1043 decides
+    /// the walk's future, so a second target cannot bring a branch back unnoticed.
     /// </summary>
     [Fact]
     public void TheRepeatedMemberWalk_HasOneCodePathOnBothTargets()
@@ -121,9 +121,9 @@ public partial class ArchitectureConformanceTests
     public void AWalkThatDelegatesTheDuplicateDecision_IsRejectedByTheScan()
     {
         // The must-catch half, over the predicate rather than over the tree, and deliberately the spelling
-        // that COMPILES on both legs rather than the one the net9.0 compiler already stops. A near-miss the
-        // build refuses anyway proves nothing about this rule; this one was applied to the shipped walk, built
-        // clean on net9.0, and reddened both this rule and its prose twin.
+        // that compiled on both legs while two existed rather than the one the net9.0 compiler stopped. A
+        // near-miss the build refuses anyway proves nothing about this rule; this one was applied to the
+        // shipped walk, built clean, and reddened both this rule and its prose twin.
         const string Source = @"
 internal static class StrictJson
 {

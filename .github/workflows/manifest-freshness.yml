@@ -7,7 +7,10 @@ name: Manifest freshness
 #
 # This scheduled check closes that gap: it asserts the newest published beta release for each generation
 # (JF10.11 and JF12) is actually listed in the manifest-beta manifest.json, so a silent manifest gap
-# becomes a red check even when the publish reported success. A failure here is picked up by
+# becomes a red check even when the publish reported success. The JF10.11 line ended with 4.3.0
+# (#1770), so its newest beta no longer moves: that half now asserts that the retired generation's
+# entries survive every regeneration, which is what keeps a 10.11 server installing 4.3 from this
+# channel. A failure here is picked up by
 # publish-failure-alert.yml (which watches this workflow) and raised as a tracking issue.
 #
 # Read-only: curl for the public manifest, gh for the release list, jq (present on the runner) for the
@@ -72,9 +75,9 @@ jobs:
             if [ -z "$tag" ]; then
               # Fail closed PER GENERATION: a zero match means either the release tag scheme drifted (and
               # this check is silently no longer verifying this generation) or this generation genuinely
-              # has no published beta. Both current generations always publish, so treat zero as a defect
-              # rather than skipping - a single total-drift guard would let one generation's match mask the
-              # other's silent drift.
+              # has no published beta. Both generations have published betas that stay on the release list
+              # (the 10.11 line's last is 4.3.0-beta.72), so treat zero as a defect rather than skipping -
+              # a single total-drift guard would let one generation's match mask the other's silent drift.
               echo "::error::no ${label} beta release matched ${tag_re} - the release tag scheme may have changed, or this generation has no published beta; failing closed rather than skipping verification."
               fail=1
               return

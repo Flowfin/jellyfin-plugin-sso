@@ -86,13 +86,13 @@ jobs:
           # .git/config (zizmor "artipacked" hardening).
           persist-credentials: false
 
-      # Pin the SDK the plugin targets (net9.0) so CodeQL's autobuild builds
+      # Pin the SDK the plugin targets (net10.0) so CodeQL's autobuild builds
       # csharp with the right toolchain. Skipped for the buildless languages.
       - name: Setup .NET
         if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9

@@ -8,7 +8,7 @@ name: Nightly betas
 # on 2026-09-15 it was promoted and work on that line stopped by decision. Its nightly dispatch of
 # publish-beta.yml is removed rather than left to mint betas after the stable: a JF10.11 beta built
 # after the stable would sit above it on the beta channel for a line nobody works on. publish-beta.yml
-# itself stays in the tree and can still be dispatched by hand.
+# itself stays on `main` with the 4.3 line and is not on this branch (#1770).
 #
 # THE JF12 REF IS THE DEVELOPMENT BRANCH (#1585). While the JF12 leg pointed at the frozen `main` it
 # published the same code every night with a rising build number while the work sat unreleased, so

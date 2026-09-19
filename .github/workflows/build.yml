@@ -5,12 +5,12 @@ on:
     inputs:
       dotnet-version:
         required: false
-        default: "9.0.x"
+        default: "10.0.x"
         description: "The .NET version to setup for the build"
         type: string
       dotnet-target:
         required: false
-        default: "net9.0"
+        default: "net10.0"
         description: "The .NET target to set for JPRM"
         type: string
       attest:
@@ -33,8 +33,9 @@ on:
 # contents:read and startup_failed the whole run.) The scopes are NOT "capped away"
 # for non-attesting callers - they are a hard prerequisite to start. Callers that
 # must keep granting contents:read + id-token:write + attestations:write:
-#   - .github/workflows/publish.yml  (release path; attest: true)
 #   - .github/workflows/dotnet.yml   (CI Package job; leaves attest false)
+# The 10.11 stable leg, publish.yml, was the one caller with attest: true; it stays on `main` with the
+# 4.3 line (#1770), and no leg on this branch attests yet - publish-jf12-stable.yml never did.
 permissions: {}
 
 jobs:
@@ -112,16 +113,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # Both SDKs: the SBOM documents the FULL multi-target closure, so the
-      # whole-solution restore must evaluate both the net9.0 and net10.0 targets
-      # (matching the JF12 legs' dual-SDK setup) regardless of which single target a
-      # given publish leg ships.
+      # One SDK: the SBOM documents the net10.0 closure, which is the one target
+      # the plugin builds since #1770.
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       # Materialise the locked restore graph the SBOM reads. --locked-mode rejects a
       # drifted or tampered graph (RestoreLockedMode is also forced in CI), so the

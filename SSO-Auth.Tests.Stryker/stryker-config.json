@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/Options/stryker-schema.json",
   "stryker-config": {
     "project": "SSO-Auth.csproj",
-    "target-framework": "net9.0",
+    "target-framework": "net10.0",
     "coverage-analysis": "perTest",
     "reporters": ["html", "markdown", "progress", "cleartext"],
     "thresholds": {

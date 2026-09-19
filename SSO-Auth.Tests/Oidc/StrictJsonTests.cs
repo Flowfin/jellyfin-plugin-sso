@@ -267,18 +267,17 @@ public class StrictJsonTests
         Assert.Equal("https://evil.example", bothSpellings.Upper);
     }
 
-#if NET10_0_OR_GREATER
     [Fact]
     public void TheStrictPresetTakesTheSameDecisionOnCase()
     {
-        // #1043 replaces this walk with JsonSerializerOptions.Strict once net9.0 is dropped, so the decision
-        // above may not contradict what that preset does with case without saying so. It does not, and this
-        // is the measurement rather than a reading of the documentation: Strict refuses a member named twice
-        // and does not treat a case-variant pair as one, which is this walk's posture in both directions.
+        // #1043 decides whether JsonSerializerOptions.Strict replaces this walk now that net10.0 is the one
+        // target, so the decision above may not contradict what that preset does with case without saying
+        // so. It does not, and this is the measurement rather than a reading of the documentation: Strict
+        // refuses a member named twice and does not treat a case-variant pair as one, which is this walk's
+        // posture in both directions.
         //
-        // Compiled only on net10.0 because the preset does not exist in the .NET 9 System.Text.Json the
-        // Jellyfin 10.11 line binds - referencing it there fails the build with CS0117, which is the same
-        // reason StrictJson is a hand-rolled walk at all.
+        // This was compiled on net10.0 alone while the Jellyfin 10.11 line bound .NET 9's System.Text.Json,
+        // where the preset does not exist; that leg ended in #1770 and the guard around it went with it.
         // One carrier for both rows, so the only difference between them is the repeat itself and not which
         // members happened to bind.
         Assert.Throws<JsonException>(
@@ -288,7 +287,6 @@ public class StrictJsonTests
         Assert.Equal("https://good.example", admitted!.Lower);
         Assert.Equal("https://evil.example", admitted.Upper);
     }
-#endif
 
     [Fact]
     public void EscapeSpelledName_CountsAsItsPlainSpelling()

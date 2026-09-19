@@ -48,10 +48,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// separate walk.
 ///
 /// Deliberately a raw <see cref="Utf8JsonReader"/> walk rather than a <c>JsonSerializerOptions</c> setting.
-/// The plugin binds the HOST's System.Text.Json - .NET 9's in the Jellyfin 10.11 line, .NET 10's in the 12.0
-/// line - and <c>Strict</c> exists only on the latter: referencing it fails the net9.0 build with CS0117. A
-/// tokenizer carries no duplicate policy of its own, so one code path reaches the same decision on both
-/// targets, and that decision does not move when the host's System.Text.Json does.
+/// The plugin binds the HOST's System.Text.Json, and while the Jellyfin 10.11 line was a target that was
+/// .NET 9's, where <c>Strict</c> does not exist (referencing it failed the net9.0 build with CS0117). That
+/// leg ended in #1770 and #1043 decides whether the preset replaces this walk. A tokenizer carries no
+/// duplicate policy of its own, so the decision here does not move when the host's System.Text.Json does.
 /// </summary>
 internal static class StrictJson
 {
@@ -141,10 +141,10 @@ internal static class StrictJson
     /// a provider naming a member with an unpaired surrogate is locked out of a login a lenient reader
     /// downstream would have completed.
     ///
-    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 replaces this walk with once net9.0 is
-    /// dropped, takes the same decision in both directions - it refuses a member named twice and does not
-    /// treat a case-variant pair as one. Measured on net10.0 in <c>TheStrictPresetTakesTheSameDecisionOnCase</c>,
-    /// so the replacement inherits this posture rather than contradicting it.
+    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 weighs against this walk now that net9.0
+    /// is gone, takes the same decision in both directions - it refuses a member named twice and does not
+    /// treat a case-variant pair as one. Measured in <c>TheStrictPresetTakesTheSameDecisionOnCase</c>, so a
+    /// replacement would inherit this posture rather than contradicting it.
     ///
     /// Never throws.
     /// </returns>

@@ -1,6 +1,6 @@
 name: Regenerate manifest
 
-# Manual RECOVERY path (#948). Three publish legs run the manifest step inline in the job that
+# Manual RECOVERY path (#948). The publish legs run the manifest step inline in the job that
 # already created and sealed the immutable release: if manifest generation fails transiently
 # there, "re-run failed jobs" re-enters action-gh-release on the sealed release and never
 # reaches the manifest step again. This workflow regenerates and verifies one channel's
@@ -21,7 +21,7 @@ on:
           - release
         required: true
       metadata-release-tag:
-        description: Release tag whose *.zip.meta.json supplies the plugin identity (use the channel's newest release, e.g. 4.3.0-beta.11)
+        description: Release tag whose *.zip.meta.json supplies the plugin identity (use the channel's newest release, e.g. 5.0.0-JF12-beta.88)
         type: string
         required: true
       repopulate-stable:
@@ -106,6 +106,7 @@ jobs:
         manifest-branch: ${{ inputs.channel == 'beta' && 'manifest-beta' || 'manifest-release' }}
         github-token: ${{ github.token }}
         expect-version: ${{ env.EXPECT_VERSION }}
-        # Both generations must survive a beta regeneration; the stable manifest's ABI set is
-        # whatever the (deliberately reopened) release history yields, so no requirement there.
+        # Both generations must survive a beta regeneration: the 4.3 betas at 10.11.0.0 are the last
+        # builds a 10.11 server can install and stay beside the 5.x ones (#1770). The stable manifest's
+        # ABI set is whatever the release history yields, so no requirement there.
         require-abis: ${{ inputs.channel == 'beta' && '10.11.0.0 12.0.0.0' || '' }}

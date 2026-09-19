@@ -143,11 +143,12 @@ SEALED_PROVIDER="$(field "$VERIFY_OUT" PROBE-PROVIDER)"
 SEALED_EMPTY="$(field "$VERIFY_OUT" PROBE-EMPTY-PASSWORD)"
 
 log "Asserting"
-# VACUOUS ON THE JF12 LINE AND KEPT ANYWAY (#1469). On 10.11 this moves false -> true across the restart
-# and is the sealing. On 12.0 it reads true on both sides of it, so it asserts nothing there - the two
-# readings that do are the empty-password refusal and the audit line below, and both are generation-
-# independent. Kept because it still bites on the 10.11 line, which is the generation the shipped
-# artifact runs on.
+# VACUOUS ABOUT THE PASS ON JELLYFIN 12, AND KEPT (#1469). On 10.11 this moved false -> true across the
+# restart and was the sealing; on 12.0 it reads true on both sides of it, so it asserts nothing about
+# the pass - the two readings that do are the empty-password refusal and the audit line below. Since
+# #1770 the harness boots Jellyfin 12 only, so this line is a guard that the account still holds a
+# password after the restart and nothing more; it is kept rather than deleted so that the day this
+# reads false the run says so.
 [ "$SEALED_HASPASSWORD" = "true" ] \
     || die "alice still holds no password after the restart (HasPassword=$SEALED_HASPASSWORD) - the start-up pass did not seal an account that was exactly its population"
 pass "alice holds a password again after the restart"

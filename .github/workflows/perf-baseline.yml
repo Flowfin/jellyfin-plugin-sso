@@ -96,12 +96,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # The harness targets net9.0; it references the multi-target test
-          # project, which also has a net10.0 leg, so both SDKs are installed to
-          # keep the locked-mode restore of the reference graph deterministic.
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          # The harness and the test project it references both target net10.0,
+          # the one target since #1770, so one SDK restores the locked graph.
+          dotnet-version: 10.0.x
 
       - name: Restore harness (locked)
         # --locked-mode fails if a committed packages.lock.json would change, so a

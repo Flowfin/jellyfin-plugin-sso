@@ -135,7 +135,7 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/Flowfi
 
 ### Your First Code Contribution
 
-The project is built with .NET 9, targeting Jellyfin 10.11. Download [the .NET 9 SDK](https://dotnet.microsoft.com/en-us/download).
+The project is built with .NET 10, targeting Jellyfin 12; 4.3.0 was the last build for Jellyfin 10.11 and nothing here is built for that generation any more (#1770). Download [the .NET 10 SDK](https://dotnet.microsoft.com/en-us/download).
 
 Any code editor or IDE with .NET support will work out of the box with this program.
 
@@ -187,8 +187,8 @@ through `tee`, and keep the file until the run is green:
 
 `dotnet test` requires the **.NET 10 SDK**: the repo's `global.json` selects the
 SDK's Microsoft.Testing.Platform mode of `dotnet test` (#718), which older SDKs
-do not support (the build itself multi-targets net9.0 + net10.0 either way, so
-you need both runtimes' SDKs installed - exactly what CI installs).
+do not support. Every project targets net10.0 alone since #1770, so that one SDK
+is all a build or a test run needs - exactly what CI installs.
 
 CI restores in a separate step, so its build/test use `--no-restore`/`--no-build`; on a fresh local clone run `dotnet restore` once first (or drop `--no-restore` on the first build) or the build fails before any package is fetched.
 
@@ -206,7 +206,7 @@ coverage with no opt-in. Run them on Windows deliberately, and expect the
 dialog, with:
 
 ```sh
-SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net9.0/SSO-Auth.Tests.exe
+SSO_TESTS_ALLOW_LAN_BIND=1 ./SSO-Auth.Tests/bin/Debug/net10.0/SSO-Auth.Tests.exe
 ```
 
 Nothing else in the three test-side projects listens off loopback, writes a

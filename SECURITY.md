@@ -29,21 +29,22 @@ reporting.
 open-source project. The commitments below describe intent, applied
 consistently - they are not a contractual SLA.
 
-- **One active version line: 4.x.** Security fixes land in a **new latest
-  release** of that line; older releases are not patched in place. "Supported"
-  means: update to the latest release.
-- Each release is packaged for the server generations the manifests cover
-  (currently Jellyfin **10.11/11.x** on .NET 9 as the stable line, Jellyfin
-  **12.0** as beta until 12.0 itself is stable - see the README's install
-  matrix). A security fix ships for **all ABI builds of the latest release**
-  at the same time.
-- **When a future major line replaces 4.x** (the planned JF12-native 5.0 line -
-  [#743](https://github.com/Flowfin/jellyfin-plugin-sso/issues/743)), the intent
-  is to keep shipping **security fixes for the previous line for at least six
-  months** after the new line's first stable release.
+- **One active version line: 5.x, for Jellyfin 12 on .NET 10.** Security fixes
+  land in a **new latest release** of that line; older releases are not patched
+  in place. "Supported" means: update to the latest release.
+- Each release is packaged for one server generation, Jellyfin **12.x** on
+  .NET 10. The 4.x line for Jellyfin 10.11 on .NET 9 ended with `4.3.0-stable`
+  on 2026-09-15: 4.3.0 stays installable from the same repository URL, and it
+  receives no further fixes unless I decide otherwise
+  ([#1770](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1770)).
+- Until 2026-09-19 this file said the intent was to keep shipping security
+  fixes for a previous line for at least six months after the new line's first
+  stable release. That was not kept for 4.x: the line was retired before 5.0.0
+  shipped, by decision, and the sentence above is what holds. What happens when
+  a later line replaces 5.x is decided when it happens and is not promised here.
 - **End of support is announced**, not silent: in `CHANGELOG.md` and the
-  release notes of the release that starts the clock, with at least three
-  months' notice before the final security update of a line.
+  release notes. The 4.x end is announced in the `CHANGELOG.md` entry for
+  #1770; it came with no advance notice, which this file used to promise.
 
 Release integrity, channels and the soak/promotion model are described in the
 [Releasing](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing)
@@ -74,10 +75,9 @@ Every release also ships a **CycloneDX SBOM** (`sbom.cyclonedx.json`) enumeratin
 the plugin's direct and transitive dependency closure, generated from the
 committed `packages.lock.json` restored in locked mode. It is the dependency
 inventory a downstream redistributor needs for its own CRA Annex I duties
-(and satisfies OSPS-QA-02.02). The SBOM covers the **full multi-target closure**
-(both the net9.0 / Jellyfin 10.11 and net10.0 / Jellyfin 12.0 lines) - a
-conservative superset of any single release's shipped ABI, which its tag and
-zip identify. It ships with a `.sha256` sidecar. It deliberately carries no
+(and satisfies OSPS-QA-02.02). The SBOM covers the **whole restored closure**
+of the net10.0 / Jellyfin 12 build, the one target since #1770 - a superset of
+what the zip carries, never less. It ships with a `.sha256` sidecar. It deliberately carries no
 `.md5`: the Jellyfin manifest generator picks a release's checksum by filename
 and keeps the last `.md5` it sees, so a second one can silently become the
 published plugin checksum and break every install (#942). SHA-256 is the

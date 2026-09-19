@@ -21,8 +21,8 @@ body:
     id: jellyfin-version
     attributes:
       label: Jellyfin server version
-      description: The 10.11.x (stable) or 12.0.x (beta line) server version.
-      placeholder: 10.11.3
+      description: The 12.x server version (4.3.0 is the last build for 10.11 and receives no changes).
+      placeholder: 12.0.0
     validations:
       required: true
   - type: dropdown
