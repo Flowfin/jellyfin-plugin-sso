@@ -53,9 +53,13 @@ internal static class AvatarUrlValidator
             return false;
         }
 
-        // Strip a fully-qualified trailing dot ("localhost." / "host.") before the localhost check,
-        // since it resolves the same but would otherwise slip past the string comparison.
-        var host = parsed.DnsSafeHost.TrimEnd('.');
+        // The names are compared on the host the transport dials. IdnHost is the ASCII form a socket is handed,
+        // so a Unicode spelling that maps to "localhost" (a fullwidth one, for instance) is refused here rather
+        // than admitted by the name check and refused only by the connect-time guard (#1789). DnsSafeHost keeps
+        // the Unicode spelling, and a check on it proved less than its rows read as proving. Strip a
+        // fully-qualified trailing dot ("localhost." / "host.") before the check, since it resolves the same
+        // but would otherwise slip past the string comparison.
+        var host = parsed.IdnHost.TrimEnd('.');
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
         {
             return false;
