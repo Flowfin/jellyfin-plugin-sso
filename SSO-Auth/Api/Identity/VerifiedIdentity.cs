@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
+using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Identity;
@@ -54,7 +55,7 @@ internal sealed record VerifiedIdentity
         IReadOnlyList<string> folders,
         bool enableLiveTv,
         bool enableLiveTvManagement,
-        string? avatarUrl,
+        AvatarTarget? avatar,
         IReadOnlyList<PermissionGrant> permissionGrants,
         int? maxParentalRatingScore,
         DateTime? expiresAtUtc,
@@ -73,7 +74,7 @@ internal sealed record VerifiedIdentity
         Folders = folders;
         EnableLiveTv = enableLiveTv;
         EnableLiveTvManagement = enableLiveTvManagement;
-        AvatarUrl = avatarUrl;
+        Avatar = avatar;
         PermissionGrants = permissionGrants;
         MaxParentalRatingScore = maxParentalRatingScore;
         ExpiresAtUtc = expiresAtUtc;
@@ -119,8 +120,8 @@ internal sealed record VerifiedIdentity
     /// <summary>Gets a value indicating whether the login may manage live TV.</summary>
     internal bool EnableLiveTvManagement { get; }
 
-    /// <summary>Gets the avatar URL the login resolves, or null when none - SAML always null.</summary>
-    internal string? AvatarUrl { get; }
+    /// <summary>Gets the avatar the login resolves, bound to the address tier it earned (#1764), or null when none - SAML always null.</summary>
+    internal AvatarTarget? Avatar { get; }
 
     /// <summary>
     /// Gets the generic role→permission grants the login resolves (#164): one authoritative grant per
@@ -210,7 +211,7 @@ internal sealed record VerifiedIdentity
             login.Folders,
             login.EnableLiveTv,
             login.EnableLiveTvManagement,
-            login.AvatarUrl,
+            login.Avatar,
             login.PermissionGrants,
             login.MaxParentalRatingScore,
             login.ExpiresAtUtc,

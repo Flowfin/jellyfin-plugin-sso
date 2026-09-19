@@ -56,12 +56,21 @@ internal sealed class AvatarService
     // not on the shared client's mutable DefaultRequestHeaders).
     private static readonly HttpClient SharedClient = CreateHardenedClient();
 
+    // The private-tier twin of the client above (#1764), for an avatar whose URL earned the tier at the point
+    // it was chosen (AvatarTarget). The same handler and the same size, type and time bounds; two differences:
+    // its connect guard admits the private, admin-routable ranges, and it follows NO redirect, so the private
+    // verdict reaches exactly the origin it was earned for. A redirect it answers with is re-issued over the
+    // strict client by FetchAsync, which then follows up to its own five, so a private-tier avatar may traverse
+    // one hop more than a strict one, every one of them under the strict guard.
+    private static readonly HttpClient SharedPrivateClient = CreateHardenedClient(AddressPolicy.PrivateNetworkPermitted);
+
     private readonly IUserManager _userManager;
     private readonly IProviderManager _providerManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly ILogger _logger;
     private readonly string _userAgent;
     private readonly HttpClient _httpClient;
+    private readonly HttpClient _privateHttpClient;
     private readonly KeyedLockStore _userStoreLocks;
     private readonly Func<string, bool> _fileExists;
     private readonly TimeSpan _storeLockAcquireTimeout;
@@ -102,6 +111,7 @@ internal sealed class AvatarService
     /// <param name="userStoreLocks">The per-user store lock (#400); null uses the process-wide shared one. A test injects its own so it can drive the serialization deterministically.</param>
     /// <param name="fileExists">Probe for the on-disk profile image (#480); null uses <see cref="File.Exists"/>. A test injects its own to drive the missing-file self-heal branch without touching the filesystem.</param>
     /// <param name="storeLockAcquireTimeout">How long <see cref="StoreAsync"/> waits for the per-user store lock (#448, shortened by #541); null uses the production 3s bound. A test injects a shorter timeout so the abort-on-timeout branch is reachable without a real 3s wait.</param>
+    /// <param name="privateHttpClient">The client a private-tier target (#1764) is fetched over; null uses the process-wide shared private-tier client. A test injects a stub so the tier selection and the redirect rule are provable without live HTTP.</param>
     internal AvatarService(
         IUserManager userManager,
         IProviderManager providerManager,
@@ -111,7 +121,8 @@ internal sealed class AvatarService
         HttpClient httpClient,
         KeyedLockStore? userStoreLocks = null,
         Func<string, bool>? fileExists = null,
-        TimeSpan? storeLockAcquireTimeout = null)
+        TimeSpan? storeLockAcquireTimeout = null,
+        HttpClient? privateHttpClient = null)
     {
         _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _providerManager = providerManager ?? throw new ArgumentNullException(nameof(providerManager));
@@ -119,6 +130,7 @@ internal sealed class AvatarService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _userAgent = userAgent ?? throw new ArgumentNullException(nameof(userAgent));
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _privateHttpClient = privateHttpClient ?? SharedPrivateClient;
         _userStoreLocks = userStoreLocks ?? SharedUserStoreLocks;
         _fileExists = fileExists ?? File.Exists;
         _storeLockAcquireTimeout = storeLockAcquireTimeout ?? StoreLockAcquireTimeout;
@@ -130,18 +142,20 @@ internal sealed class AvatarService
     /// transport are security-relevant, and they fail closed (no fetch).
     /// </summary>
     /// <param name="user">The user whose profile image is set.</param>
-    /// <param name="avatarUrl">The provider-supplied avatar URL, or null to skip.</param>
+    /// <param name="avatar">The provider-supplied avatar URL bound to the address tier it earned (#1764), or null to skip.</param>
     /// <returns>A <see cref="Task"/> that completes when the avatar has been set or skipped.</returns>
-    internal async Task TrySetAsync(User user, string? avatarUrl)
+    internal async Task TrySetAsync(User user, AvatarTarget? avatar)
     {
-        if (avatarUrl is null)
+        if (avatar is null)
         {
             return;
         }
 
-        if (!AvatarUrlValidator.IsAllowedUrl(avatarUrl, out var avatarUri))
+        // The validator runs under the target's own tier: a private literal on the origin that earned the
+        // private tier passes here, and nowhere else (#1764).
+        if (!AvatarUrlValidator.IsAllowedUrl(avatar.Url, avatar.Policy, out var avatarUri))
         {
-            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatarUrl.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            _logger.LogWarning("Refusing to fetch avatar from disallowed URL: {AvatarUrl}", avatar.Url.ReplaceLineEndings(string.Empty).Replace('[', '('));
             return;
         }
 
@@ -154,33 +168,9 @@ internal sealed class AvatarService
             // streaming size cap (#220).
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, avatarUri);
-            request.Headers.UserAgent.ParseAdd(_userAgent);
-
-            // Conditional refresh (#248) - but only while we still hold this user's avatar ON DISK. When we
-            // have the file, ask the origin for fresh bytes only if the image changed since our last store:
-            // If-Modified-Since carries that store's timestamp (ProfileImage.LastModified) - exactly "when we
-            // last fetched this representation" - so an unchanged avatar answers 304 and we skip the
-            // re-download AND the re-store; only a changed image (200) is fetched and re-stored.
-            // Force-refresh on a missing file (#480): if the ImageInfo record is live but the profile.* file
-            // was deleted out-of-band, sending the conditional would let a 304 skip the re-download and the
-            // avatar could never self-heal from the live record - so when the local file is absent we omit
-            // If-Modified-Since and fetch unconditionally to restore it. An origin that ignores the header
-            // just answers 200 as before, so the file-present case still degrades safely to the old
-            // always-download. SpecifyKind(Utc) makes the DateTimeOffset construction total regardless of the
-            // stored Kind; ProfileImage.LastModified is already written as DateTime.UtcNow, so no time shifts.
-            var storedImage = user.ProfileImage;
-            if (storedImage?.LastModified is { } lastStored
-                && lastStored > DateTime.MinValue
-                && storedImage.Path is { } storedPath
-                && _fileExists(storedPath))
-            {
-                request.Headers.IfModifiedSince = new DateTimeOffset(DateTime.SpecifyKind(lastStored, DateTimeKind.Utc));
-            }
-
             // ResponseHeadersRead so the body is streamed, not fully buffered, before ReadCappedAsync
             // enforces the size limit; otherwise the cap runs only after the whole download is in memory.
-            using var avatarResponse = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            using var avatarResponse = await FetchAsync(user, avatarUri, avatar.Policy, timeout.Token).ConfigureAwait(false);
 
             // 304: the image is unchanged since our last store - keep the existing profile image, fetch and
             // store nothing, and deliberately do NOT advance ProfileImage.LastModified (it stays the anchor
@@ -231,6 +221,81 @@ internal sealed class AvatarService
                 e.GetType().Name,
                 e.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
         }
+    }
+
+    // The fetch under the target's tier (#1764). A strict target goes over the strict client, which follows
+    // redirects under the strict guard exactly as before. A private-tier target goes over the private client,
+    // whose handler follows NO redirect: the verdict was earned for the avatar URL's origin and nothing else,
+    // so a redirect it answers with is re-issued here through the STRICT client, and only after the strict
+    // validator admitted the location. The verdict therefore never carries past the origin it was earned for,
+    // neither to another private host nor back to the same host by way of a hop the strict guard refuses.
+    private async Task<HttpResponseMessage> FetchAsync(User user, Uri avatarUri, AddressPolicy policy, CancellationToken cancellationToken)
+    {
+        if (policy != AddressPolicy.PrivateNetworkPermitted)
+        {
+            return await SendAsync(_httpClient, user, avatarUri, cancellationToken).ConfigureAwait(false);
+        }
+
+        var response = await SendAsync(_privateHttpClient, user, avatarUri, cancellationToken).ConfigureAwait(false);
+        if (!IsRedirect(response.StatusCode))
+        {
+            return response;
+        }
+
+        using (response)
+        {
+            // A relative location is resolved against the avatar URL, as a following client would resolve it,
+            // so the strict verdict below is taken on the address that would actually be dialled.
+            var location = response.Headers.Location;
+            var target = location is null ? null : location.IsAbsoluteUri ? location : new Uri(avatarUri, location);
+            if (target is null || !AvatarUrlValidator.IsAllowedUrl(target.AbsoluteUri, out var redirectUri))
+            {
+                throw new InvalidOperationException("The avatar redirect target is not allowed under the strict address tier.");
+            }
+
+            // The following client refuses a redirect from https to http on its own; this hop is taken by hand,
+            // so it refuses the same downgrade rather than being the one route that follows it.
+            if (string.Equals(avatarUri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) && !string.Equals(redirectUri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The avatar redirect target downgrades from https to http.");
+            }
+
+            return await SendAsync(_httpClient, user, redirectUri, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsRedirect(HttpStatusCode status) =>
+        status is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
+
+    // One GET with the plugin User-Agent and, where the user still holds this avatar on disk, the conditional
+    // header, sent over whichever tier client the caller chose.
+    private async Task<HttpResponseMessage> SendAsync(HttpClient client, User user, Uri uri, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.UserAgent.ParseAdd(_userAgent);
+
+        // Conditional refresh (#248) - but only while we still hold this user's avatar ON DISK. When we
+        // have the file, ask the origin for fresh bytes only if the image changed since our last store:
+        // If-Modified-Since carries that store's timestamp (ProfileImage.LastModified) - exactly "when we
+        // last fetched this representation" - so an unchanged avatar answers 304 and we skip the
+        // re-download AND the re-store; only a changed image (200) is fetched and re-stored.
+        // Force-refresh on a missing file (#480): if the ImageInfo record is live but the profile.* file
+        // was deleted out-of-band, sending the conditional would let a 304 skip the re-download and the
+        // avatar could never self-heal from the live record - so when the local file is absent we omit
+        // If-Modified-Since and fetch unconditionally to restore it. An origin that ignores the header
+        // just answers 200 as before, so the file-present case still degrades safely to the old
+        // always-download. SpecifyKind(Utc) makes the DateTimeOffset construction total regardless of the
+        // stored Kind; ProfileImage.LastModified is already written as DateTime.UtcNow, so no time shifts.
+        var storedImage = user.ProfileImage;
+        if (storedImage?.LastModified is { } lastStored
+            && lastStored > DateTime.MinValue
+            && storedImage.Path is { } storedPath
+            && _fileExists(storedPath))
+        {
+            request.Headers.IfModifiedSince = new DateTimeOffset(DateTime.SpecifyKind(lastStored, DateTimeKind.Utc));
+        }
+
+        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -382,8 +447,10 @@ internal sealed class AvatarService
     // fetch uses ResponseHeadersRead the per-request CancellationTokenSource is the real end-to-end
     // deadline (see TrySetAsync), so this Timeout bounds only connect + header wait. Never disposed -
     // it lives for the process, the intended lifetime of a shared HttpClient.
-    private static HttpClient CreateHardenedClient() =>
-        new HttpClient(SsoHttp.CreateHardenedHandler(), disposeHandler: true) { Timeout = TimeSpan.FromSeconds(10) };
+    // The strict client follows redirects under the strict guard; the private-tier client follows none, so
+    // its relaxation cannot reach a hop the avatar URL did not name (#1764, FetchAsync).
+    private static HttpClient CreateHardenedClient(AddressPolicy policy = AddressPolicy.Strict) =>
+        new HttpClient(SsoHttp.CreateHardenedHandler(policy, followRedirects: policy == AddressPolicy.Strict), disposeHandler: true) { Timeout = TimeSpan.FromSeconds(10) };
 
     // Copies the response body into memory, aborting if it exceeds the cap, so a hostile endpoint cannot
     // exhaust resources with an unbounded (or Content-Length-lying) download. Internal so the streamed

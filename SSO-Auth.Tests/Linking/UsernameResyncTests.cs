@@ -225,7 +225,7 @@ public class UsernameResyncTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null));
+            Avatar: null));
 
     // A login that resolves an EXISTING subject-keyed link, which is the only arm the rename runs on. The
     // link is seeded under the subject rather than under any name, so a rename that started depending on a

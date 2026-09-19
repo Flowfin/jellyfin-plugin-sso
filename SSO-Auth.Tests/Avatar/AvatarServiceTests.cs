@@ -125,10 +125,14 @@ public class AvatarServiceTests
         // The If-Modified-Since sent on the most recent request, or null if the fetch was unconditional.
         public DateTimeOffset? LastIfModifiedSince { get; private set; }
 
+        // The address of the most recent request, so a test can prove which URL a tier client was asked for (#1764).
+        public Uri? LastRequestUri { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Invocations++;
             LastIfModifiedSince = request.Headers.IfModifiedSince;
+            LastRequestUri = request.RequestUri;
             return Task.FromResult(_response);
         }
     }
@@ -160,7 +164,7 @@ public class AvatarServiceTests
     {
         var (service, providers, users, log) = Build();
 
-        await service.TrySetAsync(TestUsers.Named("alice"), url);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(url));
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
         await users.DidNotReceive().ClearProfileImageAsync(Arg.Any<User>());
@@ -177,7 +181,7 @@ public class AvatarServiceTests
         var (service, providers, users, log) = Build();
         const string forged = "[SSO Audit] Login succeeded: root via OpenID provider 'kc' (admin=True).";
 
-        await service.TrySetAsync(TestUsers.Named("alice"), forged);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(forged));
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
         var refusal = Assert.Single(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("disallowed URL", StringComparison.Ordinal));
@@ -238,7 +242,7 @@ public class AvatarServiceTests
         };
         var (service, providers, _, log) = Build(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
         var failure = Assert.Single(log.Records, r => r.Message.Contains("Failed to fetch or save", StringComparison.Ordinal));
@@ -528,7 +532,7 @@ public class AvatarServiceTests
         using var response = ImageResponse("text/html", Encoding.UTF8.GetBytes("<html></html>"));
         var (service, providers, users, log) = Build(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
         await users.DidNotReceive().ClearProfileImageAsync(Arg.Any<User>());
@@ -542,7 +546,7 @@ public class AvatarServiceTests
         using var response = ImageResponse("image/png", new byte[1], contentLength: AvatarService.MaxAvatarBytes + 1);
         var (service, providers, _, _) = Build(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
 
         await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -555,7 +559,7 @@ public class AvatarServiceTests
         using var response = ImageResponse("image/png", new byte[] { 1, 2, 3 });
         var (service, providers, _, _) = Build(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
 
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
     }
@@ -589,7 +593,7 @@ public class AvatarServiceTests
         var previous = new ImageInfo(ProfilePath("alice", ".png")) { LastModified = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
         user.ProfileImage = previous;
 
-        await service.TrySetAsync(user, AllowedUrl);
+        await service.TrySetAsync(user, AvatarTarget.Strict(AllowedUrl));
 
         // The conditional header was sent, carrying our last-store timestamp.
         Assert.Equal(new DateTimeOffset(previous.LastModified, TimeSpan.Zero), handler.LastIfModifiedSince);
@@ -613,7 +617,7 @@ public class AvatarServiceTests
         var user = TestUsers.Named("alice");
         user.ProfileImage = new ImageInfo(ProfilePath("alice", ".png")) { LastModified = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
 
-        await service.TrySetAsync(user, AllowedUrl);
+        await service.TrySetAsync(user, AvatarTarget.Strict(AllowedUrl));
 
         Assert.NotNull(handler.LastIfModifiedSince);
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
@@ -627,7 +631,7 @@ public class AvatarServiceTests
         using var response = ImageResponse("image/png", new byte[] { 1, 2, 3 });
         var (service, providers, _, handler, _) = BuildWithHandler(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
 
         Assert.Null(handler.LastIfModifiedSince);
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
@@ -646,7 +650,7 @@ public class AvatarServiceTests
         var user = TestUsers.Named("alice");
         user.ProfileImage = new ImageInfo(ProfilePath("alice", ".png")) { LastModified = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
 
-        await service.TrySetAsync(user, AllowedUrl);
+        await service.TrySetAsync(user, AvatarTarget.Strict(AllowedUrl));
 
         Assert.Null(handler.LastIfModifiedSince); // the missing file forced a full, unconditional fetch
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
@@ -667,7 +671,7 @@ public class AvatarServiceTests
         var previous = new ImageInfo(ProfilePath("alice", ".png")) { LastModified = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
         user.ProfileImage = previous;
 
-        await service.TrySetAsync(user, AllowedUrl);
+        await service.TrySetAsync(user, AvatarTarget.Strict(AllowedUrl));
 
         Assert.Null(handler.LastIfModifiedSince); // the stale timestamp was deliberately withheld
         Assert.Same(previous, user.ProfileImage); // best-effort: the record is left untouched
@@ -689,7 +693,7 @@ public class AvatarServiceTests
         var user = TestUsers.Named("alice");
         user.ProfileImage = new ImageInfo(ProfilePath("alice", ".png")) { LastModified = DateTime.MinValue };
 
-        await service.TrySetAsync(user, AllowedUrl);
+        await service.TrySetAsync(user, AvatarTarget.Strict(AllowedUrl));
 
         Assert.Null(handler.LastIfModifiedSince); // no real anchor -> unconditional despite the file being present
         await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
@@ -726,9 +730,177 @@ public class AvatarServiceTests
         using var response = ImageResponse("image/png", new byte[] { 1 });
         var (service, _, _, handler, _) = BuildWithHandler(response);
 
-        await service.TrySetAsync(TestUsers.Named("alice"), AllowedUrl);
-        await service.TrySetAsync(TestUsers.Named("bob"), AllowedUrl);
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
+        await service.TrySetAsync(TestUsers.Named("bob"), AvatarTarget.Strict(AllowedUrl));
 
         Assert.Equal(2, handler.Invocations);
+    }
+
+    // #1764: both tier clients stubbed, so a test can prove which client a target's tier selects and that a
+    // private-tier redirect is re-issued through the strict one rather than followed under the private guard.
+    private static (AvatarService Service, IProviderManager Providers, StubHandler Strict, StubHandler Private, CapturingLogger Log) BuildTiered(HttpResponseMessage strictResponse, HttpResponseMessage privateResponse)
+    {
+        var users = Substitute.For<IUserManager>();
+        var providers = Substitute.For<IProviderManager>();
+        var serverConfig = Substitute.For<IServerConfigurationManager>();
+        serverConfig.ApplicationPaths.UserConfigurationDirectoryPath.Returns(UserDataRoot);
+        var log = new CapturingLogger();
+        var strict = new StubHandler(strictResponse);
+        var privateTier = new StubHandler(privateResponse);
+        var service = new AvatarService(users, providers, serverConfig, log, "test-agent/1.0", new HttpClient(strict), privateHttpClient: new HttpClient(privateTier));
+        return (service, providers, strict, privateTier, log);
+    }
+
+    private static readonly byte[] PngBytes = { 0x89, 0x50, 0x4E, 0x47 };
+
+    private const string LanAvatarUrl = "https://idp.lan/avatars/alice.png";
+
+    // A target that earned the private tier honestly: the URL is its own origin, so both facts hold. The
+    // constructor is private on purpose, so this is the only way a test can hold one either.
+    private static AvatarTarget PrivateTierTarget(string url = LanAvatarUrl) => AvatarTarget.Resolve(url, allowPrivateNetworkAddresses: true, new[] { url })!;
+
+    private static HttpResponseMessage RedirectTo(string location) =>
+        new HttpResponseMessage(HttpStatusCode.Found) { Headers = { Location = new Uri(location, UriKind.RelativeOrAbsolute) } };
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierTarget_FetchesOverThePrivateClient_AndNeverTheStrictOne()
+    {
+        // Row 1 of #1764 at the fetch: the target arrived bound to the private tier, so the private client
+        // serves it. The strict stub would answer 500, so a fetch over it could not have stored anything.
+        var (service, providers, strict, privateTier, _) = BuildTiered(new HttpResponseMessage(HttpStatusCode.InternalServerError), ImageResponse("image/png", PngBytes));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(0, strict.Invocations);
+    }
+
+    [Fact]
+    public async Task TrySetAsync_StrictTarget_NeverTouchesThePrivateClient()
+    {
+        var (service, providers, strict, privateTier, _) = BuildTiered(ImageResponse("image/png", PngBytes), ImageResponse("image/png", PngBytes));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), AvatarTarget.Strict(AllowedUrl));
+
+        await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+        Assert.Equal(1, strict.Invocations);
+        Assert.Equal(0, privateTier.Invocations);
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateLiteralOnTheEarnedOrigin_PassesTheValidatorUnderThePrivateTier()
+    {
+        // The validator moves with the tier for a private literal (#1764). Under the strict tier the same URL
+        // is refused before any fetch, which TrySetAsync_DisallowedUrl_RefusesWithoutFetchingOrWriting pins.
+        var (service, providers, strict, privateTier, _) = BuildTiered(new HttpResponseMessage(HttpStatusCode.InternalServerError), ImageResponse("image/png", PngBytes));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget("http://10.0.0.5/avatar.png"));
+
+        await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(0, strict.Invocations);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1/avatar.png")] // loopback
+    [InlineData("http://169.254.169.254/latest/meta-data/")] // cloud metadata
+    [InlineData("http://localhost/avatar.png")] // the localhost name
+    [InlineData("file:///etc/passwd")] // non-http scheme
+    public async Task TrySetAsync_NeverRelaxableTarget_IsRefusedUnderThePrivateTierToo(string url)
+    {
+        var (service, providers, strict, privateTier, log) = BuildTiered(ImageResponse("image/png", PngBytes), ImageResponse("image/png", PngBytes));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget(url));
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Equal(0, strict.Invocations);
+        Assert.Equal(0, privateTier.Invocations);
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("disallowed URL", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierRedirect_IsReissuedThroughTheStrictClient_WhenTheStrictTierAdmitsIt()
+    {
+        // The private handler follows no redirect. A location the strict validator admits is fetched again over
+        // the strict client, whose connect guard judges it under the strict tier, so the earned verdict never
+        // carries past the origin it was earned for (#1764).
+        var (service, providers, strict, privateTier, _) = BuildTiered(ImageResponse("image/png", PngBytes), RedirectTo("https://cdn.example.com/moved.png"));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(1, strict.Invocations);
+        Assert.Equal(new Uri("https://cdn.example.com/moved.png"), strict.LastRequestUri);
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierRedirect_ToARelativeLocation_IsResolvedAgainstTheAvatarUrl_AndReissuedStrictly()
+    {
+        // A relative location resolves to the same NAME, which the strict validator admits; the strict client is
+        // then asked, and in production its connect guard refuses the private address the name resolves to. The
+        // stub stands in for that guard, so what this pins is the address the strict tier is asked to judge.
+        var (service, _, strict, privateTier, _) = BuildTiered(ImageResponse("image/png", PngBytes), RedirectTo("/avatars/alice-2.png"));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(new Uri("https://idp.lan/avatars/alice-2.png"), strict.LastRequestUri);
+    }
+
+    [Theory]
+    [InlineData("http://10.0.0.7/x.png")] // another private host, by address
+    [InlineData("http://127.0.0.1/x.png")] // loopback
+    [InlineData("http://169.254.169.254/latest/meta-data/")] // cloud metadata
+    public async Task TrySetAsync_PrivateTierRedirect_ToATargetTheStrictTierRefuses_FetchesNothingMore_AndStoresNothing(string location)
+    {
+        var (service, providers, strict, privateTier, log) = BuildTiered(ImageResponse("image/png", PngBytes), RedirectTo(location));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(0, strict.Invocations);
+        Assert.Contains(log.Records, r => r.Message.Contains("redirect target is not allowed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierRedirect_WithoutALocation_FetchesNothingMore_AndStoresNothing()
+    {
+        var (service, providers, strict, privateTier, _) = BuildTiered(ImageResponse("image/png", PngBytes), new HttpResponseMessage(HttpStatusCode.Found));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(0, strict.Invocations);
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierRedirect_FromHttpsToHttp_IsRefused_AsTheFollowingClientRefusesIt()
+    {
+        // The strict client's own redirect following declines an https-to-http downgrade; the hand-taken hop
+        // must not be the one route that follows one.
+        var (service, providers, strict, privateTier, log) = BuildTiered(ImageResponse("image/png", PngBytes), RedirectTo("http://cdn.example.com/moved.png"));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget());
+
+        await providers.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(0, strict.Invocations);
+        Assert.Contains(log.Records, r => r.Message.Contains("downgrades from https to http", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TrySetAsync_PrivateTierRedirect_FromHttpToHttps_IsReissuedStrictly()
+    {
+        var (service, providers, strict, privateTier, _) = BuildTiered(ImageResponse("image/png", PngBytes), RedirectTo("https://cdn.example.com/moved.png"));
+
+        await service.TrySetAsync(TestUsers.Named("alice"), PrivateTierTarget("http://idp.lan/avatars/alice.png"));
+
+        await providers.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", ProfilePath("alice", ".png"));
+        Assert.Equal(1, privateTier.Invocations);
+        Assert.Equal(new Uri("https://cdn.example.com/moved.png"), strict.LastRequestUri);
     }
 }

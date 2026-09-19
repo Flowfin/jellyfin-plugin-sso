@@ -233,9 +233,10 @@ public class SsoHttpTests
         Assert.Contains("1 of the host's addresses was skipped", ex.Message, StringComparison.Ordinal);
         Assert.Contains("AllowPrivateNetworkAddresses", ex.Message, StringComparison.Ordinal);
 
-        // The same transport serves the avatar fetch and the SAML metadata importer, which the setting never
-        // relaxes (#1764), so the sentence carries the setting's reach rather than a bare "enable it".
-        Assert.Contains("avatars and SAML metadata are fetched without it", ex.Message, StringComparison.Ordinal);
+        // The same transport serves the avatar fetch and the SAML metadata importer, so the sentence carries
+        // the setting's reach rather than a bare "enable it" (#1764): the avatar on the provider's own origin
+        // is covered, every other avatar and the importer are not.
+        Assert.Contains("and for an avatar served from the origin of those endpoints up to the first redirect; every other avatar and SAML metadata are fetched without it", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("10.1.2.3", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("1.1.1.1", ex.Message, StringComparison.Ordinal);
         Assert.IsType<TimeoutException>(ex.InnerException);
@@ -251,6 +252,9 @@ public class SsoHttpTests
             "auth.example.test", 443, AddressPolicy.Strict, Resolving(LanAddress), FakeConnect(dialled), TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
         Assert.StartsWith("The outbound host resolves only to blocked addresses.", lan.Message, StringComparison.Ordinal);
         Assert.Contains("AllowPrivateNetworkAddresses", lan.Message, StringComparison.Ordinal);
+        // The setting is named with its reach, and the reach includes the avatar on the provider's own origin
+        // and nothing wider (#1764).
+        Assert.Contains("and for an avatar served from the origin of those endpoints up to the first redirect; every other avatar and SAML metadata are fetched without it.", lan.Message, StringComparison.Ordinal);
 
         // Loopback stays refused under both tiers, so naming the setting would send the reader the wrong way.
         var loopback = await Assert.ThrowsAsync<HttpRequestException>(async () => await SsoHttp.ConnectToAllowedAddressAsync(
@@ -667,5 +671,19 @@ public class SsoHttpTests
             _socket.Dispose();
             _cts.Dispose();
         }
+    }
+
+    [Fact]
+    public void CreateHardenedHandler_WithRedirectsOff_FollowsNone_AndKeepsTheRestOfTheGuard()
+    {
+        // #1764: the private-tier avatar client passes false, so its relaxation cannot reach a redirect hop; the
+        // connect guard and the proxy refusal are exactly what the following handler carries.
+        using var handler = SsoHttp.CreateHardenedHandler(AddressPolicy.PrivateNetworkPermitted, followRedirects: false);
+        Assert.False(handler.AllowAutoRedirect);
+        Assert.NotNull(handler.ConnectCallback);
+        Assert.False(handler.UseProxy);
+
+        using var following = SsoHttp.CreateHardenedHandler();
+        Assert.True(following.AllowAutoRedirect);
     }
 }

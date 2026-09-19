@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Xunit;
 
@@ -76,11 +77,11 @@ public class OidcStateStoreTests
         string? clientKey = null)
         => new(
             Pending(provider, stateValue, created, binding, isLinking, clientKey: clientKey),
-            new OidcAuthorizeStateBuilder.OidcAuthorizeState(username, subject, null, emailVerified, true, admin, enableLiveTv, enableLiveTvManagement, folders ?? new List<string>(), avatar));
+            new OidcAuthorizeStateBuilder.OidcAuthorizeState(username, subject, null, emailVerified, true, admin, enableLiveTv, enableLiveTvManagement, folders ?? new List<string>(), AvatarTarget.Strict(avatar)));
 
     // A fully-populated role-gate result, so a redeemed Ready can be asserted field-for-field.
     private static OidcAuthorizeStateBuilder.OidcAuthorizeState FullDerived() =>
-        new("alice", "sub-full", "https://idp.example", null, true, true, false, false, new List<string> { "movies" }, "https://idp.example/a.png");
+        new("alice", "sub-full", "https://idp.example", null, true, true, false, false, new List<string> { "movies" }, AvatarTarget.Strict("https://idp.example/a.png"));
 
     // --- PeekCurrent (OidPost precondition): provider-bound + unexpired + still pending, non-consuming ---
 
@@ -268,7 +269,7 @@ public class OidcStateStoreTests
         Assert.Equal("sub-full", redeemed.Identity.Subject);
         Assert.True(redeemed.Identity.Admin);
         Assert.Equal(new[] { "movies" }, redeemed.Identity.Folders);
-        Assert.Equal("https://idp.example/a.png", redeemed.Identity.AvatarUrl);
+        Assert.Equal("https://idp.example/a.png", redeemed.Identity.Avatar?.Url);
     }
 
     [Fact]
@@ -348,7 +349,7 @@ public class OidcStateStoreTests
                 Assert.Equal("sub-full", redeemed.Identity.Subject);
                 Assert.True(redeemed.Identity.Admin);
                 Assert.Equal(new[] { "movies" }, redeemed.Identity.Folders);
-                Assert.Equal("https://idp.example/a.png", redeemed.Identity.AvatarUrl);
+                Assert.Equal("https://idp.example/a.png", redeemed.Identity.Avatar?.Url);
             }
         }
     }
@@ -374,7 +375,7 @@ public class OidcStateStoreTests
         Assert.Equal(new[] { "movies" }, redeemed.Identity.Folders);
         Assert.True(redeemed.Identity.EnableLiveTv);
         Assert.False(redeemed.Identity.EnableLiveTvManagement);
-        Assert.Equal("https://idp.example.com/a.png", redeemed.Identity.AvatarUrl);
+        Assert.Equal("https://idp.example.com/a.png", redeemed.Identity.Avatar?.Url);
     }
 
     [Theory]

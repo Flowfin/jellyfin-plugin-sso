@@ -447,7 +447,18 @@ internal sealed class OidcLoginService
         // bound to (#186) is read from the RAW id_token, not result.User: OidcClient filters the standard
         // protocol claims (iss, aud, exp, …) out of the redeemed principal, so the claim list carries no
         // `iss` - the same reason the RFC 9207 check above re-reads it from result.IdentityToken.
-        var derived = OidcAuthorizeStateBuilder.Build(result.User.Claims, config, OidcResponseIssuer.IdTokenIssuer(result.IdentityToken), _logger, provider);
+        // The provider's own backchannel endpoints go in beside the claims (#1764): the discovery address the
+        // configuration names and the token and userinfo endpoints discovery advertised - the ones the private
+        // tier already serves for an opted-in provider. The avatar URL earns that tier on their origin only, and
+        // the userinfo endpoint counts only while the login reads it: with DoNotLoadProfile set the plugin never
+        // contacts it, so an origin it names would be a host the plugin does not already talk to.
+        var derived = OidcAuthorizeStateBuilder.Build(
+            result.User.Claims,
+            config,
+            OidcResponseIssuer.IdTokenIssuer(result.IdentityToken),
+            _logger,
+            provider,
+            new[] { config.OidEndpoint, pending.ProviderInformation?.TokenEndpoint, config.DoNotLoadProfile ? null : pending.ProviderInformation?.UserInfoEndpoint });
 
         // Capture the logout material (#727, SLO-1b) onto the in-flight state so it rides the one-time Ready
         // to the mint: the raw id_token (the later RP-initiated logout's id_token_hint) and the OpenID sid

@@ -236,7 +236,7 @@ public class SSOControllerOidAuthTests
             pending,
             new OidcAuthorizeStateBuilder.OidcAuthorizeState(
                 Username: "alice", Subject: "sub-1", Issuer: null, EmailVerified: emailVerified, Valid: true, Admin: false,
-                EnableLiveTv: false, EnableLiveTvManagement: false, Folders: new List<string>(), AvatarUrl: null));
+                EnableLiveTv: false, EnableLiveTvManagement: false, Folders: new List<string>(), Avatar: null));
         OidcLoginService.SeedOidStateForTests(token, ready);
 
         var user = TestUsers.Named("alice", UserId);

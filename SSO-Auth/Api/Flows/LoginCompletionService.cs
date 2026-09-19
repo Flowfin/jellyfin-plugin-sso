@@ -176,7 +176,7 @@ internal sealed class LoginCompletionService
             SyncPlayAccess = identity.SyncPlayAccess,
             AuthResponse = response,
             DefaultProvider = enforcement.DefaultProvider,
-            AvatarUrl = identity.AvatarUrl,
+            Avatar = identity.Avatar,
         };
 
         // Mint under the in-flight revocation gate (#232): the minter re-checks the link is still live both

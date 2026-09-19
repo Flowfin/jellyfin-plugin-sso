@@ -35,7 +35,7 @@ public class SessionMinterTests
     {
         var users = Substitute.For<IUserManager>();
         var sessions = Substitute.For<ISessionManager>();
-        // A real AvatarService (its deps stubbed): with a null AvatarUrl its fetch early-returns, so it is
+        // A real AvatarService (its deps stubbed): with a null Avatar its fetch early-returns, so it is
         // never reached destructively here.
         var avatar = new AvatarService(users, Substitute.For<IProviderManager>(), Substitute.For<IServerConfigurationManager>(), new CapturingLogger(), "test-agent");
         var minter = new SessionMinter(users, avatar, sessions, new CapturingLogger());
@@ -75,7 +75,7 @@ public class SessionMinterTests
         string[]? enabledFolders = null,
         bool enableLiveTv = false,
         bool enableLiveTvManagement = false,
-        string? avatarUrl = null,
+        AvatarTarget? avatar = null,
         string? defaultProvider = null,
         IReadOnlyList<PermissionGrant>? permissionGrants = null,
         int? maxParentalRatingScore = null,
@@ -92,7 +92,7 @@ public class SessionMinterTests
             PermissionGrants = permissionGrants ?? Array.Empty<PermissionGrant>(),
             MaxParentalRatingScore = maxParentalRatingScore,
             SyncPlayAccess = syncPlayAccess,
-            AvatarUrl = avatarUrl,
+            Avatar = avatar,
             DefaultProvider = defaultProvider,
             AuthResponse = new AuthResponse { AppName = "app", AppVersion = "1", DeviceID = "d", DeviceName = "dev" },
         };

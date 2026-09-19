@@ -8,6 +8,7 @@ using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
+using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -51,7 +52,7 @@ public class OidcAuthorizeStateBuilderTests
         Assert.False(result.EnableLiveTv);
         Assert.False(result.EnableLiveTvManagement);
         Assert.Empty(result.Folders);
-        Assert.Null(result.AvatarUrl);
+        Assert.Null(result.Avatar);
     }
 
     [Fact]
@@ -673,7 +674,7 @@ public class OidcAuthorizeStateBuilderTests
         var config = Config(c => c.AvatarUrlFormat = "https://avatars.example.com/@{sub}.png");
         var result = OidcAuthorizeStateBuilder.Build(Claims(("preferred_username", "alice"), ("sub", "123")), config);
 
-        Assert.Equal("https://avatars.example.com/123.png", result.AvatarUrl);
+        Assert.Equal("https://avatars.example.com/123.png", result.Avatar?.Url);
     }
 
     [Fact]
@@ -686,7 +687,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", "https://idp.example.com/pic.jpg")),
             config);
 
-        Assert.Equal("https://avatars.example.com/123.png", result.AvatarUrl);
+        Assert.Equal("https://avatars.example.com/123.png", result.Avatar?.Url);
     }
 
     [Fact]
@@ -698,7 +699,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("preferred_username", "alice"), ("picture", "https://idp.example.com/alice.jpg")),
             Config(_ => { }));
 
-        Assert.Equal("https://idp.example.com/alice.jpg", result.AvatarUrl);
+        Assert.Equal("https://idp.example.com/alice.jpg", result.Avatar?.Url);
     }
 
     [Fact]
@@ -711,7 +712,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("preferred_username", "alice"), ("picture", "https://idp.example.com/alice.jpg")),
             config);
 
-        Assert.Equal("https://idp.example.com/alice.jpg", result.AvatarUrl);
+        Assert.Equal("https://idp.example.com/alice.jpg", result.Avatar?.Url);
     }
 
     [Fact]
@@ -722,7 +723,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("picture", "https://idp.example.com/old.jpg"), ("picture", "https://idp.example.com/new.jpg")),
             Config(_ => { }));
 
-        Assert.Equal("https://idp.example.com/new.jpg", result.AvatarUrl);
+        Assert.Equal("https://idp.example.com/new.jpg", result.Avatar?.Url);
     }
 
     [Fact]
@@ -730,7 +731,7 @@ public class OidcAuthorizeStateBuilderTests
     {
         // No template and no picture claim: nothing to fetch, so the candidate is null (no fetch attempted).
         var result = OidcAuthorizeStateBuilder.Build(Claims(("preferred_username", "alice")), Config(_ => { }));
-        Assert.Null(result.AvatarUrl);
+        Assert.Null(result.Avatar);
     }
 
     [Fact]
@@ -743,7 +744,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("preferred_username", "alice"), ("picture", "https://idp.example.com/alice.jpg")),
             config);
 
-        Assert.Null(result.AvatarUrl);
+        Assert.Null(result.Avatar);
     }
 
     [Fact]
@@ -758,7 +759,7 @@ public class OidcAuthorizeStateBuilderTests
         });
         var result = OidcAuthorizeStateBuilder.Build(Claims(("preferred_username", "alice"), ("sub", "123")), config);
 
-        Assert.Equal("https://avatars.example.com/123.png", result.AvatarUrl);
+        Assert.Equal("https://avatars.example.com/123.png", result.Avatar?.Url);
     }
 
     [Fact]
@@ -770,7 +771,7 @@ public class OidcAuthorizeStateBuilderTests
             Claims(("preferred_username", "alice"), ("picture", string.Empty)),
             Config(_ => { }));
 
-        Assert.Null(result.AvatarUrl);
+        Assert.Null(result.Avatar);
     }
 
     [Fact]
@@ -1012,5 +1013,91 @@ public class OidcAuthorizeStateBuilderTests
         var logger = new CapturingLogger();
         OidcAuthorizeStateBuilder.Build(Claims(claims), Config(configure), issuer: null, logger, "kc");
         return logger;
+    }
+
+    // #1764: the endpoints the callback hands in beside the claims - an opted-in provider on the
+    // administrator's own network, addressed by name, as discovery advertised them.
+    private static readonly string[] LanProviderEndpoints =
+    {
+        "https://idp.lan/realms/home",
+        "https://idp.lan/realms/home/protocol/openid-connect/token",
+        "https://idp.lan/realms/home/protocol/openid-connect/userinfo",
+    };
+
+    [Fact]
+    public void Avatar_OptInOn_OnTheProvidersOwnOrigin_EarnsThePrivateTier()
+    {
+        // Row 1 of #1764, decided where the avatar URL is chosen: both facts hold, so the URL travels bound
+        // to the private tier and the fetch re-reads nothing to apply it.
+        var config = Config(c => c.AllowPrivateNetworkAddresses = true);
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", "https://idp.lan/avatars/123.png")),
+            config,
+            providerEndpoints: LanProviderEndpoints);
+
+        Assert.Equal("https://idp.lan/avatars/123.png", result.Avatar!.Url);
+        Assert.Equal(AddressPolicy.PrivateNetworkPermitted, result.Avatar.Policy);
+    }
+
+    [Theory]
+    [InlineData("https://cdn.lan/avatars/123.png")] // row 2: another host
+    [InlineData("https://idp.lan:8443/avatars/123.png")] // row 4: the provider's host on another port
+    [InlineData("http://idp.lan:443/avatars/123.png")] // row 4: the provider's host and port under another scheme
+    [InlineData("http://idp.lan/avatars/123.png")] // row 4: another scheme, and with it another effective port
+    public void Avatar_OptInOn_OnAnotherOrigin_StaysStrict(string picture)
+    {
+        var config = Config(c => c.AllowPrivateNetworkAddresses = true);
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", picture)),
+            config,
+            providerEndpoints: LanProviderEndpoints);
+
+        Assert.Equal(AvatarTarget.Strict(picture), result.Avatar);
+    }
+
+    [Fact]
+    public void Avatar_OptInOff_OnTheProvidersOwnOrigin_StaysStrict()
+    {
+        // Row 3 of #1764: the origin matches and the provider never opted in, so nothing is earned.
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", "https://idp.lan/avatars/123.png")),
+            Config(_ => { }),
+            providerEndpoints: LanProviderEndpoints);
+
+        Assert.Equal(AvatarTarget.Strict("https://idp.lan/avatars/123.png"), result.Avatar);
+    }
+
+    [Fact]
+    public void Avatar_NoEndpointsHandedIn_StaysStrict()
+    {
+        // A caller that names no endpoint names no origin the tier could be earned on, whatever the opt-in.
+        var config = Config(c => c.AllowPrivateNetworkAddresses = true);
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", "https://idp.lan/avatars/123.png")),
+            config);
+
+        Assert.Equal(AvatarTarget.Strict("https://idp.lan/avatars/123.png"), result.Avatar);
+    }
+
+    [Fact]
+    public void Avatar_ConfiguredTemplate_EarnsTheTierTheSameWayAsThePictureClaim()
+    {
+        var config = Config(c =>
+        {
+            c.AllowPrivateNetworkAddresses = true;
+            c.AvatarUrlFormat = "https://idp.lan:443/avatars/@{sub}.png";
+        });
+
+        var result = OidcAuthorizeStateBuilder.Build(
+            Claims(("preferred_username", "alice"), ("sub", "123"), ("picture", "https://cdn.lan/other.png")),
+            config,
+            providerEndpoints: LanProviderEndpoints);
+
+        // The default port spelled out is the same origin: the comparison is of effective ports.
+        Assert.Equal("https://idp.lan:443/avatars/123.png", result.Avatar!.Url);
+        Assert.Equal(AddressPolicy.PrivateNetworkPermitted, result.Avatar.Policy);
     }
 }

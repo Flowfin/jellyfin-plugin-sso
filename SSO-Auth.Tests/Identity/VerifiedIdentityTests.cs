@@ -6,6 +6,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
+using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
@@ -40,7 +42,7 @@ public class VerifiedIdentityTests
             Folders = new List<string> { "movies", "shows" },
             EnableLiveTv = true,
             EnableLiveTvManagement = false,
-            AvatarUrl = "https://idp.example/a.png",
+            Avatar = AvatarTarget.Resolve("https://idp.example/a.png", allowPrivateNetworkAddresses: true, new[] { "https://idp.example/token" }),
             PermissionGrants = Array.Empty<PermissionGrant>(),
         };
 
@@ -61,7 +63,9 @@ public class VerifiedIdentityTests
         Assert.Equal(new[] { "movies", "shows" }, identity.Folders);
         Assert.True(identity.EnableLiveTv);
         Assert.False(identity.EnableLiveTvManagement);
-        Assert.Equal("https://idp.example/a.png", identity.AvatarUrl);
+        // The tier travels with the URL, as one value (#1764).
+        Assert.Equal("https://idp.example/a.png", identity.Avatar!.Url);
+        Assert.Equal(AddressPolicy.PrivateNetworkPermitted, identity.Avatar.Policy);
     }
 
     [Fact]
@@ -78,7 +82,7 @@ public class VerifiedIdentityTests
             Folders = new List<string> { "movies" },
             EnableLiveTv = false,
             EnableLiveTvManagement = true,
-            AvatarUrl = null,
+            Avatar = null,
             PermissionGrants = Array.Empty<PermissionGrant>(),
         };
 
@@ -90,7 +94,7 @@ public class VerifiedIdentityTests
         Assert.Equal("alice@example.com", identity.Subject);
         Assert.Equal("alice@example.com", identity.Username);
         Assert.Null(identity.EmailVerified);
-        Assert.Null(identity.AvatarUrl);
+        Assert.Null(identity.Avatar);
         Assert.Null(identity.Issuer);
         Assert.True(identity.Admin);
         Assert.Equal(new[] { "movies" }, identity.Folders);

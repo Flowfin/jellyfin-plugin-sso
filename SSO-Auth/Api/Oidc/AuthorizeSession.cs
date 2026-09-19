@@ -151,7 +151,7 @@ internal abstract class AuthorizeSession
                 Folders = derived.Folders,
                 EnableLiveTv = derived.EnableLiveTv,
                 EnableLiveTvManagement = derived.EnableLiveTvManagement,
-                AvatarUrl = derived.AvatarUrl,
+                Avatar = derived.Avatar,
                 PermissionGrants = derived.PermissionGrants ?? Array.Empty<PermissionGrant>(),
                 MaxParentalRatingScore = derived.MaxParentalRatingScore,
                 ExpiresAtUtc = derived.ExpiresAtUtc,

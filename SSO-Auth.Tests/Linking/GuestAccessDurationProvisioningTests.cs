@@ -226,7 +226,7 @@ public class GuestAccessDurationProvisioningTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: expiresAtUtc,
             GuestAccessDuration: duration));
 

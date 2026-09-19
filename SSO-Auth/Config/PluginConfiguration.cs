@@ -1108,7 +1108,9 @@ public class OidConfig : ProviderConfigBase
     /// self-hosted shape of an IdP on an RFC 1918 address behind a reverse proxy (#1058). Enabling it
     /// permits only RFC 1918, carrier-grade NAT and IPv6 unique-local, and only for this provider;
     /// loopback, link-local and the cloud-metadata ranges stay blocked regardless, and every other
-    /// provider - plus the avatar fetch and the SAML metadata importer - keeps the full guard.
+    /// provider keeps the full guard, as does the SAML metadata importer. The avatar fetch is covered for a
+    /// picture served from the origin of this provider's discovery address, token endpoint or, while the
+    /// login reads it, userinfo endpoint, up to the first redirect, and for no other origin (#1764).
     /// </summary>
     public bool AllowPrivateNetworkAddresses { get; set; }
 

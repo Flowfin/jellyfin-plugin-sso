@@ -444,7 +444,7 @@ public class LastSsoLoginStampTests
             EnableLiveTv: false,
             EnableLiveTvManagement: false,
             Folders: new List<string>(),
-            AvatarUrl: null,
+            Avatar: null,
             ExpiresAtUtc: null));
 
     // The login service under test, plus the list every configuration persist lands in - the flush-policy test
