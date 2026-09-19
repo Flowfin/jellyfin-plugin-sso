@@ -10,12 +10,16 @@ creep back:
   1. Broken internal anchors  - a [text](Page#anchor) whose page or heading is gone.
   2. file:line citations      - pinning `Something.cs:123` in prose; the rule is to
                                 cite modules and type names, never paths that move.
-  3. Dead source links        - a blob/<ref>/<path> link to a file not in the tree.
+  3. Dead source links        - a blob/<ref>/<path> link to a file not at that ref.
 
-Check 3 resolves against the code repository's git INDEX, so a local run and a CI run
-reach the same verdict on the same wiki: a file the repository ignores but a developer
-still has on disk is not scored live. Point it at a git work tree; if it is not one, the
-run says so and falls back to the filesystem.
+Check 3 honours the ref the link names (#1780). A link naming the branch the code
+checkout is on, or `HEAD`, resolves against that checkout's git INDEX, so a local run
+and a CI run reach the same verdict on the same wiki: a file the repository ignores
+but a developer still has on disk is not scored live. A link naming any other ref
+resolves against that ref as `origin` serves it, fetched once per ref, so a page
+citing a file on another release line reads as live exactly when that file is there.
+A ref that origin does not have is a finding that names the ref. Point it at a git
+work tree; if it is not one, the run says so and falls back to the filesystem.
 
 Usage: wiki-lint.py <wiki_dir> <code_repo_dir>
 Exit code 1 (with a report) on any finding; 0 when clean.
@@ -92,7 +96,33 @@ def check_file_line_citations(wiki: Path) -> list[str]:
     return findings
 
 
-_BLOB = re.compile(r"github\.com/[^/]+/[^/]+/blob/[^/]+/([^)#\s]+)")
+# A source link names a ref and a path; both are read, because a path that is
+# right on one release line is dead on another (#1780).
+_BLOB = re.compile(r"github\.com/[^/]+/[^/]+/blob/([^/]+)/([^)#\s]+)")
+# A ref is fetched only when it reads as a name: letters, digits, dot, underscore and hyphen,
+# not starting with a hyphen or a dot. The ref comes out of wiki text and reaches git as an
+# argument, and git reads an argument that starts with a hyphen as an option wherever it
+# stands, so a link written as blob/--upload-pack=<command>/<path> would otherwise run that
+# command on the machine linting. A ref that fails this test is a finding, never a fetch.
+_REF_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _git(code: Path, *args: str) -> bytes:
+    """Run git in the code tree and return stdout. Raises on a non-zero exit."""
+    return subprocess.run(
+        ["git", "-C", str(code), *args],
+        capture_output=True,
+        check=True,
+    ).stdout
+
+
+def _with_parents(paths: set[str]) -> set[str]:
+    """The paths plus every directory they imply, so a link to a folder scores live."""
+    live = set(paths)
+    for path in paths:
+        parts = path.split("/")
+        live.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    return live
 
 
 def tracked_paths(code: Path) -> set[str] | None:
@@ -102,19 +132,41 @@ def tracked_paths(code: Path) -> set[str] | None:
     falls back to the filesystem and says so, rather than scoring every link dead.
     """
     try:
-        out = subprocess.run(
-            ["git", "-C", str(code), "ls-files", "-z"],
-            capture_output=True,
-            check=True,
-        ).stdout
+        out = _git(code, "ls-files", "-z")
     except (OSError, subprocess.SubprocessError):
         return None
+    return _with_parents({p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p})
 
-    live = {p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p}
-    for path in list(live):
-        parts = path.split("/")
-        live.update("/".join(parts[:i]) for i in range(1, len(parts)))
-    return live
+
+def checked_out_branch(code: Path) -> str | None:
+    """The branch the code tree has checked out, or None when detached or not a git tree."""
+    try:
+        name = _git(code, "rev-parse", "--abbrev-ref", "HEAD").decode("utf-8", "surrogateescape").strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return None if name in ("", "HEAD") else name
+
+
+def tracked_paths_at(code: Path, ref: str) -> set[str] | None:
+    """The paths at `ref` as `origin` serves it, plus the directories they imply.
+
+    The ref is fetched rather than read from a remote-tracking branch, because a CI checkout
+    holds one branch at depth 1 and a developer's clone may hold a stale copy of another. The
+    fetch is depth-limited only where the checkout is already shallow: `--depth` on a full
+    clone would turn it into a shallow one as a side effect of a lint.
+
+    Returns None when origin does not serve the ref, or the fetch fails - the caller then
+    reports the link with the ref in the message.
+    """
+    try:
+        shallow = _git(code, "rev-parse", "--is-shallow-repository").strip() == b"true"
+        depth = ["--depth", "1"] if shallow else []
+        _git(code, "fetch", "--quiet", *depth, "origin", ref)
+        sha = _git(code, "rev-parse", "FETCH_HEAD").decode("ascii").strip()
+        out = _git(code, "ls-tree", "-r", "-z", "--name-only", sha)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _with_parents({p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p})
 
 
 def check_dead_source_links(wiki: Path, code: Path) -> list[str]:
@@ -125,20 +177,42 @@ def check_dead_source_links(wiki: Path, code: Path) -> list[str]:
     if tracked is None:
         print(
             f"warning: '{code}' is not a readable git work tree - source links are checked against the "
-            "filesystem, so an ignored-but-present file will score live and this verdict may differ from CI.",
+            "filesystem whatever ref they name, so an ignored-but-present file will score live and this "
+            "verdict may differ from CI.",
             file=sys.stderr,
         )
 
-    def is_live(rel: str) -> bool:
+    # The checkout answers only for the branch it is on. On a gollum run that is the default branch, so
+    # a link naming the other release line was looked up in a tree that never held its file, and the
+    # 4.3 line's workflows on main read as dead the moment #1771 moved them off 5.1 (#1780).
+    branch = checked_out_branch(code)
+    at_ref: dict[str, set[str] | None] = {}
+
+    def paths_at(ref: str) -> set[str] | None:
+        if ref not in at_ref:
+            at_ref[ref] = tracked_paths_at(code, ref)
+        return at_ref[ref]
+
+    def verdict(ref: str, rel: str) -> str | None:
         rel = rel.rstrip("/")
-        return (code / rel).exists() if tracked is None else rel in tracked
+        if tracked is None:
+            return None if (code / rel).exists() else "not on disk"
+        if ref == "HEAD" or ref == branch:
+            return None if rel in tracked else "not in the code tree"
+        if not _REF_NAME.fullmatch(ref):
+            return f"ref '{ref}' is not a name this check fetches"
+        paths = paths_at(ref)
+        if paths is None:
+            return f"ref '{ref}' could not be fetched from origin"
+        return None if rel in paths else f"not at '{ref}'"
 
     findings: list[str] = []
     for path in wiki.glob("*.md"):
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            for rel in _BLOB.findall(line):
-                if not is_live(rel):
-                    findings.append(f"{path.name}:{n}: dead source link '{rel}' (not in the code tree)")
+            for ref, rel in _BLOB.findall(line):
+                reason = verdict(ref, rel)
+                if reason is not None:
+                    findings.append(f"{path.name}:{n}: dead source link '{rel}' ({reason})")
     return findings
 
 
