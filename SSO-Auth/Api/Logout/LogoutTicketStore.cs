@@ -17,8 +17,10 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 /// Authorization header. Until this existed the only way to reach the route from a client was to put the
 /// caller's own access token in the query string, which is a long-lived credential in a URL that lands in
 /// history, in a referrer and in every proxy log on the way. A ticket stands in for it: an authenticated
-/// call mints one, it is bound to the caller's user, session and provider, it lives for a minute, and the
-/// route accepts it exactly once.
+/// call mints one, it is bound to the caller's user and provider and carries the caller's own session token
+/// so the redeem ends exactly the session it was minted from, it lives for a minute, and the route accepts
+/// it exactly once. What the session binding covers is the local sign-out; the end-session hint is chosen
+/// per user at the route, which is where that is argued (#1794).
 /// <para>
 /// The same shape as <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlOutcomeStore"/> and
 /// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcStateStore"/>: cap-bounded registration, an atomic

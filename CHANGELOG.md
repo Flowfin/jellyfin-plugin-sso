@@ -18,9 +18,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   caller's own access token as an `api_key` query parameter, a long-lived
   credential that lands in browser history, in a referrer and in every proxy log
   on the way. An authenticated `POST` to `OID/logout-ticket/{provider}` now mints
-  a 256-bit ticket bound to that caller's user, that caller's session and that
-  provider, valid for one minute and redeemable exactly once, and the route
-  accepts it in place of the session. **Read this before upgrading:**
+  a 256-bit ticket bound to that caller's user and that provider, carrying that
+  caller's own session token so the redeem ends exactly the session the ticket
+  was minted from, valid for one minute and redeemable exactly once, and the
+  route accepts it in place of the session. The session binding covers the
+  local sign-out and not the provider half: the `id_token_hint` the redeem
+  sends is the caller's newest captured session for that provider, which with
+  several sessions per account may be a different one from the session the
+  ticket ends (#1794). **Read this before upgrading:**
   `GET OID/logout/{provider}` no longer carries `[Authorize]`, because that
   attribute refuses a request before the method runs and the ticket path could
   never satisfy it. The route refuses in the method instead - no ticket and no

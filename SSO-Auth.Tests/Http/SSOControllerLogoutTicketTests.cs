@@ -43,7 +43,8 @@ public class SSOControllerLogoutTicketTests
         Guid? userId = null,
         bool singleLogout = true,
         System.Net.IPAddress? clientIp = null,
-        bool rateLimit = false)
+        bool rateLimit = false,
+        Action<PluginConfiguration>? configure = null)
     {
         var harness = new SsoControllerHarness(
             config =>
@@ -70,6 +71,7 @@ public class SSOControllerLogoutTicketTests
                 IdToken = "raw.id.token", // plaintext round-trips through Reveal unchanged
                 UserId = Caller,
             };
+            configure?.Invoke(config);
         },
             clientIp);
 
@@ -123,6 +125,45 @@ public class SSOControllerLogoutTicketTests
         // The session that is ended is the one the MINT was made from, not merely some session of that user
         // and not some other string the mint happened to store.
         await harness.SessionManager.Received(1).Logout(CallerToken);
+    }
+
+    [Fact]
+    public async Task TheHintTheTicketSends_IsTheCallersNewestCapture_AndNotNecessarilyTheTicketsSession()
+    {
+        // WHICH HALF OF THE ROUTE THE SESSION BINDING COVERS (#1794). The local revoke is session-bound: the
+        // ticket carries the minting session's token and Logout ends exactly that session. The end-session
+        // hint is not: the entry that supplies the id_token_hint is the caller's newest capture for the
+        // provider, keyed by a Jellyfin session id the ticket never carried, so with a browser and a
+        // television signed in to the same provider a ticket minted in the browser ends the browser locally
+        // and sends the television's id_token to the provider, removing the television's capture with it.
+        // This row pins that selection rather than approving it: the texts that describe the ticket say
+        // which half they cover, and a change that makes the hint follow the ticket's session turns this
+        // row red and rewrites those texts in the same change.
+        var harness = ForCaller(CallerToken, Caller, configure: config =>
+        {
+            config.LogoutSessions["session-1"].CapturedUtcTicks = 1_000;
+            config.LogoutSessions["session-tv"] = new LogoutSession
+            {
+                Protocol = "OpenID",
+                Provider = "kc",
+                Subject = "sub-1",
+                Issuer = "https://idp.example",
+                EndSessionEndpoint = "https://idp.example/logout",
+                IdToken = "tv.id.token",
+                UserId = Caller,
+                CapturedUtcTicks = 2_000,
+            };
+        });
+        var ticket = MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = null, Token = null }));
+
+        var redirect = Assert.IsType<RedirectResult>(await harness.Controller.OidLogout("kc", ticket));
+
+        Assert.Contains("id_token_hint=tv.id.token", redirect.Url, StringComparison.Ordinal);
+        await harness.SessionManager.Received(1).Logout(CallerToken);
+        Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("session-tv")));
+        Assert.True(SSOPlugin.Instance.ReadConfiguration(c => c.LogoutSessions.ContainsKey("session-1")));
     }
 
     [Fact]

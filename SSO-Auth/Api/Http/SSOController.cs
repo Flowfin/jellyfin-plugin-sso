@@ -248,8 +248,12 @@ public class SSOController : ControllerBase
     /// provider, and a navigation carries no Authorization header. Before this endpoint the only way a client
     /// could reach that route was to put the caller's own access token in the query string, which is a
     /// long-lived credential in a URL that lands in browser history, in a referrer and in every proxy log on
-    /// the way. A ticket is the short-lived stand-in: it is bound to this caller's user, this caller's session
-    /// and the named provider, it is worthless after a minute, and it is accepted exactly once.
+    /// the way. A ticket is the short-lived stand-in: it is bound to this caller's user and the named
+    /// provider, it carries this caller's own session token so the redeem ends exactly the session it was
+    /// minted from, it is worthless after a minute, and it is accepted exactly once. WHAT THE SESSION
+    /// BINDING COVERS IS THE LOCAL SIGN-OUT (#1794): the end-session hint the redeem sends is chosen per
+    /// user, newest capture first, and the paragraph at that selection in <see cref="OidLogout"/> says what
+    /// it reaches.
     /// </para>
     /// <para>
     /// A POST rather than a GET because it MAKES something. That also means no browser navigation or prefetch
@@ -321,7 +325,8 @@ public class SSOController : ControllerBase
     /// is the authenticated self-logout it has always been: the request carries a session and the framework's
     /// own authentication resolves it. With a <c>ticket</c> the caller is a top-level navigation that cannot
     /// carry a header, and the ticket - minted a minute ago by an authenticated call from the same user, bound
-    /// to that user's session and to this provider - is what names them. A request carrying neither is refused,
+    /// to that user and to this provider and carrying that user's own session token - is what names them. A
+    /// request carrying neither is refused,
     /// and so is one carrying a ticket that is unknown, expired, already spent, or minted for another provider.
     /// </para>
     /// <para>
@@ -434,6 +439,17 @@ public class SSOController : ControllerBase
         // local Logout below ends, but both belong to the caller and the id_token_hint is a valid token for
         // the same subject at the same issuer, so RP-initiated logout is still correct - a within-user,
         // best-effort SLO, never a cross-user effect (FindByUser is user-id-scoped and empty for Guid.Empty).
+        //
+        // THE TICKET ARM IS INSIDE THAT HEDGE AND NOT OUTSIDE IT (#1794). The ticket binds the local revoke -
+        // it carries the minting session's token - and binds nothing about this selection: the entries are
+        // keyed by a Jellyfin session id the ticket never captured, because the authorization the mint reads
+        // carries a device id and no session id, so nothing here can correlate a token with a key. With a
+        // browser and a television captured for one provider, a ticket minted in the browser ends the browser
+        // locally, sends the television's id_token as the hint, and removes the television's capture, leaving
+        // that session signed in with its Single Logout state gone. The texts that describe the ticket say
+        // which half they cover, and SSOControllerLogoutTicketTests pins this selection so a change to it
+        // rewrites those texts in the same change. Selecting by device instead would need a device id on
+        // every captured entry, which the login capture does not record today.
         var match = SSOPlugin.Instance.ReadConfiguration(configuration =>
             SessionLogoutStore.FindByUser(configuration, userId)
                 .FirstOrDefault(pair =>
