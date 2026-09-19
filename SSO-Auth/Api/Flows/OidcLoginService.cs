@@ -281,17 +281,36 @@ internal sealed class OidcLoginService
             // the user-facing error page. Sanitized against log forging. Fail-closed is unchanged (400).
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                // IT NAMES THE REDIRECT URI (#1610). The provider's answer here is a bare code and a
-                // message that names nothing - `invalid_request - Failed to push authorization parameters`
-                // is the whole of it when the refusal is a URI the provider does not have registered - and
-                // with pushed authorization on, that exchange is server to server, so the administrator
-                // never reaches the provider's own error page where the URL WOULD be named. The plugin
-                // composed this string from the incoming request; withholding it here sent one reporter
-                // (#1608) through disabling pushed authorization, retrying, reading the provider's page and
-                // turning it back on, to learn a scheme this line already held.
+                // THE CLOSING SENTENCE FOLLOWS THE CODE (#1763). #1610 gave this line one closing sentence
+                // for every refusal, naming the redirect URI, because the one it was measured on is a
+                // callback the provider does not hold: the code is a bare `invalid_request`, and with
+                // pushed authorization on that exchange is server to server, so the administrator never
+                // reaches the provider's own page where the URL WOULD be named. The same endpoint also
+                // refuses the CLIENT - a secret that does not match, or a client the provider holds as
+                // public - and that arrives here as `Unauthorized`. One reporter (#1762) had already
+                // confirmed the URI against the provider and was told to check it anyway.
+                // WHAT THE LINE MAY SAY IS BOUNDED BY WHAT REACHES IT, and that is one field. The
+                // identity library replaces the provider's own description with a constant and hands on
+                // only a code, which for anything but a 400 is the HTTP reason phrase rather than the
+                // provider's word; OidcChallengeRefusal carries both readings. So no branch here says
+                // what the OTHER cause is not: the client sentence does not clear the redirect URI, and
+                // the third sentence asserts no cause at all rather than guessing the nearest one.
                 // Sanitized both ways like everything beside it: the URI is composed from the request's
                 // host header, which is not this server's to vouch for.
-                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). The redirect URI sent was {RedirectUri}, which the provider must have registered exactly as written - scheme, host, port and path.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('), redirectUri?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                switch (OidcChallengeRefusal.Classify(state.Error))
+                {
+                    case OidcChallengeCause.RedirectUri:
+                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). The redirect URI sent was {RedirectUri}, which the provider must have registered exactly as written - scheme, host, port and path.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('), redirectUri?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                        break;
+
+                    case OidcChallengeCause.ClientAuthentication:
+                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). That is a refusal of the client rather than of the request: check the client ID and the client secret this provider is configured with, and whether a secret is sent here while the provider holds the client as public, or the reverse. The provider's own description of this refusal is replaced before it reaches this log, so the provider's log for this request is where a cause other than those would show.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                        break;
+
+                    default:
+                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). This line does not interpret that answer, because the field it arrives in carries three different things: the provider's own error code, the HTTP reason phrase the answer came back with, or the failure that stopped the request arriving. Read it as whichever of the three it is.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                        break;
+                }
             }
 
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
