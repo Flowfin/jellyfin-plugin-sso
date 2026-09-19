@@ -50,8 +50,16 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// Deliberately a raw <see cref="Utf8JsonReader"/> walk rather than a <c>JsonSerializerOptions</c> setting.
 /// The plugin binds the HOST's System.Text.Json, and while the Jellyfin 10.11 line was a target that was
 /// .NET 9's, where <c>Strict</c> does not exist (referencing it failed the net9.0 build with CS0117). That
-/// leg ended in #1770 and #1043 decides whether the preset replaces this walk. A tokenizer carries no
-/// duplicate policy of its own, so the decision here does not move when the host's System.Text.Json does.
+/// leg ended in #1770, and #1043 then measured the preset against this walk's own corpus and KEPT the
+/// walk. What the callers here depend on and the preset does not carry: it has no BOM strip, so a provider
+/// serving a BOM-prefixed document is refused for its first byte; it refuses a repeat anywhere in the
+/// document and cannot narrow to the scopes a caller's reader enters, which is the availability cost
+/// #1324 exists to avoid; it signals every outcome by throwing, in a type that depends on what the
+/// caller deserializes into, so a repeat and a malformed body arrive on one channel; and it admits a
+/// document carrying no object at all, where this walk reports that it established nothing. The rows
+/// are in <c>StrictJsonTests</c>, beside the row that measures where the two agree. A tokenizer carries
+/// no duplicate policy of its own, so the decision here does not move when the host's
+/// System.Text.Json does.
 /// </summary>
 internal static class StrictJson
 {
@@ -141,10 +149,12 @@ internal static class StrictJson
     /// a provider naming a member with an unpaired surrogate is locked out of a login a lenient reader
     /// downstream would have completed.
     ///
-    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 weighs against this walk now that net9.0
-    /// is gone, takes the same decision in both directions - it refuses a member named twice and does not
-    /// treat a case-variant pair as one. Measured in <c>TheStrictPresetTakesTheSameDecisionOnCase</c>, so a
-    /// replacement would inherit this posture rather than contradicting it.
+    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 measured against this walk and did not
+    /// replace it with, takes the same decision in both directions - it refuses a member named twice and
+    /// does not treat a case-variant pair as one. Measured in
+    /// <c>TheStrictPresetTakesTheSameDecisionOnCase</c>, so the posture below is the platform's too and
+    /// the reasons the walk was kept are elsewhere: they are about the BOM, the scope narrowing, the
+    /// throw and the objectless document, and none of them is about case.
     ///
     /// Never throws.
     /// </returns>
