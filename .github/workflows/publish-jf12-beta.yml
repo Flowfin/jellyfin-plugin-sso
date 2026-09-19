@@ -116,6 +116,12 @@ jobs:
     uses: ./.github/workflows/e2e-login.yml
     with:
       providers: all
+    # By name rather than `inherit`: the called workflow gets the one secret its pairwise job can use
+    # and none of the others this repository holds. Where the secret does not exist the value is empty,
+    # the pairwise job falls back to the workflow token, sees no private sibling, and reports a run in
+    # which no pair was checked instead of dying and stopping this publish at the matrix (#1773).
+    secrets:
+      PAIRWISE_READ_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN }}
 
   # THE BUILD IS A SEPARATE JOB FROM THE PUBLISH (#1736), so the unit of loss on a failure is the leg
   # that failed rather than the whole run. Run 34749421228 of 2026-09-13 compiled the assemblies, read
