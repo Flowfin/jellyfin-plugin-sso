@@ -17,8 +17,7 @@
 #
 # Environment:
 #   PLUGIN_ARTIFACT     required - the packaged zip of THIS plugin, as a release ships it
-#   SERVER_GENERATION   jf10.11 (default) or jf12 - decides which targetAbi a sibling must carry
-#   JELLYFIN_IMAGE_TAG  the server image tag; defaults per generation
+#   JELLYFIN_IMAGE_TAG  the server image tag; defaults to the version the plugin compiles against
 #   PAIRWISE_OWNER      the account whose plugin repositories are the sibling set (default Flowfin)
 #   PAIRWISE_SELF       this repository's name, excluded from the sibling set
 set -euo pipefail
@@ -29,20 +28,15 @@ CONFIG_DIR="$HERE/config"
 
 OWNER="${PAIRWISE_OWNER:-Flowfin}"
 SELF="${PAIRWISE_SELF:-jellyfin-plugin-sso}"
-GENERATION="${SERVER_GENERATION:-jf10.11}"
-
-# The ABI line the booting server belongs to. A sibling built for the other line does not load there,
-# and that is a fact about the two release lines rather than a collision between the plugins, so it is
+# The ABI line the booting server belongs to: Jellyfin 12, the one generation this tree builds for since
+# #1770 (the 10.11 line ended with 4.3.0). A sibling built for the other line does not load there, and
+# that is a fact about the two release lines rather than a collision between the plugins, so it is
 # reported as a skip instead of being counted as a failed pair. Reporting it matters: a silently dropped
-# sibling would make an empty run look like a clean one.
-if [ "$GENERATION" = "jf12" ]; then
-  ABI_PREFIX="12."
-  DEFAULT_IMAGE="12.0"
-else
-  ABI_PREFIX="10.11"
-  DEFAULT_IMAGE="10.11.11"
-fi
-export JELLYFIN_IMAGE_TAG="${JELLYFIN_IMAGE_TAG:-$DEFAULT_IMAGE}"
+# sibling would make an empty run look like a clean one. The image tag is the version the plugin
+# compiles against, for the reason the compose file gives at its image line.
+GENERATION="jf12"
+ABI_PREFIX="12."
+export JELLYFIN_IMAGE_TAG="${JELLYFIN_IMAGE_TAG:-12.0}"
 
 JELLYFIN="http://127.0.0.1:8096"
 ADMIN_USER="e2eadmin"

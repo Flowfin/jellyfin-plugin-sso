@@ -1,6 +1,6 @@
 # End-to-end SSO login harness
 
-An automated, reproducible end-to-end login test (#720/#727) that boots a **real Jellyfin 10.11
+An automated, reproducible end-to-end login test (#720/#727) that boots a **real Jellyfin 12
 server with the packaged plugin installed** and a **real Keycloak identity provider**, then drives
 full login round-trips headlessly and asserts the outcomes. It supplements - it does **not** replace -
 the manual `Release-QA-Checklist`.
@@ -171,8 +171,8 @@ it is not checked on this board, and the run prints that bound on every pass rat
 to remember it.
 
 The phase runs wherever this workflow runs: on the nightly schedule, on a pull request touching
-`test/e2e/**`, and - because `publish-beta.yml` and `publish-jf12-beta.yml` call this workflow at the
-commit they are about to ship - **before each beta publish, on both server lines**. A red pair therefore
+`test/e2e/**`, and - because `publish-jf12-beta.yml` calls this workflow at the
+commit it is about to ship - **before each beta publish**. A red pair therefore
 blocks the publish. The coupling that buys is real and is stated rather than hidden: this board's release
 depends on artefacts other boards publish. A sibling with nothing installable is skipped and blocks
 nothing; what blocks is an artefact whose bytes do not match its own published `sha256` sidecar, and a
@@ -208,13 +208,13 @@ Keycloak's SAML descriptor and configured through the plugin's `SAML/Add` admin 
 Local Docker must be working. The harness installs the **packaged** plugin, so build the zip first.
 
 ```sh
-# 1. Build the packaged plugin zip (requires the .NET 9 SDK and JPRM: `pip install jprm`).
+# 1. Build the packaged plugin zip (requires the .NET 10 SDK and JPRM: `pip install jprm`).
 #    jprm refuses an output directory that does not exist, and `artifacts/` is git-ignored,
 #    so a clean checkout has to create it. Everything jprm reports goes to stderr except the
 #    path of the archive it wrote, which is its only line of stdout - capture that instead of
 #    naming the file, because the name is derived from `name:` in build.yaml and moves with it.
 mkdir -p ./artifacts
-plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net9.0)
+plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net10.0)
 
 # 2. Unpack it into the Jellyfin plugins directory the compose stack mounts.
 mkdir -p test/e2e/jellyfin/config/plugins/SSO-Auth
@@ -232,45 +232,21 @@ docker compose -f test/e2e/docker-compose.yml down -v
 A green run prints `ALL E2E CHECKS PASSED`. In CI, container logs are dumped automatically on
 failure.
 
-### Running the JF12 generation instead (`JELLYFIN_IMAGE_TAG`)
+### Which server the stack boots (`JELLYFIN_IMAGE_TAG`)
 
-The steps above build the **net9.0** package and boot a Jellyfin **10.11** server, which is the
-artifact `publish-beta.yml` ships. The other beta line ships the **net10.0** package at
-`targetAbi 12.0.0.0`, and that one will not load into a 10.11 server at all. To exercise it, three
-things change together - the target framework, the build metadata, and the server image:
-
-```sh
-# 1. Package the net10 build from the JF12 metadata. jprm reads build.yaml, so swap it first
-#    (restore it afterwards - the committed build.yaml is the JF10.11 metadata).
-cp build.yaml build.yaml.bak && cp build-jf12.yaml build.yaml
-plugin_zip=$(jprm --verbosity=debug plugin build . --output ./artifacts --dotnet-framework net10.0)
-mv build.yaml.bak build.yaml
-
-# 2. Unpack as in step 2 above, into a WIPED plugins directory - a 10.11 drop left behind is a
-#    second copy of the same plugin GUID and the server picks one of them.
-rm -rf test/e2e/jellyfin/config/plugins/SSO-Auth
-mkdir -p test/e2e/jellyfin/config/plugins/SSO-Auth
-unzip -o "$plugin_zip" -d test/e2e/jellyfin/config/plugins/SSO-Auth
-chmod -R 0777 test/e2e/jellyfin
-
-# 3. Boot the same stack against a 12.0 server. Every compose file in this directory takes the tag
-#    from this variable and defaults to the 10.11 server when it is unset, so nothing above changes.
-JELLYFIN_IMAGE_TAG=12.0 docker compose -f test/e2e/docker-compose.yml up \
-  --abort-on-container-exit --exit-code-from harness
-```
-
-The tag is **whatever the plugin compiles against, not whatever is newest**, because .NET will not
-bind an assembly reference down: a server older than the referenced assemblies refuses to load the
-plugin. Since 12.0 went GA on 2026-09-07 the two coincide, and that is a coincidence rather than a
-rule - the day a 12.1 image appears this tag stays at 12.0 until the pin moves. The pin lives in one
-place:
+Every compose file in this directory takes the server tag from this variable and defaults to `12.0`
+when it is unset, so the steps above boot a Jellyfin 12.0 server without setting anything. The tag is
+**whatever the plugin compiles against, not whatever is newest**, because .NET will not bind an
+assembly reference down: a server older than the referenced assemblies refuses to load the plugin.
+Since 12.0 went GA on 2026-09-07 the two coincide, and that is a coincidence rather than a rule - the
+day a 12.1 image appears this tag stays at 12.0 until the pin moves. The pin lives in one place:
 
 ```sh
 git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
 ```
 
-In CI this is the `generation` input on the `E2E Login Harness` workflow (`jf10.11` or `jf12`),
-which derives all three values together rather than leaving them to be set consistently by hand.
+Until #1770 the tree also built a net9.0 package for Jellyfin 10.11 and a `generation` input on the
+workflow chose which of the two to boot; that line ended with 4.3.0 and the input is gone.
 
 ### A second pass over the same server (`RELOGIN_ONLY`)
 

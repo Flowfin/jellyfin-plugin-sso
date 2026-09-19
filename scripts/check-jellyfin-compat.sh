@@ -5,10 +5,11 @@
 # Compile-time API compatibility is already enforced by building against the pinned Jellyfin.*
 # packages with --warnaserror; this catches the metadata/ABI drift that a build cannot.
 #
-# The csproj may MULTI-TARGET several server generations (net9.0 for Jellyfin 10.11, net10.0 for
-# Jellyfin 12.0, #135). build.yaml describes ONE generation (its framework/targetAbi/version) - the one
-# the shipping package here is for - so this gate validates that generation: its framework must be one
-# of the csproj targets, and the checks compare against that framework's conditional JellyfinVersion.
+# The csproj targets one server generation today (net10.0 for Jellyfin 12, #1770) and may multi-target
+# again (#135 did, net9.0 beside it). build.yaml describes ONE generation (its framework/targetAbi/
+# version) - the one the shipping package is for - so this gate validates that generation: its framework
+# must be one of the csproj targets, and the checks compare against that framework's JellyfinVersion,
+# conditional per framework where the csproj conditions it.
 #
 # Runtime SSO behavior against a live Jellyfin + identity provider is verified separately by a
 # manual end-to-end check on a real server - it cannot be exercised headlessly.

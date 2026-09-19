@@ -568,6 +568,25 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target, net10.0, for Jellyfin 12 (#1770).**
+  `4.3.0-stable` of 2026-09-15 was the last build for Jellyfin 10.11 and .NET 9,
+  and nothing is developed for that generation any more. This is the end of
+  support for the 4.x line, announced here as `SECURITY.md` says it will be,
+  and it comes with no advance notice: the line was retired by decision before
+  5.0.0 shipped, so the six months of security fixes for a previous line that
+  `SECURITY.md` used to promise are not kept for 4.x, and the file now says so.
+  A 10.11 server loses nothing it has: the manifests are regenerated from every
+  release that exists, so 4.3.0 stays on `manifest-release` and the 4.3 betas on
+  `manifest-beta`, and Jellyfin's own `targetAbi` filter keeps offering a 10.11
+  server that build and a 12 server the 5.x one from the same repository URL.
+  In the tree, every project targets `net10.0` alone, `build.yaml` carries the
+  12.0 metadata and `build-jf12.yaml` is gone together with every step that
+  copied it over `build.yaml`, the two 10.11 publish workflows stay on `main`
+  with the 4.3 line and are not on this branch, the end-to-end matrix boots a
+  Jellyfin 12 server only, and the ABI floor job builds the one target against
+  `build.yaml`'s floor - which today equals the version the build compiles
+  against, so it proves the same thing as the build until that pin moves.
+  Nothing is published from this line before `5.0.0-stable`.
 - **A failed release call no longer throws away the build behind it (#1736).**
   The daily Jellyfin 12 beta was one job: it compiled the plugin, packaged it,
   wrote the checksum and SBOM sidecars and then created the GitHub release. When

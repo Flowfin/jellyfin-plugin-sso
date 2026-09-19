@@ -101,10 +101,10 @@ Release assembly the plugin ships carries none of them:
 
 ```sh
 $ dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --warnaserror
-$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
+$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
 0
 $ dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --warnaserror -p:DefineConstants=DEBUG%3BTRACE
-$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
+$ tr -d '\000' < SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.dll | grep -ac "collapsed an absent NameID"
 1
 ```
 
@@ -150,11 +150,11 @@ dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release -p:DefineConstants=DE
 
 # 2. Instrument the plugin assembly SharpFuzz will fuzz through.
 dotnet tool install --global SharpFuzz.CommandLine
-sharpfuzz SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll
+sharpfuzz SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.dll
 
 # 3. Fuzz one target, seeded from its corpus (libFuzzer flags after --).
 export SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks | roles
-dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll \
+dotnet SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll \
     SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET -max_total_time=300
 ```
 
@@ -173,7 +173,7 @@ moved once already and the loop above derives it from the corpus directories.
 
 ```sh
 export SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET=saml   # or: discovery | idtoken | jwks | roles
-dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
+dotnet SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/$SSO_FUZZ_TARGET
 ```
 
 ### Differential mode (any platform, no libFuzzer)
@@ -190,7 +190,7 @@ object scope names a member twice:
 
 ```sh
 SSO_FUZZ_DIFFERENTIAL=1 SSO_FUZZ_CASES=50000 SSO_FUZZ_SEED=1188 \
-    dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/discovery
+    dotnet SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll SSO-Auth.Fuzz/corpus/discovery
 ```
 
 Exit 0 is a clean, non-vacuous run; exit 1 is a divergence, which is a **finding** and is filed with the

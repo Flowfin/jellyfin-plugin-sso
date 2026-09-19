@@ -1,19 +1,19 @@
 name: Publish JF12 Beta
 
-# The Jellyfin 12.0 (.NET 10) BETA channel - the 5.0 line (#135). Jellyfin 12.0 moves the server to
-# .NET 10 and a 10.11-ABI plugin will not load there, so upgraders need a 12-targeted build. Since
-# #954 put both generations on ONE multi-target codebase (net9.0;net10.0). Since #1585 the two legs
-# publish from DIFFERENT refs of it: the JF10.11 leg from `main`, frozen on the 4.3 candidate for its
-# soak, and this leg from the 5.0 development branch. This leg builds the net10 target and publishes
-# an installable prerelease into the SHARED
-# `manifest-beta` branch. Jellyfin filters plugin versions client-side by targetAbi, so one beta
-# manifest carries BOTH generations (4.x at targetAbi 10.11, 5.0 at 12.0) and each server installs only
-# its compatible build - no separate JF12 manifest is needed. (The JF10.11 beta is published by
-# publish-beta.yml; both regenerate the same manifest-beta from all prerelease releases.)
+# The Jellyfin 12 (.NET 10) BETA channel - the 5.x line (#135). Jellyfin 12.0 moved the server to
+# .NET 10 and a 10.11-ABI plugin will not load there, so upgraders need a 12-targeted build. From #954
+# to #1770 one multi-target tree (net9.0;net10.0) fed two legs from different refs: the JF10.11 leg
+# from `main`, frozen on the 4.3 candidate for its soak, and this one from the development branch. The
+# 10.11 line ended with 4.3.0-stable and this branch builds net10.0 alone, so this is the one beta leg
+# here; publish-beta.yml stays on `main` with the 4.3 line. This leg publishes an installable
+# prerelease into the `manifest-beta` branch. Jellyfin filters plugin versions client-side by
+# targetAbi, so the one beta manifest goes on carrying the 4.3 betas at targetAbi 10.11 beside the 5.x
+# builds at 12.0, and each server installs only its compatible build - a 10.11 server keeps installing
+# 4.3 from the same URL.
 #
-# The JF12 build METADATA (version 5.0, targetAbi 12.0.0.0, framework net10.0, and the net10 shipping
-# closure) lives in build-jf12.yaml, which the package job copies over build.yaml before JPRM builds - the
-# committed build.yaml stays the JF10.11 metadata.
+# The build METADATA (version, targetAbi 12.0.0.0, framework net10.0, the net10 shipping closure) is
+# build.yaml, the one metadata file in the tree since #1770; nothing is copied over it before JPRM
+# builds.
 # No push trigger: a beta is no longer minted on every merge (that spammed one release per PR).
 # nightly-betas.yml (the scheduler on the default branch) dispatches this workflow once a day; the gate
 # job below then skips the build unless the dispatched ref has advanced since the last JF12 beta.
@@ -25,11 +25,11 @@ on:
 # Explicit deny-all at workflow level; the publish job below opts into write access explicitly.
 permissions: {}
 
-# Serialize ALL beta publishes that regenerate manifest-beta - this JF12 leg AND the JF10.11
-# publish-beta.yml on main - under ONE shared concurrency group, so their manifest-branch
-# regenerations never run concurrently and race (a reader-vs-pusher TOCTOU that could transiently drop
-# the other generation's just-published build from manifest-beta, #135 review). cancel-in-progress is
-# false - a publish holding contents:write must never be killed mid-run.
+# Serialize ALL writers of manifest-beta - this leg, regenerate-manifest.yml, and the 10.11 beta leg
+# that stays on main and can still be dispatched by hand - under ONE shared concurrency group, so
+# their manifest-branch regenerations never run concurrently and race (a reader-vs-pusher TOCTOU that
+# could transiently drop another just-published build from manifest-beta, #135 review).
+# cancel-in-progress is false - a publish holding contents:write must never be killed mid-run.
 concurrency:
   group: publish-manifest-beta
   cancel-in-progress: false
@@ -90,17 +90,11 @@ jobs:
   # which had never once started a run. Calling the harness as a job runs it INSIDE this run, so the
   # pass belongs to the commit being published rather than to whatever main held when a cron last fired.
   #
-  # WHAT THIS PASS IS EVIDENCE ABOUT, stated here because the job name cannot carry it. Until #1466 the
-  # harness built a net9.0 package and installed it into a Jellyfin 10.11.11 server on both callers, so
-  # for this one the pass covered the provider-facing SOURCE of the one multi-target tree and not the
-  # bytes in the artifact. It is the bytes now: `generation: jf12` below moves the target framework, the
-  # build metadata and the server image together, and the three are derived rather than typed twice.
-  #
-  #     git grep -n 'metadata=build-jf12[.]yaml' -- .github/workflows/e2e-login.yml
-  #     .github/workflows/e2e-login.yml:140:            target=net10.0; metadata=build-jf12.yaml; image=12.0; needs_net10=yes
-  #
-  # So a packaged load failure of the #181/#590 class - the thing a pass on the other target framework
-  # could not see, because the two build metadata files ship different closures - is inside this pass.
+  # WHAT THIS PASS IS EVIDENCE ABOUT, stated here because the job name cannot carry it. The harness
+  # packages the net10.0 build from build.yaml and installs it into a Jellyfin 12 server, which since
+  # #1770 is the one artifact this tree produces; until #1466 it built a net9.0 package for a 10.11
+  # server on every caller, so the pass covered the shared source and not the bytes. It is the bytes:
+  # a packaged load failure of the #181/#590 class is inside this pass.
   #
   # WHAT IS STILL OUTSIDE IT, and it is a real bound rather than a formality. The server is 12.0, the
   # version SSO-Auth.csproj compiles net10.0 against, so the harness proves the artifact against the
@@ -122,10 +116,6 @@ jobs:
     uses: ./.github/workflows/e2e-login.yml
     with:
       providers: all
-      # The whole of #1466. Without it the call takes e2e-login.yml's default, which is jf10.11
-      # and is correct for every other caller - so the artifact this leg publishes was the one
-      # stack the harness never booted.
-      generation: jf12
 
   # THE BUILD IS A SEPARATE JOB FROM THE PUBLISH (#1736), so the unit of loss on a failure is the leg
   # that failed rather than the whole run. Run 34749421228 of 2026-09-13 compiled the assemblies, read
@@ -153,9 +143,8 @@ jobs:
   # This is the shape publish.yml has carried since it was written - a build job whose artifact an
   # upload job releases - brought to this leg rather than invented for it.
   #
-  # The other two legs keep the single-job shape for reasons of their own: publish.yml already has the
-  # split, publish-beta.yml runs from `main` (that is the ref nightly-betas.yml dispatches it at) so a
-  # change made here would not reach it, and publish-jf12-stable.yml has never fired.
+  # publish-jf12-stable.yml keeps the single-job shape: it has never fired. The two 10.11 legs stay on
+  # `main` with the 4.3 line and are not on this branch.
   package:
     name: Build the JF12 beta package
     needs: [gate, provider-matrix]
@@ -179,38 +168,31 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        # Both SDKs: the multi-target restore/build needs net9.0, the JF12 package is net10.0.
+        # One SDK: the package is net10.0 and nothing else is built.
         # No NuGet cache: a poisoned cache would reach the bytes `publish` releases, which is the whole
         # of the reason and is unchanged by this job losing its write grant; the --locked-mode restore
         # re-downloads against the committed lockfile.
-        dotnet-version: |
-          9.0.x
-          10.0.x
+        dotnet-version: 10.0.x
     - name: Restore dependencies
       run: dotnet restore --locked-mode
     - name: Build Dotnet
       run: dotnet build --no-restore --warnaserror
     - name: Derive the JF12 beta version
       id: version
-      # Beta version = build-jf12.yaml's `version` (the 5.0 line's next target) with the run number as
-      # the fourth octet: 5.0.0.<run>, released as "5.0.0-JF12-beta". Same monotonic-build-number model
-      # as publish-beta.yml; RUN_NUMBER via env (no ${{ }} spliced into the shell). Never rename this
-      # workflow without bumping build-jf12.yaml's version (github.run_number resets on rename).
+      # Beta version = build.yaml's `version` (the line's next target) with the run number as the
+      # fourth octet: X.Y.Z.<run>, released as "X.Y.Z-JF12-beta". A monotonic build number; RUN_NUMBER
+      # via env (no ${{ }} spliced into the shell). Never rename this workflow without bumping
+      # build.yaml's version (github.run_number resets on rename).
       env:
         RUN_NUMBER: ${{ github.run_number }}
       run: |
-        base=$(grep -E '^version:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' build-jf12.yaml \
+        base=$(grep -E '^version:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' build.yaml \
           | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
         if [ -z "$base" ]; then
-          echo "::error::Could not read a three-part version from build-jf12.yaml"; exit 1
+          echo "::error::Could not read a three-part version from build.yaml"; exit 1
         fi
         echo "base=${base}" >> "$GITHUB_OUTPUT"
         echo "beta=${base}.${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-    - name: Use the JF12 build metadata
-      # JPRM reads build.yaml; swap in the JF12 metadata (version 5.0, targetAbi 12.0.0.0, framework
-      # net10.0, net10 artifacts) for this build only. The committed build.yaml is untouched on disk in
-      # the repo - this only rewrites the runner's checkout.
-      run: cp build-jf12.yaml build.yaml
     - name: Set the JF12 beta version in build.yaml
       uses: fjogeleit/yaml-update-action@dffe9a5223d84653c13374032382f6bb5de8e5ef # v0.17.0
       with:
@@ -240,12 +222,12 @@ jobs:
         # The committed OpenVEX document joins the SBOM in the staging dir - see the same
         # note in publish-beta.yml (#1092/#1093).
         cp security/vex/openvex.json _dist/openvex.json
-        # The EFFECTIVE build.yaml joins them, and it is the JF12 metadata with this run's version in
-        # it rather than the committed JF10.11 file (#1736). The release used to take it straight from
-        # the working tree, which only worked while one job built and published; `publish` starts from
-        # a fresh checkout, where build.yaml is the committed JF10.11 one again. Carrying it in the
-        # staging dir means the bytes the release ships are the bytes JPRM built against, and the
-        # asset keeps its name because the release globs `_dist/*` by basename.
+        # The EFFECTIVE build.yaml joins them, with this run's version in it rather than the committed
+        # one (#1736). The release used to take it straight from the working tree, which only worked
+        # while one job built and published; `publish` starts from a fresh checkout, where build.yaml
+        # carries the committed version again. Carrying it in the staging dir means the bytes the
+        # release ships are the bytes JPRM built against, and the asset keeps its name because the
+        # release globs `_dist/*` by basename.
         cp build.yaml _dist/build.yaml
         pushd _dist
         # ONLY the plugin zip gets a `.md5` - see the same note in publish-beta.yml. The
@@ -299,8 +281,7 @@ jobs:
     # THE CHECKOUT COMES FIRST AND THE ORDER IS LOAD-BEARING. actions/checkout cleans the workspace, so
     # a checkout after the download would delete the package it is about to release. The tree is here
     # only so the two local actions below resolve; nothing else in this job reads it, and build.yaml in
-    # it is the committed JF10.11 file rather than the one being shipped - the shipped one is inside
-    # the artifact.
+    # it carries the committed version rather than this run's - the shipped one is inside the artifact.
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
@@ -360,7 +341,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           # One pattern now: build.yaml is staged into _dist by the package job and arrives inside the
           # artifact, so the release ships the same asset set under the same names. Listing the working
-          # tree's build.yaml here would ship the committed JF10.11 metadata instead of the JF12 one.
+          # tree's build.yaml here would ship the committed version instead of this run's.
           files: |
             _dist/*
           body: |
@@ -380,12 +361,11 @@ jobs:
         REPO: ${{ github.repository }}
       run: gh api "repos/${REPO}/releases/${RELEASE_ID}" -X PATCH -F draft=false
     - name: Publish Beta Plugin Manifest
-      # ignorePrereleases: false so the beta is included. Regenerates the SHARED manifest-beta from ALL
-      # prerelease releases - both this JF12 build (5.0.0.<run>, targetAbi 12.0.0.0) and the JF10.11
-      # betas published from main (4.x.<run>, targetAbi 10.11.0.0). Each release ships its own build.yaml,
-      # so every version lands in the manifest with its correct targetAbi, and a Jellyfin server installs
-      # only the build matching its generation. publish-beta.yml (on main) regenerates the same branch, so
-      # whichever generation publishes last leaves manifest-beta complete for both.
+      # ignorePrereleases: false so the beta is included. Regenerates manifest-beta from ALL prerelease
+      # releases - this build (targetAbi 12.0.0.0) and the 4.3 betas that remain on the channel (the last
+      # 10.11 builds, targetAbi 10.11.0.0). Each release ships its own build.yaml, so every version lands
+      # in the manifest with its correct targetAbi, and a Jellyfin server installs only the build matching
+      # its generation - which is what keeps a 10.11 server on 4.3 from the same URL.
       uses: ./.github/actions/generate-manifest
       with:
         plugin-metadata: _dist/*.zip.meta.json
@@ -404,4 +384,7 @@ jobs:
         manifest-branch: manifest-beta
         github-token: ${{ github.token }}
         expect-version: ${{ needs.package.outputs.beta }}
+        # 10.11.0.0 stays required although nothing here builds for it: the 4.3 betas are the last
+        # builds a 10.11 server can install, and a regeneration that lost them would empty that
+        # generation's repository (#943, #1770).
         require-abis: "10.11.0.0 12.0.0.0"

@@ -93,13 +93,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # Both SDKs the multi-target build needs: net9.0 (Jellyfin 10.11 line)
-          # and net10.0 (Jellyfin 12.0 line). Stryker mutates the net9.0 leg
-          # (target-framework in stryker-config.json), but the tests reference
-          # both, so install both explicitly.
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          # One SDK: every project targets net10.0 since #1770, and Stryker
+          # mutates that target (target-framework in stryker-config.json).
+          dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
 

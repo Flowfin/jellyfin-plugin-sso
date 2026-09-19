@@ -1,13 +1,18 @@
 name: "Community SSO for Jellyfin"
 guid: "505ce9d1-d916-42fa-86ca-673ef241d7df"
 imageUrl: "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png"
+# The next release target of this line. The beta workflow overrides it to X.Y.Z.<run> at build time,
+# and a X.Y.Z-JF12-stable tag releases X.Y.Z; bump it per change class.
 version: "5.1.0"
-# The oldest Jellyfin server this plugin claims to load on. The shipping build compiles against a
-# newer 10.11.x SDK, so the CI `abi-floor` job also builds against this floor to prove every Jellyfin
-# API the plugin calls exists here - otherwise a newer member would throw MissingMethodException at
-# login on an older 10.11 server (#142). Raise this only to a floor that job still builds clean on.
-targetAbi: "10.11.0.0"
-framework: "net9.0"
+# The oldest Jellyfin server this plugin claims to load on. Jellyfin 12.0 moved the server to .NET 10,
+# so a 10.11-ABI plugin does not load there and this is the 12 line's floor. The shipping build compiles
+# against this same version today, so the CI `abi-floor` job proves nothing beyond the build job until
+# that pin moves above the floor; it stays so that the day the pin moves, every Jellyfin API the plugin
+# calls is still proven to exist here (#142). Raise this only to a floor that job still builds clean on.
+# One metadata file since #1770: the 10.11 line ended with 4.3.0-stable, whose own build.yaml ships with
+# that release, and build-jf12.yaml, which carried this generation's metadata beside it, is gone.
+targetAbi: "12.0.0.0"
+framework: "net10.0"
 owner: "Flowfin"
 overview: "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers."
 description: |
@@ -21,32 +26,25 @@ description: |
   A security-first continuation of the archived 9p4/jellyfin-plugin-sso.
   Documentation and provider setup guides: https://github.com/Flowfin/jellyfin-plugin-sso
 category: "Authentication"
+# The net10.0 shipping closure, empirically from `dotnet publish -c Release` (#135). On .NET 10 the SAML
+# crypto assemblies (System.Security.Cryptography.Xml / .Pkcs, System.Formats.Asn1) and
+# Microsoft.Bcl.Memory are framework-provided, so `dotnet publish` does NOT copy them and they must NOT
+# ship (shipping a host-provided assembly at a mismatched version is the #590 class of failure). The
+# id_token/JWT validator closure (#134) and Microsoft.Bcl.Cryptography are not in the .NET 10 ASP.NET
+# shared framework, so they travel in the zip. Keep in sync with `dotnet publish -c Release` on every
+# dependency change; ArchitectureConformanceTests.BuildYamlArtifacts_EqualTheTfmPublishClosure refuses a
+# list that drifts from the closure.
 artifacts:
   - "SSO-Auth.dll"
   - "Duende.IdentityModel.OidcClient.dll"
   - "Duende.IdentityModel.dll"
-  # id_token validation (#134): the runtime closure of the JWT validator that the
-  # Jellyfin host does not provide. Jellyfin 10.11 ships no Microsoft.IdentityModel.*
-  # and no Microsoft.Bcl.Cryptography, so these must travel in the plugin zip or every
-  # OIDC login fails with FileNotFoundException. (Only non-host-provided deps are listed
-  # here; Newtonsoft.Json, Jellyfin.*, MediaBrowser.* etc. come from the host.)
   - "Microsoft.IdentityModel.JsonWebTokens.dll"
   - "Microsoft.IdentityModel.Tokens.dll"
   - "Microsoft.IdentityModel.Logging.dll"
   - "Microsoft.IdentityModel.Abstractions.dll"
   - "Microsoft.Bcl.Cryptography.dll"
-  # SAML XML-signature validation (#181): the runtime closure of the direct
-  # System.Security.Cryptography.Xml reference - Pkcs, then Asn1 (its other dependency,
-  # Microsoft.Bcl.Cryptography, is already listed above for OIDC). None of these are in
-  # the ASP.NET Core shared framework Jellyfin 10.11 (.NET 9) runs on, so without them
-  # the packaged plugin throws FileNotFoundException the moment SignedXml runs - every
-  # packaged SAML login fails, even though local build/dotnet test are green (they run
-  # against the full publish output). Keep in sync with `dotnet publish -c Release` on
-  # every dependency change.
-  - "System.Security.Cryptography.Xml.dll"
-  - "System.Security.Cryptography.Pkcs.dll"
-  - "System.Formats.Asn1.dll"
 changelog: |
+  5.0.0: Jellyfin 12.0 (.NET 10) line. First build targeting the Jellyfin 12.0 server generation - net10.0, OidcClient 7.x, targetAbi 12.0.0.0. Same feature set and login hardening as the 4.x (Jellyfin 10.11) line, retargeted for the .NET 10 host so SSO login keeps working after a 12.0 upgrade.
   4.2.1.0: Bug fix. The admin-or-self authorization check (AssertCanUpdateUser) now returns an explicit deny on a null or ambiguous authorization context instead of failing closed via an unhandled NullReferenceException that could surface as a 500 (#626). No change to normal authenticated requests.
   4.2.0.0: Feature release (BREAKING). SAML/Auth now accepts ONLY the one-time login-outcome token introduced in #251; the deprecation window that also accepted a raw pre-#251 assertion POSTed straight to SAML/Auth is removed (#528). A scripted client that posts a raw assertion, bypassing the rendered token page, is now rejected fail-closed. The normal browser login and linking flows are unaffected.
   4.1.1.0: Bug fix. Restore plugin loading on Jellyfin 10.11 (.NET 9). 4.1.0.0 pulled Duende.IdentityModel.OidcClient 7.x, whose assemblies reference the .NET 10 Microsoft.Extensions.Logging.Abstractions (10.0.0.0) that the host does not provide and the plugin does not ship, so it threw FileNotFoundException at construction and was disabled at startup. Pin OidcClient to the 6.x line (net9 ABI) and add a conformance test that no host-provided assembly is referenced above the .NET 9 floor. No configuration changes.

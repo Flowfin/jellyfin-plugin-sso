@@ -82,8 +82,8 @@ jobs:
     env:
       # The managed harness executable libFuzzer drives, and the plugin assembly
       # SharpFuzz instruments in place (loaded by the harness from the same dir).
-      FUZZ_DLL: SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll
-      PLUGIN_DLL: SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.dll
+      FUZZ_DLL: SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll
+      PLUGIN_DLL: SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.dll
       # libfuzzer-dotnet is the native shim (built with clang -fsanitize=fuzzer)
       # that hosts the CLR and bridges Fuzzer.LibFuzzer.Run to libFuzzer. Pinned
       # to an immutable commit so the compiled-from-source shim is reproducible.
@@ -99,12 +99,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # The harness targets net9.0; the referenced multi-target plugin also
-          # has a net10.0 leg, so install both SDKs (as the .NET build job does)
-          # to keep the locked-mode restore of the reference graph deterministic.
-          dotnet-version: |
-            9.0.x
-            10.0.x
+          # The harness and the plugin it references both target net10.0, the
+          # one target since #1770, so one SDK restores the locked graph.
+          dotnet-version: 10.0.x
 
       - name: Restore harness (locked)
         # --locked-mode fails if the committed packages.lock.json would change, so

@@ -34,13 +34,13 @@ inputs:
       discovery has no deterministic answer: the releases API guarantees no
       ordering useful here, so "whichever release the API listed first" can hand
       the catalogue a years-old identity mid-rename. Taking it from the
-      publishing leg is deterministic per run - and because the manifest branch
-      is SHARED between the two Jellyfin generations and holds exactly ONE
-      plugin object, the plugin-level prose in build.yaml and build-jf12.yaml
-      must be kept word-identical (enforced by a comment at both sites), or the
-      catalogue entry alternates between the legs' texts on each publish. It is
-      also what lets the stable channel regenerate at all: no existing stable
-      release ships this file.
+      publishing leg is deterministic per run. The manifest branch is SHARED
+      between the two Jellyfin generations and holds exactly ONE plugin object,
+      so while two metadata files existed their plugin-level prose had to stay
+      word-identical or the catalogue entry alternated between them on each
+      publish; since #1770 build.yaml is the one file and the 4.3 releases
+      carry their own copy. It is also what lets the stable channel regenerate
+      at all: no existing stable release ships this file.
 
       Beyond identity, the version and targetAbi in this file pin the one
       guarantee the action gives: the run fails unless the build THIS run

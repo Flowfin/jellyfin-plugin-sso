@@ -10,7 +10,7 @@
 <img alt="GPL 3.0 License" src="https://img.shields.io/github/license/Flowfin/jellyfin-plugin-sso.svg"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
-<img alt="Latest release for Jellyfin 10.11" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=4.*&label=release%20(Jellyfin%2010.11)"/>
+<img alt="Last release for Jellyfin 10.11" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=4.*&label=last%20release%20(Jellyfin%2010.11)"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
 <img alt="Latest release for Jellyfin 12" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=5.*&label=release%20(Jellyfin%2012)"/>
@@ -35,7 +35,7 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 
 > ### 🔁 Revival
 >
-> This is a security-first revival of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), which its original author has since archived. It continues from the last upstream release (**4.0.0.x**) and now supports **both Jellyfin 10.11 (.NET 9) and Jellyfin 12.0 (.NET 10)** - one repository URL serves the matching build to each. Huge thanks to the original author and contributors for the foundation.
+> This is a security-first revival of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), which its original author has since archived. It continues from the last upstream release (**4.0.0.x**). **The supported line is 5.x for Jellyfin 12 (.NET 10); 4.3.0 was the last build for Jellyfin 10.11 (.NET 9) and receives no further changes**, and one repository URL still serves each server the build that runs on it. Huge thanks to the original author and contributors for the foundation.
 >
 > ### 🤝 AI-assisted, human-owned
 >
@@ -62,7 +62,7 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 
 > **This is an independent plugin repository** - it is not in Jellyfin's built-in catalog. You install it by adding **its** repository under **Plugins → Repositories**.
 
-1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add this repository URL (one URL serves both Jellyfin 10.11 and 12.0 - your server installs the matching build automatically):
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add this repository URL (one URL serves both generations - a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.0):
 
    ```
    https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json
@@ -99,7 +99,7 @@ Found a vulnerability? Please report it **privately** via GitHub's ["Report a vu
 
 ## Contributing
 
-Issues and pull requests are welcome. The plugin targets **.NET 9 / Jellyfin 10.11** and **.NET 10 / Jellyfin 12**. Build with `dotnet build` / `dotnet publish` and run the tests with `dotnet test` (the runner needs the .NET 10 SDK). CI builds and tests every change, and the login path goes through an adversarial review. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
+Issues and pull requests are welcome. The plugin targets **.NET 10 / Jellyfin 12**, and the .NET 10 SDK is all a build needs. Build with `dotnet build` / `dotnet publish` and run the tests with `dotnet test`. CI builds and tests every change, and the login path goes through an adversarial review. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ## Credits
 

@@ -1,4 +1,4 @@
-# End-to-end SSO login harness - Authelia provider (#921). Boots a real Jellyfin 10.11 server with the
+# End-to-end SSO login harness - Authelia provider (#921). Boots a real Jellyfin 12 server with the
 # packaged plugin installed, a real Authelia OpenID Provider, and the SHARED harness driving a full OIDC
 # login round-trip. It reuses ../harness/harness.sh and the ../jellyfin/config plugin drop from the
 # canonical Keycloak harness (#720); only the IdP container, its file config, and the harness's provider
@@ -34,10 +34,10 @@ services:
 
   jellyfin:
     # Same server the Keycloak harness pins (see ../docker-compose.yml for the version-bind rationale).
-    # The tag is the JF10.11 server by default and is overridden to a 12.0 server when the harness
-    # runs the JF12 generation (#1466). The default keeps a bare `docker compose up` on this file
-    # exactly as it was, so a local run needs no new variable.
-    image: jellyfin/jellyfin:${JELLYFIN_IMAGE_TAG:-10.11.11}
+    # The tag is the version the plugin compiles against (SSO-Auth.csproj pins 12.0.0 for net10.0),
+    # because .NET will not bind an assembly reference down and an older server refuses to load the
+    # plugin. Overridable for a later 12.x server; a bare `docker compose up` boots the pinned one.
+    image: jellyfin/jellyfin:${JELLYFIN_IMAGE_TAG:-12.0}
     # APPEND Authelia's self-signed cert to the system CA bundle (never replace it) before Jellyfin starts,
     # so the plugin's .NET/OpenSSL TLS trusts Authelia while every real system CA still validates. Replacing
     # the bundle (e.g. SSL_CERT_FILE pointing at the lone cert) breaks .NET's startup TLS instead.

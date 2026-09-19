@@ -68,15 +68,11 @@ public partial class ArchitectureConformanceTests
         // `dotnet test` green (both run against the full publish output, which carries the newer DLL) yet
         // throws FileNotFoundException the moment the host DI constructs the plugin against its own,
         // lower-versioned assembly - disabling it. That is exactly how OidcClient 7.x (which references
-        // Logging.Abstractions 10.0.0.0) broke 4.1.0.0 on the .NET 9 host. The floor is the target's host
-        // .NET major: 9 for net9.0 (Jellyfin 10.11), 10 for net10.0 (Jellyfin 12.0). When a net11 target
-        // is added, turn this into an #elif chain (NET11_0_OR_GREATER → 11) - NET10_0_OR_GREATER is also
-        // true on net11, so leaving it would pin the floor to 10 and spuriously fail the net11 build.
-#if NET10_0_OR_GREATER
+        // Logging.Abstractions 10.0.0.0) broke 4.1.0.0 on the .NET 9 host. The floor is the host's .NET
+        // major: 10 for net10.0 (Jellyfin 12.0), the one target since #1770. When a later target is
+        // added beside it, the floor becomes conditional on the target again (NET11_0_OR_GREATER → 11),
+        // because a single constant would pin the floor to 10 and spuriously fail the newer build.
         const int hostAbiMajor = 10;
-#else
-        const int hostAbiMajor = 9;
-#endif
         var references = typeof(SSOPlugin).Assembly.GetReferencedAssemblies();
 
         var overshoot = references
@@ -117,16 +113,11 @@ public partial class ArchitectureConformanceTests
         // byte-for-byte equal to the publish output when #608 was written). Subtracting the remaining
         // HOST-PROVIDED families Jellyfin itself ships - Jellyfin/Emby/MediaBrowser and the EF Core, Polly and
         // Unicode/text stacks they drag in, plus Microsoft.Extensions.* and Newtonsoft.Json - leaves precisely the
-        // set that must travel in the plugin zip. Per target, mirroring the ABI-floor test's #if: net9.0 ->
-        // build.yaml (Jellyfin 10.11, 11 DLLs), net10.0 -> build-jf12.yaml (Jellyfin 12.0, 8 DLLs - where the SAML
-        // crypto assemblies are framework-provided on .NET 10 and correctly absent from both closure and list).
-#if NET10_0_OR_GREATER
+        // set that must travel in the plugin zip: net10.0 -> build.yaml (Jellyfin 12.0, 8 DLLs - the SAML
+        // crypto assemblies are framework-provided on .NET 10 and correctly absent from both closure and
+        // list). Until #1770 this was per target, with the net9.0 leg reading an 11-DLL list of its own.
         const string targetFramework = "net10.0";
-        const string buildYaml = "build-jf12.yaml";
-#else
-        const string targetFramework = "net9.0";
         const string buildYaml = "build.yaml";
-#endif
 #if DEBUG
         const string configuration = "Debug";
 #else
@@ -459,7 +450,7 @@ public partial class ArchitectureConformanceTests
 
     // The `.dll` names under the build yaml's `artifacts:` list. Minimal hand-parse (the test project takes no YAML
     // dependency): once at the `artifacts:` key, collect the `- "X.dll"` list items, skip the interleaved comments,
-    // and stop at the next top-level key. build.yaml / build-jf12.yaml keep exactly one quoted dll per list item.
+    // and stop at the next top-level key. build.yaml keeps exactly one quoted dll per list item.
     private static HashSet<string> ParseBuildYamlArtifacts(string yamlPath)
     {
         var artifacts = new HashSet<string>(StringComparer.Ordinal);

@@ -12,9 +12,9 @@
     ClusterFuzzLite-vs-SharpFuzz evaluation, the feasibility finding, and how to run it.
   -->
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
-    <!-- Run on a newer major runtime when the exact 9.0 pack is absent (the test project does the same),
-         so the harness launches on a box/CI image that only ships the .NET 10 runtime. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Run on a newer major runtime when the exact 10.0 pack is absent (the test project does the same),
+         so the harness launches on a box/CI image that only ships a later runtime. -->
     <RollForward>Major</RollForward>
     <RootNamespace>Jellyfin.Plugin.SSO_Auth.Fuzz</RootNamespace>
     <AssemblyName>SSO-Auth.Fuzz</AssemblyName>

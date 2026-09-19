@@ -35,12 +35,10 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        # Both SDKs the multi-target build needs (#135): net9.0 for the Jellyfin 10.11 line, net10.0 for
-        # the Jellyfin 12.0 line. `dotnet build`/`test` (no -f) build and test every TargetFramework, so
-        # install both explicitly rather than relying on whatever the runner image happens to ship.
-        dotnet-version: |
-          9.0.x
-          10.0.x
+        # The one SDK the build needs: net10.0 for the Jellyfin 12 line, installed explicitly rather than
+        # relying on whatever the runner image happens to ship. The 9.0.x line stood beside it for the
+        # Jellyfin 10.11 leg until #1770 retired that target.
+        dotnet-version: 10.0.x
         # Cache the NuGet global-packages folder keyed on the committed lockfiles,
         # so a clean --locked-mode restore is a cache hit.
         cache: true
@@ -289,7 +287,7 @@ jobs:
           fi
           echo "Replaying ${seeds} seed(s) through target '${target}'."
           SSO_FUZZ_SMOKE=1 SSO_FUZZ_TARGET="${target}" \
-            dotnet SSO-Auth.Fuzz/bin/Release/net9.0/SSO-Auth.Fuzz.dll "${dir}"
+            dotnet SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll "${dir}"
           targets=$((targets + 1))
         done
         if [ "$targets" -eq 0 ]; then
@@ -336,9 +334,13 @@ jobs:
         path: TestResults/coverage.cobertura.xml
 
   # Verify the plugin's used Jellyfin API surface actually exists on the OLDEST server it claims to
-  # support (build.yaml targetAbi), not only in the newer SDK the shipping build compiles against. A
-  # member added after the floor would compile against the SDK but throw MissingMethodException at
-  # login on an older 10.11 server (#142). Builds SSO-Auth against Jellyfin.* pinned to that floor.
+  # support (build.yaml targetAbi), not only in the SDK the shipping build compiles against. A member
+  # added after the floor would compile against the SDK but throw MissingMethodException at login on an
+  # older server (#142). Builds SSO-Auth against Jellyfin.* pinned to that floor. TODAY THE FLOOR IS
+  # THE PIN: build.yaml's targetAbi is 12.0.0.0 and SSO-Auth.csproj compiles against 12.0.0, so this job
+  # proves the same thing as the build job until the pin moves above the floor (#1770). It stays,
+  # because the day the pin moves is the day it bites, and its job name is a required status context
+  # on the branch ruleset.
   abi-floor:
     name: ABI floor build
     runs-on: ubuntu-latest
@@ -350,7 +352,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
     - name: Derive the targetAbi floor
       id: floor
       run: |
@@ -358,18 +360,12 @@ jobs:
         echo "version=$floor" >> "$GITHUB_OUTPUT"
         echo "Building against Jellyfin $floor (the declared targetAbi floor)."
     - name: Build against the ABI floor
-      # A deliberately different Jellyfin version than the shipping build, so locked-mode is off here;
-      # --warnaserror turns any missing or changed API on the floor into a hard failure.
-      #
-      # Pinned to -f net9.0: build.yaml's targetAbi (10.11.0.0) is the .NET 9 / Jellyfin 10.11 line's
-      # floor, so this check is a net9-line concept. Without -f, `dotnet build` on the multi-target
-      # csproj would also build the net10.0 leg against Jellyfin 10.11.0.0 - which proves nothing about
-      # the net10/JF12 floor AND needs a net10 SDK this job does not install (#135 review). The net10 leg
-      # is fully built + tested by the primary `build` job; its own JF12 ABI floor lands with the JF12
-      # publish pipeline.
+      # A Jellyfin version that may differ from the shipping build's, so locked-mode is off here;
+      # --warnaserror turns any missing or changed API on the floor into a hard failure. One target
+      # since #1770, so no -f: `dotnet build` builds net10.0 and nothing else.
       env:
         FLOOR: ${{ steps.floor.outputs.version }}
-      run: dotnet build SSO-Auth/SSO-Auth.csproj -f net9.0 -c Release --warnaserror -p:JellyfinVersion="$FLOOR" -p:RestoreLockedMode=false
+      run: dotnet build SSO-Auth/SSO-Auth.csproj -c Release --warnaserror -p:JellyfinVersion="$FLOOR" -p:RestoreLockedMode=false
 
   # Verify the plugin actually packages as a loadable Jellyfin plugin (JPRM builds it against the
   # targeted ABI and produces the manifest) on every PR, not only at release time.
@@ -386,5 +382,5 @@ jobs:
       attestations: write
     uses: ./.github/workflows/build.yml
     with:
-      dotnet-version: "9.0.x"
-      dotnet-target: "net9.0"
+      dotnet-version: "10.0.x"
+      dotnet-target: "net10.0"
