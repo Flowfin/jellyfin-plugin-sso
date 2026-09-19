@@ -7,11 +7,13 @@ using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
+using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
 
@@ -204,17 +206,82 @@ public class SSOControllerLogoutTicketTests
     }
 
     [Fact]
-    public async Task ACallerWithNoSessionToken_GetsNoTicket()
+    public async Task ACallerWithNoSessionToken_IsRefusedRatherThanAskedToComeBack()
     {
         // A ticket carries the session it was minted from, so a caller the mint cannot bind one to must get
-        // nothing rather than a ticket that would end nothing. 503 and not 500: the condition is temporary
-        // from the caller's side and their own sign-out still works.
+        // nothing rather than a ticket that would end nothing.
+        //
+        // 401 AND NOT 503, WHICH IS WHAT THIS ROW ASSERTED UNTIL #1796. 503 is the status that tells a
+        // client to come back, and an access token that is empty now is empty on the retry as well: the one
+        // caller who could never succeed was the one being told to keep asking, at an endpoint that is
+        // deliberately unthrottled, so each ask costs a configuration read and a store sweep. The status
+        // matches the one the gate above this already answers for the neighbouring session shapes.
         var harness = ForCaller(token: null, userId: Caller);
 
-        var result = await harness.Controller.OidLogoutTicket("kc");
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogoutTicket("kc"));
+    }
 
-        var refusal = Assert.IsType<ObjectResult>(result);
+    [Fact]
+    public async Task ARequestNamingNoProvider_IsRefusedRatherThanAskedToComeBack()
+    {
+        // A ticket is spendable only at the provider it names, so a request naming none is asking for one
+        // that could be spent nowhere, and no amount of waiting supplies a name. The route template matches
+        // no empty segment, so this shape reaches the action from a caller inside the process rather than
+        // off the wire - which is why the arm is here at all instead of being left to the routing table.
+        var harness = ForCaller(CallerToken, Caller);
+
+        Assert.IsType<BadRequestResult>(await harness.Controller.OidLogoutTicket(string.Empty));
+    }
+
+    [Fact]
+    public async Task ACallerHoldingItsWholeShare_IsAskedToComeBack()
+    {
+        // The one class a retry can clear, and the only one 503 is the true answer for: this account is
+        // refused now and is issued a ticket again as soon as one of its own expires. The share is filled
+        // through the endpoint rather than through the store's seed, so what the row covers is the route's
+        // own mapping and not a state a test arranged behind it.
+        var harness = ForCaller(CallerToken, Caller);
+        var share = PerClientBudgetLimiter.FromGlobalCap(LogoutTicketStore.DefaultMaxEntries).PerKeyCap;
+
+        for (var i = 0; i < share; i++)
+        {
+            MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        }
+
+        var refusal = Assert.IsType<ObjectResult>(await harness.Controller.OidLogoutTicket("kc"));
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);
+
+        // The 503 keeps a body, because a caller who should come back is the one caller with something to
+        // read. The literal is the controller's and is not repeated here, which would be one more copy to
+        // drift; what the row holds is that the arm still carries one.
+        Assert.False(string.IsNullOrWhiteSpace(Assert.IsType<string>(refusal.Value)));
+    }
+
+    [Fact]
+    public void TheMint_SaysWhichClassOfAnswerItGave()
+    {
+        // The classes at the service that decides them, because the route collapses two of them onto one
+        // status and a row read through the route alone cannot tell those two apart. Without this the
+        // outcome could fold back into a single value and every status row above would still pass.
+        // The capacity class is not here: reaching it takes a filled share, which the row above does
+        // through the endpoint.
+        LogoutTicketService.ResetForTests();
+        var service = new LogoutTicketService(NullLogger.Instance);
+        var now = DateTime.UtcNow;
+
+        Assert.Null(service.Mint(Guid.Empty, "kc", CallerToken, now, out var noCaller));
+        Assert.Equal(MintOutcome.NoCaller, noCaller);
+
+        Assert.Null(service.Mint(Caller, "kc", null, now, out var noSession));
+        Assert.Equal(MintOutcome.NoSession, noSession);
+
+        Assert.Null(service.Mint(Caller, string.Empty, CallerToken, now, out var noProvider));
+        Assert.Equal(MintOutcome.NoProvider, noProvider);
+
+        // The positive control: the same service, asked properly, still issues one. Without it every
+        // assertion above is satisfied by a mint that refuses everything.
+        Assert.NotNull(service.Mint(Caller, "kc", CallerToken, now, out var issued));
+        Assert.Equal(MintOutcome.Issued, issued);
     }
 
     [Fact]

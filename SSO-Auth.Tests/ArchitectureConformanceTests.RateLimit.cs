@@ -17,6 +17,7 @@ using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
+using Jellyfin.Plugin.SSO_Auth.Api.Logout;
 using Jellyfin.Plugin.SSO_Auth.Api.Net;
 using Jellyfin.Plugin.SSO_Auth.Api.Provider;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
@@ -100,6 +101,18 @@ public partial class ArchitectureConformanceTests
         // and each ask is still served, so the sub-cap protects the store and NOT this endpoint's cost.
         // Nothing bounds that cost today, and that is a decision recorded here rather than a protection
         // claimed.
+        //
+        // WHAT THE OCCUPANCY BOUND ACTUALLY BUYS, IN ITS OWN NUMBERS (#1796), because an exemption argued
+        // from a bound should say how large the bound is. The global ceiling is
+        // LogoutTicketStore.DefaultMaxEntries and one account's share is a
+        // PerClientBudgetLimiter.ShareDivisor-th of it, so it takes that many accounts holding a full share
+        // to fill the store, and while it is full every other account's mint is refused and their sign-out
+        // degrades to the local one, which leaves the provider session alive. A ticket lives for
+        // LogoutTicketStore.DefaultLifetime and the sweep that frees its slot runs at most once per
+        // LogoutTicketStore.DefaultPruneInterval, so a slot comes back within the sum of the two - as long
+        // as some request arrives to drive the sweep, because it is driven by a mint or a redeem and by no
+        // timer. The row TheLogoutTicketExemption_ArithmeticIsWhatTheConstantsSay re-derives every figure
+        // named here, so a constant that moves reddens this paragraph instead of outliving it.
         "OID/logout-ticket/{provider}",
         "OID/Add/{provider}", "SAML/Add/{provider}", "OID/Del/{provider}", "SAML/Del/{provider}", // elevated config CRUD
         "OID/Get", "SAML/Get", "OID/GetNames", "SAML/GetNames", "OID/States", // read-only listings
@@ -247,6 +260,43 @@ public partial class ArchitectureConformanceTests
         Assert.True(
             missing.Count == 0,
             "These endpoints must call RateLimitCheck(SsoRateLimitClass.…) and do not: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void TheLogoutTicketExemption_ArithmeticIsWhatTheConstantsSay()
+    {
+        // The logout-ticket exemption above argues from the ticket store's occupancy bound and says how
+        // large that bound is (#1796). A paragraph that states an arithmetic relation goes stale the moment
+        // one of its constants moves, and nothing reads prose, so the relations are re-derived here from the
+        // shipped values instead of being trusted beside them.
+        var perAccount = PerClientBudgetLimiter.FromGlobalCap(LogoutTicketStore.DefaultMaxEntries).PerKeyCap;
+
+        // "It takes ShareDivisor accounts holding a full share to fill the store" holds exactly while the
+        // global cap divides evenly by the share divisor. A cap that stopped dividing would leave the
+        // sentence out by the remainder, and the floor in FromGlobalCap would hide it.
+        Assert.Equal(0, LogoutTicketStore.DefaultMaxEntries % PerClientBudgetLimiter.ShareDivisor);
+        Assert.Equal(LogoutTicketStore.DefaultMaxEntries, perAccount * PerClientBudgetLimiter.ShareDivisor);
+
+        // And the store the exemption is about is the one that arithmetic describes. The two fields are read
+        // rather than exposed: a production accessor added for a test would widen the surface this rule is
+        // meant to hold still. A default constructor rewired to some other sub-cap or lifetime would leave
+        // the paragraph naming constants nothing uses.
+        var store = new LogoutTicketStore();
+        var perUser = (PerClientBudgetLimiter)FieldOf(store, "_perUser");
+        Assert.Equal(perAccount, perUser.PerKeyCap);
+        Assert.Equal(LogoutTicketStore.DefaultLifetime, (TimeSpan)FieldOf(store, "_lifetime"));
+    }
+
+    // One private instance field, by name, so the row above can read what the production constructor wired
+    // without the store growing an accessor for it. A renamed or removed field fails here with the name in
+    // the message rather than as a null reference somewhere downstream.
+    private static object FieldOf(LogoutTicketStore store, string name)
+    {
+        var field = typeof(LogoutTicketStore).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.True(field is not null, $"LogoutTicketStore.{name} was renamed or removed; the logout-ticket exemption's arithmetic is checked through it (#1796).");
+        var value = field!.GetValue(store);
+        Assert.True(value is not null, $"LogoutTicketStore.{name} is null on a store built by the production constructor (#1796).");
+        return value!;
     }
 
     [Fact]

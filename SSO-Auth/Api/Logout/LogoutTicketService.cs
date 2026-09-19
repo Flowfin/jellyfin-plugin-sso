@@ -36,20 +36,47 @@ internal sealed class LogoutTicketService
     }
 
     /// <summary>
-    /// Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot.
+    /// Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot,
+    /// saying in <paramref name="outcome"/> which class of answer that was.
     /// </summary>
+    /// <remarks>
+    /// THE CLASS IS REPORTED BECAUSE THE FOUR REFUSALS ARE NOT ONE EVENT (#1796). Three of them are
+    /// permanent for the request that met them - a caller with no user, no access token or no provider name
+    /// retries into exactly the same refusal - and only the capacity bound clears on its own. The route
+    /// answered all four with the status that means "try again later", so the one caller who could never
+    /// succeed was the one being told to keep asking, at an endpoint that is deliberately unthrottled. The
+    /// policy stays here and the route maps the class onto a status.
+    /// </remarks>
     /// <param name="userId">The authenticated caller's user id. <see cref="Guid.Empty"/> is refused: it is what an unauthenticated request resolves to, and a ticket carrying it would name no user.</param>
     /// <param name="provider">The provider the ticket may be spent at, and at no other.</param>
     /// <param name="sessionToken">The caller's own access token, so the redeem ends that session. An empty token is refused rather than minting a ticket that could end nothing.</param>
     /// <param name="nowUtc">The current UTC time (supplied so the lifetime is deterministic in tests).</param>
+    /// <param name="outcome">Which class of answer this was; <see cref="MintOutcome.Issued"/> exactly when a token is returned.</param>
     /// <returns>The ticket token to hand the caller, or null when the mint was refused.</returns>
-    internal string? Mint(Guid userId, string provider, string? sessionToken, DateTime nowUtc)
+    internal string? Mint(Guid userId, string provider, string? sessionToken, DateTime nowUtc, out MintOutcome outcome)
     {
         // Fail closed on both halves of "the caller". Guid.Empty is what an unauthenticated request resolves
         // to, and an empty access token is a caller whose session the redeem could not end - a ticket for
         // either would be a ticket that authorises something nobody asked for.
-        if (userId == Guid.Empty || string.IsNullOrEmpty(sessionToken) || string.IsNullOrEmpty(provider))
+        //
+        // SEPARATED RATHER THAN COMBINED, because the answer differs. They are still all refusals and the
+        // order between them is not load-bearing: no caller can be short of two of the three and get a
+        // better status for it, since every arm here returns null.
+        if (userId == Guid.Empty)
         {
+            outcome = MintOutcome.NoCaller;
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(sessionToken))
+        {
+            outcome = MintOutcome.NoSession;
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(provider))
+        {
+            outcome = MintOutcome.NoProvider;
             return null;
         }
 
@@ -60,8 +87,15 @@ internal sealed class LogoutTicketService
         var ticket = new LogoutTicket(LogoutTicketStore.NewToken(), provider, userId, sessionToken, nowUtc);
         if (Tickets.TryAdd(ticket, out var refusal))
         {
+            outcome = MintOutcome.Issued;
             return ticket.Token;
         }
+
+        // BOTH capacity refusals are one class to the caller, and that is deliberate rather than a loss of
+        // detail. Which bound was met changes what an OPERATOR does, which is why the two log lines below
+        // stay apart; it changes nothing a caller can act on, and telling one signed-in account that the
+        // whole store is full would answer a question about every other account's occupancy.
+        outcome = MintOutcome.AtCapacity;
 
         // TWO SENTENCES, BECAUSE THE TWO REFUSALS ARE DIFFERENT EVENTS. One account holding its whole share
         // is routine and affects that account; a full store affects everybody and is the one an operator
