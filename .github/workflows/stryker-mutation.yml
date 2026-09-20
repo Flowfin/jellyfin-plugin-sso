@@ -44,12 +44,17 @@
 # test project, because Stryker's runner spoke VSTest only. That twin ran xunit
 # v3 out of process, so Stryker's per-test coverage capture failed on every run
 # ("It looks like the test coverage capture failed. Disable coverage based
-# optimisation.") and every mutant ran the whole suite: about 83 seconds per
-# mutant, 90 minutes for the 65 core mutants, and the 764 oidc and 945 saml
-# mutants never fit the limit. dotnet-stryker 5.0.0 added per-test coverage to
-# its MTP runner (`test-runner: mtp` in stryker-config.json), which drives
-# SSO-Auth.Tests as it is: measured on the same scope, 40 mutants ran in 25
-# seconds after a 100-second coverage capture over 4070 tests.
+# optimisation.") and every mutant ran the whole suite of 4070 tests. Measured
+# on the scheduled run of 2026-09-14: the 65 core mutants took 1h36m32s, which
+# is 89 seconds each, and at that rate the 764 oidc and 945 saml mutants of the
+# same run needed nineteen and twenty-three hours against a four-hour limit.
+# dotnet-stryker 5.0.0 added per-test coverage to its MTP runner
+# (`test-runner: mtp` in stryker-config.json), which drives SSO-Auth.Tests as it
+# is, so a mutant runs only the tests that cover it. Measured on the dispatch of
+# 2026-09-20: core 65 mutants in 12m16s, oidc 755 in 1h00m21s, saml 886 in
+# 1h10m32s, each after a per-test capture over the same 4070 tests. So a shard
+# is about an hour rather than about a day, which is what makes a budget
+# possible at all.
 #
 # Hardened per the repo workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
@@ -71,7 +76,7 @@ on:
   workflow_dispatch:
     inputs:
       timeout_minutes:
-        description: "Per-shard time limit in minutes; the scheduled run uses 90 and the job backstop is 150"
+        description: "Per-shard time limit in minutes; the scheduled run uses 120 and the job backstop is 180"
         required: false
         default: "90"
 
@@ -106,7 +111,7 @@ jobs:
     # concluding `cancelled`. A dispatch asking for more than this is a
     # deliberate measurement, and a cancellation there is the intentional human
     # act the watchdog reads it as.
-    timeout-minutes: 150
+    timeout-minutes: 180
     strategy:
       # One leg failing (e.g. a timeout) must not cancel the others' reports.
       fail-fast: false
@@ -156,12 +161,22 @@ jobs:
           # This leg's mutate scope (comma-separated globs). CLI -m REPLACES the
           # config's mutate list, so each leg mutates exactly its slice.
           MUTATE: ${{ matrix.scope.mutate }}
-          # The budget that bites. Sized against the measurement in the header:
-          # with per-test coverage a shard is minutes rather than hours, so a
-          # shard that passes this is a regression in the tests or in the runner
-          # and is meant to end red rather than be waited out. A dispatch may
-          # lower it, which is how the failure is shown without waiting.
-          SHARD_MINUTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.timeout_minutes || '90' }}
+          # The budget that bites. A shard that passes it is a regression in the
+          # tests or in the runner and is meant to end red rather than be waited
+          # out. A dispatch may lower it, which is how the failure is shown
+          # without waiting a shard out.
+          #
+          # SIZED ON THE SPREAD BETWEEN TWO RUNNERS AND NOT ON ONE READING. The
+          # longest shard is saml, and two dispatches of the same scope measured
+          # it at 50m21s and 70m32s - forty per cent apart on identical bytes,
+          # which is runner variance rather than anything in this repository. A
+          # budget of 90 left the slower of the two at 78 per cent of it, and a
+          # weekly guard that goes red on a slow runner is a guard that gets
+          # ignored, which is the same silence this issue is about arriving by
+          # the other door. 120 is roughly seventy per cent above the slower
+          # reading and still an order of magnitude under what the old VSTest
+          # path needed, so it catches a regression of that kind ten times over.
+          SHARD_MINUTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.timeout_minutes || '120' }}
         run: |
           IFS="," read -ra globs <<< "$MUTATE"
           args=()
