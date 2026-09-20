@@ -11,11 +11,10 @@
 #   detection. The standing bar stays "every security branch has a negative
 #   test"; mutation score measures whether we actually met it.
 #
-# NON-BLOCKING for the SCORE, loud for BREAKAGE (#899):
+# NON-BLOCKING for the SCORE, loud for BREAKAGE (#899, #1784):
 #   1. No `pull_request` trigger. This workflow never runs as a PR check, so it
 #      is not - and cannot silently become - a required status check on the
-#      protected branch. It runs on manual dispatch (and, when re-enabled,
-#      weekly).
+#      protected branch. It runs on manual dispatch and weekly.
 #   2. `thresholds.break` is 0 in stryker-config.json, so `dotnet stryker` never
 #      exits non-zero on a LOW SCORE. The score is reported, not enforced.
 #   3. An infrastructure failure, by contrast, MUST show red: the former
@@ -24,15 +23,38 @@
 #      migration's Stryker breakage stayed invisible until the #718 review
 #      predicted it and a dispatch confirmed it. A run with no report now fails
 #      visibly (fail-closed reporting; the run is still never a merge gate).
+#   4. A shard that ends CANCELLED is not a failure to GitHub, so for eight
+#      weeks two of three shards uploaded nothing and no alert saw it (#1784):
+#      the default-branch watchdog in publish-failure-alert.yml passes over a
+#      `cancelled` conclusion as an intentional human act, and this run has no
+#      pull request to hang a check on. SO THE SHARD BUDGET IS NOT A JOB-LEVEL
+#      `timeout-minutes`, AND THAT IS THE WHOLE POINT RATHER THAN A STYLE.
+#      GitHub concludes a RUN holding a cancelled job `cancelled` whatever else
+#      the run contains: measured on a dispatch with a one-minute limit, the
+#      `verdict` job below concluded `failure` and the run still concluded
+#      `cancelled`, which the watchdog reads as nothing to report. The budget
+#      therefore sits inside the Stryker step, where passing it is a non-zero
+#      exit, a FAILED job and a failed run. The job keeps a `timeout-minutes`
+#      well above that budget as a backstop against a hang before the step, and
+#      the `verdict` job stays for the shard that ends non-success some other
+#      way.
 #
-# RUNS AGAINST THE VSTEST TWIN (#899): dotnet-stryker (<= 4.16.0) drives its
-# runs through VSTest and cannot mutate the Microsoft.Testing.Platform-v2 test
-# project (stryker-mutator/stryker-net#3094; upstream's in-progress MTP runner
-# targets MTP v1 first). SSO-Auth.Tests.Stryker compiles the SAME test sources
-# as a classic VSTest container purely for this run - verified empirically:
-# a scoped mutation run kills mutants again (40/40 on RolePrivilegeMapper).
-# Delete the twin and point this back at SSO-Auth.Tests when Stryker ships
-# MTP v2 support.
+# RUNS THE REAL TEST PROJECT THROUGH THE MICROSOFT TESTING PLATFORM RUNNER
+# (#1784). Until dotnet-stryker 5.0.0 the run went through a VSTest twin of the
+# test project, because Stryker's runner spoke VSTest only. That twin ran xunit
+# v3 out of process, so Stryker's per-test coverage capture failed on every run
+# ("It looks like the test coverage capture failed. Disable coverage based
+# optimisation.") and every mutant ran the whole suite of 4070 tests. Measured
+# on the scheduled run of 2026-09-14: the 65 core mutants took 1h36m32s, which
+# is 89 seconds each, and at that rate the 764 oidc and 945 saml mutants of the
+# same run needed nineteen and twenty-three hours against a four-hour limit.
+# dotnet-stryker 5.0.0 added per-test coverage to its MTP runner
+# (`test-runner: mtp` in stryker-config.json), which drives SSO-Auth.Tests as it
+# is, so a mutant runs only the tests that cover it. Measured on the dispatch of
+# 2026-09-20: core 65 mutants in 12m16s, oidc 755 in 1h00m21s, saml 886 in
+# 1h10m32s, each after a per-test capture over the same 4070 tests. So a shard
+# is about an hour rather than about a day, which is what makes a budget
+# possible at all.
 #
 # Hardened per the repo workflow policy (see zizmor.yml): every action is
 # SHA-pinned with a version comment, checkout runs with persist-credentials:false,
@@ -47,8 +69,16 @@ on:
     # scheduled runs do not contend for a runner at the same minute. Re-enabled
     # with the VSTest twin (#899) after the MTP migration had paused it.
     - cron: "41 5 * * 1"
-  # Let me run it on demand from the Actions tab.
+  # Let me run it on demand from the Actions tab. The one input exists so the
+  # budget can be shown biting without waiting a shard out: a dispatch with a
+  # limit of one minute stops every shard over its budget and ends the run
+  # `failure`, which is the conclusion the default-branch watchdog reads (#1784).
   workflow_dispatch:
+    inputs:
+      timeout_minutes:
+        description: "Per-shard time limit in minutes; the scheduled run uses 120 and the job backstop is 180"
+        required: false
+        default: "90"
 
 # Read-only: this job only reads the code and uploads a run artifact. It never
 # writes to the repo, a release, or the security dashboard.
@@ -65,12 +95,23 @@ jobs:
   mutation:
     name: Mutation testing (${{ matrix.scope.name }})
     runs-on: ubuntu-latest
-    # Mutation testing re-runs the covered tests once per mutant. The full scoped
-    # core is ~1379 mutants - ~3.5h serial on a 2-core runner, which killed the
-    # first VSTest-twin run at the old 60-minute limit. The matrix splits the
-    # scope into three parallel legs (~1-1.5h each); the timeout is sized for the
-    # largest leg with headroom. Weekly + informational, so wall clock is cheap.
-    timeout-minutes: 240
+    # A BACKSTOP AND NOT THE BUDGET. What GitHub cancels at this limit concludes
+    # `cancelled`, and that conclusion is the one the watchdog passes over, so
+    # the limit that is meant to bite is the one in the Stryker step below. This
+    # one exists for a hang BEFORE that step starts - a restore or a tool
+    # install that never returns - where there is no step budget to catch
+    # anything.
+    #
+    # A CONSTANT RATHER THAN THE STEP BUDGET PLUS HEADROOM, because the
+    # expression that computed it does not parse: GitHub's expression syntax has
+    # no `+`, and the workflow was rejected with "Unexpected symbol: '+'" at this
+    # line. So the relation is stated instead of computed, and it is the one
+    # thing to keep true when either number moves: this has to stay above the
+    # step budget, or a shard reaches this limit first and the run goes back to
+    # concluding `cancelled`. A dispatch asking for more than this is a
+    # deliberate measurement, and a cancellation there is the intentional human
+    # act the watchdog reads it as.
+    timeout-minutes: 180
     strategy:
       # One leg failing (e.g. a timeout) must not cancel the others' reports.
       fail-fast: false
@@ -102,12 +143,7 @@ jobs:
       - name: Restore dependencies
         # --locked-mode fails the restore if the committed packages.lock.json
         # files would change, matching the main build job's supply-chain posture.
-        # The VSTest twin is deliberately outside the solution (it must never join
-        # the normal build/test path), so it is restored explicitly - otherwise
-        # Stryker's implicit build would restore it WITHOUT locked-mode.
-        run: |
-          dotnet restore --locked-mode
-          dotnet restore SSO-Auth.Tests.Stryker/SSO-Auth.Tests.Stryker.csproj --locked-mode
+        run: dotnet restore --locked-mode
 
       - name: Restore pinned .NET tools (Stryker)
         # Installs dotnet-stryker at the version pinned in .config/dotnet-tools.json.
@@ -116,20 +152,47 @@ jobs:
       - name: Run Stryker (scoped, score-non-blocking)
         # break=0 in config keeps a LOW SCORE from exiting non-zero (the score is
         # a signal, not a gate). A tool/infrastructure failure, however, exits
-        # non-zero and now fails the run visibly - no continue-on-error, per the
-        # fail-closed-reporting note at the top (#899). Run from the VSTest twin
-        # directory so Stryker picks up stryker-config.json and drives the twin
-        # (the MTP-v2 test project is not VSTest-mutable - see the header note).
-        working-directory: SSO-Auth.Tests.Stryker
+        # non-zero and fails the run visibly - no continue-on-error, per the
+        # fail-closed-reporting note at the top (#899). Run from the test project
+        # directory so Stryker picks up its stryker-config.json, which names the
+        # MTP runner and per-test coverage (#1784).
+        working-directory: SSO-Auth.Tests
         env:
           # This leg's mutate scope (comma-separated globs). CLI -m REPLACES the
           # config's mutate list, so each leg mutates exactly its slice.
           MUTATE: ${{ matrix.scope.mutate }}
+          # The budget that bites. A shard that passes it is a regression in the
+          # tests or in the runner and is meant to end red rather than be waited
+          # out. A dispatch may lower it, which is how the failure is shown
+          # without waiting a shard out.
+          #
+          # SIZED ON THE SPREAD BETWEEN TWO RUNNERS AND NOT ON ONE READING. The
+          # longest shard is saml, and two dispatches of the same scope measured
+          # it at 50m21s and 70m32s - forty per cent apart on identical bytes,
+          # which is runner variance rather than anything in this repository. A
+          # budget of 90 left the slower of the two at 78 per cent of it, and a
+          # weekly guard that goes red on a slow runner is a guard that gets
+          # ignored, which is the same silence this issue is about arriving by
+          # the other door. 120 is roughly seventy per cent above the slower
+          # reading and still an order of magnitude under what the old VSTest
+          # path needed, so it catches a regression of that kind ten times over.
+          SHARD_MINUTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.timeout_minutes || '120' }}
         run: |
           IFS="," read -ra globs <<< "$MUTATE"
           args=()
           for g in "${globs[@]}"; do args+=(-m "$g"); done
-          dotnet stryker "${args[@]}"
+          set +e
+          timeout --signal=TERM --kill-after=60s "${SHARD_MINUTES}m" dotnet stryker "${args[@]}"
+          status=$?
+          set -e
+          # 124 is the TERM, 137 the SIGKILL that follows it. Both mean the shard
+          # did not fit, and both are turned into an ordinary non-zero exit so
+          # the job FAILS instead of being cancelled out from under the run.
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "::error::This mutation shard passed its ${SHARD_MINUTES}-minute budget and was stopped. A shard that does not fit is a failed run, never a quiet one (#1784)."
+            exit 1
+          fi
+          exit "$status"
 
       - name: Upload mutation report
         # Publish the HTML/markdown report as a run artifact even when the scan
@@ -140,6 +203,35 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stryker-mutation-report-${{ matrix.scope.name }}
-          path: SSO-Auth.Tests.Stryker/StrykerOutput/**/reports/**
+          path: SSO-Auth.Tests/StrykerOutput/**/reports/**
           retention-days: 14
           if-no-files-found: error
+
+  verdict:
+    name: Every shard reported
+    runs-on: ubuntu-latest
+    # Runs whatever became of the matrix and fails on anything but three
+    # successes (#1784), which is the shard that ends non-success in a way the
+    # step budget above cannot reach: a report-less upload, a skipped leg, a run
+    # somebody cancels by hand.
+    #
+    # WHAT IT CANNOT DO IS MAKE A CANCELLED RUN RED, and this comment claimed it
+    # could until the claim was run. On a dispatch with a one-minute limit this
+    # job concluded `failure` and the RUN still concluded `cancelled`, because
+    # GitHub resolves a run holding a cancelled job that way whatever else the
+    # run contains - and `cancelled` is exactly the conclusion the watchdog
+    # passes over. That is why the shard budget moved into the step, and why
+    # this job is the second line rather than the first.
+    needs: mutation
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Fail the run unless every shard succeeded
+        env:
+          RESULT: ${{ needs.mutation.result }}
+        run: |
+          echo "matrix result: $RESULT"
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::At least one mutation shard did not succeed (result: $RESULT); a cancelled or report-less shard is a failed run, not a quiet one."
+            exit 1
+          fi

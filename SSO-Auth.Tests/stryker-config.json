@@ -3,6 +3,7 @@
   "stryker-config": {
     "project": "SSO-Auth.csproj",
     "target-framework": "net10.0",
+    "test-runner": "mtp",
     "coverage-analysis": "perTest",
     "reporters": ["html", "markdown", "progress", "cleartext"],
     "thresholds": {
