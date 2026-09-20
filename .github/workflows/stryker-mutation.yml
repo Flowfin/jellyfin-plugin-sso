@@ -71,7 +71,7 @@ on:
   workflow_dispatch:
     inputs:
       timeout_minutes:
-        description: "Per-shard time limit in minutes (the scheduled run uses 90)"
+        description: "Per-shard time limit in minutes; the scheduled run uses 90 and the job backstop is 150"
         required: false
         default: "90"
 
@@ -93,10 +93,20 @@ jobs:
     # A BACKSTOP AND NOT THE BUDGET. What GitHub cancels at this limit concludes
     # `cancelled`, and that conclusion is the one the watchdog passes over, so
     # the limit that is meant to bite is the one in the Stryker step below. This
-    # one sits half an hour above it and exists for a hang before that step
-    # starts - a restore or a tool install that never returns - where there is
-    # no step budget to catch anything.
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.timeout_minutes) + 30 || 120 }}
+    # one exists for a hang BEFORE that step starts - a restore or a tool
+    # install that never returns - where there is no step budget to catch
+    # anything.
+    #
+    # A CONSTANT RATHER THAN THE STEP BUDGET PLUS HEADROOM, because the
+    # expression that computed it does not parse: GitHub's expression syntax has
+    # no `+`, and the workflow was rejected with "Unexpected symbol: '+'" at this
+    # line. So the relation is stated instead of computed, and it is the one
+    # thing to keep true when either number moves: this has to stay above the
+    # step budget, or a shard reaches this limit first and the run goes back to
+    # concluding `cancelled`. A dispatch asking for more than this is a
+    # deliberate measurement, and a cancellation there is the intentional human
+    # act the watchdog reads it as.
+    timeout-minutes: 150
     strategy:
       # One leg failing (e.g. a timeout) must not cancel the others' reports.
       fail-fast: false
