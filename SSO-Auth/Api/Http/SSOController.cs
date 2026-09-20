@@ -379,6 +379,22 @@ public class SSOController : ControllerBase
     /// read would be admitted here - <c>IsAuthenticated</c> is the known one, declined at the helper with its
     /// reason - and the action that would reach is a sign-out of the caller's own session.
     /// </para>
+    /// <para>
+    /// WHETHER THE HOST THROWS FOR A TOKEN THAT RESOLVES TO NOTHING IS READ, NOT REASONED ABOUT (#1792).
+    /// At tag <c>v12.0</c> of jellyfin/jellyfin, commit <c>6c073e19</c>, the file
+    /// <c>Jellyfin.Server.Implementations/Security/AuthorizationContext.cs</c> holds no <c>throw</c>
+    /// statement at all. <c>GetAuthorizationInfoFromDictionary</c> builds the <c>AuthorizationInfo</c> with
+    /// <c>IsAuthenticated</c> false and returns it as soon as it holds no token; when it does hold one, it
+    /// looks the token up as a device and then as an API key, sets <c>User</c> only from a matched device,
+    /// and returns the object with <c>User</c> null when neither matched. So a present token that resolves
+    /// to nothing, which is what an expired <c>api_key</c> produces, arrives here as an authorization with
+    /// the token kept and no user, which <see cref="IsAuthenticatedCaller"/> refuses on the credential-less
+    /// arm, throttled and audited like every other refusal there. What the reading does not cover is a
+    /// failure that is not about the token: the lookup opens a database context and a host whose database
+    /// is unavailable surfaces that fault, which nothing here catches. The reading is of the host's source
+    /// at the pinned version and not of this project's package graph, which still does not hold that
+    /// assembly, so a host that changes the file changes this paragraph and not the code it describes.
+    /// </para>
     /// </summary>
     /// <param name="provider">The OpenID provider to end the session at.</param>
     /// <param name="ticket">A one-time ticket from <see cref="OidLogoutTicket"/>, for a caller that cannot send a session header. Absent for the authenticated form.</param>
@@ -432,7 +448,14 @@ public class SSOController : ControllerBase
                     return throttledTicket;
                 }
 
-                SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_ticket_not_redeemable");
+                // AND UNDER A BUDGET OF ITS OWN, BECAUSE THE GATE ABOVE IS NOT THERE ON A STOCK INSTALL
+                // (#1792). The ordering argued above is right and it bounds nothing where the limiter is
+                // off, which a fresh install leaves it, or where the peer is not attributable, which an
+                // unresolved reverse proxy makes every request; there a request with no credential wrote a
+                // warning line at request rate. The helper keeps the first few lines of a minute and one
+                // summary for the rest, on a budget keyed on nothing, so the ceiling holds for the source
+                // the limiter cannot see.
+                AuditCredentiallessLogoutRefusal(provider, "logout_ticket_not_redeemable");
                 return Unauthorized();
             }
 
@@ -495,7 +518,10 @@ public class SSOController : ControllerBase
                     return throttledAnonymous;
                 }
 
-                SsoAudit.OpenIdLogoutRefused(_logger, provider, "logout_unauthenticated");
+                // Under the same line budget as the ticket refusal above, for the same reason (#1792): this
+                // is the arm a request with no credential and no ticket reaches, and the gate in front of
+                // it is off on a stock install.
+                AuditCredentiallessLogoutRefusal(provider, "logout_unauthenticated");
                 return Unauthorized();
             }
 
@@ -3254,6 +3280,29 @@ public class SSOController : ControllerBase
     // response the retry-delay header is set on - so the controller keeps no rate-limit state of its own.
     private ActionResult? RateLimitCheck(string endpointClass) =>
         SsoRateLimitGate.Check(endpointClass, HttpContext.Connection.RemoteIpAddress, _logger, Response);
+
+    // The audit line of a credential-less refusal on the RP-initiated OpenID logout, under the budget that
+    // bounds it (#1792). The rate-limit gate stands in front of both arms that call this and is the finer
+    // instrument where it is on; it is off on a stock install and makes no bucket for a non-public peer,
+    // and on that configuration the per-refusal line was the one thing a request with no credential could
+    // make this server do without bound. The budget lives on the ticket service, which owns the route's
+    // process-wide state, and is keyed on nothing because the source it exists for is not attributable.
+    // When the budget reopens, the count of refusals it did not record is written once, before the line
+    // that reopened it, so the trail says that lines are missing rather than reading as quiet.
+    private void AuditCredentiallessLogoutRefusal(string provider, string reasonCode)
+    {
+        if (!LogoutTicketService.AdmitRefusalLine(DateTime.UtcNow, out var notRecorded))
+        {
+            return;
+        }
+
+        if (notRecorded > 0)
+        {
+            SsoAudit.OpenIdLogoutRefusalsNotRecorded(_logger, notRecorded);
+        }
+
+        SsoAudit.OpenIdLogoutRefused(_logger, provider, reasonCode);
+    }
 
     // What the bare [Authorize] attribute used to answer, spelled out because the attribute had to come off
     // OidLogout for the ticket path to exist (#1768). THIS BLOCK STOOD INSIDE THE COMMENT ABOVE until it was

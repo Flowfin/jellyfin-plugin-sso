@@ -49,6 +49,16 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 internal static class SsoAudit
 {
     /// <summary>
+    /// The most characters of a route-chosen provider name a logout line prints (#1792). Long enough for
+    /// any name an administrator would configure, and a fixed ceiling on what a caller with no credential
+    /// can put into one line.
+    /// </summary>
+    internal const int MaxLoggedProviderChars = 128;
+
+    /// <summary>Marks a provider name a logout line cut, so a truncated name is not read as the whole one.</summary>
+    internal const string ProviderCutMark = "[truncated]";
+
+    /// <summary>
     /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
     /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
     /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
@@ -1037,6 +1047,12 @@ internal static class SsoAudit
     /// signature rather than by header. The event is still owed for the reason above, which is about the
     /// protocol a refusal is filed under rather than about how many routes share the property. The reason is a FIXED code, never request-derived, and the
     /// caller still receives the one uniform 401, so nothing here becomes a branch oracle.
+    /// THE PROVIDER IS BOUNDED IN LENGTH HERE, AND IT WAS NOT (#1792). It is a route segment a caller
+    /// with no credential chooses, and the two sanitizers strip and substitute without shortening, so one
+    /// request could push a request line's worth of chosen text into the log. The first
+    /// <see cref="MaxLoggedProviderChars"/> characters are kept and a cut is marked, the way the discovery
+    /// reader marks a provider error it cut, so a truncated name is not read as the whole one. The bound is
+    /// on the LINE and not on the answer: a caller learns nothing from it.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider named in the route.</param>
@@ -1050,9 +1066,41 @@ internal static class SsoAudit
 
         logger.LogWarning(
             "[SSO Audit] OpenID logout REFUSED for provider '{Provider}' ({ReasonCode}). No session was terminated.",
-            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            string.Concat(BoundedForLog(provider)?.ReplaceLineEndings(string.Empty).Replace('[', '('), CutMarkFor(provider)),
             reasonCode);
     }
+
+    /// <summary>
+    /// Records that credential-less refusals on the RP-initiated OpenID logout went unrecorded because the
+    /// budget on their lines was spent (#1792). A refusal there is reachable by anybody, the limiter in
+    /// front of it is off on a stock install and keys on a public peer only, so a per-refusal line was
+    /// unbounded exactly where the route is most exposed. The budget keeps the first few lines of an
+    /// interval and this is the one line that stands for the rest, written when the budget reopens; it
+    /// carries a count and nothing a caller wrote.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="count">How many refusals went unrecorded since the budget last reopened.</param>
+    internal static void OpenIdLogoutRefusalsNotRecorded(ILogger logger, long count)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "[SSO Audit] OpenID logout REFUSED {Count} further time(s) since the last recorded refusal; those lines were not written because the budget on them was spent. No session was terminated.",
+            count);
+    }
+
+    // The first MaxLoggedProviderChars of a provider name, unsanitized: the two sanitizers stay inline at the
+    // logging call, where CodeQL's taint tracking and the conformance rule over this file both read them.
+    private static string? BoundedForLog(string? provider) =>
+        provider is { Length: > MaxLoggedProviderChars } ? provider[..MaxLoggedProviderChars] : provider;
+
+    // The cut mark, appended AFTER the sanitizers so its own bracket is not substituted away; it is this
+    // plugin's text and not the caller's, which is the same reason the discovery reader's mark is kept whole.
+    private static string CutMarkFor(string? provider) =>
+        provider is { Length: > MaxLoggedProviderChars } ? ProviderCutMark : string.Empty;
 
     /// <summary>
     /// Records a ticket-borne RP-initiated OpenID logout that COMPLETED (#1795): the one-time ticket was
@@ -1080,7 +1128,7 @@ internal static class SsoAudit
 
         logger.LogInformation(
             "[SSO Audit] OpenID logout completed for provider '{Provider}' ({OutcomeCode}): a one-time ticket ended the Jellyfin session it was minted from.",
-            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            string.Concat(BoundedForLog(provider)?.ReplaceLineEndings(string.Empty).Replace('[', '('), CutMarkFor(provider)),
             outcomeCode);
     }
 
