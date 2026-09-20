@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.SSO_Auth;
+using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
 using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Jellyfin.Plugin.SSO_Auth.Config;
@@ -589,6 +590,49 @@ public class SSOControllerLogoutTicketTests
 
         Assert.True(audited > 0, "no refusal was audited at all, so this row would pass on a route that logs nothing");
         Assert.True(audited < 12, $"every one of 12 credential-less requests wrote a warning line despite the throttle closing: {audited}");
+    }
+
+    [Fact]
+    public async Task ACredentiallessFloodWithNoLimiterInFront_WritesABoundedNumberOfLines()
+    {
+        // The first Done-when of #1792. The gate in front of both credential-less arms is off on a stock
+        // install and makes no bucket for a non-public peer, and on that configuration every request with
+        // no credential wrote a warning line. This fixture is that configuration: the limiter off and the
+        // peer loopback. The answers stay 401 throughout, because the bound is on the line and not on the
+        // answer, and the lines stop at the budget.
+        var harness = ForCaller(token: null, clientIp: System.Net.IPAddress.Loopback, rateLimit: false);
+        var requests = 3 * LogoutTicketService.MaxRefusalLinesPerInterval;
+
+        for (var i = 0; i < requests; i++)
+        {
+            Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc"));
+        }
+
+        var audited = harness.ControllerLog.Entries.FindAll(e => e.Message.Contains("logout_unauthenticated", StringComparison.Ordinal)).Count;
+        Assert.Equal(LogoutTicketService.MaxRefusalLinesPerInterval, audited);
+
+        // The ticket arm draws on the same budget rather than carrying one of its own, so a flood that
+        // alternates between the two shapes is bounded by one ceiling and not by two.
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout("kc", "guess"));
+        Assert.DoesNotContain(harness.ControllerLog.Entries, e => e.Message.Contains("logout_ticket_not_redeemable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TheProviderARefusalLinePrints_IsBoundedInLength()
+    {
+        // The second Done-when of #1792. The provider is a route segment a caller with no credential
+        // chooses, and the two sanitizers strip and substitute without shortening, so one request could
+        // put a request line's worth of chosen text into the log. Driven through the route rather than
+        // at the emitter, so what the row holds is that THIS route's line is bounded; the emitter's own
+        // rows pin the mark and the cut.
+        var harness = ForCaller(token: null);
+        var chosen = new string('p', 8 * SsoAudit.MaxLoggedProviderChars);
+
+        Assert.IsType<UnauthorizedResult>(await harness.Controller.OidLogout(chosen));
+
+        var line = Assert.Single(harness.ControllerLog.Entries, e => e.Message.Contains("logout_unauthenticated", StringComparison.Ordinal)).Message;
+        Assert.Contains(new string('p', SsoAudit.MaxLoggedProviderChars) + SsoAudit.ProviderCutMark, line, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('p', SsoAudit.MaxLoggedProviderChars + 1), line, StringComparison.Ordinal);
     }
 
     [Fact]

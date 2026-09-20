@@ -606,6 +606,27 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The credential-less refusals of the RP-initiated OpenID logout write a
+  bounded number of audit lines, on any configuration (#1792).** When that
+  route stopped carrying `[Authorize]` for the one-time ticket, a request with
+  no credential began to reach the method and be answered by a warning line in
+  the audit trail, throttled by the rate limiter in front of it. The limiter is
+  off on a fresh install and creates no bucket for a non-public peer, so on a
+  stock install, or behind a reverse proxy Jellyfin has not been told to
+  resolve, that line was written at request rate for anybody. The two refusals
+  now share a ceiling that does not depend on the limiter: the first ten in a
+  minute are recorded one by one, the rest are counted and written as one line
+  when the minute turns, saying how many went unrecorded. The provider name
+  those lines print is a route segment the caller chooses, and it is now cut at
+  128 characters and marked `[truncated]`, on the refusal line and on the
+  completion line alike. Neither bound changes the answer a caller receives.
+  The route's own documentation now also records, from the host's source at
+  the pinned Jellyfin version, that a present token which resolves to nothing
+  is returned as an authorization with no user rather than thrown, so the
+  expired `api_key` case meets the same throttled, audited refusal as a request
+  with no token. What is still open on that issue is whether these refusals
+  should draw on a budget class of their own rather than the shared `logout`
+  class.
 - **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
   `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
   different causes, and three of them are permanent for the request that met

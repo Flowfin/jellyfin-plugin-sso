@@ -210,7 +210,13 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   limiter is **off unless `EnableRateLimit` is set** (it is unset on a fresh
   install), and it deliberately creates no bucket for a non-public source, so
   behind a reverse proxy whose address Jellyfin has not been told to resolve
-  nothing is throttled even when the setting is on. The mint and the redeem
+  nothing is throttled even when the setting is on. Because of that, the audit
+  line those two refusals write carries a ceiling of its own that does not
+  depend on the limiter: the first ten refusals in a minute are recorded one by
+  one, the rest are counted and written as one line when the minute turns, and
+  the provider name the line prints is cut at 128 characters and marked, so a
+  request with no credential cannot make this server write without bound, on
+  any configuration. The answer to the caller is unchanged by either bound. The mint and the redeem
   are both behind the `EnableSingleLogout` switch: turning it off refuses
   every outstanding ticket, and the ticket store is emptied at the save by a
   hosted service subscribed to the configuration change, so the access tokens

@@ -377,6 +377,69 @@ public class SsoAuditTests
     }
 
     [Fact]
+    public void OpenIdLogoutRefused_BoundsTheProviderItPrints_AndMarksTheCut()
+    {
+        // #1792. The provider on this line is a route segment anybody may choose; the sanitizers strip and
+        // substitute without shortening. The first MaxLoggedProviderChars survive, the cut is marked with
+        // the plugin's own mark, and the mark's bracket is the plugin's and not the caller's, so it stands.
+        var logger = new CapturingLogger();
+
+        SsoAudit.OpenIdLogoutRefused(logger, new string('p', 4 * SsoAudit.MaxLoggedProviderChars), "logout_unauthenticated");
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains(new string('p', SsoAudit.MaxLoggedProviderChars) + SsoAudit.ProviderCutMark, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('p', SsoAudit.MaxLoggedProviderChars + 1), entry.Message, StringComparison.Ordinal);
+        Assert.Contains("logout_unauthenticated", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OpenIdLogoutRefused_PrintsANameWithinTheBoundWhole_AndStillSanitizesIt()
+    {
+        // The positive control for the row above: a name inside the bound is printed whole and unmarked,
+        // and the cut does not replace the two sanitizers, which a caller's own bracket still meets.
+        var logger = new CapturingLogger();
+
+        SsoAudit.OpenIdLogoutRefused(logger, "corp\n[X", "logout_ticket_not_redeemable");
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Contains("corp(X", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(SsoAudit.ProviderCutMark, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OpenIdTicketLogoutCompleted_BoundsTheProviderItPrints()
+    {
+        // The completion line carries the same route segment, and is reachable only with a genuine ticket,
+        // so the bound there costs nothing and keeps the two lines the route writes shaped alike.
+        var logger = new CapturingLogger();
+
+        SsoAudit.OpenIdTicketLogoutCompleted(logger, new string('q', 4 * SsoAudit.MaxLoggedProviderChars), "local_only");
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Contains(new string('q', SsoAudit.MaxLoggedProviderChars) + SsoAudit.ProviderCutMark, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('q', SsoAudit.MaxLoggedProviderChars + 1), entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OpenIdLogoutRefusalsNotRecorded_LogsWarning_WithTheCountAndNothingACallerWrote()
+    {
+        // The one line that stands for the refusals the budget did not record (#1792). It takes a count and
+        // no string, so there is nothing on it to sanitize and nothing a flood can shape.
+        var logger = new CapturingLogger();
+
+        SsoAudit.OpenIdLogoutRefusalsNotRecorded(logger, 17);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("[SSO Audit]", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("OpenID logout REFUSED 17 further time(s)", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("No session was terminated", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("SAML", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BackChannelLogoutRejected_LogsWarning_AndDoesNotFileItselfUnderSaml()
     {
         var logger = new CapturingLogger();
