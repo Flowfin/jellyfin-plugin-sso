@@ -593,6 +593,33 @@ public class SSOControllerLogoutTicketTests
     }
 
     [Fact]
+    public async Task ACredentiallessFlood_SpendsNothingOfTheMintsBudgetBehindTheSameAddress()
+    {
+        // The third Done-when of #1792, decided as a class of their own. The two credential-less arms charge
+        // LogoutRefusal, so a flood of guesses from one public address closes THAT budget and leaves the
+        // Logout budget the mint draws on untouched for the people behind the same address. A genuinely
+        // public address, for the reason the throttle rows give, and a budget of three so the flood closes
+        // it inside a handful of requests.
+        var harness = ForCaller(token: null, clientIp: System.Net.IPAddress.Parse("8.8.4.80"), rateLimit: true);
+
+        ActionResult? last = null;
+        for (var i = 0; i < 6; i++)
+        {
+            last = await harness.Controller.OidLogout("kc", "guess-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        var throttled = Assert.IsType<ContentResult>(last);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled.StatusCode);
+
+        // The same address, now a signed-in caller asking for a ticket: the mint's class was never charged,
+        // so it is issued one. With the arms back on the shared class this mint is the throttle's 429.
+        harness.AuthContext.GetAuthorizationInfo(Arg.Any<HttpRequest>())
+            .Returns(Task.FromResult(new AuthorizationInfo { User = TestUsers.Named("caller", Caller), Token = CallerToken }));
+
+        MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+    }
+
+    [Fact]
     public async Task ACredentiallessFloodWithNoLimiterInFront_WritesABoundedNumberOfLines()
     {
         // The first Done-when of #1792. The gate in front of both credential-less arms is off on a stock

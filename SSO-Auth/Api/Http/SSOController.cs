@@ -287,8 +287,9 @@ public class SSOController : ControllerBase
         // bucket. On the shipped default, then, nothing but the occupancy bound stands here, and the
         // arithmetic of that bound is recorded beside this route's entry on the throttled roster in
         // ArchitectureConformanceTests.RateLimit and re-derived from the constants by a row there. The class
-        // is shared with the anonymous refusal arms of the logout route below, and what sharing costs the
-        // routes on that budget is #1792's question rather than this paragraph's.
+        // is shared with the inbound logout surfaces and not with the credential-less refusal arms of the
+        // logout route below, which #1792 moved onto a class of their own so that a flood of guesses from one
+        // address spends nothing of this budget for the people behind it.
         //
         // BEHIND THE SINGLE LOGOUT SWITCH, like the surfaces it exists for. With the feature off the logout
         // route captures nothing and degrades to the local sign-out, so a ticket minted there could never do
@@ -443,7 +444,12 @@ public class SSOController : ControllerBase
                 // it amplifies the very flood the limiter blunts into unbounded log volume - which is this
                 // repository's own stated hazard at SsoRateLimiter, and what every neighbouring anonymous
                 // logout surface avoids by gating first.
-                if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledTicket)
+                //
+                // ON A CLASS OF THEIR OWN, on the decision of #1792. Both credential-less arms of this route
+                // charge LogoutRefusal rather than Logout, so a flood of guesses from one public address
+                // spends nothing of the budget the inbound SAML LogoutRequest and the ticket mint draw on
+                // for the people behind that same address; the reason is written at the constant.
+                if (RateLimitCheck(SsoRateLimitClass.LogoutRefusal) is { } throttledTicket)
                 {
                     return throttledTicket;
                 }
@@ -513,7 +519,7 @@ public class SSOController : ControllerBase
                 // ends nothing under any budget - not that a session-bearing caller is absent from it. The
                 // cost of being wrong here is that such a caller is answered 429 rather than 401 and cannot
                 // tell a throttled deployment from a broken one.
-                if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledAnonymous)
+                if (RateLimitCheck(SsoRateLimitClass.LogoutRefusal) is { } throttledAnonymous)
                 {
                     return throttledAnonymous;
                 }
