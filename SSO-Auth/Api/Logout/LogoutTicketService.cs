@@ -47,8 +47,9 @@ internal sealed class LogoutTicketService
     /// permanent for the request that met them - a caller with no user, no access token or no provider name
     /// retries into exactly the same refusal - and only the capacity bound clears on its own. The route
     /// answered all four with the status that means "try again later", so the one caller who could never
-    /// succeed was the one being told to keep asking, at an endpoint that is deliberately unthrottled. The
-    /// policy stays here and the route maps the class onto a status.
+    /// succeed was the one being told to keep asking, at an endpoint that carried no rate bound then and
+    /// carries one that is off on a stock install now. The policy stays here and the route maps the class
+    /// onto a status.
     /// </remarks>
     /// <param name="userId">The authenticated caller's user id. <see cref="Guid.Empty"/> is refused: it is what an unauthenticated request resolves to, and a ticket carrying it would name no user.</param>
     /// <param name="provider">The provider the ticket may be spent at, and at no other.</param>

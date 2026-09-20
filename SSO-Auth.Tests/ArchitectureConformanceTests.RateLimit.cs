@@ -58,6 +58,34 @@ public partial class ArchitectureConformanceTests
     private static readonly string[] MustThrottleRoutes =
     {
         "OID/logout/{provider}",
+        // The logout-ticket mint (#1768) MOVED HERE FROM THE EXEMPT LIST ON THE DECISION OF #1796, and the
+        // cost record the exemption carried moved with it rather than being deleted. The reason the exemption
+        // first gave was the self-logout's - a throttled sign-out is a session left live - and it was never
+        // this route's: a mint ends nothing, and a refused mint leaves nothing live. What the exemption then
+        // rested on was the ticket store's per-account sub-cap, which is an OCCUPANCY bound and not a rate:
+        // past its share an account may keep asking and each ask is still served, so the sub-cap protects the
+        // store and never this endpoint's cost. The decision puts a rate bound in front of that, in the
+        // Logout class the route it serves already charges, so a client in a loop is answered 429 before it
+        // has filled its own share with tickets nobody redeems. The gate sits after the authorization check,
+        // as the link surface's does, so a request the attribute refuses charges nothing.
+        //
+        // WHAT THE OCCUPANCY BOUND ACTUALLY BUYS, IN ITS OWN NUMBERS, because the rate bound is defence in
+        // depth and this is the hard limit behind it: the limiter is off unless EnableRateLimit is set, which
+        // a stock install does not set, and it keys on a public peer only, so behind an unresolved reverse
+        // proxy it makes no bucket, and on the shipped default this arithmetic is the whole statement of
+        // cost. The global ceiling is LogoutTicketStore.DefaultMaxEntries and one account's share is a
+        // PerClientBudgetLimiter.ShareDivisor-th of it, so it takes that many accounts holding a full share
+        // to fill the store, and while it is full every other account's mint is refused and their sign-out
+        // degrades to the local one, which leaves the provider session alive. A ticket lives for
+        // LogoutTicketStore.DefaultLifetime and the sweep that frees its slot runs at most once per
+        // LogoutTicketStore.DefaultPruneInterval, so a slot comes back within the sum of the two - as long
+        // as some request arrives to drive the sweep, because it is driven by a mint or a redeem and by no
+        // timer. Where the limiter IS on and the peer is public, the shipped budget closes before the share
+        // fills: the default RateLimitMaxAttempts is below the per-account share and the default window is
+        // the ticket lifetime, so the 429 arrives inside the minute the share would have taken. The row
+        // TheLogoutTicketCostRecord_ArithmeticIsWhatTheConstantsSay re-derives every figure named here, so a
+        // constant that moves reddens this paragraph instead of outliving it.
+        "OID/logout-ticket/{provider}",
         "OID/r/{provider}", "OID/redirect/{provider}", "OID/p/{provider}", "OID/start/{provider}",
         "OID/Test/{provider}", "OID/Auth/{provider}", "OID/backchannel-logout/{provider}",
         "SAML/p/{provider}", "SAML/post/{provider}", "SAML/start/{provider}", "SAML/metadata/{provider}",
@@ -92,28 +120,8 @@ public partial class ArchitectureConformanceTests
     private static readonly string[] RateLimitExemptRoutes =
     {
         "SAML/logout/{provider}", // [Authorize] user logout, no fetch
-        // The logout-ticket mint (#1768). [Authorize] and no outbound fetch. THE REASON RECORDED HERE WAS
-        // THE ROUTE ABOVE'S AND IS NOT THIS ONE'S: a throttled sign-out is a session left live, and this
-        // endpoint is not a sign-out - it ends nothing, and a refused mint leaves nothing live, which the
-        // call site says in its own words. The operative reason is the one stated next, and it is narrower
-        // than an exemption usually is. What bounds this endpoint is the ticket store's per-account
-        // sub-cap, which is an OCCUPANCY bound and not a rate: past its share an account may keep asking
-        // and each ask is still served, so the sub-cap protects the store and NOT this endpoint's cost.
-        // Nothing bounds that cost today, and that is a decision recorded here rather than a protection
-        // claimed.
-        //
-        // WHAT THE OCCUPANCY BOUND ACTUALLY BUYS, IN ITS OWN NUMBERS (#1796), because an exemption argued
-        // from a bound should say how large the bound is. The global ceiling is
-        // LogoutTicketStore.DefaultMaxEntries and one account's share is a
-        // PerClientBudgetLimiter.ShareDivisor-th of it, so it takes that many accounts holding a full share
-        // to fill the store, and while it is full every other account's mint is refused and their sign-out
-        // degrades to the local one, which leaves the provider session alive. A ticket lives for
-        // LogoutTicketStore.DefaultLifetime and the sweep that frees its slot runs at most once per
-        // LogoutTicketStore.DefaultPruneInterval, so a slot comes back within the sum of the two - as long
-        // as some request arrives to drive the sweep, because it is driven by a mint or a redeem and by no
-        // timer. The row TheLogoutTicketExemption_ArithmeticIsWhatTheConstantsSay re-derives every figure
-        // named here, so a constant that moves reddens this paragraph instead of outliving it.
-        "OID/logout-ticket/{provider}",
+        // The logout-ticket mint, OID/logout-ticket/{provider}, stood here until the decision of #1796 moved
+        // it onto the throttled roster above; its cost record went with it.
         "OID/Add/{provider}", "SAML/Add/{provider}", "OID/Del/{provider}", "SAML/Del/{provider}", // elevated config CRUD
         "OID/Get", "SAML/Get", "OID/GetNames", "SAML/GetNames", "OID/States", // read-only listings
         "SAML/Test/{provider}", // LOCAL certificate parse - no outbound fetch (unlike OID/Test)
@@ -263,9 +271,9 @@ public partial class ArchitectureConformanceTests
     }
 
     [Fact]
-    public void TheLogoutTicketExemption_ArithmeticIsWhatTheConstantsSay()
+    public void TheLogoutTicketCostRecord_ArithmeticIsWhatTheConstantsSay()
     {
-        // The logout-ticket exemption above argues from the ticket store's occupancy bound and says how
+        // The logout-ticket cost record above argues from the ticket store's occupancy bound and says how
         // large that bound is (#1796). A paragraph that states an arithmetic relation goes stale the moment
         // one of its constants moves, and nothing reads prose, so the relations are re-derived here from the
         // shipped values instead of being trusted beside them.
@@ -277,7 +285,7 @@ public partial class ArchitectureConformanceTests
         Assert.Equal(0, LogoutTicketStore.DefaultMaxEntries % PerClientBudgetLimiter.ShareDivisor);
         Assert.Equal(LogoutTicketStore.DefaultMaxEntries, perAccount * PerClientBudgetLimiter.ShareDivisor);
 
-        // And the store the exemption is about is the one that arithmetic describes. The two fields are read
+        // And the store the record is about is the one that arithmetic describes. The two fields are read
         // rather than exposed: a production accessor added for a test would widen the surface this rule is
         // meant to hold still. A default constructor rewired to some other sub-cap or lifetime would leave
         // the paragraph naming constants nothing uses.
@@ -285,6 +293,16 @@ public partial class ArchitectureConformanceTests
         var perUser = (PerClientBudgetLimiter)FieldOf(store, "_perUser");
         Assert.Equal(perAccount, perUser.PerKeyCap);
         Assert.Equal(LogoutTicketStore.DefaultLifetime, (TimeSpan)FieldOf(store, "_lifetime"));
+
+        // "Where the limiter is on and the peer is public, the shipped budget closes before the share fills"
+        // rests on two defaults the record names: the per-window budget is below the per-account share, and
+        // the window is the ticket lifetime. A budget raised past the share, or a window shorter than a
+        // ticket, would let the share fill inside one window again with the sentence still standing.
+        var defaults = new PluginConfiguration();
+        Assert.True(
+            defaults.RateLimitMaxAttempts < perAccount,
+            $"the default rate budget ({defaults.RateLimitMaxAttempts} per window) is not below the per-account ticket share ({perAccount}), so the 429 no longer arrives before the 503 the record says it precedes (#1796).");
+        Assert.Equal(LogoutTicketStore.DefaultLifetime, TimeSpan.FromSeconds(defaults.RateLimitWindowSeconds));
     }
 
     // One private instance field, by name, so the row above can read what the production constructor wired
@@ -293,7 +311,7 @@ public partial class ArchitectureConformanceTests
     private static object FieldOf(LogoutTicketStore store, string name)
     {
         var field = typeof(LogoutTicketStore).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.True(field is not null, $"LogoutTicketStore.{name} was renamed or removed; the logout-ticket exemption's arithmetic is checked through it (#1796).");
+        Assert.True(field is not null, $"LogoutTicketStore.{name} was renamed or removed; the logout-ticket cost record's arithmetic is checked through it (#1796).");
         var value = field!.GetValue(store);
         Assert.True(value is not null, $"LogoutTicketStore.{name} is null on a store built by the production constructor (#1796).");
         return value!;

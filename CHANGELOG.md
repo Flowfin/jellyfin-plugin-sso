@@ -621,7 +621,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   Jellyfin still ends the local session, because that is the one class a caller
   can clear by waiting. A client that treats 503 as retryable and 4xx as final
   needs no change; one that retried every refusal will now stop on the three it
-  could never have got past.
+  could never have got past. The mint also charges the Logout rate-limit class
+  now, after its authorization check, so where `EnableRateLimit` is set a
+  client in a loop is answered `429` before it has filled its own ticket share
+  and locked its own sign-out for the rest of the minute. That is defence in
+  depth and not the guarantee: the limiter is off on a fresh install and keys
+  on a public peer only, so there the per-account share of the ticket store
+  stays the bound, and its arithmetic is recorded beside the route's entry on
+  the throttled roster and re-derived from the constants by a test.
 - **An avatar served by an OpenID provider on the administrator's own network is
   fetched when that provider has Allow Private Network Addresses set (#1764).** The
   opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,

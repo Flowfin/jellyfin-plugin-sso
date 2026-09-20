@@ -264,16 +264,31 @@ public class SSOController : ControllerBase
     /// </para>
     /// </summary>
     /// <param name="provider">The OpenID provider the ticket may be spent at, and at no other.</param>
-    /// <returns>The ticket token; 503 when a capacity bound refused it and a retry may clear it, 401 or 400 when this request could never have been issued one.</returns>
+    /// <returns>The ticket token; 429 when the caller's address is over the Logout budget, 503 when a capacity bound refused it and a retry may clear it, 401 or 400 when this request could never have been issued one.</returns>
     [Authorize]
     [HttpPost("OID/logout-ticket/{provider}")]
     public async Task<ActionResult> OidLogoutTicket(string provider)
     {
-        // Deliberately NOT rate-limited, for the reason the authenticated self-logout below and its SAML twin
-        // both carry: a security action must always be able to complete for the caller. What bounds this
-        // endpoint instead is the store's own per-account sub-cap. That is an OCCUPANCY bound and not a rate,
-        // which is the honest way to state it: past its share an account may keep asking and each ask is still
-        // served, so what the sub-cap protects is the store rather than this endpoint's cost.
+        // RATE-LIMITED, ON THE CLASS OF THE ROUTE IT SERVES, AND THIS PARAGRAPH SAID DELIBERATELY NOT (#1796).
+        // The reason it gave was the self-logout's: a security action must always be able to complete for the
+        // caller. A mint is not a sign-out. It ends nothing, and a refused mint leaves nothing live, so the
+        // reason that keeps the session-bearing logout unthrottled does not reach here. What did bound this
+        // endpoint was the store's per-account sub-cap, which is an OCCUPANCY bound and not a rate: past its
+        // share an account may keep asking and each ask is still served, so the sub-cap protects the store and
+        // never this endpoint's cost. The decision on #1796 puts a rate bound in front of that, in the Logout
+        // class, so a client in a loop is answered 429 before it has filled its own share with tickets nobody
+        // redeems and locked its own sign-out for the rest of the minute. The occupancy bound stays the hard
+        // limit behind it. The gate sits after the authorization check, as the link surface's does, so it is
+        // charged only by a request that would otherwise reach the store; a request the attribute refuses
+        // costs nothing and writes nothing already.
+        //
+        // WHAT THE BOUND IS NOT. The limiter is off unless EnableRateLimit is set, which a stock install does
+        // not set, and it keys on a public peer only, so behind an unresolved reverse proxy it makes no
+        // bucket. On the shipped default, then, nothing but the occupancy bound stands here, and the
+        // arithmetic of that bound is recorded beside this route's entry on the throttled roster in
+        // ArchitectureConformanceTests.RateLimit and re-derived from the constants by a row there. The class
+        // is shared with the anonymous refusal arms of the logout route below, and what sharing costs the
+        // routes on that budget is #1792's question rather than this paragraph's.
         //
         // BEHIND THE SINGLE LOGOUT SWITCH, like the surfaces it exists for. With the feature off the logout
         // route captures nothing and degrades to the local sign-out, so a ticket minted there could never do
@@ -291,13 +306,18 @@ public class SSOController : ControllerBase
             return Unauthorized();
         }
 
+        if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttled)
+        {
+            return throttled;
+        }
+
         // ISSUANCE IS NOT AUDITED, AND THAT IS DECIDED RATHER THAN OMITTED (#1795). The distinction a mint
         // line would buy - a flood of spent tickets from a flood of guesses - is drawn where a ticket is
         // SPENT: a spent one records a completion on the logout route and a guess records a refusal there,
         // so a line here adds nothing to it. What it would add is a line at request rate from any signed-in
-        // account, because this endpoint is deliberately unthrottled and serves every ask until the account's
-        // share is full - the log amplification the refusal placement on the logout route exists to avoid,
-        // reachable here by a credential rather than by none. And a mint by itself changes nothing: the
+        // account, because the gate above is off on a stock install and this endpoint then serves every ask
+        // until the account's share is full - the log amplification the refusal placement on the logout route
+        // exists to avoid, reachable here by a credential rather than by none. And a mint by itself changes nothing: the
         // ticket can end only the minting caller's own session, and until it is spent no session has ended.
         // The capacity refusals below are the mint's only lines, throttled and naming no account.
         // SSOControllerLogoutTicketTests pins the absence so it cannot drift back in unargued.
@@ -310,8 +330,9 @@ public class SSOController : ControllerBase
         // ONE STATUS PER CLASS OF ANSWER (#1796), because 503 stood for four causes and only one of them
         // clears by waiting. 503 means the caller should come back, and a caller whose access token is empty
         // has an empty access token on the retry as well: the endpoint was telling the one client that could
-        // never succeed to keep asking, and it is deliberately unthrottled, so each ask costs a configuration
-        // read and a store sweep. The capacity bound keeps 503 and keeps the body that says the local
+        // never succeed to keep asking, at an endpoint that carried no rate bound then and carries one that is
+        // off on a stock install now, so each ask costs a configuration read and a store sweep there. The
+        // capacity bound keeps 503 and keeps the body that says the local
         // sign-out still works, because that is the answer a waiting caller can act on.
         //
         // The two permanent shapes get the statuses they already have elsewhere on this endpoint: a caller

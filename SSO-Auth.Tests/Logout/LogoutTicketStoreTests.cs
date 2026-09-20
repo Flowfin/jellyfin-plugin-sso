@@ -179,7 +179,8 @@ public class LogoutTicketStoreTests
         // out of luck - and they shared one throttle until this was measured: an ordinary account hitting
         // its own share consumed the gate, so the genuine global exhaustion that followed arrived with no
         // signal at all, while the log carried a sentence asserting a capacity state the store was not in.
-        // The mint is deliberately unthrottled, so one account could hold a shared gate closed indefinitely.
+        // The mint's rate bound is off on a stock install, so there one account could hold a shared gate
+        // closed indefinitely.
         var store = new LogoutTicketStore(maxEntries: 200, lifetime: TimeSpan.FromMinutes(1), pruneInterval: TimeSpan.FromMinutes(1));
 
         // Spend the ACCOUNT gate first, which is what a routine caller does.
