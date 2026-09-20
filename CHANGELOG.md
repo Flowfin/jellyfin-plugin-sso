@@ -45,8 +45,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   anonymously reachable route there. The `api_key` form
   still works for a client that cannot mint where it carries a user's own access
   token; a Jellyfin server API key names no user and is now refused, which a bare
-  `[Authorize]` used to admit. There is **no sign-out button yet**:
-  this is the mechanism, and the surface that uses it is still open on #1768.
+  `[Authorize]` used to admit. **The surface that uses the ticket is the
+  self-service linking page** (`/SSOViews/linking`): beside each OpenID
+  provider the signed-in user holds a link with, a **Sign out everywhere**
+  control asks the server for a ticket over the API client and navigates with
+  it, so the access token never appears in a URL the plugin produces. Where
+  Single Logout is off the control says so instead of doing nothing, and where
+  the server is out of tickets it says to come back. Jellyfin's own Sign out is
+  unchanged and still ends the Jellyfin session alone.
 
 - **A login refused by the provider's role allow-list now reaches a
   notification destination (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when

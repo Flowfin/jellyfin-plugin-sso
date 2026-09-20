@@ -1175,6 +1175,121 @@ else
   fail "replay check skipped: no state captured from the alice round-trip"
 fi
 
+# --------------------------------------------------------------------------------------------------
+# Phase 6b - the one-time logout ticket (#1768). A session minted while Single Logout is on asks for a
+# ticket over the API, and a navigation carrying that ticket and no credential at all ends that session
+# and is sent on to the provider's end_session_endpoint where the provider advertises one, or back to
+# this server where it does not. WHICH OF THE TWO THIS PROVIDER IS, IS READ FROM ITS DISCOVERY DOCUMENT
+# rather than typed per harness, so one phase covers both halves and the run says which it exercised:
+# Keycloak advertises the endpoint, Dex does not. The ticket is spent by the first navigation and
+# refused by the second, and a navigation with neither ticket nor session is refused. The redirect is
+# asked whether it carries the access token or an api_key, which is the form the ticket replaces.
+#
+# The switch is turned on for this phase and back off after it, because a login made while it is off
+# captures nothing for the redeem to send. A relogin-only pass writes no setup state, so the phase is
+# skipped there rather than flipping a switch on a server it is meant to observe.
+# --------------------------------------------------------------------------------------------------
+log "== Single Logout: the one-time logout ticket (#1768) =="
+SSO_PLUGIN_ID="505ce9d1-d916-42fa-86ca-673ef241d7df"
+# slo_switch true|false - flips the global Single Logout switch through the plugin configuration
+# endpoint, the same route the Server page saves it by.
+slo_switch() {
+  s_cfg="$(curl -fsS "$JELLYFIN/Plugins/$SSO_PLUGIN_ID/Configuration" \
+    -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"")" || return 1
+  s_cfg="$(printf '%s' "$s_cfg" | jq --argjson on "$1" '.EnableSingleLogout = $on')" || return 1
+  curl -fsS -o /dev/null -X POST "$JELLYFIN/Plugins/$SSO_PLUGIN_ID/Configuration" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: MediaBrowser Token=\"$ADMIN_TOKEN\"" \
+    -d "$s_cfg"
+}
+if [ "$RELOGIN_ONLY" = "true" ]; then
+  log "SKIPPED (relogin-only): the logout-ticket phase flips the Single Logout switch, which is setup state"
+elif ! slo_switch true; then
+  fail "ticket: could not turn Single Logout on through the plugin configuration endpoint"
+else
+  END_SESSION="$(printf '%s' "$DISCOVERY_DOC" | jq -r '.end_session_endpoint // empty' 2>/dev/null || true)"
+  if [ -n "$END_SESSION" ]; then
+    log "discovery advertises end_session_endpoint=$END_SESSION (the redirect must go there)"
+  else
+    log "discovery advertises no end_session_endpoint (the sign-out must return to this server)"
+  fi
+
+  # A fresh login for alice, made with the switch on so the id_token is captured; the sessions minted
+  # before this point captured nothing. Its own device id, so ending it ends nothing another phase holds.
+  slo_jar="$(mktemp)"; slo_hdr="$(mktemp)"
+  slo_cb="$(idp_oidc_login "$slo_jar" "$slo_hdr" alice "$PASSWORD_ALICE")" || die "ticket: alice's login with Single Logout on failed"
+  slo_binding="$(extract_binding "$slo_hdr")"
+  [ -n "$slo_binding" ] && [ -n "$slo_cb" ] || die "ticket: the login with Single Logout on produced no callback"
+  slo_page="$(curl -fsS -H "Cookie: $BINDING_COOKIE_NAME=$slo_binding" "$slo_cb")" || die "ticket: the callback did not return the auth page"
+  slo_state="$(printf '%s' "$slo_page" | grep -oE 'var data = "[^"]*"' | head -1 | sed -e 's/^var data = "//' -e 's/"$//')"
+  [ -n "$slo_state" ] || die "ticket: could not extract the state token from the auth page"
+  slo_auth="$(curl -fsS -H "Cookie: $BINDING_COOKIE_NAME=$slo_binding" -X POST "$JELLYFIN/sso/OID/Auth/$PROVIDER" \
+    -H "Content-Type: application/json" \
+    -d "{\"deviceId\":\"$DEVICE_ID-slo\",\"appName\":\"Jellyfin Web\",\"appVersion\":\"10.8.0\",\"deviceName\":\"$DEVICE\",\"data\":\"$slo_state\"}")" || die "ticket: OID/Auth failed for the login with Single Logout on"
+  SLO_TOKEN="$(printf '%s' "$slo_auth" | jq -r '.AccessToken // empty')"
+  [ -n "$SLO_TOKEN" ] || die "ticket: the login with Single Logout on minted no session token"
+
+  # The mint: an authenticated POST, the way the page asks. The ticket is not the token it replaces.
+  MINT_STATUS="$(curl -sS -o /tmp/mint.out -w '%{http_code}' -X POST "$JELLYFIN/sso/OID/logout-ticket/$PROVIDER" \
+    -H "Authorization: MediaBrowser Token=\"$SLO_TOKEN\"" 2>/dev/null || true)"
+  [ -n "$MINT_STATUS" ] || MINT_STATUS="000"
+  TICKET="$(jq -r '.ticket // empty' /tmp/mint.out 2>/dev/null || true)"
+  if [ "$MINT_STATUS" = "200" ] && [ -n "$TICKET" ] && [ "$TICKET" != "$SLO_TOKEN" ]; then
+    pass "ticket: POST OID/logout-ticket minted a ticket, and it is not the access token"
+  else
+    fail "ticket: the mint answered HTTP $MINT_STATUS with body '$(cat /tmp/mint.out 2>/dev/null)'"
+  fi
+
+  # The navigation the page makes: the ticket and nothing else, no header, no api_key. Read the status
+  # and the Location rather than following it - the answer of this route is the subject.
+  REDEEM="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$JELLYFIN/sso/OID/logout/$PROVIDER?ticket=$TICKET" 2>/dev/null || true)"
+  REDEEM_STATUS="${REDEEM%% *}"; REDEEM_TO="${REDEEM#* }"
+  [ -n "$REDEEM_STATUS" ] || REDEEM_STATUS="000"
+  if [ "$REDEEM_STATUS" != "302" ]; then
+    fail "ticket: the ticket-bearing navigation answered HTTP $REDEEM_STATUS, not 302 (Location '$REDEEM_TO')"
+  elif [ -n "$END_SESSION" ]; then
+    case "$REDEEM_TO" in
+      "$END_SESSION"\?*id_token_hint=*) pass "ticket: the browser is sent to the provider's end_session_endpoint with an id_token_hint" ;;
+      *) fail "ticket: expected a redirect to $END_SESSION carrying an id_token_hint, got '$REDEEM_TO'" ;;
+    esac
+  else
+    case "$REDEEM_TO" in
+      "$JELLYFIN"/|"$JELLYFIN") pass "ticket: no end_session_endpoint, so the browser returns to this server ($REDEEM_TO)" ;;
+      *) fail "ticket: expected a local-only return to $JELLYFIN/, got '$REDEEM_TO'" ;;
+    esac
+  fi
+  case "$REDEEM_TO" in
+    *api_key=*|*"$SLO_TOKEN"*) fail "ticket: the redirect carries the access token or an api_key: '$REDEEM_TO'" ;;
+    *) pass "ticket: neither the access token nor an api_key appears in the redirect" ;;
+  esac
+
+  # The session the ticket was minted from is the one that ended.
+  ME_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$JELLYFIN/Users/Me" \
+    -H "Authorization: MediaBrowser Token=\"$SLO_TOKEN\"" 2>/dev/null || true)"
+  if [ "$ME_STATUS" = "401" ]; then
+    pass "ticket: the session the ticket was minted from is ended (GET /Users/Me answers 401)"
+  else
+    fail "ticket: the session the ticket was minted from still answers GET /Users/Me with HTTP $ME_STATUS"
+  fi
+
+  # Spent once: the same navigation again is refused, and so is one carrying nothing at all. Pinned to
+  # the route's own 401 for the same reason the replay checks above pin their 400.
+  REPLAY_TICKET="$(curl -sS -o /dev/null -w '%{http_code}' "$JELLYFIN/sso/OID/logout/$PROVIDER?ticket=$TICKET" 2>/dev/null || true)"
+  if [ "$REPLAY_TICKET" = "401" ]; then
+    pass "ticket: a second navigation with the same ticket is refused (HTTP 401, one-time-use holds)"
+  else
+    fail "ticket: a second navigation with the same ticket answered HTTP ${REPLAY_TICKET:-000}, not 401"
+  fi
+  BARE="$(curl -sS -o /dev/null -w '%{http_code}' "$JELLYFIN/sso/OID/logout/$PROVIDER" 2>/dev/null || true)"
+  if [ "$BARE" = "401" ]; then
+    pass "ticket: a navigation with neither ticket nor session is refused (HTTP 401)"
+  else
+    fail "ticket: a navigation with neither ticket nor session answered HTTP ${BARE:-000}, not 401"
+  fi
+
+  slo_switch false || fail "ticket: could not turn Single Logout back off"
+fi
+
 # jf_auth_status USERNAME PASSWORD -> the HTTP status of a password login attempt. Uses the same
 # X-Emby-Authorization idiom as the admin authenticate in phase 1; -o keeps the body out of the way.
 jf_auth_status() {
