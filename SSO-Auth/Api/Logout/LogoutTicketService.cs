@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
@@ -24,6 +25,26 @@ internal sealed class LogoutTicketService
     // arrives as a second request.
     private static readonly LogoutTicketStore Tickets = new();
 
+    /// <summary>
+    /// How many refusal lines the logout route's credential-less arms may write per
+    /// <see cref="RefusalLineInterval"/> (#1792). Enough that an operator reading a handful of refusals
+    /// sees each of them, and small enough that a flood past it costs one line per interval rather than
+    /// one per request. The limiter's own notice is one line per minute; this keeps the first few
+    /// individual lines and then behaves the same way.
+    /// </summary>
+    internal const int MaxRefusalLinesPerInterval = 10;
+
+    /// <summary>The interval the refusal-line budget is counted over; the limiter's notice interval.</summary>
+    internal static readonly TimeSpan RefusalLineInterval = TimeSpan.FromMinutes(1);
+
+    // The ceiling on the audit lines the logout route's credential-less refusals write (#1792). One budget
+    // for the whole process rather than per source, because the flood this bounds arrives through a proxy
+    // whose peer the limiter does not bucket, so its source is not attributable; and here rather than in
+    // the controller, which keeps no mutable static state of its own. Reassigned by ResetForTests so a
+    // row's lines are its own. Declared after the two values it reads, which is the order a static
+    // initializer runs in.
+    private static IntervalBudget _refusalLines = new(MaxRefusalLinesPerInterval, RefusalLineInterval);
+
     private readonly ILogger _logger;
 
     /// <summary>
@@ -37,6 +58,19 @@ internal sealed class LogoutTicketService
 
     /// <summary>Gets the live entry count of the process-wide store. Test-only, like ResetForTests and SeedForTests.</summary>
     internal static int OutstandingForTests => Tickets.Count;
+
+    /// <summary>
+    /// Reports whether a credential-less refusal on the logout route may write its audit line now, and
+    /// how many such lines were not written since the budget last reopened, so the caller can record that
+    /// count once in their place. The bound holds with the rate limiter off and with a peer it does not
+    /// bucket, which is the stock install; the limiter in front of it is the finer instrument where it is
+    /// on, and this is the floor under it.
+    /// </summary>
+    /// <param name="nowUtc">The current UTC time.</param>
+    /// <param name="notRecorded">How many refusals went unrecorded before this one reopened the budget; zero otherwise.</param>
+    /// <returns>True when the line may be written.</returns>
+    internal static bool AdmitRefusalLine(DateTime nowUtc, out long notRecorded) =>
+        _refusalLines.TryEnter(nowUtc, out notRecorded);
 
     /// <summary>
     /// Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot,
@@ -164,7 +198,11 @@ internal sealed class LogoutTicketService
     /// calling this belongs in the <c>SSOController</c> collection, because the state it resets is shared
     /// across the whole assembly.
     /// </summary>
-    internal static void ResetForTests() => Tickets.Clear();
+    internal static void ResetForTests()
+    {
+        Tickets.Clear();
+        _refusalLines = new IntervalBudget(MaxRefusalLinesPerInterval, RefusalLineInterval);
+    }
 
     /// <summary>Test-only: seeds a ticket straight into the process-wide store, bypassing the mint endpoint.</summary>
     /// <param name="ticket">The ticket to store under its own token.</param>
