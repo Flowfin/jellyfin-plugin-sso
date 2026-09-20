@@ -624,9 +624,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   the pinned Jellyfin version, that a present token which resolves to nothing
   is returned as an authorization with no user rather than thrown, so the
   expired `api_key` case meets the same throttled, audited refusal as a request
-  with no token. What is still open on that issue is whether these refusals
-  should draw on a budget class of their own rather than the shared `logout`
-  class.
+  with no token. The two refusals also draw on a rate-limit class of their own
+  now, `logout-refusal`, rather than the shared `logout` class: while they
+  shared it, a flood of guesses from one public address spent that address's
+  budget for the inbound SAML logout and for the ticket mint as well, so the
+  people behind the same address were answered `429` on a sign-out. The class
+  shows up as its own `class` label on the throttle counter.
 - **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
   `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
   different causes, and three of them are permanent for the request that met

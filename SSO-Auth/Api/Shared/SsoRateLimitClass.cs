@@ -43,18 +43,33 @@ internal static class SsoRateLimitClass
 
     /// <summary>
     /// The logout surfaces a caller reaches without a session: the inbound SAML <c>LogoutRequest</c>
-    /// endpoint (#727, SLO-3b), the inbound OpenID back-channel logout (#962), and the refusal arms of the
-    /// RP-initiated OpenID logout (#1768). The SESSION-bearing form of that last route is not rate-limited
-    /// and neither is its SAML twin, because throttling a caller who already holds a session risks leaving
-    /// that session live under throttle; a request that has proved nothing when it arrives is what belongs
-    /// in this budget. THE ONE SESSION-BEARING MEMBER IS THE LOGOUT-TICKET MINT, on the decision of #1796:
-    /// a mint ends nothing and a refused mint leaves nothing live, so the reason that keeps the sign-outs
-    /// out of this budget does not reach it, and it draws on the class of the route its tickets are spent
-    /// at. No claim is made that this sentence is the whole membership - which endpoints charge
-    /// this class is read from the call sites, and the rate-limit conformance rules are what keep that set
-    /// accounted for.
+    /// endpoint (#727, SLO-3b), the inbound OpenID back-channel logout (#962), and the refusal of a
+    /// ticket-named account on the RP-initiated OpenID logout (#1793). The SESSION-bearing form of that last
+    /// route is not rate-limited and neither is its SAML twin, because throttling a caller who already holds
+    /// a session risks leaving that session live under throttle; a request that has proved nothing when it
+    /// arrives is what belongs in this budget. THE ONE SESSION-BEARING MEMBER IS THE LOGOUT-TICKET MINT, on
+    /// the decision of #1796: a mint ends nothing and a refused mint leaves nothing live, so the reason that
+    /// keeps the sign-outs out of this budget does not reach it, and it draws on the class of the route its
+    /// tickets are spent at. THE TWO CREDENTIAL-LESS REFUSAL ARMS OF THAT ROUTE LEFT THIS CLASS FOR
+    /// <see cref="LogoutRefusal"/> on the decision of #1792. No claim is made that this sentence is the
+    /// whole membership - which endpoints charge this class is read from the call sites, and the rate-limit
+    /// conformance rules are what keep that set accounted for.
     /// </summary>
     internal const string Logout = "logout";
+
+    /// <summary>
+    /// The two credential-less refusal arms of the RP-initiated OpenID logout: a ticket that cannot be
+    /// redeemed, and a request carrying neither a ticket nor a session (#1768). A class of their own on the
+    /// decision of #1792 rather than a share of <see cref="Logout"/>'s: they are the one surface on that
+    /// route a caller reaches with nothing in hand, and while they shared the class a credential-less flood
+    /// from one public address spent that address's budget for the inbound SAML <c>LogoutRequest</c> and
+    /// for the logout-ticket mint as well, answering 429 on a security action to the people behind the
+    /// same peer who were signing out and leaving their sessions live. On its own class the flood stays
+    /// where it started, for the cost of one value and one more bucket per address. What the class does
+    /// not reach is a stock install, where the limiter is off and makes no bucket for a non-public peer;
+    /// there the line budget on the same two arms is the bound, and it holds on either class.
+    /// </summary>
+    internal const string LogoutRefusal = "logout-refusal";
 
     /// <summary>
     /// The elevation-gated per-subject link export (#1091). Its own budget rather than a share of

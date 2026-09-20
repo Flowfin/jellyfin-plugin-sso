@@ -201,11 +201,15 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   spent ticket and a guessed one are already told apart where the ticket is
   spent, and a per-mint line would be writable at request rate by any signed-in
   account on an endpoint whose rate bound is off on a stock install.
-  The ticket-bearing form charges the Logout rate-limit class on a **failed**
-  redeem - never on a successful one, so a legitimate sign-out is never
-  throttled; the credential-less form charges it too, before it audits. The
-  charge is made **after** the redeem has been evaluated, so what the limiter
-  bounds is the answer and the audit line rather than the guessing or the work.
+  The ticket-bearing form charges a rate-limit class on a **failed** redeem -
+  never on a successful one, so a legitimate sign-out is never throttled; the
+  credential-less form charges it too, before it audits. That class belongs to
+  these two refusals alone and is not the Logout class the inbound logout
+  endpoints and the ticket mint draw on, so a flood of guesses from one address
+  spends nothing of the budget the people behind that address need to sign out.
+  The charge is made **after** the redeem has been evaluated, so what the
+  limiter bounds is the answer and the audit line rather than the guessing or
+  the work.
   Read all of that as a floor and not as a guarantee: the
   limiter is **off unless `EnableRateLimit` is set** (it is unset on a fresh
   install), and it deliberately creates no bucket for a non-public source, so
