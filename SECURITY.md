@@ -200,7 +200,7 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   token never reach it. The mint records nothing on issuance, deliberately: a
   spent ticket and a guessed one are already told apart where the ticket is
   spent, and a per-mint line would be writable at request rate by any signed-in
-  account on an endpoint that is deliberately not throttled.
+  account on an endpoint whose rate bound is off on a stock install.
   The ticket-bearing form charges the Logout rate-limit class on a **failed**
   redeem - never on a successful one, so a legitimate sign-out is never
   throttled; the credential-less form charges it too, before it audits. The
@@ -218,8 +218,12 @@ off, both the RP-initiated OIDC logout route and the inbound SAML
   held **in memory and never in
   the plugin configuration**, bounded globally and **per account** at a
   hundredth of the global cap, so no single signed-in user can refuse everybody
-  else a sign-out - a hundred accounts holding their full share can, and the
-  mint is deliberately not rate-limited. The `api_key`
+  else a sign-out - a hundred accounts holding their full share can. The mint
+  charges the Logout rate-limit class too, after its authorization check, so
+  where the limiter is on a client in a loop is answered `429` before it has
+  filled its own share; that bound is defence in depth under the same two
+  conditions as every other charge here, and on a stock install the per-account
+  share is the only thing standing between a loop and a full store. The `api_key`
   form still works for a client that cannot mint **where it carries a user's own
   access token**; a Jellyfin server API key names no user and is refused here,
   which a bare `[Authorize]` used to admit.

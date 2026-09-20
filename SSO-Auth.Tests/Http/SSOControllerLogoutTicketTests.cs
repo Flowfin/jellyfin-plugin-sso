@@ -259,8 +259,8 @@ public class SSOControllerLogoutTicketTests
         //
         // 401 AND NOT 503, WHICH IS WHAT THIS ROW ASSERTED UNTIL #1796. 503 is the status that tells a
         // client to come back, and an access token that is empty now is empty on the retry as well: the one
-        // caller who could never succeed was the one being told to keep asking, at an endpoint that is
-        // deliberately unthrottled, so each ask costs a configuration read and a store sweep. The status
+        // caller who could never succeed was the one being told to keep asking, at an endpoint that carried
+        // no rate bound then, so each ask cost a configuration read and a store sweep. The status
         // matches the one the gate above this already answers for the neighbouring session shapes.
         var harness = ForCaller(token: null, userId: Caller);
 
@@ -301,6 +301,48 @@ public class SSOControllerLogoutTicketTests
         // read. The literal is the controller's and is not repeated here, which would be one more copy to
         // drift; what the row holds is that the arm still carries one.
         Assert.False(string.IsNullOrWhiteSpace(Assert.IsType<string>(refusal.Value)));
+    }
+
+    [Fact]
+    public async Task AMintLoopFromOnePublicAddress_IsThrottled_BeforeItsShareFills()
+    {
+        // The decision on #1796: the mint carries a rate bound in the Logout class, so a client in a loop is
+        // answered 429 before it has filled its own share with tickets nobody redeems and locked its own
+        // sign-out for the rest of the minute. A genuinely PUBLIC address, for the reason the redeem rows
+        // give: the limiter makes no bucket for a non-public source, and a fixture using one would pass
+        // vacuously on a route that gated nothing. The budget here is three, far below the share, so the
+        // answer that closes the loop is the throttle's and not the store's.
+        var harness = ForCaller(CallerToken, Caller, clientIp: System.Net.IPAddress.Parse("8.8.4.79"), rateLimit: true);
+        var share = PerClientBudgetLimiter.FromGlobalCap(LogoutTicketStore.DefaultMaxEntries).PerKeyCap;
+
+        for (var i = 0; i < 3; i++)
+        {
+            MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        }
+
+        var throttled = Assert.IsType<ContentResult>(await harness.Controller.OidLogoutTicket("kc"));
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled.StatusCode);
+        Assert.True(3 < share, "the fixture's budget is not below the share, so this row cannot tell the throttle's answer from the store's");
+    }
+
+    [Fact]
+    public async Task WhereThePeerIsNotAttributable_TheShareIsStillTheBound()
+    {
+        // The other half of the same decision: the occupancy bound stays the hard limit behind the rate
+        // bound. With the limiter on but the peer non-public it makes no bucket, which is its structural
+        // mass-lockout defence, and what stands then is the store's own share - the state a stock install is
+        // in on every request, since the limiter is off there. So the loop runs the whole share through
+        // without a 429 and meets the 503 at the end of it, and never the throttle.
+        var harness = ForCaller(CallerToken, Caller, clientIp: System.Net.IPAddress.Loopback, rateLimit: true);
+        var share = PerClientBudgetLimiter.FromGlobalCap(LogoutTicketStore.DefaultMaxEntries).PerKeyCap;
+
+        for (var i = 0; i < share; i++)
+        {
+            MintedTicket(await harness.Controller.OidLogoutTicket("kc"));
+        }
+
+        var refusal = Assert.IsType<ObjectResult>(await harness.Controller.OidLogoutTicket("kc"));
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);
     }
 
     [Fact]
@@ -600,8 +642,8 @@ public class SSOControllerLogoutTicketTests
     {
         // Decided rather than forgotten (#1795), and pinned so the decision cannot drift either way unargued.
         // The distinction a mint line would buy - spent tickets from guesses - is already drawn where a
-        // ticket is spent, and this endpoint is authenticated and unthrottled, so a per-mint line would be
-        // writable at request rate by any signed-in account. The reason is written at the endpoint.
+        // ticket is spent, and this endpoint's rate bound is off on a stock install, so there a per-mint line
+        // would be writable at request rate by any signed-in account. The reason is written at the endpoint.
         var harness = ForCaller(CallerToken, Caller);
 
         MintedTicket(await harness.Controller.OidLogoutTicket("kc"));

@@ -47,7 +47,10 @@ internal static class SsoRateLimitClass
     /// RP-initiated OpenID logout (#1768). The SESSION-bearing form of that last route is not rate-limited
     /// and neither is its SAML twin, because throttling a caller who already holds a session risks leaving
     /// that session live under throttle; a request that has proved nothing when it arrives is what belongs
-    /// in this budget. No claim is made that this sentence is the whole membership - which endpoints charge
+    /// in this budget. THE ONE SESSION-BEARING MEMBER IS THE LOGOUT-TICKET MINT, on the decision of #1796:
+    /// a mint ends nothing and a refused mint leaves nothing live, so the reason that keeps the sign-outs
+    /// out of this budget does not reach it, and it draws on the class of the route its tickets are spent
+    /// at. No claim is made that this sentence is the whole membership - which endpoints charge
     /// this class is read from the call sites, and the rate-limit conformance rules are what keep that set
     /// accounted for.
     /// </summary>

@@ -41,7 +41,8 @@ internal sealed class LogoutTicketStore
     // AUTHENTICATED and the lifetime is a minute. WHAT REACHING IT ACTUALLY TAKES is worth stating exactly,
     // because an earlier sentence here said "tens of thousands of signed-in users" and that is out by the
     // share divisor: the per-account sub-cap is a hundredth of this number, so a hundred accounts holding
-    // their full share fill the store, and the mint is deliberately unthrottled. That is the bound to argue
+    // their full share fill the store, and the mint's rate bound is off on a stock install (#1796), so
+    // nothing but this share stands in the way there. That is the bound to argue
     // with - not the ten thousand - and what it costs when it is reached is the ticket form of sign-out for
     // everybody until the next sweep, while the local Jellyfin sign-out is untouched.
     // At the cap a fresh ticket is refused rather than an outstanding one evicted - evicting would break a
@@ -160,8 +161,8 @@ internal sealed class LogoutTicketStore
         // mean opposite things - one account is out of its share, against every account is out of luck -
         // and they shared one throttle until it was measured: an ordinary account hitting its own share
         // consumed the gate, so the genuine global exhaustion that followed arrived with no signal at all,
-        // while the log carried a sentence asserting a capacity state the store was not in. The mint is
-        // deliberately unthrottled, so one account can hold a shared gate closed indefinitely.
+        // while the log carried a sentence asserting a capacity state the store was not in. The mint's rate
+        // bound is off on a stock install, so there one account can hold a shared gate closed indefinitely.
         if (!_perUser.TryReserve(UserKey(ticket.UserId)))
         {
             refusal = _accountWarnGate.TryEnter(ticket.Created) ? MintRefusal.AccountShare : MintRefusal.AccountShareQuiet;
