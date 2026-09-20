@@ -40,7 +40,134 @@ const ssoConfigLinking = {
       banner.hidden = false;
     }
   },
+
+  // Every "Sign out everywhere" control drawn on this page (#1768), so a refusal that applies to all of
+  // them - Single Logout is off on this server, which is one global switch - can take all of them away
+  // without walking the tree. Emptied when the page loads its providers.
+  signOutButtons: [],
+
+  // Draws the control beside a provider the holder has signed in with (#1768). Offered only where the
+  // holder holds a link on an OpenID provider: a link is what an SSO login leaves behind, so it is the
+  // one fact this page has about which provider's session might be worth ending, and the SAML route
+  // has a sign-out of its own. Whether Single Logout is on is a fact the page cannot read; the mint
+  // answers 404 where it is off, and the press below says so then.
+  offerSignOut: (container, provider_name) => {
+    const row = container.querySelector(
+      `.sso-provider-links-container[data-id="${CSS.escape(provider_name)}"]`,
+    );
+    if (!row) {
+      return;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.add("raised", "emby-button", "sso-provider-sign-out");
+    button.dataset.provider = provider_name;
+    const icon = document.createElement("span");
+    icon.classList.add("material-icons", "logout");
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = t(
+      "link.sign_out_everywhere",
+      undefined,
+      "Sign out everywhere",
+    );
+    button.append(icon, label);
+    // The button is bound in the closure rather than read off the event: in a browser the click lands
+    // on the label span as often as on the button, and `evt.target` would then be the span.
+    button.addEventListener("click", () =>
+      ssoConfigLinking.handleSignOutPressed(button, provider_name),
+    );
+    row.appendChild(button);
+    ssoConfigLinking.signOutButtons.push(button);
+  },
+
+  stopOfferingSignOut: () => {
+    ssoConfigLinking.signOutButtons.forEach((button) => {
+      button.disabled = true;
+    });
+  },
+
+  // The whole surface of #1768: ask the server for a one-time ticket over the API client, which carries
+  // the session in a header, then navigate with the ticket and nothing else. The route that ends the
+  // session and sends the browser on to the identity provider is reached by a top-level navigation,
+  // which cannot carry a header, and the only other thing that could name the caller there is the
+  // access token in the URL - the form this control exists to retire. So the ticket is minted first
+  // and the navigation is built from what the server answered, never from what the client holds.
+  //
+  // ONE PRESS, ONE TICKET. The control is taken away the moment it is pressed and given back only on a
+  // refusal that leaves the holder something to do: every mint is an entry in the holder's own bounded
+  // share, and a second press while the first is in flight would spend one for nothing.
+  //
+  // THE REFUSALS ARE TOLD APART BY STATUS, and each is a sentence rather than the generic banner, because
+  // the generic banner says the page can no longer be trusted as shown and that is not what happened:
+  // the server understood the request and declined it, the links on screen are still true. A 404 is the
+  // one the stock install answers - Single Logout is off - and it is global, so every control goes. A
+  // 503 or a 429 clears by waiting, so the control stays. Anything else, including an answer with no
+  // ticket in it, is a failed press and says so; nothing navigates to the bare route, which would only
+  // refuse the navigation and read to the holder as a broken sign-out.
+  handleSignOutPressed: (button, provider_name) => {
+    if (button.disabled) {
+      return Promise.resolve();
+    }
+    button.disabled = true;
+
+    return ApiClient.fetch({
+      type: "POST",
+      url: ApiClient.getUrl(
+        `sso/OID/logout-ticket/${encodeURIComponent(provider_name)}`,
+      ),
+    })
+      .then((resp) => resp.json())
+      .then((body) => {
+        const ticket =
+          body && typeof body.ticket === "string" ? body.ticket : "";
+        if (ticket === "") {
+          return Promise.reject({ status: 0 });
+        }
+        window.location.assign(
+          ApiClient.getUrl(
+            `sso/OID/logout/${encodeURIComponent(provider_name)}`,
+            { ticket },
+          ),
+        );
+        return undefined;
+      })
+      .catch((rejection) => {
+        const status =
+          rejection && typeof rejection.status === "number"
+            ? rejection.status
+            : 0;
+        if (status === 404) {
+          ssoConfigLinking.stopOfferingSignOut();
+          ssoConfigLinking.showRefusal(
+            t(
+              "link.sign_out_unavailable",
+              undefined,
+              "Single Logout is not turned on for this server, so the identity provider cannot be asked to end its session from here. Use Jellyfin's own Sign out to end this session.",
+            ),
+          );
+          return;
+        }
+
+        button.disabled = false;
+        ssoConfigLinking.showRefusal(
+          status === 503 || status === 429
+            ? t(
+                "link.sign_out_busy",
+                undefined,
+                "The server is not issuing sign-out tickets right now. Try again in a minute. Jellyfin's own Sign out still ends this session.",
+              )
+            : t(
+                "link.sign_out_failed",
+                undefined,
+                "Signing out everywhere did not start: the server did not issue a sign-out ticket. Reload the page and try again, or use Jellyfin's own Sign out.",
+              ),
+        );
+      });
+  },
   loadProviders: (view) => {
+    ssoConfigLinking.signOutButtons = [];
     ["oid", "saml"].forEach((provider_mode) => {
       const container = view.querySelector(
         `#sso-provider-list-${provider_mode}`,
@@ -141,6 +268,13 @@ const ssoConfigLinking = {
               provider_name,
               provider_map[provider_name],
             );
+
+            if (
+              provider_mode === "oid" &&
+              provider_map[provider_name].length > 0
+            ) {
+              ssoConfigLinking.offerSignOut(container, provider_name);
+            }
           });
           ssoConfigLinking.maybeShowSectionEmptyState(container, provider_mode);
         })

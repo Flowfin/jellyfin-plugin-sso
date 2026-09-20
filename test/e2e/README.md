@@ -130,6 +130,14 @@ through the plugin's `RoleClaimIsObjectMap` option (#934).
 - **Fail-closed negatives**: a replayed one-time OIDC state, and a replayed one-time SAML login-outcome
   token, are both refused - and, like the role gate, with the redeem miss's **exact HTTP 400**, so a
   connection failure, a throttle or a 500 cannot masquerade as "one-time-use holds".
+- **The one-time logout ticket** (#1768): with Single Logout turned on for the phase, a fresh `alice`
+  login asks `POST /sso/OID/logout-ticket/<provider>` for a ticket, and a navigation carrying that ticket
+  and no credential ends exactly that session and is redirected - to the provider's `end_session_endpoint`
+  with an `id_token_hint` where the discovery document advertises one (Keycloak), or back to this server
+  where it does not (Dex); which of the two is expected is read from the discovery document rather than
+  configured per harness. The redirect is refused if it carries the access token or an `api_key`, the
+  same ticket presented again is refused with the route's **exact HTTP 401**, and so is a navigation
+  carrying neither ticket nor session. Skipped on a relogin-only pass, because the switch is setup state.
 
 ## Pairwise co-existence (#1247)
 

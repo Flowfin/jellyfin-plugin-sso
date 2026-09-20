@@ -126,6 +126,18 @@ jobs:
       # recording ApiClient and both catalogues, and refuses each by name. Same runtime and same absence
       # of dependencies as the steps above.
       run: node tools/ui-self-service-unlink.js
+    - name: The sign-out-everywhere control
+      # The one control on the self-service page that ends a session rather than a link (#1768). It exists
+      # so that the RP-initiated logout is reached with one press and WITHOUT the access token in a URL,
+      # and whether it keeps that promise is decided at press time: the route it navigates to is built
+      # from what the server answered, so a page that fell back to the token when the mint failed,
+      # navigated before the ticket arrived, or minted twice for one press reads identically to a rule
+      # over the source. This drives the shipped linking.js against a recording ApiClient whose access
+      # token is a known sentinel, presses the control, and refuses a navigation carrying that sentinel
+      # or an api_key, a navigation with no ticket, a second mint in flight, and a refusal shown as the
+      # generic banner - against both catalogues. Same runtime and same absence of dependencies as the
+      # steps above.
+      run: node tools/ui-sign-out-everywhere.js
     - name: The Test Connection verdict
       # The verdict of a Test Connection is built on the other side of an HTTP call, so no scan of the
       # bundle can see it, and the sentence stayed English on a German dashboard while every localization
