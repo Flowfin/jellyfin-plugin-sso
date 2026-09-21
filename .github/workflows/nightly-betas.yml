@@ -12,9 +12,12 @@ name: Nightly betas
 #
 # THE JF12 REF IS THE DEVELOPMENT BRANCH (#1585). While the JF12 leg pointed at the frozen `main` it
 # published the same code every night with a rising build number while the work sat unreleased, so
-# it builds from the branch the 5.0 line is developed on. If that branch is ever renamed, the `--ref`
+# it builds from the branch the work is developed on. If that branch is ever renamed, the `--ref`
 # below is the one line that has to follow it. It was renamed from `4.4` to `5.0` on 2026-09-09 and
-# this line followed one merge too late (#1592).
+# this line followed one merge too late (#1592). On 2026-09-21 the 5.0 line shipped
+# `5.0.0-JF12-stable` and the ref moved to `5.1` (#1729), the line that carries the work from here;
+# a beta built from `5.0` after its stable would sit above the stable on the beta channel for a line
+# that only takes fixes forward on `5.1`.
 #
 # Each dispatched workflow has its own gate job that skips the build unless its ref has advanced since
 # that lineage's last beta, so an unchanged day mints nothing.
@@ -41,18 +44,18 @@ jobs:
     permissions:
       actions: write
     steps:
-      - name: Trigger the JF12 beta (the 5.0 development branch)
+      - name: Trigger the JF12 beta (the 5.1 development branch)
         # The job fails if the dispatch fails, and "Publish failure alert" watches this workflow, so the
         # failure is surfaced (#982). The `if:` below dates from when a JF10.11 step ran first and this
         # one had to run whether or not that one failed; with one step it changes nothing and is kept.
         #
         # The ref is the development branch rather than `main`, for the reason in the header. The
         # first run after this lands publishes: that leg's gate compares its ref's HEAD to the commit
-        # the newest 5.0.0-JF12-beta tag points at, they differ, and the gate's fail-open default is
-        # to build. That is the same shape as the #954 move off the 4.2 branch, which its own comment
-        # records.
+        # the newest 5.1.0-JF12-beta tag points at, there is none yet, and the gate's fail-open default
+        # is to build. That is the same shape as the #954 move off the 4.2 branch, which its own
+        # comment records.
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref 5.0
+        run: gh workflow run publish-jf12-beta.yml --repo "$REPO" --ref 5.1
