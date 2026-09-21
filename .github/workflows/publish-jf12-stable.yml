@@ -41,8 +41,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # THE PACKAGE IS BUILT BY THE REUSABLE build.yml, WITH PROVENANCE (#1833). Until that change this leg
+  # built inline and attested nothing, so 5.0.0-JF12-stable shipped with no attestation while SECURITY.md
+  # told a reader to verify one. Calling build.yml is what makes the recorded builder a reusable workflow
+  # (SLSA Build L3), and it keeps the signing scopes away from both the SBOM tool, which runs in
+  # build.yml's own sbom job, and the write grant, which only `publish` below holds. The caller contract
+  # in build.yml's header is why this job grants id-token and attestations write. The inline job also ran
+  # a `dotnet build --warnaserror` of the whole solution; JPRM compiles the plugin under the same
+  # Directory.Build.props, which sets TreatWarningsAsErrors and, on Actions, RestoreLockedMode, and the
+  # test, bench and fuzz projects are compiled by the pull-request CI rather than here.
   build:
-    name: Build & publish JF12 stable
+    name: Build the JF12 stable package
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/build.yml
+    with:
+      dotnet-version: "10.0.x"
+      dotnet-target: "net10.0"
+      attest: true
+
+  publish:
+    name: Publish JF12 stable
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Creates the GitHub release and updates the manifest branch, so it opts into write access.
@@ -50,43 +72,38 @@ jobs:
       contents: write
 
     steps:
+    # THE CHECKOUT COMES FIRST AND THE ORDER IS LOAD-BEARING: actions/checkout cleans the workspace, so a
+    # checkout after the downloads would delete what they fetched. The tree is here only so the two local
+    # actions below resolve.
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+    # The zip, JPRM's `*.zip.meta.json`, build.yaml and the provenance bundle `<zip>.intoto.jsonl`.
+    # The stable plugin version IS build.yaml's committed version and must equal the pushed tag's numeric
+    # prefix (5.0.0 <-> 5.0.0-JF12-stable); bump build.yaml per change class before tagging.
+    - name: Download the package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        # One SDK: the package is net10.0 and nothing else is built.
-        # No NuGet cache: this job publishes with contents:write, so a poisoned cache could reach the
-        # artifact; the --locked-mode restore re-downloads against the committed lockfile.
-        dotnet-version: 10.0.x
-    - name: Restore dependencies
-      run: dotnet restore --locked-mode
-    - name: Build Dotnet
-      run: dotnet build --no-restore --warnaserror
-    - name: "JPRM: Build"
-      # No explicit version input: JPRM reads the version from build.yaml, exactly as build.yml does.
-      # The stable plugin version IS build.yaml's committed version and must equal the pushed tag's
-      # numeric prefix (5.0.0 <-> 5.0.0-JF12-stable); bump build.yaml per change class before tagging.
-      uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
+        name: build-artifact
+        path: _dist
+    # CycloneDX SBOM of the net10 shipping closure, generated in build.yml's isolated sbom job.
+    - name: Download the SBOM
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        verbosity: debug
-        path: .
-        dotnet-target: "net10.0"
-        output: _dist
-    # CycloneDX SBOM of the net10 shipping closure, into the release staging dir so
-    # the checksum loop and `files: _dist/*` ship it as a release asset. Reads the
-    # --locked-mode restore above; the same single generator publish.yml uses.
-    - name: Generate CycloneDX SBOM
-      uses: ./.github/actions/cyclonedx-sbom
+        name: sbom-artifact
+        path: _dist
+    # The committed OpenVEX document (#1092/#1093).
+    - name: Download the VEX
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        output-dir: _dist
+        name: vex-artifact
+        path: _dist
     - name: Prepare GitHub Release assets
       run: |-
-        # The committed OpenVEX document joins the SBOM in the staging dir - see the same
-        # note in publish-beta.yml (#1092/#1093).
-        cp security/vex/openvex.json _dist/openvex.json
         pushd _dist
+        # A release without its provenance bundle is the defect #1833 repaired, so its absence reds
+        # here rather than publishing without it.
+        ls ./*.zip.intoto.jsonl
         # ONLY the plugin zip gets a `.md5` - see the same note in publish-beta.yml. The
         # manifest generator keeps the LAST asset ending in `.md5`, so a second one
         # sorting after the plugin's becomes the published checksum and every install
@@ -106,8 +123,9 @@ jobs:
       # Full stable release in ONE shot (prerelease: false), matching publish.yml - no draft flow. The
       # git TAG is the pushed X.Y.Z-JF12-stable; the release NAME is that same tag. build.yaml ships as
       # an asset so the SHARED manifest-release reads THIS release's version and targetAbi (12.0.0.0)
-      # from the release rather than from whatever the tree holds later. fail_on_unmatched_files stays
-      # true so a missing build asset fails the run rather than publishing an empty release.
+      # from the release rather than from whatever the tree holds later; build.yml stages it into the
+      # package, so it arrives under `_dist/*` and is not listed a second time. fail_on_unmatched_files
+      # stays true so a missing build asset fails the run rather than publishing an empty release.
       uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
           name: ${{ github.ref_name }}
@@ -123,7 +141,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: |
             _dist/*
-            build.yaml
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish Plugin Manifest

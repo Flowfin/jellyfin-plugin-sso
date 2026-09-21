@@ -18,6 +18,11 @@ on:
         default: false
         description: "Emit a signed SLSA build-provenance attestation for the built artifact. Release-only; leave false for CI/PR builds."
         type: boolean
+      version:
+        required: false
+        default: ""
+        description: "Plugin version to build instead of build.yaml's. Empty builds build.yaml's version unchanged."
+        type: string
 
 # Deny-all at the workflow level; the build job opts into the scopes it needs. The
 # plain build only reads; the provenance attestation step (opt-in via `attest`)
@@ -33,9 +38,11 @@ on:
 # contents:read and startup_failed the whole run.) The scopes are NOT "capped away"
 # for non-attesting callers - they are a hard prerequisite to start. Callers that
 # must keep granting contents:read + id-token:write + attestations:write:
-#   - .github/workflows/dotnet.yml   (CI Package job; leaves attest false)
-# The 10.11 stable leg, publish.yml, was the one caller with attest: true; it stays on `main` with the
-# 4.3 line (#1770), and no leg on this branch attests yet - publish-jf12-stable.yml never did.
+#   - .github/workflows/dotnet.yml              (CI Package job; leaves attest false)
+#   - .github/workflows/publish-jf12-stable.yml (attest: true)
+#   - .github/workflows/publish-jf12-beta.yml   (attest: true, with the beta's version)
+# Until #1833 neither 5.x publish leg called this workflow: both built inline, so every 5.x release up
+# to that change shipped checksums and an SBOM and no provenance.
 permissions: {}
 
 jobs:
@@ -59,11 +66,36 @@ jobs:
         with:
           dotnet-version: "${{ inputs.dotnet-version }}"
 
+      # A caller that builds under a version of its own (the JF12 beta's X.Y.Z.<run>) gets it written
+      # into build.yaml as well as handed to JPRM, so the build.yaml staged below is the one this
+      # build ran against. The manifest generator reads targetAbi and version from that asset.
+      # JPRM splices its `version` input into a shell command, so only a dotted number gets that far.
+      - name: Check the requested version
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! printf '%s' "$VERSION" | grep -qxE '[0-9]+(\.[0-9]+){2,3}'; then
+            echo "::error::version '${VERSION}' is not a three- or four-part dotted number"; exit 1
+          fi
+
+      - name: Set the requested version in build.yaml
+        if: ${{ inputs.version != '' }}
+        uses: fjogeleit/yaml-update-action@dffe9a5223d84653c13374032382f6bb5de8e5ef # v0.17.0
+        with:
+          valueFile: "build.yaml"
+          propertyPath: "version"
+          value: ${{ inputs.version }}
+          commitChange: false
+          updateFile: true
+
       - name: Build Jellyfin Plugin
         uses: oddstr13/jellyfin-plugin-repository-manager@9497a0a499416cc572ed2e07a391d9f943a37b4d # v1.1.1
         id: jprm
         with:
           dotnet-target: "${{ inputs.dotnet-target }}"
+          # Empty is JPRM's own default, which reads build.yaml.
+          version: "${{ inputs.version }}"
 
       # SLSA v1.1 Build L3 provenance for the plugin zip. Running the attestation
       # inside this reusable workflow is what lifts the provenance from Build L2 to
@@ -74,10 +106,29 @@ jobs:
       # `build-artifact` preserves them), so a downloaded release zip verifies with:
       #   gh attestation verify <plugin>.zip --repo Flowfin/jellyfin-plugin-sso
       - name: Attest build provenance
+        id: attest
         if: ${{ inputs.attest }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "${{ steps.jprm.outputs.artifact }}"
+
+      # The attestation lives in the platform's attestation store, where `gh attestation verify`
+      # finds it. A checker that reads release assets only (Scorecard's Signed-Releases) does not
+      # look there, so the same bundle also ships as an asset beside the zip (#1833). The name
+      # ends in neither `.zip` nor `.md5`, which the manifest generator selects its assets by.
+      - name: Stage the provenance bundle and build.yaml beside the zip
+        id: stage
+        env:
+          ARTIFACT: ${{ steps.jprm.outputs.artifact }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          dir="$(dirname "$ARTIFACT")"
+          cp build.yaml "${dir}/build.yaml"
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
+          if [ -n "$BUNDLE" ]; then
+            cp "$BUNDLE" "${ARTIFACT}.intoto.jsonl"
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
@@ -85,13 +136,20 @@ jobs:
           name: build-artifact
           retention-days: 30
           if-no-files-found: error
+          # A re-run of every job in a publish run builds again under the same run id, where
+          # uploading a name the run already holds would be a conflict.
+          overwrite: true
           # The zip AND the metadata JPRM writes beside it. The manifest generator reads that
           # metadata (version, targetAbi and the plugin-level fields) as JSON rather than
           # parsing build.yaml, because the runner image ships jq but NOT yq - verified against
-          # the runner-images tool list rather than assumed.
+          # the runner-images tool list rather than assumed. build.yaml rides along because each
+          # release ships its own, and the bundle is there only when `attest` produced one: a
+          # listed path that matches no file adds nothing to the artifact.
           path: |
             ${{ steps.jprm.outputs.artifact }}
             ${{ steps.jprm.outputs.artifact }}.meta.json
+            ${{ steps.jprm.outputs.artifact }}.intoto.jsonl
+            ${{ steps.stage.outputs.dir }}/build.yaml
 
   # The CycloneDX SBOM runs in its OWN release-only job, DELIBERATELY WITHOUT the
   # signing scopes the build job holds. The SBOM generator installs a NuGet global
@@ -136,6 +194,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
         with:
           name: sbom-artifact
+          overwrite: true
           retention-days: 30
           if-no-files-found: error
           path: ${{ steps.sbom.outputs.sbom-path }}
@@ -151,6 +210,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
         with:
           name: vex-artifact
+          overwrite: true
           retention-days: 30
           if-no-files-found: error
           path: security/vex/openvex.json
