@@ -120,6 +120,25 @@ integrity is covered by the SLSA attestation and the checksum sidecars above.
 
 For how these controls together cover what an automated PR reviewer would catch - and the one accepted residual - see [Review Gate](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate). The plugin's [OpenSSF Best Practices](https://www.bestpractices.dev/projects/13660) passing level reflects the same controls. For the authentication surface mapped to OWASP ASVS 5.0 and the OAuth 2.0 Security BCP (RFC 9700) - Met / Partial / N-A with source citations and honestly-recorded residuals - see the [Security Conformance self-assessment](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Conformance).
 
+### Branch protection, and what is deliberately not required
+
+`main`, `5.0` and `5.1` are covered by one ruleset. Deletion and force-push are
+blocked, the rules bind administrators as well, a change arrives only as a pull
+request, commits are signed, twelve status checks must pass, and since
+2026-09-21 a pull request must be brought to the tip of its base before it
+merges, so the checks that pass describe the tree that lands.
+
+Three rules OpenSSF Scorecard asks for are deliberately not enabled: a required
+approving review, a code-owner review, and approval of the last push. GitHub
+does not let anyone approve their own pull request, and one person works on this
+repository, so any of the three would stop every merge, a security fix included.
+Requiring them would not harden the repository; it would close it. The gap they
+leave is the same one the [Review Gate](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate)
+page describes and the checks above are there to cover, and it is the reason the
+Scorecard branch-protection score does not reach its top tier. If a second
+person ever reviews here regularly, the three become cheap and should be turned
+on.
+
 ## Single Logout security posture
 
 Single Logout (SLO) propagates a sign-out between the identity provider and
