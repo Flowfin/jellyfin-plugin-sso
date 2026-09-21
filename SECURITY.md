@@ -56,15 +56,24 @@ Every stable release asset ships with an `.md5` and a `.sha256` sidecar per
 plugin `.zip`; the `.md5` is the checksum the Jellyfin manifest uses to validate
 the download, and it is unchanged.
 
-In addition, each stable release zip carries a **signed SLSA build-provenance
-attestation** (SLSA v1.1, Build L3 - the package build runs in a reusable GitHub
-Actions workflow, which is what raises the provenance from L2 to L3). After
-downloading a release zip you can verify it was produced by this repository's
-release pipeline and has not been tampered with:
+In addition, each release zip published after #1833, stable and beta, carries a
+**signed SLSA build-provenance attestation** (SLSA v1.1, Build L3 - the package
+build runs in a reusable GitHub Actions workflow, which is what raises the
+provenance from L2 to L3). After downloading such a zip you can verify it was
+produced by this repository's release pipeline and has not been tampered with:
 
 ```sh
 gh attestation verify <plugin>.zip --repo Flowfin/jellyfin-plugin-sso
 ```
+
+The same bundle also ships as a release asset, `<plugin>.zip.intoto.jsonl`, for
+tools that read release assets rather than the attestation store.
+
+The 5.x releases published before #1833, `5.0.0-JF12-stable` and the JF12 betas,
+have checksums and an SBOM and no provenance, because neither 5.x publish leg
+attested until then. They are not attested after the fact: an attestation made
+later would claim the pipeline produced a build it did not. `4.3.0-stable`, the
+last 10.11 release, does carry one.
 
 The provenance attestation complements the checksum sidecars - it does not
 replace the manifest MD5.
@@ -98,7 +107,7 @@ The build is **deterministic**: `Directory.Build.props` sets `Deterministic` and
 (in CI) `ContinuousIntegrationBuild`, and the dependency graph is pinned by
 committed `packages.lock.json` files restored in locked mode. Together with the
 pinned .NET SDK, an independent party can rebuild the plugin assembly from the
-tagged source and compare it against the shipped, SLSA-attested binary:
+tagged source and compare it against the shipped binary:
 
 ```sh
 # from a clean checkout of the release tag, in the pinned SDK:
@@ -110,7 +119,8 @@ Honest caveat: **the compiled `SSO-Auth.dll` is reproducible; the release `.zip`
 is not byte-identical** - the JPRM packaging step embeds build timestamps and
 ordering into the archive. Reproducibility is therefore verified at the
 **assembly** level (the code that runs), not the archive wrapper; the archive's
-integrity is covered by the SLSA attestation and the checksum sidecars above.
+integrity is covered by the checksum sidecars and, where the release carries one,
+the SLSA attestation above.
 
 ## Repository security controls
 
