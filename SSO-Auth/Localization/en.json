@@ -315,7 +315,7 @@
   "config.server_slo_help": "Off by default. When on, each successful login stores the per-session state a logout needs, and two logout surfaces become active: the RP-initiated OpenID logout route (which ends the linked Jellyfin session and can redirect the browser on to the identity provider's end-session endpoint) and the inbound SAML LogoutRequest endpoint (which ends the Jellyfin session matched by the request). While off, no per-session logout state is captured and both surfaces reject; local Jellyfin logout is unaffected either way. Set each OpenID provider's optional post-logout redirect URL in its editor below.",
   "config.about_note_label": "Note:",
   "config.about_section": "About this plugin",
-  "config.about_maturity": "This plug-in is at the Release Candidate stage of its maturity ladder (In-Development → Alpha → Beta → Release Candidate → Full Release); not all configuration options are exposed in the UI yet.",
+  "config.about_maturity": "This plug-in is at the Full Release stage of its maturity ladder (In-Development → Alpha → Beta → Release Candidate → Full Release); not all configuration options are exposed in the UI yet.",
   "config.about_link_help": "help page",
   "config.about_link_config_as_code": "config as code",
   "config.about_link_roadmap": "roadmap",
