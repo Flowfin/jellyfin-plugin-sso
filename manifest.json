@@ -6,8 +6,16 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "Flowfin",
+    "owner": "iderex",
     "versions": [
+      {
+        "changelog": "## What's Changed\n* Promote the 5.0 line to its first stable release [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1815\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/5.0.0-JF12-beta.88...5.0.0-JF12-stable",
+        "checksum": "efd27f4288a70824e0b21db80b2e353f",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-stable/community-sso-for-jellyfin_5.0.0.0.zip",
+        "targetAbi": "12.0.0.0",
+        "timestamp": "2026-09-21T10:49:34Z",
+        "version": "5.0.0.0"
+      },
       {
         "changelog": "The first stable release of the 4.3 line, and the last release for Jellyfin 10.11. The full list of what changed is the `4.3.0` section of `CHANGELOG.md`.\n\n**Not verified for this release, by decision.** The two native-client items of the release QA checklist, Quick Connect round trips on Android and Android TV, were not exercised (decided on #1511 on 2026-09-04). The manual end-to-end QA checklist against a real Jellyfin 10.11 server was not walked either (decided on #1511 on 2026-09-15, because work on the Jellyfin 10.11 line ends with this release). What stands in for it: the seven-provider login harness and the pairwise co-existence phase ran against this exact commit before it was published, and every one of them passed.\n\n## What's Changed\n* Tag plugin assets by a digest of the build, not the file version [#1707] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1719\n* Promote the 4.3 line to its first stable release [#1511] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1748\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.61...4.3.0-stable",
         "checksum": "91e3ad6c5b63a5d6bce531b88ae0fce3",
