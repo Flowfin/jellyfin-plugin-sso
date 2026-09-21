@@ -79,7 +79,7 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 2. Go to **Dashboard → Plugins → Catalog**, find **Community SSO for Jellyfin**, and install it.
 3. **Restart Jellyfin.**
 
-This project publishes to a **stable channel** (`manifest-release`; the current stable is `5.0.0` for Jellyfin 12 and `4.3.0` for 10.11) and a **beta channel** (`manifest-beta`, every build as it lands). The plugin GUID is unchanged from the original `9p4` plugin, so it installs over an existing one in place and keeps your configuration. Build-from-source, the release channels, and migrating from the old `9p4` manifest are covered on the [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) wiki page; which clients can complete an SSO sign-in, and by which mechanism, is on [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
+It installs over the original `9p4` plugin in place and keeps your configuration. Building from source, the channels, migrating from the old manifest and which clients can sign in are on the wiki: [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) and [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
 
 ## Configuration
 
