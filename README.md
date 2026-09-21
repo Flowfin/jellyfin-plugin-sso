@@ -62,7 +62,15 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 
 > **This is an independent plugin repository** - it is not in Jellyfin's built-in catalog. You install it by adding **its** repository under **Plugins → Repositories**.
 
-1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add this repository URL (one URL serves both generations - a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.0):
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add the repository URL of the channel you want. Each URL serves both generations: a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.0.
+
+   **Stable** - releases promoted after their soak; the channel for a server with real accounts:
+
+   ```
+   https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-release/manifest.json
+   ```
+
+   **Beta** - every build as it lands, ahead of the stable; for testing and for reporting back:
 
    ```
    https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json
@@ -71,7 +79,7 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 2. Go to **Dashboard → Plugins → Catalog**, find **Community SSO for Jellyfin**, and install it.
 3. **Restart Jellyfin.**
 
-This project publishes only to the **beta channel** for now - a stable channel opens with the first stable release. The plugin GUID is unchanged from the original `9p4` plugin, so it installs over an existing one in place and keeps your configuration. Build-from-source, the release channels, and migrating from the old `9p4` manifest are covered on the [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) wiki page; which clients can complete an SSO sign-in, and by which mechanism, is on [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
+This project publishes to a **stable channel** (`manifest-release`; the current stable is `5.0.0` for Jellyfin 12 and `4.3.0` for 10.11) and a **beta channel** (`manifest-beta`, every build as it lands). The plugin GUID is unchanged from the original `9p4` plugin, so it installs over an existing one in place and keeps your configuration. Build-from-source, the release channels, and migrating from the old `9p4` manifest are covered on the [Installation](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Installation) wiki page; which clients can complete an SSO sign-in, and by which mechanism, is on [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
 
 ## Configuration
 
