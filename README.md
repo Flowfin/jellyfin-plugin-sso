@@ -10,10 +10,13 @@
 <img alt="GPL 3.0 License" src="https://img.shields.io/github/license/Flowfin/jellyfin-plugin-sso.svg"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
-<img alt="Latest release for Jellyfin 10.11" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=4.*&label=release%20(Jellyfin%2010.11)"/>
+<img alt="Last release for Jellyfin 10.11" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&filter=4.*&label=last%20release%20(Jellyfin%2010.11)"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
-<img alt="Latest release for Jellyfin 12" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=5.*&label=release%20(Jellyfin%2012)"/>
+<img alt="Stable release for Jellyfin 12" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&filter=5.*&label=stable%20(Jellyfin%2012)"/>
+</a>
+<a href="https://github.com/Flowfin/jellyfin-plugin-sso/releases">
+<img alt="Beta release for Jellyfin 12" src="https://img.shields.io/github/v/release/Flowfin/jellyfin-plugin-sso?display_name=tag&include_prereleases&filter=5.*-JF12-beta.*&label=beta%20(Jellyfin%2012)"/>
 </a>
 <a href="https://github.com/Flowfin/jellyfin-plugin-sso/actions/workflows/dotnet.yml">
 <img alt="Build Status" src="https://github.com/Flowfin/jellyfin-plugin-sso/actions/workflows/dotnet.yml/badge.svg"/>
@@ -35,11 +38,11 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 
 > ### 🔁 Revival
 >
-> This is a security-first revival of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), which its original author has since archived. It continues from the last upstream release (**4.0.0.x**) and now supports **both Jellyfin 10.11 (.NET 9) and Jellyfin 12.0 (.NET 10)** - one repository URL serves the matching build to each. Huge thanks to the original author and contributors for the foundation.
+> A security-first continuation of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), archived by its author, carried on from **4.0.0.x**. **5.x** is the line for Jellyfin 12 (.NET 10); **4.3.0** was the last build for Jellyfin 10.11 (.NET 9) and is frozen. One repository URL serves both, and your server installs the build that runs on it. Thanks to the original author and contributors for the foundation.
 >
 > ### 🤝 AI-assisted, human-owned
 >
-> Development here is **AI-assisted - the AI only _supports_ the work, it never takes it over.** Claude (Anthropic) assists with individual **process steps**: it helps me generate and analyse code, helps me run the adversarial security reviews, and translates documentation and comments into English. **The coding work stays mine - for every one of those parts the AI only assists, and each step it produces is a proposal, never finished, unreviewed work.** I review, understand, edit where needed, and sign off on every one - the AI proposes, I decide, and **a human stays responsible for every line that ships, at all times.** Nothing lands because a tool suggested it; it lands because I wrote or verified it.
+> Claude (Anthropic) works here like a trainee: useful when it works, and just as capable of nonsense as any junior developer. It drafts code, runs the adversarial security reviews, and translates documentation and comments into English. Nothing it produces ships unread - I review, edit and sign off every line, and the responsibility is mine.
 
 ## Features
 
