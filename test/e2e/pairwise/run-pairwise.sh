@@ -21,6 +21,11 @@
 #   JELLYFIN_IMAGE_TAG  the server image tag; defaults per generation
 #   PAIRWISE_OWNER      the account whose plugin repositories are the sibling set (default Flowfin)
 #   PAIRWISE_SELF       this repository's name, excluded from the sibling set
+#   GH_TOKEN            the credential gh lists and downloads with. WHAT IT CAN SEE IS WHAT THIS RUN PAIRS
+#                       AGAINST: the sibling repositories are private since 2026-09-19 (#1773), so a
+#                       token scoped to this repository sees no sibling, and the run then says so, in
+#                       the log and the step summary, and ends green having paired nothing. A token that
+#                       can read the family is the switch that makes it pair again; nothing else changes.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -93,12 +98,32 @@ esac
 # Derive the sibling set
 # ---------------------------------------------------------------------------------------------------
 log "== Deriving the sibling set from $OWNER =="
-SIBLINGS="$(gh api "orgs/$OWNER/repos?per_page=100" --paginate \
-  --jq '.[] | select(.archived == false) | .name' \
-  | grep '^jellyfin-plugin-' | grep -vx "$SELF" | sort)" || die "could not list $OWNER's repositories"
-[ -n "$SIBLINGS" ] || die "no sibling plugin repository was found under $OWNER - the derivation is broken, not the family"
-log "Sibling repositories considered:"
-printf '%s\n' "$SIBLINGS" | sed 's/^/  /'
+# The call and its answer are two different things and they fail differently. A listing that fails AS A
+# CALL - no network, a refused token, an owner that does not exist - is FATAL, as it always was: nothing
+# can be said about the family from a call that did not answer. A listing that ANSWERS and holds no
+# sibling is not an error of this script and is not treated as one. Since 2026-09-19 the sibling
+# repositories are private, so the repository-scoped token a workflow run carries sees this repository
+# and nothing beside it, and under that token an empty sibling set is the true answer (#1773). It is
+# reported below as exactly that, with the count the token could see and the reason, so a green run
+# can never be read as co-existence evidence it does not carry. Until #1773 the filter ran inside the
+# same pipeline as the call, so an answered listing with nothing left after the filter died with the
+# same FATAL as a call that never answered, and the beta publish this job gates stopped on a fact about
+# visibility rather than about any pair.
+VISIBLE="$(gh api "orgs/$OWNER/repos?per_page=100" --paginate \
+  --jq '.[] | select(.archived == false) | .name')" || die "could not list $OWNER's repositories"
+VISIBLE_COUNT="$(printf '%s\n' "$VISIBLE" | grep -c . || true)"
+SIBLINGS="$(printf '%s\n' "$VISIBLE" | grep '^jellyfin-plugin-' | grep -vx "$SELF" | sort || true)"
+NO_PAIR_REASON=""
+if [ -n "$SIBLINGS" ]; then
+  log "Repositories visible to the token in use: $VISIBLE_COUNT"
+  log "Sibling repositories considered:"
+  printf '%s\n' "$SIBLINGS" | sed 's/^/  /'
+else
+  NO_PAIR_REASON="the listing answered with $VISIBLE_COUNT repositor$([ "$VISIBLE_COUNT" = 1 ] && printf 'y' || printf 'ies') visible to the token in use and no sibling plugin repository among them. The sibling repositories are private since 2026-09-19 (#1773), and a token that can read them is the switch that makes this phase pair again."
+  log "No sibling is visible: $NO_PAIR_REASON"
+  log "Repositories the token could see:"
+  if [ -n "$VISIBLE" ]; then printf '%s\n' "$VISIBLE" | sed 's/^/  /'; else log "  (none)"; fi
+fi
 
 # ---------------------------------------------------------------------------------------------------
 # Helpers
@@ -410,17 +435,25 @@ while IFS= read -r repo; do
   fi
 
   tag="$(printf '%s' "$release" | jq -r '.tag_name')"
-  zip_url="$(printf '%s' "$release" | jq -r '[.assets[] | select((.name | endswith(".zip")) and ((.name | endswith(".zip.meta.json")) | not))] | .[0].browser_download_url // empty')"
-  if [ -z "$zip_url" ]; then
+  zip_asset="$(printf '%s' "$release" | jq -c '[.assets[] | select((.name | endswith(".zip")) and ((.name | endswith(".zip.meta.json")) | not))] | .[0] // empty')"
+  if [ -z "$zip_asset" ]; then
     SKIPPED=$((SKIPPED + 1))
     note "  SKIPPED $repo - release $tag carries no plugin zip asset"
     log "SKIP $repo: release $tag carries no plugin zip asset"
     continue
   fi
 
-  zip_name="$(basename "$zip_url")"
+  # The bytes come through the release-asset API under the same credential that listed the sibling,
+  # rather than from the asset's browser_download_url with no credential at all. The two agree on a
+  # public repository and disagree on a private one, where the download URL answers 404 to anybody
+  # who is not signed in - so a token able to LIST the private siblings would have found every one of
+  # them undownloadable, and the switch #1773 makes of that token would have switched nothing.
+  zip_name="$(printf '%s' "$zip_asset" | jq -r '.name')"
+  zip_id="$(printf '%s' "$zip_asset" | jq -r '.id')"
   zip_path="$WORK/$zip_name"
-  curl -fsSL -o "$zip_path" "$zip_url" || { SKIPPED=$((SKIPPED + 1)); note "  SKIPPED $repo - the release asset could not be downloaded"; log "SKIP $repo: could not download $zip_url"; continue; }
+  if ! gh api -H "Accept: application/octet-stream" "repos/$OWNER/$repo/releases/assets/$zip_id" >"$zip_path" || [ ! -s "$zip_path" ]; then
+    SKIPPED=$((SKIPPED + 1)); note "  SKIPPED $repo - the release asset could not be downloaded"; log "SKIP $repo: could not download asset $zip_id ($zip_name) of release $tag"; continue
+  fi
 
   # Verify the artefact against the release's own sha256 sidecar where it publishes one. This is not a
   # supply-chain guarantee - the sidecar travels with the file it describes - but it does refuse a
@@ -430,9 +463,9 @@ while IFS= read -r repo; do
   # stripping the suffix. Written the other way round first, this looked for a file no release publishes
   # and reported every artefact as unverified while saying so out loud - which is how it was caught.
   sha_name="${zip_name%.zip}.sha256"
-  sha_url="$(printf '%s' "$release" | jq -r --arg n "$sha_name" '[.assets[] | select(.name == $n)] | .[0].browser_download_url // empty')"
-  if [ -n "$sha_url" ]; then
-    curl -fsSL -o "$zip_path.sha256" "$sha_url" || true
+  sha_id="$(printf '%s' "$release" | jq -r --arg n "$sha_name" '[.assets[] | select(.name == $n)] | .[0].id // empty')"
+  if [ -n "$sha_id" ]; then
+    gh api -H "Accept: application/octet-stream" "repos/$OWNER/$repo/releases/assets/$sha_id" >"$zip_path.sha256" || true
     if [ -s "$zip_path.sha256" ]; then
       expected="$(tr -d '\r' <"$zip_path.sha256" | awk '{print $1}' | head -1)"
       actual="$(sha256sum "$zip_path" | awk '{print $1}')"
@@ -490,11 +523,32 @@ EOF
 log ""
 log "===================================================================================="
 log "Pairwise co-existence, $GENERATION (jellyfin:$JELLYFIN_IMAGE_TAG)"
+log "  repositories visible to the token in use: $VISIBLE_COUNT"
 log "  siblings considered: $CONSIDERED"
 log "  pairs run:           $RAN"
 log "  siblings skipped:    $SKIPPED"
 log "  failing assertions:  $FAILED"
 printf '%s' "$SUMMARY"
+if [ -n "$NO_PAIR_REASON" ]; then
+  # Said three times on purpose, because each place has a different reader: the job log for whoever
+  # opens the run, the annotation for the run's summary page, and the step summary for whoever reads
+  # the publish that called this job. A green conclusion is what lets the beta publish proceed; these
+  # lines are what keep that green from being read as a checked pair.
+  log ""
+  log "NO PAIR WAS CHECKED. This run packaged the artefact and read its identity, and installed it beside"
+  log "nothing. Its green is not co-existence evidence. Why: $NO_PAIR_REASON"
+  printf '::notice title=Pairwise co-existence checked no pair::%s\n' "$NO_PAIR_REASON"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      printf '## Pairwise co-existence: no pair was checked\n\n'
+      printf -- '- repositories visible to the token in use: %s\n' "$VISIBLE_COUNT"
+      printf -- '- sibling plugin repositories among them: 0\n'
+      printf -- '- pairs run: 0\n'
+      printf -- '- why: %s\n' "$NO_PAIR_REASON"
+      printf -- '- what this green is: the artefact packaged and its identity read, installed beside nothing. It is not co-existence evidence.\n'
+    } >>"$GITHUB_STEP_SUMMARY"
+  fi
+fi
 log ""
 log "WHAT THIS RUN DOES NOT COVER: a green set of pairs is not a green family. Three plugins that each"
 log "pair cleanly can still collide with all three installed, and nothing here would see it. That is"

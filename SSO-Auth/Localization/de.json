@@ -315,7 +315,7 @@
   "config.server_slo_help": "Standardmäßig aus. Eingeschaltet legt jede erfolgreiche Anmeldung den Sitzungszustand ab, den eine Abmeldung braucht, und zwei Abmeldewege werden aktiv: die vom Dienst ausgelöste OpenID-Abmeldung (die die verknüpfte Jellyfin-Sitzung beendet und den Browser an den Abmeldeendpunkt des Identitätsanbieters weiterleiten kann) und der eingehende SAML-LogoutRequest-Endpunkt (der die von der Anfrage benannte Jellyfin-Sitzung beendet). Ausgeschaltet wird kein Sitzungszustand erfasst und beide Wege weisen ab; die örtliche Jellyfin-Abmeldung bleibt in beiden Fällen unberührt. Die freiwillige Rückleitungsadresse nach der Abmeldung setzen Sie je OpenID-Anbieter in dessen Editor weiter unten.",
   "config.about_note_label": "Hinweis:",
   "config.about_section": "Über dieses Plugin",
-  "config.about_maturity": "Dieses Plugin steht auf der Reifestufe Release Candidate seiner Reifeleiter (In-Development → Alpha → Beta → Release Candidate → Full Release); noch nicht jede Konfigurationsoption ist in der Oberfläche zugänglich.",
+  "config.about_maturity": "Dieses Plugin steht auf der Reifestufe Full Release seiner Reifeleiter (In-Development → Alpha → Beta → Release Candidate → Full Release); noch nicht jede Konfigurationsoption ist in der Oberfläche zugänglich.",
   "config.about_link_help": "Hilfeseite",
   "config.about_link_config_as_code": "Konfiguration als Code",
   "config.about_link_roadmap": "Fahrplan",

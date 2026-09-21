@@ -7,7 +7,28 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
-## Unreleased
+## 5.0.0
+
+A feature release, and the first stable release of the Jellyfin 12 line. It
+advances the plugin's maturity to **Full Release** on the back of the rebuilt
+settings pages, named provisioning profiles, the account-link roster and its
+self-service page, sign-in counters, providers declared in environment
+variables, a translated dashboard, and the self-lockout guards that keep an
+administrator and an SSO-only account from stranding themselves.
+
+**Not verified for this release, by decision.** Two items of the release QA
+checklist were not walked on the candidate: reverse-proxy forwarded-header
+attribution, and an upgrade from an older build over the top of an existing
+install (decided on #1729 on 2026-09-16). The native-client round trips were
+walked on iPhone and Apple TV, with the official app and with Swiftfin each,
+and not on the Android pair the checklist names. The pairwise co-existence
+phase of the provider matrix checked no pair, because the sibling repositories
+it pairs with have been private since 2026-09-19 (#1773), so its green
+conclusion is not co-existence evidence and the run says so. What was
+verified: the seven-provider matrix against a Jellyfin 12.0 server in the
+candidate's own publish run, the canonical provider against a 12.1 server on
+the published package, and seven days of the candidate as the newest beta of
+the line with no release-blocking defect reported.
 
 ### Added
 

@@ -6,9 +6,13 @@ name: Publish JF12 Stable
 # [0-9]+.[0-9]+.[0-9]+-stable glob deliberately does NOT match -JF12-stable, so the two stable legs never
 # cross-fire. Like the JF11 stable tag, this tag is GATED ON MY EXPLICIT GO (guard-git.ps1) and pushed by hand.
 #
-# DORMANT until Jellyfin 12.0 reaches GA: no X.Y.Z-JF12-stable tag is pushed until a real 12.0 stable
-# server exists, so this workflow does not run before then - but the pipeline is ready so the 5.0 line can
-# cut a stable release the day 12.0 ships. Until GA, JF12 users are served by the beta channel (#605).
+# THE DORMANCY THIS HEADER CARRIED IS OVER (#1729). Until 2026-09-22 it said no X.Y.Z-JF12-stable tag is
+# pushed before a real 12.0 stable server exists. Jellyfin 12.0 was published as a full release on
+# 2026-09-08 and 12.1 has been the upstream Latest since 2026-09-15, so the condition is met, and the
+# first tag of this leg is 5.0.0-JF12-stable: cut on the 5.0 line's frozen commit after the seven-day
+# soak that #1729 records, on a candidate walked on real hardware and run against both 12.0 and 12.1.
+# Until then JF12 users were served by the beta channel (#605); from here both channels carry the line,
+# and the stable one is what a 12.x server should be pointed at.
 #
 # The JF12 build METADATA (version 5.0.0, targetAbi 12.0.0.0, framework net10.0, the net10 shipping
 # closure) lives in build-jf12.yaml, copied over build.yaml before JPRM builds - the same swap as
@@ -18,10 +22,14 @@ name: Publish JF12 Stable
 # build.yaml, so Jellyfin filters client-side by targetAbi: a 12.0 server installs the 5.0 build, a 10.11
 # server the 4.x build, from one stable manifest - no separate JF12 stable manifest is needed.
 #
-# NO PROVIDER MATRIX HERE, DELIBERATELY, FOR THE SAME REASON AS publish.yml (#1464). The two beta legs
-# are gated on the seven-stack harness because they publish daily; both stable legs write the empty
-# `manifest-release` branch and have published nothing since #954, so a gate added here would be one no
-# run has ever started. It is wired in the change that cuts the first stable tag of this line.
+# THE PROVIDER MATRIX GATES THIS LEG, AND THE PROMISE IT REPLACES IS KEPT (#1464, #1729). Until
+# 2026-09-22 this header said no matrix ran here on purpose: the leg had published nothing since #954
+# retired the stable channel, and a gate no run had ever started would have been the defect #1462 was
+# about rather than a fix for it. It was to be wired in the change that cuts the first stable tag of
+# this line, and this is that change, the way #1748 wired publish.yml for the 10.11 line. The
+# seven-stack harness runs against the tagged commit before `build` starts, with `generation: jf12` so
+# it boots the server generation this leg ships for, the way publish-jf12-beta.yml runs it before a
+# beta, so a red provider publishes nothing and `manifest-release` stays as it was.
 on:
   push:
     tags:
@@ -41,8 +49,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Calling the harness as a job runs it INSIDE this run, at the tagged commit, with no credential to
+  # create. A called workflow can hold no more than the calling job grants it: e2e-login.yml denies
+  # everything at its top level and its jobs ask for `contents: read` to check out and build the
+  # plugin, so that is granted here and nothing else is - this job publishes nothing. `generation:
+  # jf12` is the whole of #1466 for this leg: without it the call takes e2e-login.yml's default,
+  # jf10.11, and the artifact this leg publishes would be the one stack the harness never booted. The
+  # pairwise token is passed by name and not inherited, as publish-jf12-beta.yml passes it (#1773):
+  # where the secret does not exist the pairwise job reports a run in which no pair was checked and
+  # ends green, so its conclusion alone is not co-existence evidence.
+  provider-matrix:
+    name: Provider matrix (net10.0 into a Jellyfin 12 server)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-login.yml
+    with:
+      providers: all
+      generation: jf12
+    secrets:
+      PAIRWISE_READ_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN }}
+
   build:
     name: Build & publish JF12 stable
+    needs: provider-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Creates the GitHub release and updates the manifest branch, so it opts into write access.
