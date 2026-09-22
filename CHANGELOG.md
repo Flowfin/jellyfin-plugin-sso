@@ -7,12 +7,18 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
-## 4.3.1
+## 4.3.2
 
 A bug-fix release for servers on Jellyfin 10.11. Two texts told a reader the wrong
 thing when a provider publishes an issuer that differs from the address its documents
 are served under. Nothing in the login changes, and the issuer check itself is exactly
 as strict as it was.
+
+**The number 4.3.1 was tagged and never published.** Its release run stopped in the
+provider matrix, at a harness leg that took an answered sibling listing with nothing
+left in it for a listing that had failed. The leg was corrected and the release was cut
+again under this number, because a tag that CI has already refused is left where it is
+rather than moved. The tag `4.3.1-stable` therefore exists with no release behind it.
 
 ### Fixed
 
