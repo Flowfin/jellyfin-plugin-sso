@@ -24,7 +24,14 @@ internal sealed record ProviderTestResult(bool Ok, string Key, IReadOnlyList<Pro
     /// <param name="key">The catalogue key of the failure verdict.</param>
     /// <returns>A failed result.</returns>
     internal static ProviderTestResult Failure(string key) =>
-        new(false, key, Array.Empty<ProviderTestFact>());
+        Failure(key, Array.Empty<ProviderTestFact>());
+
+    /// <summary>A failed probe whose verdict needs the values it names to be acted on (#1837).</summary>
+    /// <param name="key">The catalogue key of the failure verdict.</param>
+    /// <param name="facts">The non-secret fact lines the verdict refers to.</param>
+    /// <returns>A failed result.</returns>
+    internal static ProviderTestResult Failure(string key, IReadOnlyList<ProviderTestFact> facts) =>
+        new(false, key, facts);
 
     /// <summary>A passing probe carrying the non-secret facts the administrator can confirm the config against.</summary>
     /// <param name="key">The catalogue key of the success verdict.</param>

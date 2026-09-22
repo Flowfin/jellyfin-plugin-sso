@@ -24,6 +24,13 @@ internal readonly record struct OidcDiscoveryResult(DiscoveryFacts Facts, Provid
     /// <summary>Gets a value indicating whether the discovery document was read (the facts and metadata are usable).</summary>
     internal bool Available => ProviderInformation is not null;
 
+    /// <summary>
+    /// Gets the issuer the refused document published, set only on an <see cref="OidcDiscoveryRefusal.IssuerMismatch"/>
+    /// result (#1837). It is the provider's text, handed whole to the elevation-gated probe, whose page renders
+    /// it inert; the login path never reads it.
+    /// </summary>
+    internal string? PublishedIssuer { get; init; }
+
     /// <summary>Gets the failed-read result - no facts, no metadata, no named reason - on which the caller fails the login closed.</summary>
     internal static OidcDiscoveryResult Unavailable => default;
 
@@ -32,6 +39,12 @@ internal readonly record struct OidcDiscoveryResult(DiscoveryFacts Facts, Provid
     /// <returns>An unavailable result naming its reason.</returns>
     internal static OidcDiscoveryResult Refused(OidcDiscoveryRefusal refusal) =>
         Unavailable with { Refusal = refusal };
+
+    /// <summary>The failed read whose document published an issuer the configured endpoint refuses.</summary>
+    /// <param name="publishedIssuer">The issuer the document published.</param>
+    /// <returns>An unavailable result naming the mismatch and carrying the published issuer.</returns>
+    internal static OidcDiscoveryResult IssuerRefused(string publishedIssuer) =>
+        Refused(OidcDiscoveryRefusal.IssuerMismatch) with { PublishedIssuer = publishedIssuer };
 
     /// <summary>A successful read: the facts and the provider metadata, both from the one discovery response.</summary>
     /// <param name="facts">The facts parsed from the discovery document.</param>
