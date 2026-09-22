@@ -38,7 +38,7 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 
 > ### 🔁 Revival
 >
-> A security-first continuation of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), archived by its author, carried on from **4.0.0.x**. **5.x** is the line for Jellyfin 12 (.NET 10); **4.3.1** is the last build for Jellyfin 10.11 (.NET 9) and the line is frozen. One repository URL serves both, and your server installs the build that runs on it. Thanks to the original author and contributors for the foundation.
+> A security-first continuation of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), archived by its author, carried on from **4.0.0.x**. **5.x** is the line for Jellyfin 12 (.NET 10); **4.3.2** is the last build for Jellyfin 10.11 (.NET 9) and the line is frozen. One repository URL serves both, and your server installs the build that runs on it. Thanks to the original author and contributors for the foundation.
 >
 > ### 🤝 AI-assisted, human-owned
 >
@@ -65,7 +65,7 @@ The self-hostable providers run in an automated end-to-end login test in CI ([`e
 
 > **This is an independent plugin repository** - it is not in Jellyfin's built-in catalog. You install it by adding **its** repository under **Plugins → Repositories**.
 
-1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add the repository URL of the channel you want. Each URL serves both generations: a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.1.
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add the repository URL of the channel you want. Each URL serves both generations: a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.2.
 
    **Stable** - releases promoted after their soak; the channel for a server with real accounts:
 
