@@ -861,8 +861,15 @@
                               class="sso-help-body"
                               data-i18n="config.oidc_endpoint_help"
                             >
-                              The OpenID endpoint. Must have a .well-known path
-                              available.
+                              The provider's issuer, character for character as
+                              its discovery document publishes it. The plugin
+                              appends /.well-known/openid-configuration to this
+                              value, so a provider served from a subfolder or
+                              through a front controller such as index.php
+                              publishes an issuer carrying that segment, and the
+                              segment belongs here. To read the value, open the
+                              discovery document in a browser and copy its
+                              issuer.
                             </div>
                           </details>
                         </div>
