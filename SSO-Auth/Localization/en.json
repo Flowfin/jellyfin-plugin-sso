@@ -68,7 +68,7 @@
   "config.provider_enable_folder_roles_label": "Enable Role-Based Folder Access:",
   "config.provider_folder_role_mapping_label": "Folder Role Mapping:",
   "config.oidc_redirect_uri_label": "Redirect URI (register this at your provider):",
-  "config.oidc_endpoint_help": "The OpenID endpoint. Must have a .well-known path available.",
+  "config.oidc_endpoint_help": "The provider's issuer, character for character as its discovery document publishes it. The plugin appends /.well-known/openid-configuration to this value, so a provider served from a subfolder or through a front controller such as index.php publishes an issuer carrying that segment, and the segment belongs here. To read the value, open the discovery document in a browser and copy its issuer.",
   "config.oidc_secret_help": "The OpenID client secret. Randomly generated & shared. For security it is never sent back to this page: leave it blank to keep the stored value, or enter a new secret to replace it.",
   "config.oidc_post_logout_redirect_help": "The URL the identity provider returns the browser to after an RP-initiated OpenID logout, sent as post_logout_redirect_uri. Honoured only if it is an absolute http(s) URL at or under this server's base URL; an off-base or malformed value is rejected on save. Leave blank for no post-logout redirect. Only takes effect while the global \"Enable Single Logout\" option is on.",
   "config.oidc_disable_avatar_picture_claim_label": "Disable avatar from the OIDC picture claim",

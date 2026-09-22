@@ -612,6 +612,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
+- **The OpenID endpoint's help names the issuer (#1836).** It read "The OpenID
+  endpoint. Must have a .well-known path available.", which describes a base
+  address and invites the value an administrator hands other services. The
+  field is the issuer: the plugin appends the well-known path to it, so it has
+  to equal the issuer the discovery document publishes. The help now says so,
+  names the subfolder or front-controller shape that surprises people, and says
+  where to read the value. Both catalogues carry the new text.
+
 - **The credential-less refusals of the RP-initiated OpenID logout write a
   bounded number of audit lines, on any configuration (#1792).** When that
   route stopped carrying `[Authorize]` for the one-time ticket, a request with
