@@ -151,6 +151,16 @@ non-prerelease release, where its release carries no plugin zip, or where that z
 line (a 10.11-ABI plugin does not load on a 12.0 server, which is a fact about the two release lines
 rather than a collision). A skip never passes silently.
 
+**The listing needs a token that can read the family.** The sibling repositories are private since
+2026-09-19, so the workflow's own token sees this repository and nothing beside it. Under that token the
+phase does not die: it ends green and writes into the job log, an annotation and the step summary that
+**no pair was checked**, how many repositories the token could see, and why - so a green run is never
+read as co-existence evidence it does not carry. The repository secret `PAIRWISE_READ_TOKEN`, where it
+exists, is used for the listing and the artefact downloads instead, and the phase pairs again the day it
+is set, with no further change; `publish-jf12-beta.yml` passes it through to the called workflow by name.
+A listing that fails as a call - no network, a refused token - stays fatal
+([#1773](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1773)).
+
 Per pair, it asserts and **names what it compared**:
 
 - the server comes up and answers `GET /System/Info/Public` with both plugins installed, and its log
