@@ -906,6 +906,29 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A discovery document whose issuer the endpoint refuses is logged with both
+  values (#1835).** The fail-closed warning carried the identity library's text,
+  which quotes one of the two values and says neither which one it is nor which
+  of them belongs in the endpoint field; a provider installed in a subfolder,
+  such as Nextcloud publishing `.../nextcloud/index.php`, took a reader two
+  rounds to repair. Where the policy refused the published issuer, the warning
+  now names the configured endpoint and the published issuer on lines of their
+  own and says the field has to carry the published one exactly. The published
+  value is the provider's text and is stripped, substituted and bounded at the
+  call like the library's; every other failed read logs what it logged before.
+
+- **Test Connection reports an issuer mismatch as its own result, with both
+  values (#1837).** A document that was served and whose issuer the configured
+  endpoint refuses came back as "Could not read the OpenID discovery document",
+  with advice about reachability, the well-known path and HTTPS, none of which
+  was wrong. The probe now answers that the document was read, that its issuer
+  is not the configured endpoint and that every login on the provider is
+  refused, and lists the configured endpoint and the published issuer beside it.
+  It asks the administrator to confirm that the published issuer belongs to the
+  expected provider before putting it in the field. The reason comes from the
+  same policy comparison that writes the log entry of #1835, so the screen and
+  the log name one cause. Every other result is unchanged.
+
 - **An administrator refusal names the two ways to link that account (#1765).**
   An administrator account is never adopted by name, so a first SSO login cannot
   turn into administrator access, and turning `AllowExistingAccountLink` on does

@@ -29,6 +29,15 @@ internal static class ProviderTestKeys
     /// <summary>OpenID verdict: the discovery document could not be read, with no screened cause to name.</summary>
     internal const string OidcUnreadable = "test.oidc_unreadable";
 
+    /// <summary>OpenID verdict: the document was read and the issuer it publishes is not the configured endpoint (#1837).</summary>
+    internal const string OidcIssuerMismatch = "test.oidc_issuer_mismatch";
+
+    /// <summary>Fact with a value: the OpenID endpoint as configured.</summary>
+    internal const string ConfiguredEndpoint = "test.configured_endpoint";
+
+    /// <summary>Fact with a value: the issuer the discovery document published.</summary>
+    internal const string PublishedIssuer = "test.published_issuer";
+
     /// <summary>OpenID verdict: the discovery document was read under the login's policy.</summary>
     internal const string OidcDiscoveryRead = "test.oidc_discovery_read";
 

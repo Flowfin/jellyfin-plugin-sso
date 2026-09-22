@@ -3,6 +3,7 @@
 
 using System;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.Client;
@@ -142,13 +143,36 @@ internal static class OidcDiscoveryReader
                 // moving either into a helper takes the sanitizer out of the call the analyzer reads. The
                 // sanitizers run on the foreign text BEFORE the truncation marker is joined to it: the marker
                 // is this reader's own, and it opens with the bracket the substitution exists to remove (#1557).
-                var error = discovery.Error ?? string.Empty;
-                logger.LogWarning(
-                    "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
-                    provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                    string.Concat(
-                        error[..Math.Min(error.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
-                        error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
+                //
+                // An issuer the policy refused is named beside the endpoint it was compared with (#1835). The
+                // library's text quotes ONE of the two values, unlabelled, so the entry never said which value
+                // was the field's and which the provider's, nor which of them belongs in the field. Both values
+                // are foreign - the endpoint is the administrator's, the issuer the provider's - and each is
+                // bounded and sanitized here, at the call, like the error.
+                var endpoint = options.Authority ?? string.Empty;
+                var issuer = RefusedPublishedIssuer(discovery, options);
+                if (issuer is not null)
+                {
+                    logger.LogWarning(
+                        "Could not read the OpenID discovery document for provider {Provider}: the issuer it publishes does not match the endpoint configured, and the endpoint field has to carry the published issuer exactly.\nConfigured endpoint: {Endpoint}\nPublished issuer: {Issuer}\nThe login fails closed rather than proceeding on unverified discovery facts.",
+                        provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                        string.Concat(
+                            endpoint[..Math.Min(endpoint.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                            endpoint.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty),
+                        string.Concat(
+                            issuer[..Math.Min(issuer.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                            issuer.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
+                }
+                else
+                {
+                    var error = discovery.Error ?? string.Empty;
+                    logger.LogWarning(
+                        "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
+                        provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                        string.Concat(
+                            error[..Math.Min(error.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                            error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
+                }
 
                 // The screen's own record of what it refused, never a re-reading of the library's error
                 // text, so the reason the admin probe reports (#1064) cannot drift from the reason logged
@@ -161,8 +185,12 @@ internal static class OidcDiscoveryReader
                 // to an operator - the document could not be read - and the library reports most real
                 // failures (unreachable, policy refusal, bad status) here without ever throwing, so counting
                 // only the catch would report a healthy provider through an outage.
+                //
+                // A refused issuer is the one reason this reader names itself (#1837), from the same policy
+                // comparison that chose the entry above, so the probe and the log report one cause. The screen
+                // cannot have refused on this path: it refuses with a status, which is never a policy violation.
                 SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
-                return OidcDiscoveryResult.Refused(screen.Refusal);
+                return issuer is null ? OidcDiscoveryResult.Refused(screen.Refusal) : OidcDiscoveryResult.IssuerRefused(issuer);
             }
 
             // Both facts come from the raw body of THIS response (the same bytes the metadata below is
@@ -210,6 +238,47 @@ internal static class OidcDiscoveryReader
             SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
             return OidcDiscoveryResult.Unavailable;
         }
+    }
+
+    /// <summary>
+    /// Returns the issuer a failed read's document publishes when the policy refused THAT issuer (#1835), or
+    /// <see langword="null"/>. It asks the policy's own comparison rather than reading the library's error
+    /// text, so it agrees with the refusal by construction: a policy violation of any other kind - an endpoint
+    /// outside the authority - carries an issuer that passes, and a read that never received a document
+    /// carries none.
+    /// </summary>
+    /// <remarks>
+    /// The issuer is read from the raw body, through the one discovery parser, because the library drops its
+    /// parsed document on a policy violation and keeps only the bytes. Those bytes already passed
+    /// <see cref="RepeatedMemberScreen"/>: a body naming <c>issuer</c> twice is refused before it gets here.
+    /// </remarks>
+    /// <param name="discovery">The failed discovery response.</param>
+    /// <param name="options">The options the read was made under - their authority and their policy.</param>
+    /// <returns>The published issuer the configured authority refuses, or <see langword="null"/>.</returns>
+    private static string? RefusedPublishedIssuer(DiscoveryDocumentResponse discovery, OidcClientOptions options)
+    {
+        var policy = options.Policy.Discovery;
+        if (discovery.ErrorType != ResponseErrorType.PolicyViolation
+            || !policy.ValidateIssuerName
+            || policy.AuthorityValidationStrategy is not { } strategy)
+        {
+            return null;
+        }
+
+        using var document = DiscoveryJson.TryParse(discovery.Raw);
+        if (document is null
+            || !document.RootElement.TryGetProperty("issuer", out var member)
+            || member.ValueKind != JsonValueKind.String
+            || member.GetString() is not { } issuer
+            || string.IsNullOrWhiteSpace(issuer))
+        {
+            return null;
+        }
+
+        // Policy.Authority is the value the library compared with: it normalises the configured endpoint -
+        // the well-known suffix and the trailing slash stripped - into that field before validating, so this
+        // is the comparison that refused rather than a stricter neighbour.
+        return strategy.IsIssuerNameValid(issuer, policy.Authority).Success ? null : issuer;
     }
 
     /// <summary>

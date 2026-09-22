@@ -89,6 +89,17 @@ internal static class ProviderConnectionTester
             // the member name is a provider-authored string and every bound and filter it needs sits on the log
             // entry (#1068, #1194) and nowhere else; pointing at the log spends nothing and keeps one place
             // responsible for it.
+            //
+            // A refused issuer is the exception that names its values (#1837), because the value is the repair:
+            // the field has to carry the published issuer, and no log line on the recovery path should be needed
+            // to read it. Both facts are rendered inert by the page, like the issuer a successful read reports.
+            if (discovery.Refusal == OidcDiscoveryRefusal.IssuerMismatch)
+            {
+                return ProviderTestResult.Failure(
+                    ProviderTestKeys.OidcIssuerMismatch,
+                    [Fact(ProviderTestKeys.ConfiguredEndpoint, options.Authority), Fact(ProviderTestKeys.PublishedIssuer, discovery.PublishedIssuer)]);
+            }
+
             return ProviderTestResult.Failure(discovery.Refusal switch
             {
                 OidcDiscoveryRefusal.RepeatedMember => ProviderTestKeys.OidcRefusedRepeatedMember,
