@@ -7,6 +7,26 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
+## 4.3.1
+
+A bug-fix release for servers on Jellyfin 10.11. Two texts told a reader the wrong
+thing when a provider publishes an issuer that differs from the address its documents
+are served under. Nothing in the login changes, and the issuer check itself is exactly
+as strict as it was.
+
+### Fixed
+
+- **A discovery document whose issuer the endpoint refuses is logged with both
+  values (#1835).** The fail-closed warning carried the identity library's text,
+  which quotes one of the two values and says neither which one it is nor which
+  of them belongs in the endpoint field; a provider installed in a subfolder,
+  such as Nextcloud publishing `.../nextcloud/index.php`, took a reader two
+  rounds to repair. Where the policy refused the published issuer, the warning
+  now names the configured endpoint and the published issuer on lines of their
+  own and says the field has to carry the published one exactly. The published
+  value is the provider's text and is stripped and bounded at the call like the
+  library's; every other failed read logs what it logged before.
+
 ## 4.3.0
 
 A feature release, and the first stable release of this line. It advances the
