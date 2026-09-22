@@ -6,15 +6,23 @@
     "imageUrl": "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png",
     "name": "Community SSO for Jellyfin",
     "overview": "Sign in to Jellyfin through OpenID Connect or SAML 2.0 identity providers.",
-    "owner": "iderex",
+    "owner": "Flowfin",
     "versions": [
       {
-        "changelog": "## What's Changed\n* Promote the 5.0 line to its first stable release [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1815\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/5.0.0-JF12-beta.88...5.0.0-JF12-stable",
+        "changelog": "The first stable release of the 5.0 line, and the first for Jellyfin 12. The full list of what changed is the `5.0.0` section of `CHANGELOG.md`.\n\n**Not verified for this release, by decision.** Two items of the release QA checklist were not walked on the candidate: reverse-proxy forwarded-header attribution, and an upgrade from an older build over the top of an existing install (decided on #1729 on 2026-09-16). The native-client round trips were walked on iPhone and Apple TV with the official app and with Swiftfin, and not on the Android pair the checklist names. The pairwise co-existence phase of the provider matrix checked no pair, because the sibling repositories it pairs with are private (#1773). The soak window was closed by decision on 2026-09-21 after five days and a half on `5.0.0-JF12-beta.88` with no release-blocking defect reported; anything found on 5.0.0 afterwards is fixed forward on the 5.1 line.\n\n## What's Changed\n* Promote the 5.0 line to its first stable release [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1815\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/5.0.0-JF12-beta.88...5.0.0-JF12-stable",
         "checksum": "efd27f4288a70824e0b21db80b2e353f",
         "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/5.0.0-JF12-stable/community-sso-for-jellyfin_5.0.0.0.zip",
         "targetAbi": "12.0.0.0",
         "timestamp": "2026-09-21T10:49:34Z",
         "version": "5.0.0.0"
+      },
+      {
+        "changelog": "## What's Changed\n* The README opens with the banner, without the note block (main) by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1754\n* The README installs from the stable channel first, and names the beta beside it [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1820\n* The JF12 metadata on main names Flowfin as the plugin owner [#1818] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1824\n* The README's install note is two sentences, and the wiki carries the rest [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1826\n* The release badges name the stable and the beta, and the two notes get to the point [#1729] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1828\n* SECURITY.md records what branch protection requires and what it does not [#319] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1832\n* Carry the issuer refusal and the endpoint help to the 4.3 line, as 4.3.1 by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1843\n* Report an empty sibling set on the 4.3 line instead of dying at the listing by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1845\n* Publish the 4.3 line's corrected texts as 4.3.2 by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1847\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-stable...4.3.2-stable",
+        "checksum": "b7575e6d9836f0407b039e5627f8d3bc",
+        "sourceUrl": "https://github.com/Flowfin/jellyfin-plugin-sso/releases/download/4.3.2-stable/community-sso-for-jellyfin_4.3.2.0.zip",
+        "targetAbi": "10.11.0.0",
+        "timestamp": "2026-09-22T18:18:18Z",
+        "version": "4.3.2.0"
       },
       {
         "changelog": "The first stable release of the 4.3 line, and the last release for Jellyfin 10.11. The full list of what changed is the `4.3.0` section of `CHANGELOG.md`.\n\n**Not verified for this release, by decision.** The two native-client items of the release QA checklist, Quick Connect round trips on Android and Android TV, were not exercised (decided on #1511 on 2026-09-04). The manual end-to-end QA checklist against a real Jellyfin 10.11 server was not walked either (decided on #1511 on 2026-09-15, because work on the Jellyfin 10.11 line ends with this release). What stands in for it: the seven-provider login harness and the pairwise co-existence phase ran against this exact commit before it was published, and every one of them passed.\n\n## What's Changed\n* Tag plugin assets by a digest of the build, not the file version [#1707] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1719\n* Promote the 4.3 line to its first stable release [#1511] by @iderex in https://github.com/Flowfin/jellyfin-plugin-sso/pull/1748\n\n\n**Full Changelog**: https://github.com/Flowfin/jellyfin-plugin-sso/compare/4.3.0-beta.61...4.3.0-stable",
