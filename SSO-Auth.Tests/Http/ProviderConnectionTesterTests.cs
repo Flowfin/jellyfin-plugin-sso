@@ -182,6 +182,44 @@ public class ProviderConnectionTesterTests
         Assert.Contains("/.well-known/openid-configuration", SsoLocalizer.GetString(result.Key, SsoLocalizer.FallbackCulture), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TestOidcAsync_AnIssuerTheEndpointRefuses_IsReportedWithBothValues()
+    {
+        // #1837: a document that was served and whose issuer the endpoint refuses used to arrive under the
+        // reachability verdict, which sends the admin to check reachability, the well-known path and HTTPS -
+        // all of them right - and says nothing about the one value that is wrong. The verdict is its own, and
+        // it carries the two values the repair is made from: the endpoint as configured and the issuer as
+        // published, which belongs in the field. Nextcloud in a subfolder is the shape that reported it.
+        const string endpoint = Authority + "/nextcloud";
+        const string published = endpoint + "/index.php";
+        var config = new OidConfig { OidEndpoint = endpoint, OidClientId = "jf", OidSecret = OidSecretSentinel };
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(FullDiscovery(published))), Logger(), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderTestKeys.OidcIssuerMismatch, result.Key);
+        Assert.Equal(
+            [new ProviderTestFact(ProviderTestKeys.ConfiguredEndpoint, endpoint), new ProviderTestFact(ProviderTestKeys.PublishedIssuer, published)],
+            result.Facts);
+        AssertNoSecret(result, OidSecretSentinel);
+    }
+
+    [Fact]
+    public async Task TestOidcAsync_AnotherPolicyRefusal_KeepsTheReachabilityCause()
+    {
+        // The other direction for #1837: a document whose issuer matches and whose endpoints the policy refuses
+        // is a policy violation too. Reporting it as a mismatch would send the admin to the one field that is
+        // already right, so it keeps the generic verdict and carries no values.
+        var config = new OidConfig { OidEndpoint = Authority, OidClientId = "jf" };
+        var elsewhere = FullDiscovery(Authority).Replace($"\"token_endpoint\":\"{Authority}/token\"", "\"token_endpoint\":\"https://elsewhere.example.org/token\"", StringComparison.Ordinal);
+
+        var result = await ProviderConnectionTester.TestOidcAsync(config, "kc", FactoryFor(Serve(elsewhere)), Logger(), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderTestKeys.OidcUnreadable, result.Key);
+        Assert.Empty(result.Facts);
+    }
+
     [Theory]
     [InlineData("not-a-url")]
     [InlineData("ftp:///")]

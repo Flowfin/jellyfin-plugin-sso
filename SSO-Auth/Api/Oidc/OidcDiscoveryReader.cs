@@ -185,8 +185,12 @@ internal static class OidcDiscoveryReader
                 // to an operator - the document could not be read - and the library reports most real
                 // failures (unreachable, policy refusal, bad status) here without ever throwing, so counting
                 // only the catch would report a healthy provider through an outage.
+                //
+                // A refused issuer is the one reason this reader names itself (#1837), from the same policy
+                // comparison that chose the entry above, so the probe and the log report one cause. The screen
+                // cannot have refused on this path: it refuses with a status, which is never a policy violation.
                 SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
-                return OidcDiscoveryResult.Refused(screen.Refusal);
+                return issuer is null ? OidcDiscoveryResult.Refused(screen.Refusal) : OidcDiscoveryResult.IssuerRefused(issuer);
             }
 
             // Both facts come from the raw body of THIS response (the same bytes the metadata below is

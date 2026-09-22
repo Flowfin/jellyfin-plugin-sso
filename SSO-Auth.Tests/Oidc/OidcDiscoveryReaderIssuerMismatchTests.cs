@@ -38,8 +38,9 @@ public class OidcDiscoveryReaderIssuerMismatchTests
 
         var result = await ReadAsync(logger, new Router(Document(PublishedIssuer, PublishedIssuer)));
 
-        // The entry is the whole change: the read still fails closed with no named reason, as before.
-        Assert.Equal(OidcDiscoveryResult.Unavailable, result);
+        // The read still fails closed, and it names the mismatch and the published issuer for the probe (#1837).
+        Assert.False(result.Available);
+        Assert.Equal(OidcDiscoveryResult.IssuerRefused(PublishedIssuer), result);
         var warning = FailClosedWarning(logger);
         Assert.Contains("\nConfigured endpoint: " + Endpoint + "\n", warning, StringComparison.Ordinal);
         Assert.Contains("\nPublished issuer: " + PublishedIssuer + "\n", warning, StringComparison.Ordinal);
@@ -71,7 +72,7 @@ public class OidcDiscoveryReaderIssuerMismatchTests
 
         var result = await ReadAsync(logger, new Router(Document(Endpoint, "https://elsewhere.example.org")), validateEndpoints: true);
 
-        Assert.False(result.Available);
+        Assert.Equal(OidcDiscoveryResult.Unavailable, result);
         var warning = FailClosedWarning(logger);
         Assert.DoesNotContain("Published issuer", warning, StringComparison.Ordinal);
     }

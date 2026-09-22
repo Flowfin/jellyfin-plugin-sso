@@ -9,7 +9,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 /// exists for the admin Test-connection probe, whose one job is to answer "why did this break".
 /// <para>
 /// It carries no provider-authored text. Each value maps to a constant the operator also sees in the server
-/// log, so the two read the same; WHICH member repeated stays in the log entry alone.
+/// log, so the two read the same; WHICH member repeated stays in the log entry alone. The one value an
+/// administrator needs to act on - the issuer a document published, for <see cref="IssuerMismatch"/> - travels
+/// beside this on <see cref="OidcDiscoveryResult.PublishedIssuer"/>, never inside it.
 /// </para>
 /// </summary>
 internal enum OidcDiscoveryRefusal
@@ -26,4 +28,10 @@ internal enum OidcDiscoveryRefusal
 
     /// <summary>The response was refused by <see cref="RepeatedMemberScreen"/> because its body could not be inspected as JSON.</summary>
     Uninspectable = 2,
+
+    /// <summary>
+    /// The document was read and the discovery policy refused the issuer it publishes, because it is not the
+    /// configured endpoint (#1837). Decided by the policy's own comparison, never by the library's error text.
+    /// </summary>
+    IssuerMismatch = 3,
 }
