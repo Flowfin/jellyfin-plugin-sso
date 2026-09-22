@@ -465,6 +465,15 @@ window.SSO_MOCK_FIELDS = [
     note: "",
   },
   {
+    id: "PreserveUnmanagedFolders",
+    type: "checkbox",
+    risk: "",
+    block: "Roles & access",
+    tab: "Providers",
+    accordion: "Libraries and Live TV",
+    note: "",
+  },
+  {
     id: "EnableLiveTvRoles",
     type: "checkbox",
     risk: "",
@@ -979,6 +988,15 @@ window.SSO_MOCK_FIELDS = [
   },
   {
     id: "saml-EnableFolderRoles",
+    type: "checkbox",
+    risk: "",
+    block: "Roles & access",
+    tab: "Providers",
+    accordion: "Libraries and Live TV",
+    note: "",
+  },
+  {
+    id: "saml-PreserveUnmanagedFolders",
     type: "checkbox",
     risk: "",
     block: "Roles & access",

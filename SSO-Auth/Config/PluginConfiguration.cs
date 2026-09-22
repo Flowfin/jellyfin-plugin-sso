@@ -498,7 +498,8 @@ public abstract class ProviderConfigBase
     /// still granted or revoked by role on every login; a folder the configuration has never mentioned -
     /// one an administrator or a provisioning tool enabled on the account directly - survives. A folder
     /// dropped from the configuration stops being managed and stays on the account; to revoke it without
-    /// deleting it, keep it in a mapping no role carries. Applied only when
+    /// deleting it, keep it in a mapping no role carries. With several providers, a login through this
+    /// one leaves the folders the others manage alone, since they are unmanaged from its side. Applied only when
     /// <see cref="EnableAuthorization"/> is on and <see cref="EnableAllFolders"/> is off, the only case
     /// in which a folder list is written at all.
     /// </summary>

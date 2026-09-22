@@ -75,6 +75,8 @@
   "config.oidc_role_claim_object_map_label": "Role claim is an object map",
   "config.oidc_enable_all_folders_help": "If enabled, all libraries will be accessible to any user that logs in through this provider.",
   "config.oidc_enable_folder_roles_help": "Determines if user roles should be used to control library access.",
+  "config.preserve_unmanaged_folders_label": "Preserve Unmanaged Folders:",
+  "config.preserve_unmanaged_folders_help": "Leaves alone the libraries this provider's configuration does not manage. Off, a login replaces the account's library list with what the roles grant. On, a login keeps every library the account holds that is named neither in the enabled-folders list nor in any folder role mapping, and grants or revokes the managed ones by role as before. A folder dropped from the configuration stops being managed and stays on the account; to revoke one without deleting it, keep it in a mapping no role carries. With several providers, a login through this one leaves the other providers' folders alone too.",
   "config.oidc_enable_live_tv_roles_label": "Enable Live TV RBAC",
   "config.oidc_enable_live_tv_roles_help": "Determines whether the roles will be used to grant Live TV privileges.",
   "config.oidc_enable_live_tv_label": "Enable Live TV Access By Default",

@@ -2219,6 +2219,52 @@
                             </details>
                           </div>
                         </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="PreserveUnmanagedFolders"
+                              name="PreserveUnmanagedFolders"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span
+                              data-i18n="config.preserve_unmanaged_folders_label"
+                              >Preserve Unmanaged Folders:</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.preserve_unmanaged_folders_help"
+                              >
+                                Leaves alone the libraries this provider's
+                                configuration does not manage. Off, a login
+                                replaces the account's library list with what
+                                the roles grant. On, a login keeps every library
+                                the account holds that is named neither in the
+                                enabled-folders list nor in any folder role
+                                mapping, and grants or revokes the managed ones
+                                by role as before. A folder dropped from the
+                                configuration stops being managed and stays on
+                                the account; to revoke one without deleting it,
+                                keep it in a mapping no role carries. With
+                                several providers, a login through this one
+                                leaves the other providers' folders alone too.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5046,6 +5092,52 @@
                                 Map roles to lists of libraries. A user holding
                                 a given role gets access to its mapped
                                 libraries.
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+
+                        <div
+                          class="checkboxContainer checkboxContainer-withDescription"
+                        >
+                          <label>
+                            <input
+                              is="emby-checkbox"
+                              id="saml-PreserveUnmanagedFolders"
+                              name="saml-PreserveUnmanagedFolders"
+                              type="checkbox"
+                              class="sso-toggle"
+                            />
+                            <span
+                              data-i18n="config.preserve_unmanaged_folders_label"
+                              >Preserve Unmanaged Folders:</span
+                            >
+                          </label>
+                          <div
+                            class="fieldDescription checkboxFieldDescription sso-help"
+                          >
+                            <span class="sso-help-lead"></span>
+                            <details class="sso-help-full">
+                              <summary data-i18n="config.help_full_text">
+                                Full text
+                              </summary>
+                              <div
+                                class="sso-help-body"
+                                data-i18n="config.preserve_unmanaged_folders_help"
+                              >
+                                Leaves alone the libraries this provider's
+                                configuration does not manage. Off, a login
+                                replaces the account's library list with what
+                                the roles grant. On, a login keeps every library
+                                the account holds that is named neither in the
+                                enabled-folders list nor in any folder role
+                                mapping, and grants or revokes the managed ones
+                                by role as before. A folder dropped from the
+                                configuration stops being managed and stays on
+                                the account; to revoke one without deleting it,
+                                keep it in a mapping no role carries. With
+                                several providers, a login through this one
+                                leaves the other providers' folders alone too.
                               </div>
                             </details>
                           </div>
