@@ -263,7 +263,7 @@ A commit message may only use printable ASCII plus a short, named set of extra c
 
 The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
 
-If you are contributing from outside this repository, the gate's failing checks do not apply to you: the issue convention is ours, and you have no way to know a number before the issue exists. Send the change; the linkage is not dropped, it moves to me - I add the issue reference, and file the issue where none exists yet, as part of handling the contribution. The character check still reports what it finds on your PR, as a note rather than a failure, because a message nobody can read is a problem whoever wrote it.
+The gate applies to every author, bots excepted (#1516), so a subject without its bracketed reference fails a required check and a failing required check blocks the merge whoever wrote it. If you are contributing from outside this repository and no issue exists yet, file one first and reference it, or open the pull request and say so: I file the issue, and you amend the subject, which is one `git commit --amend` and a push. The character check judges every author on the same tier, because a message nobody can read is a problem whoever wrote it.
 
 ### Sign Your Work (DCO)
 
@@ -284,6 +284,24 @@ Signed-off-by: Your Name <your.email@example.com>
 By adding it you certify the [DCO](DCO). Forgot to sign off? Add it retroactively across your branch with `git rebase --signoff <base>` and force-push.
 
 The **DCO gate** verifies every non-merge commit in a pull request carries a matching sign-off and fails the check otherwise (trusted first-party bot commits, e.g. Dependabot, are exempt). This is fail-closed: an unsigned commit blocks the pull request until it is signed off.
+
+### Sign Your Commits
+
+Separate from the sign-off above, and easy to confuse with it: the sign-off is a line in the message, a signature is a property of the commit. The protected branches (`main`, `5.0`, `5.1`) require a valid signature on every commit, so an unsigned one blocks the merge after every check has gone green.
+
+If you have no GPG key, SSH signing is the shortest route:
+
+```sh
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+```
+
+The public half of that key also has to be registered in your GitHub account as a **signing key** (Settings, SSH and GPG keys). A key configured locally and not registered produces the same unverified state as no key at all. Commits that are already written can be signed retroactively:
+
+```sh
+git rebase --exec 'git commit --amend --no-edit -S' <base>
+```
 
 ### C#
 
