@@ -88,7 +88,14 @@ internal sealed class SessionMinter
             user.SetPermission(PermissionKind.EnableAllFolders, parameters.EnableAllFolders);
             if (!parameters.EnableAllFolders)
             {
-                user.SetPreference(PreferenceKind.EnabledFolders, parameters.EnabledFolders);
+                // With a managed set supplied (#1846), the account's current list is merged rather than
+                // replaced: a folder the configuration has never named survives the login, a managed one
+                // is granted or revoked exactly as before. Read the current list here and nowhere earlier,
+                // because this is the one point that holds the account whose list is about to change.
+                var folders = parameters.ManagedFolders is { } managed
+                    ? UnmanagedFolderMerge.Apply(user.GetPreference(PreferenceKind.EnabledFolders), managed, parameters.EnabledFolders)
+                    : parameters.EnabledFolders;
+                user.SetPreference(PreferenceKind.EnabledFolders, folders);
             }
 
             // Live TV access/management are role-derived grants too, so they must respect the same

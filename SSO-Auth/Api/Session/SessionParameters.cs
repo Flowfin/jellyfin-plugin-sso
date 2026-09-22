@@ -53,6 +53,15 @@ internal sealed class SessionParameters
     public required string[] EnabledFolders { get; init; }
 
     /// <summary>
+    /// Gets the folders the provider's configuration manages, or <see langword="null"/> when the login
+    /// replaces the account's folder list outright. Non-null only while the provider's
+    /// <c>PreserveUnmanagedFolders</c> is on (#1846): the mint then keeps every current folder outside
+    /// this set and replaces the rest with <see cref="EnabledFolders"/>. Travels beside the grants because
+    /// the privilege assembly never sees the account; only the mint holds the list about to be replaced.
+    /// </summary>
+    public string[]? ManagedFolders { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether the user may access Live TV.
     /// </summary>
     public required bool EnableLiveTv { get; init; }
