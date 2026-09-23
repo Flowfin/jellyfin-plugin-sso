@@ -21,7 +21,9 @@
 #   JELLYFIN_IMAGE_TAG  the server image tag; defaults per generation
 #   PAIRWISE_OWNER      the account whose plugin repositories are the sibling set (default Flowfin)
 #   PAIRWISE_SELF       this repository's name, excluded from the sibling set
-#   GH_TOKEN            the credential gh lists and downloads with. WHAT IT CAN SEE IS WHAT THIS RUN PAIRS
+#   LISTING_TRIES       how often the repository listing is attempted before it counts as unread (3)
+#   LISTING_RETRY_PAUSE seconds multiplied by the attempt number between those attempts (10)
+#   GH_TOKEN          the credential gh lists and downloads with. WHAT IT CAN SEE IS WHAT THIS RUN PAIRS
 #                       AGAINST: the sibling repositories are private since 2026-09-19 (#1773), so a
 #                       token scoped to this repository sees no sibling, and the run then says so, in
 #                       the log and the step summary, and ends green having paired nothing. A token that
@@ -99,8 +101,8 @@ esac
 # ---------------------------------------------------------------------------------------------------
 log "== Deriving the sibling set from $OWNER =="
 # The call and its answer are two different things and they fail differently. A listing that fails AS A
-# CALL - no network, a refused token, an owner that does not exist - is FATAL, as it always was: nothing
-# can be said about the family from a call that did not answer. A listing that ANSWERS and holds no
+# CALL - no network, a refused token, an owner that does not exist - says nothing about the family, and
+# what this leg does with it is the paragraph below. A listing that ANSWERS and holds no
 # sibling is not an error of this script and is not treated as one. Since 2026-09-19 the sibling
 # repositories are private, so the repository-scoped token a workflow run carries sees this repository
 # and nothing beside it, and under that token an empty sibling set is the true answer (#1773). It is
@@ -109,20 +111,55 @@ log "== Deriving the sibling set from $OWNER =="
 # same pipeline as the call, so an answered listing with nothing left after the filter died with the
 # same FATAL as a call that never answered, and the beta publish this job gates stopped on a fact about
 # visibility rather than about any pair.
-VISIBLE="$(gh api "orgs/$OWNER/repos?per_page=100" --paginate \
-  --jq '.[] | select(.archived == false) | .name')" || die "could not list $OWNER's repositories"
-VISIBLE_COUNT="$(printf '%s\n' "$VISIBLE" | grep -c . || true)"
-SIBLINGS="$(printf '%s\n' "$VISIBLE" | grep '^jellyfin-plugin-' | grep -vx "$SELF" | sort || true)"
+#
+# A CALL THAT DOES NOT ANSWER IS RETRIED, AND IT NO LONGER ENDS THE LEG (#1844). It was FATAL, so a
+# listing that failed once reddened the pairwise leg and stopped the publish it gates, on a fact
+# about the network rather than about any pair - which is the same red a plugin that breaks its
+# neighbour produces, from a run that installed nothing and judged nothing. The listing is attempted
+# LISTING_TRIES times with a growing pause, and a call that still does not answer is reported as an
+# UNREAD LISTING: no pair is run, the run ends green, and every place that carries the verdict says
+# the sibling set was never read. An unread listing and a family that cannot co-exist are opposite
+# facts and this leg may not report them the same way.
+LISTING_TRIES="${LISTING_TRIES:-3}"
+LISTING_RETRY_PAUSE="${LISTING_RETRY_PAUSE:-10}"
+LISTING_ANSWERED=0
+VISIBLE=""
+listing_try=1
+while :; do
+  if VISIBLE="$(gh api "orgs/$OWNER/repos?per_page=100" --paginate \
+       --jq '.[] | select(.archived == false) | .name' 2>"$WORK/listing.err")"; then
+    LISTING_ANSWERED=1
+    break
+  fi
+  log "the repository listing of $OWNER did not answer on attempt $listing_try of $LISTING_TRIES:"
+  sed 's/^/  /' "$WORK/listing.err" || true
+  [ "$listing_try" -lt "$LISTING_TRIES" ] || break
+  sleep $((listing_try * LISTING_RETRY_PAUSE))
+  listing_try=$((listing_try + 1))
+done
+
 NO_PAIR_REASON=""
-if [ -n "$SIBLINGS" ]; then
-  log "Repositories visible to the token in use: $VISIBLE_COUNT"
-  log "Sibling repositories considered:"
-  printf '%s\n' "$SIBLINGS" | sed 's/^/  /'
+UNREAD_LISTING=0
+if [ "$LISTING_ANSWERED" -eq 1 ]; then
+  VISIBLE_COUNT="$(printf '%s\n' "$VISIBLE" | grep -c . || true)"
+  SIBLINGS="$(printf '%s\n' "$VISIBLE" | grep '^jellyfin-plugin-' | grep -vx "$SELF" | sort || true)"
+  if [ -n "$SIBLINGS" ]; then
+    log "Repositories visible to the token in use: $VISIBLE_COUNT"
+    log "Sibling repositories considered:"
+    printf '%s\n' "$SIBLINGS" | sed 's/^/  /'
+  else
+    NO_PAIR_REASON="the listing answered with $VISIBLE_COUNT repositor$([ "$VISIBLE_COUNT" = 1 ] && printf 'y' || printf 'ies') visible to the token in use and no sibling plugin repository among them. The sibling repositories are private since 2026-09-19 (#1773), and a token that can read them is the switch that makes this phase pair again."
+    log "No sibling is visible: $NO_PAIR_REASON"
+    log "Repositories the token could see:"
+    if [ -n "$VISIBLE" ]; then printf '%s\n' "$VISIBLE" | sed 's/^/  /'; else log "  (none)"; fi
+  fi
 else
-  NO_PAIR_REASON="the listing answered with $VISIBLE_COUNT repositor$([ "$VISIBLE_COUNT" = 1 ] && printf 'y' || printf 'ies') visible to the token in use and no sibling plugin repository among them. The sibling repositories are private since 2026-09-19 (#1773), and a token that can read them is the switch that makes this phase pair again."
-  log "No sibling is visible: $NO_PAIR_REASON"
-  log "Repositories the token could see:"
-  if [ -n "$VISIBLE" ]; then printf '%s\n' "$VISIBLE" | sed 's/^/  /'; else log "  (none)"; fi
+  UNREAD_LISTING=1
+  VISIBLE=""
+  VISIBLE_COUNT="not read"
+  SIBLINGS=""
+  NO_PAIR_REASON="the repository listing of $OWNER did not answer on any of $LISTING_TRIES attempts, so the sibling set was never read and no pair was installed. This is an unread listing and not a co-existence failure: nothing about any pair was judged, in either direction."
+  log "The sibling set was not read: $NO_PAIR_REASON"
 fi
 
 # ---------------------------------------------------------------------------------------------------
@@ -542,7 +579,13 @@ if [ -n "$NO_PAIR_REASON" ]; then
     {
       printf '## Pairwise co-existence: no pair was checked\n\n'
       printf -- '- repositories visible to the token in use: %s\n' "$VISIBLE_COUNT"
-      printf -- '- sibling plugin repositories among them: 0\n'
+      # A zero here is a COUNT, and an unread listing has none: saying "0 siblings" for a listing that
+      # never answered turns a negative disclosure into a positive one, which is the whole of #1844.
+      if [ "$UNREAD_LISTING" -eq 1 ]; then
+        printf -- '- sibling plugin repositories among them: not read, because the listing did not answer\n'
+      else
+        printf -- '- sibling plugin repositories among them: 0\n'
+      fi
       printf -- '- pairs run: 0\n'
       printf -- '- why: %s\n' "$NO_PAIR_REASON"
       printf -- '- what this green is: the artefact packaged and its identity read, installed beside nothing. It is not co-existence evidence.\n'
