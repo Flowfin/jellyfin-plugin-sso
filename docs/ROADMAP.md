@@ -156,10 +156,7 @@ recording them.
 | Upstream Jellyfin threads ([#1087]) | One factual note that a maintained continuation exists, and not on the open native-OIDC pull request   | drafted, awaiting me                                                                                                |
 | Archived `9p4` repository ([#1088]) | Nothing is lodged there                                                                                | not actionable - the repository is archived, so it is read-only for issues, pull requests, comments and discussions |
 
-Nothing in the table has been posted. How this plugin sits beside Jellyfin's
-built-in auth, the official LDAP plugin and the archived `9p4` plugin is the
-[Comparison](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Comparison) wiki
-page, which is the positioning any of these surfaces would point at.
+Nothing in the table has been posted.
 
 [#1086]: https://github.com/Flowfin/jellyfin-plugin-sso/issues/1086
 [#1087]: https://github.com/Flowfin/jellyfin-plugin-sso/issues/1087
