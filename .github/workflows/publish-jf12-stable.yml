@@ -118,6 +118,12 @@ jobs:
       # tags sharing them - X.Y.Z-JF12-beta.<run>, whose manifest version is X.Y.Z.<run>. What this
       # asserts is the ordering Jellyfin's client-side update check makes, which is on the four-octet
       # version and on nothing else.
+      #
+      # THE WAY PAST A REFUSAL IS A NEW LINE, NOT A FOURTH OCTET, and the message says so because the
+      # obvious reading is the one that breaks the nightly. build.yaml has to stay three-part: the beta
+      # leg reads it with a pattern closing the quote after the third component and refuses anything
+      # else, so a committed 5.1.0.97 would red every subsequent beta publish. Raising the line keeps
+      # three octets and still outranks, because X.Y.(Z+1).0 sorts above X.Y.Z.<any run>.
       env:
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
@@ -153,7 +159,8 @@ jobs:
         fi
         echo "line $line: the highest beta is $line.$highest, this release is $version"
         if [ "$mine" -le "$highest" ]; then
-          echo "::error::$version does not outrank $line.$highest, the highest beta of its own line. A server on that beta is offered an update only by a HIGHER version, so this release would reach it and be ignored. Cut it above the line: build.yaml's version has to be $line.N with N greater than $highest."
+          next="$(printf '%s' "$line" | awk -F. '{print $1 "." $2 "." $3 + 1}')"
+          echo "::error::$version does not outrank $line.$highest, the highest beta of its own line. A server on that beta is offered an update only by a HIGHER version, so this release would reach it and be ignored. Move build.yaml to a line the betas have not reached - $next or higher - and re-tag: $next.0 sorts above $line.$highest, and no beta of that line exists yet. Do NOT add a fourth octet to build.yaml; the nightly beta leg reads it with a three-part pattern and refuses anything else."
           exit 1
         fi
         echo "$version outranks every beta of line $line"
@@ -241,6 +248,12 @@ jobs:
   # against the reader-vs-pusher race #135 fixed. A workflow holds one group, and this one holds
   # `publish-manifest-release`, so the beta write has to be a job that joins the other group itself.
   # `needs: publish` and no `if`, so it runs only where the release was actually created.
+  #
+  # WHAT THAT GROUP COSTS IS DISCLOSED RATHER THAN SOLVED: a group holds at most one PENDING run, so
+  # this job queued behind a running beta publish is cancelled if a third writer joins the group, and
+  # the manifest-beta write then never happens. The alert sweep would not report it either - it reads
+  # the default branch and treats `cancelled` as intentional. A stable tag is hand-cut, so the overlap
+  # is narrow; where it does happen, regenerate-manifest.yml writes the same branch and repairs it.
   carry-into-beta:
     name: Carry the release into the beta channel
     needs: publish
@@ -265,6 +278,20 @@ jobs:
       with:
         name: build-artifact
         path: _dist
+    # Read back for the verification below, out of the same metadata the generator identifies the
+    # plugin by, so the two cannot disagree about which version this run carried.
+    - name: Read the published version
+      id: version
+      run: |-
+        set -euo pipefail
+        set -- _dist/*.zip.meta.json
+        if [ "$#" -ne 1 ] || [ ! -s "$1" ]; then
+          echo "::error::_dist/*.zip.meta.json resolved to $# path(s); expected exactly one readable file"
+          exit 1
+        fi
+        version="$(jq -r '.version // empty' "$1")"
+        [ -n "$version" ] || { echo "::error::$1 carries no version"; exit 1; }
+        echo "carried=$version" >> "$GITHUB_OUTPUT"
     - name: Publish the beta manifest
       # include-prereleases true, which is the beta channel and is what makes it carry BOTH: every
       # prerelease of every line and every release, this one included. The generator fails unless the
@@ -287,6 +314,11 @@ jobs:
         repository: ${{ github.repository }}
         manifest-branch: manifest-beta
         github-token: ${{ github.token }}
+        # Named rather than left unset, as the beta leg names it: without it the check degrades to
+        # "both ABIs are present", which the PREVIOUS revision of this branch satisfies too, so a
+        # stale read would pass. With it, the version this run carried has to be in the document and
+        # its checksum is verified directly.
+        expect-version: ${{ steps.version.outputs.carried }}
         # 10.11.0.0 stays required although nothing here builds for it, for the reason the beta leg
         # gives: the 4.3 builds are the last a 10.11 server can install, and a regeneration that lost
         # them would empty that generation's repository (#943, #1770).
