@@ -59,6 +59,31 @@ secret_element() { grep -o '<OidSecret>[^<]*</OidSecret>' "$CONFIG" | head -1; }
 # back with a status nothing in it can produce and a missing body file, and a script that arrives
 # as one argument through two layers cannot be read in the log it failed in.
 PHASES_DIR="${PHASES_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+
+# EVERY SERVICE THE PROBE NEEDS, AND THE STAGE BRINGS BACK ALL OF THEM (#1844). The probe reaches the
+# server AND, server-to-server, the identity provider whose discovery document the challenge is built
+# from, so both have to be up before an answer from either means anything. They are named in one place
+# and started through one function, because the two restarts below have to agree: a stage that brings
+# the server back alone probes a provider that is down, and the failure it then reports is about a name
+# that does not resolve rather than about the key it took away. Not `docker compose start` with no
+# argument, which would start the harness service as well and run a whole login pass that rewrites the
+# very secret this phase spends the run not touching.
+STACK_SERVICES="${STACK_SERVICES:-jellyfin keycloak}"
+start_stack() { # $1 label
+  docker compose -f "$COMPOSE" start $STACK_SERVICES >/dev/null
+  # `start` returns when a container is RUNNING rather than when its server is listening, and it says
+  # nothing at all about a service it did not start. Asserted rather than assumed, so a service that
+  # never came back is named here instead of surfacing three steps later as an unreachable host.
+  local running
+  running="$(docker compose -f "$COMPOSE" ps --services --status running 2>/dev/null || true)"
+  local svc
+  for svc in $STACK_SERVICES; do
+    printf '%s\n' "$running" | grep -qx "$svc" \
+      || die "$1: the $svc container is not running after starting the stack, so the probe below would reach it for nothing and a refusal would prove only that it is unreachable"
+  done
+  pass "$1: every service the probe needs is running ($STACK_SERVICES)"
+}
+
 probe_container() {
   docker compose -f "$COMPOSE" run --rm --no-deps -T \
     -v "$PHASES_DIR:/probe:ro" --entrypoint sh harness /probe/probe-oid-start.sh
@@ -74,7 +99,17 @@ probe_challenge() { # $1 label; sets PROBE_STATUS and PROBE_BODY
   printf '%s\n' "$out" | sed 's/^/  probe| /'
   PROBE_STATUS="$(printf '%s\n' "$out" | sed -n 's/^PROBE-STATUS //p' | tail -1)"
   PROBE_BODY="$(printf '%s\n' "$out" | sed -n 's/^PROBE-BODY //p' | tail -1)"
-  [ -n "$PROBE_STATUS" ] || die "$1: the probe returned no status - its own output is above"
+  # A REFUSED LOGIN AND AN UNREACHABLE PROVIDER ARE DIFFERENT ANSWERS AND THIS SAYS WHICH (#1844). The
+  # probe never exits non-zero: it reports what stopped it on a PROBE-ERROR line and leaves the reading
+  # to here. Without the branch below both came out as "the probe returned no status", and a reader met
+  # a red key-destroyed stage carrying no measurement of the login at all - the assertion this phase
+  # exists to make was not taken, which is the opposite of the assertion failing.
+  if [ -z "$PROBE_STATUS" ]; then
+    local why
+    why="$(printf '%s\n' "$out" | sed -n 's/^PROBE-ERROR //p' | tail -1)"
+    [ -z "$why" ] || die "$1: the probe never reached the challenge, so nothing about the login was measured and the fail-closed assertion was NOT taken - this is the harness or the identity provider, not a refusal: $why"
+    die "$1: the probe returned no status - its own output is above"
+  fi
   printf '  %s: status=%s body=%s\n' "$1" "$PROBE_STATUS" "$PROBE_BODY"
 }
 
@@ -118,7 +153,7 @@ trap restore_key EXIT
 pass "the key to move aside is inode $KEY_INODE, $KEY_SIZE bytes"
 
 log "Control: the challenge answers normally while the key is present"
-docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
+start_stack "control"
 probe_challenge "control"
 case "$PROBE_STATUS" in
   3??) pass "the OpenID challenge redirects to the identity provider ($PROBE_STATUS)" ;;
@@ -135,7 +170,7 @@ mv "$KEYFILE" "$KEPT"
 pass "the key is gone from $KEYFILE while the configuration still holds the envelope"
 
 log "The login is refused, fail-closed"
-docker compose -f "$COMPOSE" start jellyfin keycloak >/dev/null
+start_stack "key-destroyed"
 probe_challenge "key-destroyed"
 [ "$PROBE_STATUS" = "500" ] || die "the OpenID challenge answered $PROBE_STATUS with the key destroyed; a fail-closed refusal is 500, and a 3xx means the login proceeded without the secret"
 case "$PROBE_BODY" in
