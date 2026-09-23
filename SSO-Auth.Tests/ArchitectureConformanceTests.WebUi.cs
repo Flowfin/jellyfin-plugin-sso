@@ -172,7 +172,7 @@ public partial class ArchitectureConformanceTests
             "OidEndpoint", "OidClientId", "OidSecret", "OidScopes", "Enabled",
             "EnableAuthorization", "DefaultUsernameClaim", "DefaultProvider", "AvatarUrlFormat", "DisableAvatarFromPictureClaim",
             "RoleClaim", "RoleClaimIsObjectMap",
-            "Roles", "AdminRoles", "EnableAllFolders", "EnabledFolders", "EnableFolderRoles", "FolderRoleMapping",
+            "Roles", "AdminRoles", "EnableAllFolders", "EnabledFolders", "EnableFolderRoles", "FolderRoleMapping", "PreserveUnmanagedFolders",
             "EnableLiveTvRoles", "LiveTvRoles", "LiveTvManagementRoles", "EnableLiveTv", "EnableLiveTvManagement",
             "DoNotLoadProfile", "SchemeOverride", "PortOverride", "BaseUrlOverride",
             "RequirePkce", "AllowExistingAccountLink", "ProvisionNewUsersDisabled", "SyncUsernameFromProvider", "RequireVerifiedEmailForAdoption", "RequireVerifiedEmailForLogin",
@@ -182,7 +182,7 @@ public partial class ArchitectureConformanceTests
             "HideLoginButton", "LoginButtonText", "PostLogoutRedirectUri",
         };
 
-        Assert.Equal(46, expected.Length);
+        Assert.Equal(47, expected.Length);
         var missing = expected.Where(id => !markedIds.Contains(id)).ToList();
         Assert.True(
             missing.Count == 0,
@@ -329,13 +329,13 @@ public partial class ArchitectureConformanceTests
             "DoNotValidateAudience", "ValidateRecipient", "ValidateInResponseTo", "SignAuthnRequests",
             "SamlSigningKeyPfx", "SamlRolloverSigningKeyPfx",
             "Enabled", "EnableAuthorization", "DefaultProvider", "AllowExistingAccountLink", "ProvisionNewUsersDisabled",
-            "Roles", "AdminRoles", "EnableAllFolders", "EnabledFolders", "EnableFolderRoles", "FolderRoleMapping",
+            "Roles", "AdminRoles", "EnableAllFolders", "EnabledFolders", "EnableFolderRoles", "FolderRoleMapping", "PreserveUnmanagedFolders",
             "EnableLiveTvRoles", "LiveTvRoles", "LiveTvManagementRoles", "EnableLiveTv", "EnableLiveTvManagement",
             "SchemeOverride", "PortOverride", "BaseUrlOverride",
             "HideLoginButton", "LoginButtonText",
         };
 
-        Assert.Equal(33, expected.Length);
+        Assert.Equal(34, expected.Length);
         var missing = expected.Where(p => !markedProps.Contains(p)).ToList();
         Assert.True(
             missing.Count == 0,

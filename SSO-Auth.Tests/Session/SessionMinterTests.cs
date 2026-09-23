@@ -79,7 +79,8 @@ public class SessionMinterTests
         string? defaultProvider = null,
         IReadOnlyList<PermissionGrant>? permissionGrants = null,
         int? maxParentalRatingScore = null,
-        SyncPlayUserAccessType? syncPlayAccess = null) => new SessionParameters
+        SyncPlayUserAccessType? syncPlayAccess = null,
+        string[]? managedFolders = null) => new SessionParameters
         {
             UserId = UserId,
             IsAdmin = isAdmin,
@@ -87,6 +88,7 @@ public class SessionMinterTests
             EnableAuthorization = enableAuthorization,
             EnableAllFolders = enableAllFolders,
             EnabledFolders = enabledFolders ?? Array.Empty<string>(),
+            ManagedFolders = managedFolders,
             EnableLiveTv = enableLiveTv,
             EnableLiveTvManagement = enableLiveTvManagement,
             PermissionGrants = permissionGrants ?? Array.Empty<PermissionGrant>(),
@@ -180,6 +182,68 @@ public class SessionMinterTests
         await minter.MintAsync(Params(enableAuthorization: true, enableAllFolders: true), () => "203.0.113.7", () => true);
 
         Assert.Contains(user.Permissions, perm => perm.Kind == PermissionKind.EnableAllFolders && perm.Value); // flipped from the seeded restriction
+    }
+
+    [Fact]
+    public async Task MintAsync_PreserveUnmanagedFolders_AFolderOutsideTheManagedSetSurvivesTheLogin()
+    {
+        // #1846: with a managed set supplied, the account's own folder (one the configuration has never
+        // named, enabled directly on the account by an admin or a provisioning tool) survives the login,
+        // and the grant is written beside it. Kills: replacing the list outright when ManagedFolders is set.
+        var (minter, users, sessions) = Build();
+        var user = TestUsers.Named("alice", UserId);
+        user.SetPreference(PreferenceKind.EnabledFolders, new[] { "lib-personal", "lib-mapped-old" });
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(
+            Params(enableAuthorization: true, enableAllFolders: false, enabledFolders: new[] { "lib-1" }, managedFolders: new[] { "lib-mapped-old", "lib-1" }),
+            () => "203.0.113.7",
+            () => true);
+
+        var written = user.GetPreference(PreferenceKind.EnabledFolders);
+        Assert.Contains("lib-personal", written); // unmanaged: survives
+        Assert.Contains("lib-1", written); // granted
+        Assert.DoesNotContain("lib-mapped-old", written); // managed and not granted this login: revoked
+    }
+
+    [Fact]
+    public async Task MintAsync_PreserveUnmanagedFolders_AMappedFolderIsStillRevoked()
+    {
+        // The other half of #1846: a folder the configuration manages is revoked when the login no longer
+        // grants it, exactly as without the option. Kills: treating the managed set as a grant, or
+        // skipping the write when nothing is granted.
+        var (minter, users, sessions) = Build();
+        var user = TestUsers.Named("alice", UserId);
+        user.SetPreference(PreferenceKind.EnabledFolders, new[] { "lib-mapped-old" });
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(
+            Params(enableAuthorization: true, enableAllFolders: false, enabledFolders: Array.Empty<string>(), managedFolders: new[] { "lib-mapped-old" }),
+            () => "203.0.113.7",
+            () => true);
+
+        Assert.Empty(user.GetPreference(PreferenceKind.EnabledFolders));
+    }
+
+    [Fact]
+    public async Task MintAsync_NoManagedSet_ReplacesTheFolderListAsBefore()
+    {
+        // ManagedFolders null is the pre-#1846 contract and the default: the login's grants replace the
+        // account's list, so a folder outside the grants does not survive. Kills: merging unconditionally.
+        var (minter, users, sessions) = Build();
+        var user = TestUsers.Named("alice", UserId);
+        user.SetPreference(PreferenceKind.EnabledFolders, new[] { "lib-personal" });
+        users.GetUserById(UserId).Returns(user);
+        sessions.AuthenticateDirect(Arg.Any<AuthenticationRequest>()).Returns(new AuthenticationResult());
+
+        await minter.MintAsync(
+            Params(enableAuthorization: true, enableAllFolders: false, enabledFolders: new[] { "lib-1" }),
+            () => "203.0.113.7",
+            () => true);
+
+        Assert.Equal(new[] { "lib-1" }, user.GetPreference(PreferenceKind.EnabledFolders));
     }
 
     [Fact]

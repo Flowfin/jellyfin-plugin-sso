@@ -489,6 +489,23 @@ public abstract class ProviderConfigBase
     public bool EnableFolderRoles { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether a login leaves alone the folders this provider's
+    /// configuration does not manage (#1846). Off by default, which is the behaviour every earlier
+    /// version had: the login replaces the account's folder list with what it grants, and a config saved
+    /// before this field existed deserializes to <see langword="false"/>. On, the login writes
+    /// <c>(the account's current folders - managed) + granted</c>, where managed is every folder named in
+    /// <see cref="EnabledFolders"/> or in any <see cref="FolderRoleMapping"/> entry. A managed folder is
+    /// still granted or revoked by role on every login; a folder the configuration has never mentioned -
+    /// one an administrator or a provisioning tool enabled on the account directly - survives. A folder
+    /// dropped from the configuration stops being managed and stays on the account; to revoke it without
+    /// deleting it, keep it in a mapping no role carries. With several providers, a login through this
+    /// one leaves the folders the others manage alone, since they are unmanaged from its side. Applied only when
+    /// <see cref="EnableAuthorization"/> is on and <see cref="EnableAllFolders"/> is off, the only case
+    /// in which a folder list is written at all.
+    /// </summary>
+    public bool PreserveUnmanagedFolders { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether RBAC is used to manage Live TV access.
     /// </summary>
     public bool EnableLiveTvRoles { get; set; }

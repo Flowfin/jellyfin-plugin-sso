@@ -11,6 +11,21 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Added
 
+- **A provider can leave alone the folders its configuration does not manage
+  (#1846).** Every login rewrote the account's folder list from the role
+  mapping, which removed any library an administrator or a provisioning tool
+  had enabled on the account directly, until the tool put it back. The new
+  per-provider `PreserveUnmanagedFolders` (a checkbox in the provider form's
+  folder-role block, config XML and config API; off by default, so nothing
+  changes on upgrade) makes the login write the account's current folders
+  minus the managed set plus the grants, where the managed set is every folder
+  named in the provider's static list or in any folder-role mapping. A managed
+  folder is still granted and revoked by role on every login. A folder dropped
+  from the configuration stops being managed and stays on the account; to
+  revoke it without deleting it, keep it in a mapping no role carries. With
+  several providers, a login through one leaves the folders the others manage
+  alone, since they are unmanaged from its side.
+
 - **The RP-initiated OpenID logout accepts a one-time ticket, so a client never
   has to put an access token in a URL (#1768).** That route sends the browser on
   to the identity provider, so it is reached by a top-level navigation and a

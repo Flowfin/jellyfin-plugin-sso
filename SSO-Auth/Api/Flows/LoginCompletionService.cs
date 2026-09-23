@@ -169,6 +169,7 @@ internal sealed class LoginCompletionService
             EnableAuthorization = config.EnableAuthorization,
             EnableAllFolders = config.EnableAllFolders,
             EnabledFolders = identity.Folders.ToArray(),
+            ManagedFolders = config.PreserveUnmanagedFolders ? UnmanagedFolderMerge.ManagedBy(config) : null,
             EnableLiveTv = identity.EnableLiveTv,
             EnableLiveTvManagement = identity.EnableLiveTvManagement,
             PermissionGrants = identity.PermissionGrants,

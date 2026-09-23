@@ -214,6 +214,7 @@ run, and it prints how many per page. This table counts them as it always has.
 | `providersPage.html` | `config.oidc_enable_all_folders_help`         | `EnableAllFolders`                        |
 | `providersPage.html` | `config.enabled_folders_help`                 | `EnabledFolders`                          |
 | `providersPage.html` | `config.oidc_enable_folder_roles_help`        | `EnableFolderRoles`                       |
+| `providersPage.html` | `config.preserve_unmanaged_folders_help`      | `PreserveUnmanagedFolders`                |
 | `providersPage.html` | `config.folder_role_mapping_help`             | `AddRoleMapping`                          |
 | `providersPage.html` | `config.oidc_enable_live_tv_roles_help`       | `EnableLiveTvRoles`                       |
 | `providersPage.html` | `config.livetv_roles_help`                    | `LiveTvRoles`                             |
@@ -275,6 +276,7 @@ run, and it prints how many per page. This table counts them as it always has.
 | `providersPage.html` | `config.saml_enable_all_folders_help`         | `saml-EnableAllFolders`                   |
 | `providersPage.html` | `config.saml_enabled_folders_help`            | `saml-EnabledFolders`                     |
 | `providersPage.html` | `config.saml_enable_folder_roles_help`        | `saml-EnableFolderRoles`                  |
+| `providersPage.html` | `config.preserve_unmanaged_folders_help`      | `saml-PreserveUnmanagedFolders`           |
 | `providersPage.html` | `config.saml_folder_role_mapping_help`        | `saml-AddRoleMapping`                     |
 | `providersPage.html` | `config.saml_enable_livetv_roles_help`        | `saml-EnableLiveTvRoles`                  |
 | `providersPage.html` | `config.saml_livetv_roles_help`               | `saml-LiveTvRoles`                        |

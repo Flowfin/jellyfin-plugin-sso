@@ -75,6 +75,8 @@
   "config.oidc_role_claim_object_map_label": "Rollen-Claim ist eine Objektzuordnung",
   "config.oidc_enable_all_folders_help": "Wenn aktiviert, sind alle Bibliotheken für jeden Benutzer zugänglich, der sich über diesen Anbieter anmeldet.",
   "config.oidc_enable_folder_roles_help": "Legt fest, ob Benutzerrollen den Bibliothekszugriff steuern sollen.",
+  "config.preserve_unmanaged_folders_label": "Nicht verwaltete Ordner beibehalten:",
+  "config.preserve_unmanaged_folders_help": "Lässt die Bibliotheken unangetastet, die die Konfiguration dieses Anbieters nicht verwaltet. Aus: Eine Anmeldung ersetzt die Bibliotheksliste des Kontos durch das, was die Rollen gewähren. An: Eine Anmeldung behält jede Bibliothek des Kontos, die weder in der Liste der freigegebenen Ordner noch in einer Ordner-Rollen-Zuordnung genannt ist, und gewährt oder entzieht die verwalteten wie bisher nach Rolle. Ein aus der Konfiguration entfernter Ordner wird nicht mehr verwaltet und bleibt am Konto; um einen zu entziehen, ohne ihn zu löschen, belassen Sie ihn in einer Zuordnung, die keine Rolle trägt. Bei mehreren Anbietern lässt eine Anmeldung über diesen auch die Ordner der anderen Anbieter unangetastet.",
   "config.oidc_enable_live_tv_roles_label": "Live-TV-RBAC aktivieren",
   "config.oidc_enable_live_tv_roles_help": "Legt fest, ob die Rollen zur Vergabe von Live-TV-Rechten verwendet werden.",
   "config.oidc_enable_live_tv_label": "Live-TV-Zugriff standardmäßig aktivieren",
