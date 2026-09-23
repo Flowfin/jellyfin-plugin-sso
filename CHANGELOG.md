@@ -921,6 +921,16 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
+- **A server on a beta build is offered the release of its own line (#1841).**
+  The two channels numbered one line differently: the stable channel carried
+  5.0.0.0 while the beta channel carried 5.0.0.88 for that same line, so a
+  server watching the beta channel saw a lower version on the stable one, was
+  never offered an update, and stayed on a pre-release build. Every release is
+  now carried into the beta channel as well, so that channel always leads; the
+  stable channel keeps only releases, as before. Beside it, a release that does
+  not number above every beta of its own line is refused before it is created,
+  because a release the beta channel carries at a lower version is still never
+  offered and a published release cannot be renumbered.
 - **A discovery document whose issuer the endpoint refuses is logged with both
   values (#1835).** The fail-closed warning carried the identity library's text,
   which quotes one of the two values and says neither which one it is nor which
