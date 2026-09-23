@@ -38,7 +38,7 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 
 > ### 🔁 Revival
 >
-> A security-first continuation of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), archived by its author, carried on from **4.0.0.x**. **5.x** is the line for Jellyfin 12 (.NET 10); **4.3.2** is the last build for Jellyfin 10.11 (.NET 9) and the line is frozen. One repository URL serves both, and your server installs the build that runs on it. Thanks to the original author and contributors for the foundation.
+> A security-first continuation of [**9p4/jellyfin-plugin-sso**](https://github.com/9p4/jellyfin-plugin-sso), archived by its author, carried on from **4.0.0.x**. **5.x** is the line for Jellyfin 12 (.NET 10). One repository URL serves both generations, and your server installs the build that runs on it. Thanks to the original author and contributors for the foundation.
 >
 > ### 🤝 AI-assisted, human-owned
 >
