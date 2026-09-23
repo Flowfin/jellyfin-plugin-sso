@@ -166,8 +166,13 @@ phase does not die: it ends green and writes into the job log, an annotation and
 read as co-existence evidence it does not carry. The repository secret `PAIRWISE_READ_TOKEN`, where it
 exists, is used for the listing and the artefact downloads instead, and the phase pairs again the day it
 is set, with no further change; `publish-jf12-beta.yml` passes it through to the called workflow by name.
-A listing that fails as a call - no network, a refused token - stays fatal
-([#1773](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1773)).
+A listing that fails as a call - no network, a refused token - is retried `LISTING_TRIES` times (3 by
+default) and, if it still does not answer, is reported as an **unread listing**: the run ends green
+having paired nothing, and the log, the annotation and the step summary all say the sibling set was
+never read rather than printing a count of zero. An unread listing and a family that cannot co-exist
+are opposite facts, and a release was blocked once because this leg reported them the same way
+([#1773](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1773),
+[#1844](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1844)).
 
 Per pair, it asserts and **names what it compared**:
 
@@ -336,7 +341,13 @@ checksum to trust.
 The refusal is driven by the phase itself, one request against `/sso/OID/start/<provider>`, and the
 same endpoint is probed **before** the key goes away. The harness exits non-zero on any failed
 login, so its exit code alone cannot separate a fail-closed refusal from a stack that broke for an
-unrelated reason; the control probe is what makes the refusal attributable. Jellyfin publishes no
+unrelated reason; the control probe is what makes the refusal attributable. Both restarts bring back
+**every service the probe needs** - the server and the identity provider the challenge is built
+from - and the phase asserts each of them is running before it probes, because a stage that brings
+the server back alone probes a provider that is down and the refusal then proves only that a name
+does not resolve. A probe that never reached the challenge is reported as exactly that, naming the
+harness or the provider, so a stage that took no measurement is never read as a failed assertion
+([#1844](https://github.com/Flowfin/jellyfin-plugin-sso/issues/1844)). Jellyfin publishes no
 port to the host, so both probes run in a throwaway container on the compose network, running
 `test/e2e/phases/probe-oid-start.sh` from a read-only bind mount. That probe never exits non-zero:
 it reports its own failures as `PROBE-ERROR` lines and the phase decides what a missing answer
