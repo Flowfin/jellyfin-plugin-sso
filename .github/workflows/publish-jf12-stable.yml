@@ -18,6 +18,12 @@ name: Publish JF12 Stable
 # ships its own build.yaml, so Jellyfin filters client-side by targetAbi: a 12.0 server installs the 5.x
 # build, a 10.11 server 4.3.0, from one stable manifest - no separate manifest is needed.
 #
+# AND INTO manifest-beta AS WELL, so the beta channel always leads (#1841). A server already watching
+# the beta channel was offered nothing when a release shipped, because that branch was rewritten only by
+# a beta publish. The `carry-into-beta` job below does that write, and the belt step in `publish`
+# refuses a release that does not number above every beta of its own line, because a release the beta
+# channel carries at a LOWER version is still never offered.
+#
 # NO PROVIDER MATRIX HERE, DELIBERATELY, FOR THE SAME REASON AS publish.yml (#1464). The two beta legs
 # are gated on the seven-stack harness because they publish daily; both stable legs write the empty
 # `manifest-release` branch and have published nothing since #954, so a gate added here would be one no
@@ -98,6 +104,59 @@ jobs:
       with:
         name: vex-artifact
         path: _dist
+    - name: The release must outrank every beta of its line
+      # THE SECOND BELT OF #1841, AND IT REFUSES BEFORE ANYTHING IMMUTABLE EXISTS. The two channels
+      # numbered one line differently: the stable channel carried 5.0.0.0 while the beta channel
+      # carried 5.0.0.88 for that same line, so a server on a beta build saw a LOWER version on the
+      # stable channel, was never offered the release, and stayed on a pre-release build for good.
+      # The first measure is the job below, which puts every release on the beta channel too; this is
+      # the second, because a release that arrives there numbering below the betas beside it is still
+      # not offered. It runs AHEAD of the release being created: a release here is immutable, so a
+      # number caught afterwards can never be corrected, only superseded.
+      #
+      # The line is the first three octets of build.yaml's version, and the betas of that line are the
+      # tags sharing them - X.Y.Z-JF12-beta.<run>, whose manifest version is X.Y.Z.<run>. What this
+      # asserts is the ordering Jellyfin's client-side update check makes, which is on the four-octet
+      # version and on nothing else.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |-
+        set -euo pipefail
+        set -- _dist/*.zip.meta.json
+        if [ "$#" -ne 1 ] || [ ! -s "$1" ]; then
+          echo "::error::_dist/*.zip.meta.json resolved to $# path(s); expected exactly one readable file"
+          exit 1
+        fi
+        version="$(jq -r '.version // empty' "$1")"
+        [ -n "$version" ] || { echo "::error::$1 carries no version"; exit 1; }
+        line="$(printf '%s' "$version" | cut -d. -f1-3)"
+        mine="$(printf '%s' "$version" | cut -d. -f4)"
+        [ -n "$mine" ] || mine=0
+        # Paginated, for the reason generate-manifest gives: without it only the first 30 releases are
+        # seen, and on a line with a daily beta cadence the highest beta is off the end within a month.
+        gh api --paginate --method GET -f per_page=100 "repos/${REPO}/releases" \
+          --jq '.[] | select(.draft | not) | .tag_name' > tags.txt
+        highest=""
+        while read -r tag; do
+          case "$tag" in
+            "$line"-JF12-beta.*|"$line"-beta.*) run="${tag##*.}" ;;
+            *) continue ;;
+          esac
+          case "$run" in ''|*[!0-9]*) continue ;; esac
+          if [ -z "$highest" ] || [ "$run" -gt "$highest" ]; then highest="$run"; fi
+        done < tags.txt
+        rm -f tags.txt
+        if [ -z "$highest" ]; then
+          echo "no beta of line $line has been published, so $version outranks the line by default"
+          exit 0
+        fi
+        echo "line $line: the highest beta is $line.$highest, this release is $version"
+        if [ "$mine" -le "$highest" ]; then
+          echo "::error::$version does not outrank $line.$highest, the highest beta of its own line. A server on that beta is offered an update only by a HIGHER version, so this release would reach it and be ignored. Cut it above the line: build.yaml's version has to be $line.N with N greater than $highest."
+          exit 1
+        fi
+        echo "$version outranks every beta of line $line"
     - name: Prepare GitHub Release assets
       run: |-
         pushd _dist
@@ -168,4 +227,67 @@ jobs:
         github-token: ${{ github.token }}
         # 10.11.0.0 stays required: 4.3.0 is the last build a 10.11 server can install, and a
         # regeneration that lost it would empty that generation's repository (#943, #1770).
+        require-abis: "10.11.0.0 12.0.0.0"
+
+  # EVERY RELEASE IS CARRIED INTO THE BETA CHANNEL AS WELL, SO THAT CHANNEL ALWAYS LEADS (#1841). The
+  # stable channel keeps only releases, as it did before. What this repairs is the server that already
+  # watches the beta channel: it was offered nothing when a release shipped, because manifest-beta was
+  # rewritten only by a beta publish, so the release reached that channel a day later at the earliest
+  # and on a closed line never at all. A parked server is the worst outcome a publish pipeline has,
+  # because nothing about it is visible from either channel.
+  #
+  # A SEPARATE JOB RATHER THAN A STEP, AND THE REASON IS THE CONCURRENCY GROUP. manifest-beta has its
+  # own writers - the beta leg and regenerate-manifest.yml - serialised under `publish-manifest-beta`
+  # against the reader-vs-pusher race #135 fixed. A workflow holds one group, and this one holds
+  # `publish-manifest-release`, so the beta write has to be a job that joins the other group itself.
+  # `needs: publish` and no `if`, so it runs only where the release was actually created.
+  carry-into-beta:
+    name: Carry the release into the beta channel
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-manifest-beta
+      cancel-in-progress: false
+    steps:
+    # The checkout comes first for the reason the publish job gives: it cleans the workspace, so it
+    # would delete the download. The tree is here only so the two local actions resolve.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    # Only the package: the manifest generator reads the plugin identity out of JPRM's
+    # `*.zip.meta.json`, and the zip and checksum it publishes come from the sealed release rather
+    # than from this workspace.
+    - name: Download the package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: build-artifact
+        path: _dist
+    - name: Publish the beta manifest
+      # include-prereleases true, which is the beta channel and is what makes it carry BOTH: every
+      # prerelease of every line and every release, this one included. The generator fails unless the
+      # build this run published survives into the committed manifest, so a regeneration that dropped
+      # the release reds here rather than leaving the channel one behind in silence.
+      uses: ./.github/actions/generate-manifest
+      with:
+        plugin-metadata: _dist/*.zip.meta.json
+        repository: ${{ github.repository }}
+        manifest-branch: manifest-beta
+        include-prereleases: "true"
+        github-token: ${{ github.token }}
+    - name: Verify the published manifest
+      # The same post-publish detector the two channels already run: it downloads what the manifest
+      # points at and checks the artefact against the checksum published beside it. It does not
+      # prevent - the manifest is written by the time it runs - it turns a silent install outage into
+      # a red build.
+      uses: ./.github/actions/verify-manifest
+      with:
+        repository: ${{ github.repository }}
+        manifest-branch: manifest-beta
+        github-token: ${{ github.token }}
+        # 10.11.0.0 stays required although nothing here builds for it, for the reason the beta leg
+        # gives: the 4.3 builds are the last a 10.11 server can install, and a regeneration that lost
+        # them would empty that generation's repository (#943, #1770).
         require-abis: "10.11.0.0 12.0.0.0"
