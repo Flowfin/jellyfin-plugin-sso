@@ -57,21 +57,21 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 
 Any OIDC-conformant or SAML 2.0 identity provider should work. Keycloak, Authelia, authentik, Dex, Pocket ID, Kanidm, Zitadel, and Google have verified, step-by-step guides - with the per-provider caveats - on the [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) wiki page.
 
-The self-hostable providers run in an automated end-to-end login test in CI ([`e2e-login.yml`](.github/workflows/e2e-login.yml)); cloud providers (Google, Entra ID) can't run in ephemeral CI and are verified manually. A verified guide (or a test) for a provider you use is a welcome contribution.
+The self-hostable providers run in an automated end-to-end login test in CI ([`e2e-login.yml`](.github/workflows/e2e-login.yml)).
 
 ## Installing
 
 > **This is an independent plugin repository** - it is not in Jellyfin's built-in catalog. You install it by adding **its** repository under **Plugins → Repositories**.
 
-1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add the repository URL of the channel you want. Each URL serves both generations: a Jellyfin 12 server installs the current 5.x build, a 10.11 server the last one made for it, 4.3.2.
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add the repository URL of the channel you want.
 
-   **Stable** - releases promoted after their soak; the channel for a server with real accounts:
+   **Stable**:
 
    ```
    https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-release/manifest.json
    ```
 
-   **Beta** - every build as it lands, ahead of the stable; for testing and for reporting back:
+   **Beta**:
 
    ```
    https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json
