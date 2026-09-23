@@ -53,8 +53,6 @@ Sign in to Jellyfin with your existing identity provider - Keycloak, Authelia, a
 - **Avatar sync, Quick Connect, and self-service account linking.** Which client reaches SSO by which mechanism, and what has actually been exercised: [Client Compatibility](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Client-Compatibility).
 - **Tested** - a growing xUnit suite over the security-critical paths, with CI (build, format, CodeQL) on every change.
 
-How this plugin compares to Jellyfin's built-in auth, the official LDAP plugin, and the archived 9p4 plugin: see the [Comparison](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Comparison) wiki page.
-
 ## Supported providers
 
 Any OIDC-conformant or SAML 2.0 identity provider should work. Keycloak, Authelia, authentik, Dex, Pocket ID, Kanidm, Zitadel, and Google have verified, step-by-step guides - with the per-provider caveats - on the [Provider Setup](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup) wiki page.
