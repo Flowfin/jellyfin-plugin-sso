@@ -267,7 +267,7 @@ The gate applies to every author, bots excepted (#1516), so a subject without it
 
 ### Sign Your Work (DCO)
 
-This project uses the [Developer Certificate of Origin](DCO) (DCO 1.1) - a lightweight, standard way to certify that you wrote or otherwise have the right to submit the code you contribute, under the project's GPL-3.0 license. It is not a copyright-assignment CLA; you keep your copyright.
+This project uses the [Developer Certificate of Origin](DCO) (DCO 1.1, published at [developercertificate.org](https://developercertificate.org/) and copied into this repository verbatim) - a lightweight, standard way to certify that you wrote or otherwise have the right to submit the code you contribute, under the project's GPL-3.0 license. It is not a copyright-assignment CLA; you keep your copyright.
 
 **Every commit must be signed off.** Add the sign-off automatically with `-s`:
 
