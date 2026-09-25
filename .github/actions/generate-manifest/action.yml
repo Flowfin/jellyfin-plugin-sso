@@ -125,6 +125,11 @@ runs:
         total="$(jq -s 'add | length' "$work/releases.json")"
         echo "releases fetched: $total"
 
+        # The older Jellyfin generation, whose manifest entries are the ones the prefix below
+        # names (#1873). Both the test and the sentence are derived from this one value, so the
+        # generation is written once and a future line needs one edit rather than three.
+        OLDER_GENERATION_ABI="10.11.0.0"
+
         # Each release's targetAbi and version come from ITS OWN build.yaml - shipped as a
         # release asset where the leg provides one (the JF12 legs must, or their builds would
         # be labelled with the JF10.11 metadata), otherwise read from the release's tag.
@@ -241,12 +246,30 @@ runs:
           # Same draft filter and cutoff as the asset lookup above, for the same reason: two
           # releases sharing a tag_name would otherwise concatenate both bodies into one entry.
           changelog="$(jq -r --arg t "$tag" -s 'first(add[] | select((.draft | not) and .tag_name == $t) | .body // "")' "$work/releases.json")"
+          # A manifest entry has no ceiling field. Jellyfin keeps every entry whose targetAbi is
+          # at or BELOW the server's version, so on a Jellyfin 12 server the plugin's revision
+          # history lists the 10.11 builds beside the 12 ones, each with its date and its own
+          # Install button and no mark for the generation - and a 10.11 build published later
+          # than the current 12 one stands above it on date (#1873). The changelog is the only
+          # text of an entry that reaches that list, so an entry for the older generation opens
+          # by naming it. The prefix is added HERE rather than in the release body because the
+          # four 4.x bodies that do not carry the sentence are immutable and cannot be reopened;
+          # the manifest is what the revision history reads. A body that already names the
+          # generation - every 4.3 release does - is left exactly as it is, so the sentence is
+          # never doubled. The generation is derived from the ABI rather than written twice.
           # Underscore-prefixed fields are working data for the post-cap checksum pass and are
           # stripped before the manifest is built; `checksum` is added there.
           jq -nc --arg changelog "$changelog" --arg sourceUrl "$zip_url" \
                  --arg targetAbi "$target_abi" --arg timestamp "$published_at" --arg version "$version" \
                  --arg md5url "$md5_url" --arg zip "$zip_name" --arg tag "$tag" --arg ours "$ours" \
-            '{changelog:$changelog, sourceUrl:$sourceUrl, targetAbi:$targetAbi, timestamp:$timestamp, version:$version, _md5url:$md5url, _zip:$zip, _tag:$tag, _ours:$ours}' \
+                 --arg olderAbi "$OLDER_GENERATION_ABI" \
+            '($olderAbi | split(".")[0:2] | join(".")) as $gen
+             | ($changelog | ascii_downcase | contains("jellyfin " + $gen)) as $named
+             | {changelog: (if $targetAbi == $olderAbi and ($named | not)
+                            then ([("For servers on Jellyfin " + $gen + "."), $changelog]
+                                  | map(select(length > 0)) | join("\n\n"))
+                            else $changelog end),
+                sourceUrl:$sourceUrl, targetAbi:$targetAbi, timestamp:$timestamp, version:$version, _md5url:$md5url, _zip:$zip, _tag:$tag, _ours:$ours}' \
             >> "$work/versions.jsonl"
         done < <(jq -r -s 'add[] | [.tag_name, (.draft|tostring), (.prerelease|tostring), .published_at] | @tsv' "$work/releases.json")
 
