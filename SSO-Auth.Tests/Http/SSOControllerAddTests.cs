@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.SSO_Auth;
 using Jellyfin.Plugin.SSO_Auth.Api.Secrets;
 using Jellyfin.Plugin.SSO_Auth.Api;
+using Jellyfin.Plugin.SSO_Auth.Api.Http;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
@@ -137,7 +138,7 @@ public class SSOControllerAddTests
         var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
             new OidConfig { OidSecret = "stored-secret", OidEndpoint = "https://idp.example/", OidClientId = "client-1" });
 
-        harness.Controller.OidAdd("keycloak", new OidConfig { OidSecret = string.Empty, OidEndpoint = "https://attacker.example/", OidClientId = "client-1" });
+        var answer = SaveAnswer(harness.Controller.OidAdd("keycloak", new OidConfig { OidSecret = string.Empty, OidEndpoint = "https://attacker.example/", OidClientId = "client-1" }));
 
         var stored = SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"]);
         // The identity genuinely changed (so the drop is via the ResolveUpdatedSecret identity-change
@@ -145,7 +146,71 @@ public class SSOControllerAddTests
         // arm guards against an always-keep regression (Test 1 covers the links-only/never-keep case).
         Assert.Equal("https://attacker.example/", stored.OidEndpoint);
         Assert.True(string.IsNullOrEmpty(stored.OidSecret));
+
+        // And the save SAYS so (#1872): until this, the door answered a bare 200 and the first sign of the
+        // dropped secret was the next login failing with the provider's own error naming the symptom.
+        Assert.True(answer.SecretDropped);
+        Assert.Equal(ProviderSaveResponse.SecretDroppedNotice, answer.Notice);
     }
+
+    [Theory]
+    [InlineData("https://attacker.example/", "client-1")] // endpoint repointed
+    [InlineData("https://idp.example/", "client-2")] // client id changed
+    public void OidAdd_ReSaveWithBlankSecret_ChangedIdentity_AnswersThatTheSecretWasDropped(string endpoint, string clientId)
+    {
+        // Both halves of the identity the rule reads (#189) are reported when they drop the secret (#1872);
+        // #1869 was the client-id half of exactly this shape, found at the login rather than at the save.
+        var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
+            new OidConfig { OidSecret = "stored-secret", OidEndpoint = "https://idp.example/", OidClientId = "client-1" });
+
+        var answer = SaveAnswer(harness.Controller.OidAdd("keycloak", new OidConfig { OidSecret = null, OidEndpoint = endpoint, OidClientId = clientId }));
+
+        Assert.True(answer.SecretDropped);
+        Assert.True(string.IsNullOrEmpty(SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"].OidSecret)));
+    }
+
+    [Fact]
+    public void OidAdd_ReSaveWithBlankSecret_UnchangedIdentity_AnswersNoDrop()
+    {
+        // The ordinary re-save keeps the stored secret, so it reports nothing (#1872): a drop reported on
+        // every save would be the same page as no report at all.
+        var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
+            new OidConfig { OidSecret = "stored-secret", OidEndpoint = "https://idp.example/", OidClientId = "client-1" });
+
+        var answer = SaveAnswer(harness.Controller.OidAdd("keycloak", new OidConfig { OidSecret = string.Empty, OidEndpoint = "https://idp.example/", OidClientId = "client-1" }));
+
+        Assert.False(answer.SecretDropped);
+        Assert.Null(answer.Notice);
+    }
+
+    [Fact]
+    public void OidAdd_RepointWithNewSecret_AnswersNoDrop()
+    {
+        // A repoint that carries a new secret is a rotation and loses nothing (#1872): the answer must not
+        // send an administrator back to re-enter a secret they just entered.
+        var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
+            new OidConfig { OidSecret = "stored-secret", OidEndpoint = "https://idp.example/", OidClientId = "client-1" });
+
+        var answer = SaveAnswer(harness.Controller.OidAdd("keycloak", new OidConfig { OidSecret = "new-secret", OidEndpoint = "https://other.example/", OidClientId = "client-1" }));
+
+        Assert.False(answer.SecretDropped);
+        Assert.Equal("new-secret", SSOPlugin.Instance.Secrets.Reveal(SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["keycloak"].OidSecret)));
+    }
+
+    [Fact]
+    public void OidAdd_RepointOfProviderWithoutStoredSecret_AnswersNoDrop()
+    {
+        // Nothing stored, nothing dropped (#1872): reporting a drop here would send an administrator
+        // looking for a secret that never existed. Same for a provider being created for the first time.
+        var harness = new SsoControllerHarness(c => c.OidConfigs["keycloak"] =
+            new OidConfig { OidSecret = null, OidEndpoint = "https://idp.example/", OidClientId = "client-1" });
+
+        Assert.False(SaveAnswer(harness.Controller.OidAdd("keycloak", new OidConfig { OidEndpoint = "https://other.example/", OidClientId = "client-1" })).SecretDropped);
+        Assert.False(SaveAnswer(harness.Controller.OidAdd("fresh", new OidConfig { OidEndpoint = "https://other.example/", OidClientId = "client-1" })).SecretDropped);
+    }
+
+    private static ProviderSaveResponse SaveAnswer(ActionResult<ProviderSaveResponse> result)
+        => Assert.IsType<ProviderSaveResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
 
     [Fact]
     public void SamlAdd_ValidConfig_StoresTheProvider_ReturnsOk()

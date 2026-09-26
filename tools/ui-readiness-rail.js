@@ -1124,6 +1124,16 @@ function nameOf(core, page, id) {
   return core.readinessFieldName(page, id);
 }
 
+// HOW MANY CONFIGURATION READS A SAVE ISSUES AFTER ITS WRITE, per protocol. Both saves reload the
+// configuration and the provider. The OpenID save reads the configuration a third time (#1872): the
+// host's save door answers with no body, so whether the stored client secret survived the save is
+// read back, and the sentence under the save waits for that answer while the save itself settles at
+// once - which is why the arms can resolve the two reloads in either order and still meet a resolved
+// save with the third read parked. SAML has no such secret rule and no such read.
+function reloadsAfterSave(protocol) {
+  return protocol === "oid" ? 3 : 2;
+}
+
 function main() {
   const faults = [];
   const refuse = (leg, detail) => faults.push(leg + ": " + detail);
@@ -2184,14 +2194,20 @@ async function run() {
         counter.park = null;
         continue;
       }
-      // The save's own read, then its write, and the two reads its success handler issues.
+      // The save's own read, then its write, and the reads its success handler issues: the two
+      // reloads, and for OpenID the read-back that answers whether the stored secret survived (#1872).
       counter.park[0].resolve(body());
       await settled();
-      if (counter.park.length !== 3 || outcome !== "resolved") {
+      if (
+        counter.park.length !== 1 + reloadsAfterSave(protocol) ||
+        outcome !== "resolved"
+      ) {
         refuse(
           "selector-survives",
           protocol +
-            ": a save that should have parked two reads and resolved parked " +
+            ": a save that should have parked " +
+            reloadsAfterSave(protocol) +
+            " reads and resolved parked " +
             (counter.park.length - 1) +
             " and " +
             outcome,
@@ -2366,11 +2382,16 @@ async function run() {
       }
       counter.park[0].resolve(before());
       await settled();
-      if (counter.park.length !== 3 || outcome !== "resolved") {
+      if (
+        counter.park.length !== 1 + reloadsAfterSave(protocol) ||
+        outcome !== "resolved"
+      ) {
         refuse(
           "first-save",
           protocol +
-            ": a save that should have parked two reads and resolved parked " +
+            ": a save that should have parked " +
+            reloadsAfterSave(protocol) +
+            " reads and resolved parked " +
             (counter.park.length - 1) +
             " and " +
             outcome,

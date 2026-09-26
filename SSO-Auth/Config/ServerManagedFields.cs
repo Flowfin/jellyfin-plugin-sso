@@ -218,9 +218,33 @@ internal static class ServerManagedFields
             return incoming.OidSecret;
         }
 
-        var identityUnchanged =
-            string.Equals(incoming.OidEndpoint, live.OidEndpoint, StringComparison.Ordinal)
-            && string.Equals(incoming.OidClientId, live.OidClientId, StringComparison.Ordinal);
-        return identityUnchanged ? live.OidSecret : incoming.OidSecret;
+        return IdentityUnchanged(incoming, live) ? live.OidSecret : incoming.OidSecret;
     }
+
+    /// <summary>
+    /// Says whether <see cref="ResolveUpdatedSecret"/> is about to drop a STORED secret for this save (#1872):
+    /// a blank incoming secret, a live secret that is there, and an identity that changed. The rule itself
+    /// is right and unchanged; what was missing was the word, since the save succeeded and the first sign
+    /// was the next login failing with the provider's own error naming the symptom. The two doors an
+    /// administrator saves through, <c>OID/Add</c> and the configuration page, answer with this fact so the
+    /// secret is asked for at the moment it went; a configuration import still drops without a word, which
+    /// <see cref="ConfigImport"/> documents. A provider that had no stored secret drops nothing, and saying
+    /// otherwise would send an administrator looking for a secret that never existed. Read against the
+    /// stored provider, never against a posted config <see cref="Preserve(OidConfig, OidConfig?)"/> has
+    /// already resolved, since that write is what makes a dropped secret look like one that never was.
+    /// </summary>
+    /// <param name="incoming">The provider config about to be persisted.</param>
+    /// <param name="live">The current live provider config, or null when the provider is new.</param>
+    /// <returns>True when this save drops a stored secret because the provider identity changed.</returns>
+    internal static bool SecretDroppedByRepoint(OidConfig incoming, OidConfig? live)
+        => live is not null
+            && !string.IsNullOrWhiteSpace(live.OidSecret)
+            && string.IsNullOrWhiteSpace(incoming.OidSecret)
+            && !IdentityUnchanged(incoming, live);
+
+    // The one identity compare both answers above share, so the fact reported and the secret resolved can
+    // never disagree about what "the provider changed" means.
+    private static bool IdentityUnchanged(OidConfig incoming, OidConfig live)
+        => string.Equals(incoming.OidEndpoint, live.OidEndpoint, StringComparison.Ordinal)
+            && string.Equals(incoming.OidClientId, live.OidClientId, StringComparison.Ordinal);
 }

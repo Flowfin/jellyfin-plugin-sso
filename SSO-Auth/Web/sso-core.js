@@ -3374,6 +3374,61 @@ const ssoConfigurationPage = {
       false,
     );
   },
+  // WHETHER A SAVE DROPPED THE STORED CLIENT SECRET (#1872), read back from the server rather than
+  // re-derived here. The server does not carry a stored secret over to a provider whose discovery
+  // endpoint or client id changed, because a write-only secret must not follow a provider repointed at
+  // another token endpoint - so the save succeeds and the provider signs nobody in until a secret
+  // arrives. The page saves through the host's plugin-configuration door, which answers with no body,
+  // so the fact is the difference between two readings of OidSecretStored: true before the save and
+  // false after it. A second copy of the rule in this file would be the thing that disagrees with the
+  // server one day (a null endpoint and an empty one compare equal here and differ there); a reading
+  // cannot. OidSecretStored is the only thing that says a secret is there at all, since the secret
+  // itself is withheld from every response. A provider that had none drops nothing, and saying
+  // otherwise would send an administrator looking for a secret that never existed. Null means the
+  // question could not be answered - the provider did not come back - and the caller says so rather
+  // than reading it as either answer. A pure function of the two readings, testable without a page.
+  secretDroppedByThisSave: (secret_was_stored, saved_provider) => {
+    if (secret_was_stored !== true) {
+      return false;
+    }
+    if (!saved_provider) {
+      return null;
+    }
+    return saved_provider.OidSecretStored !== true;
+  },
+  // THE SENTENCE UNDER THE SAVE, chosen from that answer (#1872). The provider is stored either way,
+  // so none of the three is a failure; but a provider that cannot sign anybody in until a secret
+  // arrives is not a plain "saved", and nothing else on this page would ever say so, because the
+  // secret field is blank on every load. The sentence carries the reason and the remedy rather than
+  // the colour doing it (#221). Null is the read-back not answering, and it is said as that: a
+  // negative that could not be taken is not turned into "saved". A pure function of the outcome, so
+  // the choice is testable without a page, and the colour rides with the sentence rather than being
+  // decided a second time at the render site.
+  saveStatusFor: (outcome) => {
+    const dropped = (outcome || {}).secretDropped;
+    if (dropped === true) {
+      return {
+        message: tr(
+          "config.provider_saved_secret_dropped",
+          "Saved, and the stored client secret was dropped: the discovery endpoint or the client id changed while the secret field was blank, and a stored secret is never carried over to a re-identified provider. This provider signs nobody in until you enter its client secret here and save again.",
+        ),
+        ok: false,
+      };
+    }
+    if (dropped === null) {
+      return {
+        message: tr(
+          "config.provider_saved_secret_unknown",
+          "Saved, but whether the stored client secret is still there could not be read back. If you changed the discovery endpoint or the client id with a blank secret field, the stored secret was dropped: enter the client secret here and save again.",
+        ),
+        ok: false,
+      };
+    }
+    return {
+      message: tr("config.provider_saved", "Settings saved."),
+      ok: true,
+    };
+  },
   saveProvider: (page, provider_name) => {
     return new Promise((resolve, reject) => {
       const form_elements = ssoConfigurationPage.listArgumentsByType(page);
@@ -3384,6 +3439,13 @@ const ssoConfigurationPage = {
           if (config.OidConfigs.hasOwnProperty(provider_name)) {
             current_config = config.OidConfigs[provider_name];
           }
+
+          // WHETHER A SECRET WAS STORED IS READ BEFORE THE FORM TOUCHES THE PROVIDER (#1872). The
+          // object below IS the stored provider and the loops after this mutate it in place, so the
+          // reading is copied out here rather than taken afterwards. It is the first of the two
+          // readings secretDroppedByThisSave compares; the second is taken from the server after the
+          // save has landed.
+          const secret_was_stored = current_config.OidSecretStored === true;
 
           form_elements.text_fields.forEach((id) => {
             current_config[id] = page.querySelector("#" + id).value || null;
@@ -3446,8 +3508,32 @@ const ssoConfigurationPage = {
               );
               ssoConfigurationPage.loadConfiguration(page);
               ssoConfigurationPage.loadProvider(page, provider_name);
-              // The outcome is rendered inline by the caller, in the editor's own status region (#1572).
-              resolve();
+              // THE SECOND READING (#1872): the save has landed, so the server can be asked whether the
+              // secret is still there. The outcome is rendered inline by the caller, in the editor's own
+              // status region (#1572), and it carries the answer AS A PROMISE: the save itself settles
+              // now, as it always has - the readiness rail (#1678) drives that ordering and its reloads
+              // above are still in flight at this point - and the sentence waits for the answer rather
+              // than the other way round. A read-back that fails does not turn a save that worked into a
+              // failure; it answers with the question unanswered, and the caller says that rather than
+              // "saved" - the one save this fix exists for is exactly the one that would otherwise read
+              // as fine.
+              const secret_dropped = ApiClient.getPluginConfiguration(
+                ssoConfigurationPage.pluginUniqueId,
+              ).then(
+                (saved) =>
+                  ssoConfigurationPage.secretDroppedByThisSave(
+                    secret_was_stored,
+                    ((saved || {}).OidConfigs || {})[provider_name],
+                  ),
+                // The rejection arm hands the same decision a read-back that holds no provider: null
+                // when a secret was there, false when none was, and no second rule beside it.
+                () =>
+                  ssoConfigurationPage.secretDroppedByThisSave(
+                    secret_was_stored,
+                    undefined,
+                  ),
+              );
+              resolve({ secretDropped: secret_dropped });
             },
             // Rejection handler attached directly to the save call, so it reports only a genuine save
             // failure and not an error thrown by the post-save UI work above. The server can refuse a
@@ -7031,13 +7117,23 @@ function initProvidersPage(view) {
     // sentence is here now. Handling the rejection keeps a failed save from becoming an unhandled promise
     // rejection (the rejection still exists so callers can distinguish failure from success).
     ssoConfigurationPage.saveProvider(view, target_provider).then(
-      () => {
-        ssoConfigurationPage.renderSaveStatus(
-          view,
-          tr("config.provider_saved", "Settings saved."),
-          true,
-        );
+      (outcome) => {
         ssoConfigurationPage.setEditorTitle(view, target_provider);
+        // A SAVE THAT DROPPED THE SECRET IS NOT A PLAIN "SAVED" (#1872): which sentence, and in which
+        // colour, is decided in saveStatusFor, once, where a tool can drive it. The answer arrives
+        // from the server after the save has landed, so the sentence is rendered when it does and
+        // nothing is said in the meantime - "saved" written first and corrected a moment later is a
+        // sentence an administrator may already have acted on.
+        Promise.resolve((outcome || {}).secretDropped).then((dropped) => {
+          const status = ssoConfigurationPage.saveStatusFor({
+            secretDropped: dropped,
+          });
+          ssoConfigurationPage.renderSaveStatus(
+            view,
+            status.message,
+            status.ok,
+          );
+        });
       },
       () =>
         ssoConfigurationPage.renderSaveStatus(

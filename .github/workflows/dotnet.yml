@@ -218,6 +218,14 @@ jobs:
       # carries which row is a decision the renderer takes, and no reading of these assets makes it. Same
       # runtime and same absence of dependencies as the steps above.
       run: node tools/ui-overview-downgrade-mark.js
+    - name: Dropped-secret report check
+      # A save with a blank secret field drops the stored client secret when the discovery endpoint or
+      # the client id changed, and the page used to say "saved" (#1872). The rule is the server's and is
+      # right; the page reads the answer back and says it. Whether it says it is a decision inside a
+      # function, so this drives the shipped sso-core.js decision over every pair of readings with a
+      # known answer, and reads the order of the two statements the answer depends on. Same runtime and
+      # same absence of dependencies as the steps above.
+      run: node tools/ui-secret-dropped.js
     - name: VEX document check
       # The published VEX statements are only useful if they parse and carry machine-readable
       # dispositions, so a malformed edit fails here rather than at the release leg that ships the
