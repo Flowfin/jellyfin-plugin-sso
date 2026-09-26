@@ -3510,30 +3510,30 @@ const ssoConfigurationPage = {
               ssoConfigurationPage.loadProvider(page, provider_name);
               // THE SECOND READING (#1872): the save has landed, so the server can be asked whether the
               // secret is still there. The outcome is rendered inline by the caller, in the editor's own
-              // status region (#1572), and it carries the answer. A read-back that fails does not turn a
-              // save that worked into a failure; it resolves with the question unanswered, and the caller
-              // says that rather than "saved" - the one save this fix exists for is exactly the one that
-              // would otherwise read as fine.
-              ApiClient.getPluginConfiguration(
+              // status region (#1572), and it carries the answer AS A PROMISE: the save itself settles
+              // now, as it always has - the readiness rail (#1678) drives that ordering and its reloads
+              // above are still in flight at this point - and the sentence waits for the answer rather
+              // than the other way round. A read-back that fails does not turn a save that worked into a
+              // failure; it answers with the question unanswered, and the caller says that rather than
+              // "saved" - the one save this fix exists for is exactly the one that would otherwise read
+              // as fine.
+              const secret_dropped = ApiClient.getPluginConfiguration(
                 ssoConfigurationPage.pluginUniqueId,
               ).then(
                 (saved) =>
-                  resolve({
-                    secretDropped: ssoConfigurationPage.secretDroppedByThisSave(
-                      secret_was_stored,
-                      ((saved || {}).OidConfigs || {})[provider_name],
-                    ),
-                  }),
+                  ssoConfigurationPage.secretDroppedByThisSave(
+                    secret_was_stored,
+                    ((saved || {}).OidConfigs || {})[provider_name],
+                  ),
                 // The rejection arm hands the same decision a read-back that holds no provider: null
                 // when a secret was there, false when none was, and no second rule beside it.
                 () =>
-                  resolve({
-                    secretDropped: ssoConfigurationPage.secretDroppedByThisSave(
-                      secret_was_stored,
-                      undefined,
-                    ),
-                  }),
+                  ssoConfigurationPage.secretDroppedByThisSave(
+                    secret_was_stored,
+                    undefined,
+                  ),
               );
+              resolve({ secretDropped: secret_dropped });
             },
             // Rejection handler attached directly to the save call, so it reports only a genuine save
             // failure and not an error thrown by the post-save UI work above. The server can refuse a
@@ -7118,11 +7118,22 @@ function initProvidersPage(view) {
     // rejection (the rejection still exists so callers can distinguish failure from success).
     ssoConfigurationPage.saveProvider(view, target_provider).then(
       (outcome) => {
-        // A SAVE THAT DROPPED THE SECRET IS NOT A PLAIN "SAVED" (#1872): which sentence, and in which
-        // colour, is decided in saveStatusFor, once, where a tool can drive it.
-        const status = ssoConfigurationPage.saveStatusFor(outcome);
-        ssoConfigurationPage.renderSaveStatus(view, status.message, status.ok);
         ssoConfigurationPage.setEditorTitle(view, target_provider);
+        // A SAVE THAT DROPPED THE SECRET IS NOT A PLAIN "SAVED" (#1872): which sentence, and in which
+        // colour, is decided in saveStatusFor, once, where a tool can drive it. The answer arrives
+        // from the server after the save has landed, so the sentence is rendered when it does and
+        // nothing is said in the meantime - "saved" written first and corrected a moment later is a
+        // sentence an administrator may already have acted on.
+        Promise.resolve((outcome || {}).secretDropped).then((dropped) => {
+          const status = ssoConfigurationPage.saveStatusFor({
+            secretDropped: dropped,
+          });
+          ssoConfigurationPage.renderSaveStatus(
+            view,
+            status.message,
+            status.ok,
+          );
+        });
       },
       () =>
         ssoConfigurationPage.renderSaveStatus(
