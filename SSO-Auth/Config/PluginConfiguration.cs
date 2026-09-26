@@ -997,6 +997,23 @@ public class OidConfig : ProviderConfigBase
     public string? OidSecret { get; set; }
 
     /// <summary>
+    /// Gets a value indicating whether a client secret is stored for this provider (#1872). The secret
+    /// itself never crosses the JSON boundary, so a page that reads a provider back cannot tell an
+    /// unconfigured provider from one whose secret the repoint rule dropped - and that rule drops it
+    /// silently, leaving the next login as the first sign. This is the fact without the value: it says
+    /// only whether something is stored, and it is what lets a save answer that it dropped the secret and
+    /// ask for it again. Get-only, so the XML serializer does not persist it and
+    /// <see cref="PluginConfiguration.AdoptFrom"/> does not copy it - the flag is derived from
+    /// <see cref="OidSecret"/> at every read and can never disagree with it. Whitespace-only counts as
+    /// absent, matching <see cref="ServerManagedFields.ResolveUpdatedSecret"/>. This type is also what
+    /// <c>OID/Add</c> binds from a request body, and the binder cannot assign a get-only member; the
+    /// <see cref="System.ComponentModel.ReadOnlyAttribute"/> declares that this one carries nothing a poster
+    /// could supply, which is the exemption the request-body conformance rule reads (#1517).
+    /// </summary>
+    [System.ComponentModel.ReadOnly(true)]
+    public bool OidSecretStored => !string.IsNullOrWhiteSpace(OidSecret);
+
+    /// <summary>
     /// Gets or sets a value indicating whether adopting a same-named pre-existing account additionally
     /// requires the login to carry <c>email_verified == true</c> (#218). Only meaningful when
     /// <see cref="ProviderConfigBase.AllowExistingAccountLink"/> is on. Off by default (fail closed for

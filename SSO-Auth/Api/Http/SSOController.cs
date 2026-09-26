@@ -1111,9 +1111,10 @@ public class SSOController : ControllerBase
     /// </summary>
     /// <param name="provider">The name of the provider to add.</param>
     /// <param name="config">The OID configuration (deserialized from a JSON post).</param>
+    /// <returns>Whether the save dropped the stored client secret, with the notice that goes with it (#1872).</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("OID/Add/{provider}")]
-    public void OidAdd(string provider, [FromBody] OidConfig config)
+    public ActionResult<ProviderSaveResponse> OidAdd(string provider, [FromBody] OidConfig config)
     {
         RejectManagedProviderWrite("OID/Add", OpenIdProtocol, provider, SSOPlugin.Instance.ConfigStore.ManagedProviders.OidSource(provider));
         RejectNullProviderBody(config);
@@ -1142,13 +1143,19 @@ public class SSOController : ControllerBase
         // runtime drops such a URL at logout, so it would be stored with a 200 and never fire. Same predicate
         // and same skip as the save - without a determinate base the runtime allow-list stays the only check.
         ProviderConfigValidator.ValidatePostLogoutRedirectUri(OpenIdProtocol, provider, config.BaseUrlOverride, config.PostLogoutRedirectUri);
-        SSOPlugin.Instance.MutateConfiguration(configuration =>
+        var secretDropped = SSOPlugin.Instance.MutateConfiguration(configuration =>
         {
             // The name guard needs the under-lock existence check (#336) and runs before any mutation,
             // so a throw leaves the live configuration untouched and nothing is persisted.
             var providerExists = configuration.OidConfigs.TryGetValue(provider, out var existing);
             RejectInvalidNewProviderName(provider, providerExists);
             RejectInvalidProvisioningPolicy(OpenIdProtocol, provider, config, configuration);
+
+            // THE FACT THIS SAVE DROPS THE STORED SECRET (#1872), read from the posted config against the
+            // stored one. The rule stays as it is - a write-only secret must not follow a provider repointed
+            // at another token endpoint - and the door answers with what it did, so the secret is asked for
+            // now rather than found missing at the next login.
+            var dropped = providerExists && ServerManagedFields.SecretDroppedByRepoint(config, existing);
 
             // Re-inject the server-managed fields this API cannot carry - CanonicalLinks ([JsonIgnore],
             // #157) and the write-only secret's blank-means-keep rule (#189) - through the one shared
@@ -1159,6 +1166,7 @@ public class SSOController : ControllerBase
             }
 
             configuration.OidConfigs[provider] = config;
+            return dropped;
         });
         SsoAudit.ProviderConfigured(_logger, OpenIdProtocol, provider);
 
@@ -1169,6 +1177,8 @@ public class SSOController : ControllerBase
         {
             SsoAudit.InsecureOptionsEnabled(_logger, OpenIdProtocol, provider, insecure);
         }
+
+        return Ok(ProviderSaveResponse.For(secretDropped));
     }
 
     /// <summary>

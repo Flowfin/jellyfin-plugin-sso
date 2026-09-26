@@ -164,14 +164,21 @@ internal static class Whatever
     /// is checked is a fact about this tree - the reflected shape of the bound types - and it holds
     /// whichever serializer the host brings, because no serializer can assign a property with no setter.
     /// </para>
+    /// <para>
+    /// ONE DECLARED EXEMPTION, and it is narrower than "get-only". A member derived from the type's own
+    /// state carries nothing a poster could supply, so the binder skipping it drops nothing that was
+    /// posted: `OidConfig.OidSecretStored` says whether a secret is stored without carrying it (#1872), and
+    /// a posted value for it has no meaning the endpoint could act on. Such a member declares itself with
+    /// <see cref="System.ComponentModel.ReadOnlyAttribute"/> set to true, and only a member so declared is
+    /// passed over. A get-only member without the declaration is still the #1517 shape and is still refused,
+    /// which <see cref="UnassignableProperties_PassOverOnlyTheDeclaredReadOnlyMember"/> proves on a fixture.
+    /// </para>
     /// </summary>
     [Fact]
     public void RequestBodyTypes_HaveNoPropertyTheBinderCannotAssign()
     {
         var unassignable = RequestBodyTypes()
-            .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(property => property.GetMethod is not null && property.SetMethod is null)
-                .Select(property => $"{type.Name}.{property.Name}"))
+            .SelectMany(type => UnassignableProperties(type).Select(property => $"{type.Name}.{property.Name}"))
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
@@ -179,6 +186,33 @@ internal static class Whatever
 
         // Vacuous-pass guard: a scan that found no bound type would be empty for the wrong reason.
         Assert.NotEmpty(RequestBodyTypes());
+    }
+
+    [Fact]
+    public void UnassignableProperties_PassOverOnlyTheDeclaredReadOnlyMember()
+    {
+        // The near-miss is one attribute wide: two derived members, one declared read-only and one not,
+        // and the scan must refuse exactly the undeclared one. A scan passing over every get-only member
+        // would report nothing here and would have let the #1517 restore bug through again.
+        var names = UnassignableProperties(typeof(DerivedMembersFixture)).Select(property => property.Name).ToList();
+
+        Assert.Equal(new[] { nameof(DerivedMembersFixture.Undeclared) }, names);
+    }
+
+    // The property filter the scan above applies, on its own so a fixture can prove where it stops.
+    private static IEnumerable<PropertyInfo> UnassignableProperties(Type type) =>
+        type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => property.GetMethod is not null && property.SetMethod is null)
+            .Where(property => property.GetCustomAttribute<System.ComponentModel.ReadOnlyAttribute>()?.IsReadOnly != true);
+
+    private sealed class DerivedMembersFixture
+    {
+        public string? Source { get; set; }
+
+        [System.ComponentModel.ReadOnly(true)]
+        public bool Declared => Source is not null;
+
+        public bool Undeclared => Source is null;
     }
 
     // The types the controller binds from a request body, deduplicated. Primitives are excluded: a

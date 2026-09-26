@@ -346,6 +346,98 @@ public class ConfigPreservationTests
         Assert.True(string.IsNullOrEmpty(ServerManagedFields.ResolveUpdatedSecret(incoming, live)));
     }
 
+    // --- The save says when the rule above dropped a stored secret (#1872) ---
+
+    [Theory]
+    [InlineData("https://other-idp/.well-known", "cid", null)] // endpoint repointed, field left empty
+    [InlineData("https://idp/.well-known", "other-cid", "")] // client id changed, field posted blank
+    [InlineData("https://other-idp/.well-known", "other-cid", "  ")] // both changed, whitespace is blank
+    public void SecretDroppedByRepoint_BlankAndIdentityChanged_WithStoredSecret_SaysSo(string endpoint, string clientId, string? posted)
+    {
+        // The exact shape ResolveUpdatedSecret drops on, reported rather than left for the next login to
+        // reveal. The whitespace arm matches the rule's own IsNullOrWhiteSpace, so the two cannot disagree.
+        var live = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = "live" };
+        var incoming = new OidConfig { OidEndpoint = endpoint, OidClientId = clientId, OidSecret = posted };
+
+        Assert.True(ServerManagedFields.SecretDroppedByRepoint(incoming, live));
+        Assert.True(string.IsNullOrWhiteSpace(ServerManagedFields.ResolveUpdatedSecret(incoming, live)));
+    }
+
+    [Fact]
+    public void SecretDroppedByRepoint_IdentityUnchanged_IsNotADrop()
+    {
+        var live = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = "live" };
+        var incoming = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = null };
+
+        Assert.False(ServerManagedFields.SecretDroppedByRepoint(incoming, live));
+    }
+
+    [Fact]
+    public void SecretDroppedByRepoint_RotationOnRepoint_IsNotADrop()
+    {
+        // A new secret arriving with the repoint is kept, so nothing was lost and nothing is reported.
+        var live = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = "live" };
+        var incoming = new OidConfig { OidEndpoint = "https://other-idp/.well-known", OidClientId = "cid", OidSecret = "rotated" };
+
+        Assert.False(ServerManagedFields.SecretDroppedByRepoint(incoming, live));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void SecretDroppedByRepoint_NothingStored_IsNotADrop(string? storedSecret)
+    {
+        // A provider that had no secret drops none: reporting one would send an administrator looking for
+        // a secret that never existed. A whitespace-only stored value is "nothing" on the login path too.
+        var live = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = storedSecret };
+        var incoming = new OidConfig { OidEndpoint = "https://other-idp/.well-known", OidClientId = "cid", OidSecret = null };
+
+        Assert.False(ServerManagedFields.SecretDroppedByRepoint(incoming, live));
+    }
+
+    [Fact]
+    public void SecretDroppedByRepoint_NewProvider_IsNotADrop()
+    {
+        var incoming = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = null };
+
+        Assert.False(ServerManagedFields.SecretDroppedByRepoint(incoming, null));
+    }
+
+    [Fact]
+    public void Preserve_AfterTheDrop_TheFlagReadsAsNothingStored_SoThePageCanTell()
+    {
+        // The configuration page saves through the host's plugin-configuration door, which answers with no
+        // body, so the page reads the answer back instead: OidSecretStored says whether a secret is there
+        // without ever carrying it. Before the save it reads true; after a repoint with a blank field it
+        // reads false, and the difference is the fact the page reports (#1872).
+        var live = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = "live" };
+        Assert.True(live.OidSecretStored);
+
+        var incoming = new OidConfig { OidEndpoint = "https://other-idp/.well-known", OidClientId = "cid", OidSecret = null };
+        ServerManagedFields.Preserve(incoming, live);
+
+        Assert.False(incoming.OidSecretStored);
+    }
+
+    [Fact]
+    public void OidSecretStored_CrossesJsonWithoutTheSecret_AndNeverReachesTheXmlStore()
+    {
+        // The flag must reach the page (JSON, the host's options) while the secret still must not, and it
+        // must not become a persisted field: the XML store is what the secret's own protection and the
+        // export redaction reason about, and a get-only property is invisible to the XML serializer, so
+        // the flag can never disagree with the secret it is derived from.
+        var config = new OidConfig { OidEndpoint = "https://idp/.well-known", OidClientId = "cid", OidSecret = "live-secret" };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(config, Jellyfin.Extensions.Json.JsonDefaults.Options);
+        Assert.Contains("\"OidSecretStored\":true", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("live-secret", json, StringComparison.Ordinal);
+
+        var holder = new PluginConfiguration();
+        holder.OidConfigs["idp"] = config;
+        Assert.DoesNotContain("OidSecretStored", holder.ToPersistedForm(), StringComparison.Ordinal);
+    }
+
     // --- SAML signing key: write-only secret + preserve-on-blank (#167) ---
 
     [Fact]

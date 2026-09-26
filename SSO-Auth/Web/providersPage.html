@@ -955,7 +955,11 @@
                               The OpenID client secret. Randomly generated &
                               shared. For security it is never sent back to this
                               page: leave it blank to keep the stored value, or
-                              enter a new secret to replace it.
+                              enter a new secret to replace it. A blank field
+                              keeps the stored secret only while the discovery
+                              endpoint and the client id stay the same: change
+                              either and the stored secret is dropped, and the
+                              save says so.
                             </div>
                           </details>
                         </div>
