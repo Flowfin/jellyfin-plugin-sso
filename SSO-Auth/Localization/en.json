@@ -39,6 +39,8 @@
   "link.sign_out_unavailable": "Single Logout is not turned on for this server, so the identity provider cannot be asked to end its session from here. Use Jellyfin's own Sign out to end this session.",
   "link.sign_out_busy": "The server is not issuing sign-out tickets right now. Try again in a minute. Jellyfin's own Sign out still ends this session.",
   "link.sign_out_failed": "Signing out everywhere did not start: the server did not issue a sign-out ticket. Reload the page and try again, or use Jellyfin's own Sign out.",
+  "link.signed_out": "Your last SSO link is removed and this sign-in has ended, as the prompt said. {0} with your password to continue.",
+  "link.sign_in_again": "Sign in again",
   "config.title": "SSO Settings:",
   "config.help_full_text": "Full text",
   "config.sso_only_summary": "SSO-only login (disable password login)",
