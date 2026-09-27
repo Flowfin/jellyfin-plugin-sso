@@ -9,6 +9,24 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ## Unreleased
 
+### Fixed
+
+- **Removing the last SSO link says the sign-out happened instead of reporting
+  a failure (#1882).** The confirmation before that removal says the holder is
+  signed out on every device the moment the link is gone, and the server does
+  exactly that. The page then reloaded, had no session left to draw with, and
+  showed the generic failure banner telling the holder to reload a page that
+  fails the same way until they sign in again, so a removal that worked read as
+  one that had failed. After a removal the page now asks the links feed once
+  more; where that answers with the 401 the sign-out leaves behind, it says that
+  the link is removed and this sign-in has ended, as the prompt said, with a
+  sign-in link beside it, and it takes the controls away. Any other answer means
+  the session is still there and the page reloads as before. The feed is asked
+  after every removal, not only after the one the question precedes, because the
+  server revokes when no link is left anywhere, a link on a switched-off
+  provider included, while the question counts only links that can sign the
+  holder in. The generic banner keeps every other failure.
+
 ### Security
 
 - **A refused OpenID login no longer writes the person's profile into the

@@ -208,11 +208,12 @@ function matches(node, selector) {
   );
 }
 
-// The two banners the page owns live on the document, not inside the view, exactly as the served
+// The three banners the page owns live on the document, not inside the view, exactly as the served
 // markup authors them, so a page that filled the wrong one is visible here.
 const banners = {
   "sso-linking-error": new Element("div"),
   "sso-linking-refused": new Element("div"),
+  "sso-linking-signed-out": new Element("div"),
 };
 Object.entries(banners).forEach(([id, node]) => {
   node.setAttribute("id", id);
@@ -228,10 +229,17 @@ globalThis.document = {
 globalThis.CSS = { escape: (value) => String(value) };
 
 // What each arm sets: the answer to the confirmation, what a DELETE does, and what was asked and sent.
-const answers = { confirm: true, delete: () => Promise.resolve({}) };
+// `links` is what the links feed answers AFTER a removal (#1882): null is the feed as rendered, a
+// function is the answer the sign-out leaves behind. Reset by render().
+const answers = {
+  confirm: true,
+  delete: () => Promise.resolve({}),
+  links: null,
+};
 const asked = [];
 const sent = [];
 const reloads = { count: 0 };
+const probes = { count: 0 };
 
 globalThis.window = {
   document: globalThis.document,
@@ -264,6 +272,10 @@ globalThis.ApiClient = {
       });
     }
     if (request.type === "GET" && url.includes("/links/")) {
+      if (answers.links !== null) {
+        probes.count += 1;
+        return answers.links();
+      }
       const mode = /sso\/(oid|saml)\/links\//.exec(url)[1];
       return Promise.resolve({
         json: () => Promise.resolve(server.links[mode]),
@@ -316,6 +328,8 @@ async function render(scenario) {
   asked.length = 0;
   sent.length = 0;
   reloads.count = 0;
+  probes.count = 0;
+  answers.links = null;
   Object.values(banners).forEach((banner) => {
     banner.hidden = true;
     banner.textContent = "";
@@ -762,16 +776,213 @@ const german = catalogue("de");
   }
 }
 
+/*
+ * ---- Arm: removing the last way in says the sign-out happened, not that something went wrong ----
+ *
+ * THE SERVER ENDS EVERY SESSION OF THE ACCOUNT the moment its last SSO link is gone, which is what the
+ * question before the press says will happen. The page used to reload, and the reloaded page had no
+ * session to draw with: both feeds answered 401 and it showed the generic banner, a sentence saying
+ * something went wrong and telling the holder to reload a page that fails the same way until they
+ * sign in again (#1882). Measured on the 5.1.1 candidate. So after a removal the page asks the links
+ * feed once, and a 401 there is answered with the signed-out sentence and no reload. Any other answer
+ * is a session still alive and the page reloads as before.
+ *
+ * AFTER EVERY REMOVAL AND NOT ONLY AFTER THE LAST WAY IN, because the question before the press counts
+ * links on enabled providers while the server revokes when no link is left anywhere. A holder whose
+ * only link sits on a switched-off provider is asked nothing, removes it and is signed out all the
+ * same, which the review of the change found and the arm below drives.
+ */
+{
+  const page = await render(ONE_WAY_IN);
+  answers.confirm = true;
+  answers.delete = () => Promise.resolve({});
+  answers.links = () => Promise.reject({ status: 401 });
+  // Both other banners are up from an earlier press, so the arm can see them go down: a page saying
+  // that something went wrong, or that the server declined, beside the sentence that the removal did
+  // what the question said, says nothing.
+  banners["sso-linking-error"].hidden = false;
+  banners["sso-linking-refused"].hidden = false;
+  await press(page, ["alice@example.com"]);
+  if (probes.count !== 1) {
+    refuse(
+      "signed-out",
+      `removing the last way in asked the links feed ${probes.count} time(s) after the removal; the 401 the sign-out leaves behind is the one fact that separates it from a removal the session survived`,
+    );
+  }
+  if (banners["sso-linking-signed-out"].hidden) {
+    refuse(
+      "signed-out",
+      "the last way in was removed and the session ended, and the page did not say so",
+    );
+  }
+  if (
+    !banners["sso-linking-error"].hidden ||
+    !banners["sso-linking-refused"].hidden
+  ) {
+    refuse(
+      "signed-out",
+      "a banner from an earlier press stayed up beside the signed-out sentence, so the page says both that something went wrong or was declined and that the removal did what the question said",
+    );
+  }
+  if (reloads.count !== 0) {
+    refuse(
+      "signed-out",
+      "the page reloaded after the sign-out, which draws the generic banner over two feeds answering 401",
+    );
+  }
+  if (!page.button.disabled || !page.enable.disabled) {
+    refuse(
+      "signed-out",
+      "the delete control stayed usable on a dead session; a second press could only answer 401 and raise the generic banner beside the sentence",
+    );
+  }
+}
+
+// The C1 shape: the only link left sits on a switched-off provider, so the question is not asked, and
+// the server still revokes because no link is left anywhere.
+{
+  const page = await render({
+    names: { oid: [], saml: [] },
+    links: { oid: { legacy: ["alice"] }, saml: {} },
+  });
+  answers.confirm = true;
+  answers.delete = () => Promise.resolve({});
+  answers.links = () => Promise.reject({ status: 401 });
+  await press(page, ["alice"]);
+  if (asked.length !== 0) {
+    refuse(
+      "dead-link-signs-out",
+      `removing a link on a switched-off provider asked "${asked[0]}"`,
+    );
+  }
+  if (banners["sso-linking-signed-out"].hidden || reloads.count !== 0) {
+    refuse(
+      "dead-link-signs-out",
+      "the only link left sat on a switched-off provider; the server revoked the session all the same and the page reloaded into the generic banner instead of saying so",
+    );
+  }
+}
+
+// A probe that fails for any reason but 401 is not a sign-out.
+{
+  const page = await render(ONE_WAY_IN);
+  answers.confirm = true;
+  answers.delete = () => Promise.resolve({});
+  answers.links = () => Promise.reject({ status: 500 });
+  await press(page, ["alice@example.com"]);
+  if (!banners["sso-linking-signed-out"].hidden) {
+    refuse(
+      "probe-failed",
+      "a feed that failed with 500 was read as the sign-out; only the 401 the revocation leaves behind is",
+    );
+  }
+  if (reloads.count !== 1) {
+    refuse(
+      "probe-failed",
+      `a failed probe reloaded ${reloads.count} time(s); anything but a 401 reloads as before`,
+    );
+  }
+}
+
+{
+  const page = await render(ONE_WAY_IN);
+  answers.confirm = true;
+  answers.delete = () => Promise.resolve({});
+  answers.links = () =>
+    Promise.resolve({ json: () => Promise.resolve({ legacy: ["alice"] }) });
+  await press(page, ["alice@example.com"]);
+  if (!banners["sso-linking-signed-out"].hidden) {
+    refuse(
+      "session-survived",
+      "the links feed still answered after the removal, so the session is alive, and the page told the holder it had ended",
+    );
+  }
+  if (reloads.count !== 1) {
+    refuse(
+      "session-survived",
+      `a removal the session survived reloaded ${reloads.count} time(s); the reload is what draws the links the holder still holds`,
+    );
+  }
+}
+
+{
+  const page = await render(TWO_WAYS_IN);
+  answers.confirm = true;
+  answers.delete = () => Promise.resolve({});
+  answers.links = () =>
+    Promise.resolve({
+      json: () => Promise.resolve({ authentik: ["alice"] }),
+    });
+  await press(page, ["alice@example.com"]);
+  if (reloads.count !== 1 || !banners["sso-linking-signed-out"].hidden) {
+    refuse(
+      "not-the-last-reloads",
+      "removing one of two ways in, with the feed still answering, did not simply reload the page",
+    );
+  }
+}
+
+// ---- Arm: the sentence is authored around its own sign-in link and both catalogues carry it ----
+{
+  const markup = read(path.join(WEB, "linking.html"));
+  const start = markup.indexOf('id="sso-linking-signed-out"');
+  const banner =
+    start < 0 ? "" : markup.slice(start, markup.indexOf("</div>", start));
+  const href = /href="([^"]*)"/.exec(banner);
+  if (
+    !banner.includes('data-i18n-parts="link.signed_out"') ||
+    !banner.includes('data-i18n="link.sign_in_again"') ||
+    !href
+  ) {
+    refuse(
+      "signed-out-markup",
+      "linking.html no longer authors the signed-out banner around a sign-in link filled from link.signed_out and link.sign_in_again",
+    );
+  } else if (href[1] !== "../web/index.html") {
+    refuse(
+      "signed-out-markup",
+      `the sign-in link points at "${href[1]}"; a relative ../web/index.html is what survives a server under a path prefix`,
+    );
+  }
+  [english, german].forEach((rows, index) => {
+    const code = index === 0 ? "en" : "de";
+    if (
+      typeof rows["link.signed_out"] !== "string" ||
+      !rows["link.signed_out"].includes("{0}")
+    ) {
+      refuse(
+        "signed-out-markup",
+        `the ${code} row link.signed_out is missing or names no {0} slot for the sign-in link, so the parts pass leaves the English standing`,
+      );
+    }
+    if (
+      typeof rows["link.sign_in_again"] !== "string" ||
+      rows["link.sign_in_again"] === ""
+    ) {
+      refuse(
+        "signed-out-markup",
+        `the ${code} row link.sign_in_again is missing`,
+      );
+    }
+  });
+  if (english["link.signed_out"] === german["link.signed_out"]) {
+    refuse(
+      "signed-out-markup",
+      "the German signed-out sentence is the English one",
+    );
+  }
+}
+
 if (faults.length) {
   faults.forEach((fault) => console.error(fault));
   console.error(
-    faults.length + " refusal(s) in the self-service unlink (#1731)",
+    faults.length + " refusal(s) in the self-service unlink (#1731, #1882)",
   );
   process.exit(1);
 }
 
 console.log(
-  "self-service unlink: thirteen arms run against the shipped SSO-Auth/Web/linking.js",
+  "self-service unlink: nineteen arms run against the shipped SSO-Auth/Web/linking.js",
 );
 console.log(
   "  server-sentence          the endpoint and the page name the same refusal, read from both trees",
@@ -811,4 +1022,22 @@ console.log(
 );
 console.log(
   "  translated               both sentences come from the catalogue, driven against de.json",
+);
+console.log(
+  "  signed-out               a removal asks the links feed once; its 401 is answered with the signed-out sentence, no reload, controls gone",
+);
+console.log(
+  "  dead-link-signs-out      the only link left on a switched-off provider asks nothing and still ends in the sentence",
+);
+console.log(
+  "  probe-failed             a feed failing with anything but 401 reloads as before",
+);
+console.log(
+  "  session-survived         a feed that still answers means the session is alive, and the page reloads as before",
+);
+console.log(
+  "  not-the-last-reloads     removing one of two ways in, the feed still answering, reloads",
+);
+console.log(
+  "  signed-out-markup        the banner is authored around a relative sign-in link and both catalogues carry the sentence",
 );
