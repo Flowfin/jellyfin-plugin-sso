@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -496,12 +497,24 @@ internal sealed class OidcLoginService
             // The role gate did not pass: leave the Pending unpromoted (never redeemable - the redeem
             // requires a Ready) so it simply expires. Checked before Promote so no Ready is ever created
             // for a denied login.
+            //
+            // The line is the operator's one view of what arrived when a role mapping is wrong, so it keeps
+            // every claim TYPE and the role claim's VALUE, which is what has to be compared against the
+            // allow-list. It used to print every value, so a refused login wrote the person's display name,
+            // username and e-mail address into the server log on every attempt, for anybody the provider let
+            // through to the callback (#1881). Those values are withheld now: only the role claim and `sub`,
+            // the key the audit trail already uses, keep theirs. The header names the provider, as the
+            // no-sub refusal above does, and no longer the username: that is the preferred_username claim,
+            // an e-mail address on some providers, and printing it in the header would undo its redaction
+            // in the list. The two refusals this arm carries are named apart here as they are in the
+            // notification below.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
-                    "OpenID login denied for {Username}: no role matched the allow-list, or the login resolved no username. Claims: {@Claims}. Roles expected (any one of): {@ExpectedClaims}",
-                    derived.Username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                    result.User.Claims.Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty).Replace('[', '('), Value = o.Value?.ReplaceLineEndings(string.Empty).Replace('[', '(') }),
+                    "OpenID login denied for provider {Provider}: {Reason}. Claims: {@Claims}. Roles expected (any one of): {@ExpectedClaims}",
+                    provider.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    string.IsNullOrWhiteSpace(derived.Username) ? "the login resolved no username" : "no role matched the allow-list",
+                    ClaimsForDenialLog(result.User.Claims, config).Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty).Replace('[', '('), Value = o.Value?.ReplaceLineEndings(string.Empty).Replace('[', '(') }),
                     config.Roles);
             }
 
@@ -995,4 +1008,28 @@ internal sealed class OidcLoginService
     // thin local read so this flow tier is self-contained.
     private static string RequestBaseUrl(HttpRequest request, OidConfig config) =>
         CanonicalBaseUrl.Resolve(config.BaseUrlOverride, request.Scheme, request.Host.Host, request.Host.Port, request.PathBase, config.SchemeOverride, config.PortOverride);
+
+    /// <summary>
+    /// The claims the role-denial warning may print (#1881): every claim keeps its type, and only the
+    /// configured role claim and <c>sub</c> keep their value.
+    /// </summary>
+    /// <remarks>
+    /// The role claim's value is the one thing an operator has to compare against the allow-list when a
+    /// mapping is wrong, and <c>sub</c> is the key the audit trail already names the person by. Every other
+    /// value is a profile field - display name, username, e-mail address - and a refused login that printed
+    /// them wrote the person into the server log for as long as the log is kept. The withheld values are
+    /// replaced rather than dropped, so the line still shows WHICH claims arrived. When no role claim is
+    /// configured, nothing but <c>sub</c> keeps its value: there is no allow-list comparison to serve then.
+    /// </remarks>
+    /// <param name="claims">The claims of the verified login.</param>
+    /// <param name="config">The provider configuration, for the role claim's path.</param>
+    /// <returns>The claims with every value but the role claim's and <c>sub</c>'s replaced by <c>&lt;redacted&gt;</c>.</returns>
+    internal static IEnumerable<Claim> ClaimsForDenialLog(IEnumerable<Claim> claims, OidConfig config)
+    {
+        var roleClaimType = OidcAuthorizeStateBuilder.RoleClaimType(config);
+        return claims.Select(claim =>
+            string.Equals(claim.Type, "sub", StringComparison.Ordinal) || (roleClaimType is not null && string.Equals(claim.Type, roleClaimType, StringComparison.Ordinal))
+                ? claim
+                : new Claim(claim.Type, "<redacted>"));
+    }
 }
