@@ -132,7 +132,7 @@ For how these controls together cover what an automated PR reviewer would catch 
 
 ### Branch protection, and what is deliberately not required
 
-`main`, `5.0` and `5.1` are covered by one ruleset. Deletion and force-push are
+`main`, `5.0`, `5.1` and `5.2` are covered by one ruleset. Deletion and force-push are
 blocked, the rules bind administrators as well, a change arrives only as a pull
 request, commits are signed, twelve status checks must pass, and since
 2026-09-21 a pull request must be brought to the tip of its base before it

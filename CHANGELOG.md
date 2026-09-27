@@ -7,6 +7,8 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
+## Unreleased
+
 ## 5.1.1
 
 A feature release, and the first stable release of the 5.1 line. It is numbered
