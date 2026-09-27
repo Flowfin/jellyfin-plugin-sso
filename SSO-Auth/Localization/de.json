@@ -39,6 +39,8 @@
   "link.sign_out_unavailable": "Single Logout ist auf diesem Server nicht eingeschaltet, deshalb kann der Identitätsanbieter von hier aus nicht gebeten werden, seine Sitzung zu beenden. Verwenden Sie die Abmeldung von Jellyfin selbst, um diese Sitzung zu beenden.",
   "link.sign_out_busy": "Der Server stellt gerade keine Abmelde-Tickets aus. Versuchen Sie es in einer Minute noch einmal. Die Abmeldung von Jellyfin selbst beendet diese Sitzung weiterhin.",
   "link.sign_out_failed": "Die Abmeldung überall hat nicht begonnen: Der Server hat kein Abmelde-Ticket ausgestellt. Laden Sie die Seite neu und versuchen Sie es erneut, oder verwenden Sie die Abmeldung von Jellyfin selbst.",
+  "link.signed_out": "Ihre letzte SSO-Verknüpfung ist entfernt und diese Anmeldung ist beendet, wie die Rückfrage es gesagt hat. {0}, um fortzufahren.",
+  "link.sign_in_again": "Melden Sie sich mit Ihrem Passwort erneut an",
   "config.title": "SSO-Einstellungen:",
   "config.help_full_text": "Vollständiger Text",
   "config.sso_only_summary": "Nur SSO-Anmeldung (Passwortanmeldung deaktivieren)",

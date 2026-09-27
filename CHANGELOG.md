@@ -1,2014 +1,501 @@
 # Changelog
 
-All notable changes to this plugin are documented here. Versions are three-part
-`X.Y.Z` as described in the release policy - **X** a breaking / Jellyfin-ABI
-change, **Y** a feature, **Z** a bug-fix or security patch (the two share the
-digit and differ by release cadence). The channel and Jellyfin generation are a
-suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
-`-JF12-*`), never part of the installed numeric version.
+Versions are three-part `X.Y.Z` per the release policy - **X** a breaking or
+Jellyfin-ABI change, **Y** a feature, **Z** a bug-fix or security patch. The
+channel and Jellyfin generation are a suffix on the tag and release name only.
+
+An entry is two or three sentences: what changed, the setting or route and its
+default, and the issue that holds the rest. The depth lives in the issue, the
+pull request and the wiki.
 
 ## Unreleased
 
+### Changed
+
+- **The PR-hygiene gate caps the commit subject at 72 characters, the commit
+  body at 25 lines and the pull-request body at 200 words outside one fenced
+  block (#1900).** Each cap is refused by name; bots and merge commits are exempt.
+- **Every CHANGELOG entry is two or three sentences, and CONTRIBUTING carries
+  the rule (#1897).** The long form is unchanged in git and in the pull requests.
+
+### Fixed
+
+- **Removing the last SSO link says the sign-out happened instead of reporting a
+  failure (#1882).** The removal revokes every token, so the reloaded page had no
+  session and drew the generic banner for a removal that had worked; the page now
+  reads that 401 and says the link is gone and this sign-in has ended.
+
 ### Security
 
-- **A refused OpenID login no longer writes the person's profile into the
-  server log (#1881).** The warning the role gate writes when it refuses a
-  login printed every claim with its value, so each refused attempt put the
-  display name, username, given and family name and e-mail address of anybody
-  the provider let through to the callback into the log, for as long as the log
-  is kept. The line keeps its purpose: every claim type is still listed, and the
-  configured role claim keeps its value, which is what an operator compares
-  against the allow-list, as does `sub`, the key the audit trail already names
-  a person by. Every other value reads `<redacted>`, and the header names the provider
-  rather than the username. The line also names which refusal it was, no role
-  matched or no username resolved, as the notification of #1142 already did.
+- **A refused OpenID login no longer writes the person's profile into the server
+  log (#1881).** The role gate's warning printed every claim with its value, so
+  each refused attempt logged a display name, username and e-mail address. Every
+  type is still listed; only the role claim and `sub` keep their values.
 
 ## 5.1.1
 
 A feature release, and the first stable release of the 5.1 line. It is numbered
-5.1.1 rather than 5.1.0 because the beta channel already carries 5.1.0.<run>
-builds, and a release is offered to a server on one of them only where it
-outranks every beta of its own line (#1841). Over 5.0.0 it adds the one-time
-ticket for the RP-initiated OpenID logout, so the self-service page's **Sign out
-everywhere** never puts an access token in a URL; a per-provider switch that
-leaves alone the folders the configuration does not manage; the private-network
-opt-in reaching an avatar served from the provider's own origin; and diagnostics
-for a wrong issuer - the log line, the Test Connection result and the endpoint's
-help - that name both values. The Jellyfin 10.11 / .NET 9 build leg is retired,
-which is the end of support for the 4.x line (#1770). **Read the #1768 entry
-before upgrading:** the OpenID logout route no longer carries `[Authorize]` and
-refuses in the method instead. The configuration page's maturity label reads
-Full Release on this line from this release on, as it has on 5.0 since 5.0.0.
+5.1.1 because a release is offered to a server on a beta only where it outranks
+every beta of its line (#1841). The Jellyfin 10.11 / .NET 9 leg is retired,
+ending support for the 4.x line (#1770).
 
 **Not verified for this release, by decision** (decided on #1879 on
 2026-09-27): the SAML login against a real identity provider, the Quick Connect
 round trips on Android and Android TV, reverse-proxy forwarded-header
-attribution, and an upgrade from an older build over the top of an existing
-install. The OpenID login against a real provider and the browser items of the
-checklist are the ones walked on the candidate during its soak, and their
-record is on #1879, not here. The candidate's own beta publish runs the provider
-matrix against a Jellyfin 12 server; the soak, seven days as the newest beta of
-the line, and the gate walk are recorded on #1879 with their dates. Anything
-found on 5.1.1 afterwards is fixed forward on the 5.2 line, which opens at this
-commit.
+attribution, and an upgrade over an existing install. The OpenID login and the
+browser items were walked during the soak, recorded on #1879.
 
 ### Added
 
 - **A provider can leave alone the folders its configuration does not manage
-  (#1846).** Every login rewrote the account's folder list from the role
-  mapping, which removed any library an administrator or a provisioning tool
-  had enabled on the account directly, until the tool put it back. The new
-  per-provider `PreserveUnmanagedFolders` (a checkbox in the provider form's
-  folder-role block, config XML and config API; off by default, so nothing
-  changes on upgrade) makes the login write the account's current folders
-  minus the managed set plus the grants, where the managed set is every folder
-  named in the provider's static list or in any folder-role mapping. A managed
-  folder is still granted and revoked by role on every login. A folder dropped
-  from the configuration stops being managed and stays on the account; to
-  revoke it without deleting it, keep it in a mapping no role carries. With
-  several providers, a login through one leaves the folders the others manage
-  alone, since they are unmanaged from its side.
-
+  (#1846).** Every login rewrote the folder list from the role mapping; the new
+  `PreserveUnmanagedFolders`, off by default, writes the current folders minus
+  the managed set plus the grants instead.
 - **The RP-initiated OpenID logout accepts a one-time ticket, so a client never
-  has to put an access token in a URL (#1768).** That route sends the browser on
-  to the identity provider, so it is reached by a top-level navigation and a
-  navigation carries no `Authorization` header; the only form that worked was the
-  caller's own access token as an `api_key` query parameter, a long-lived
-  credential that lands in browser history, in a referrer and in every proxy log
-  on the way. An authenticated `POST` to `OID/logout-ticket/{provider}` now mints
-  a 256-bit ticket bound to that caller's user and that provider, carrying that
-  caller's own session token so the redeem ends exactly the session the ticket
-  was minted from, valid for one minute and redeemable exactly once, and the
-  route accepts it in place of the session. The session binding covers the
-  local sign-out and not the provider half: the `id_token_hint` the redeem
-  sends is the caller's newest captured session for that provider, which with
-  several sessions per account may be a different one from the session the
-  ticket ends (#1794). **Read this before upgrading:**
-  `GET OID/logout/{provider}` no longer carries `[Authorize]`, because that
-  attribute refuses a request before the method runs and the ticket path could
-  never satisfy it. The route refuses in the method instead - no ticket and no
-  session is 401, and a ticket that is unknown, expired, already spent or minted
-  for another provider is 401 too, never a silent local sign-out - and both
-  refusals are rate-limited and recorded in the audit trail under a fixed reason
-  code. A ticket-borne sign-out that completes is recorded too, naming the
-  provider and whether the browser was sent on to the provider or returned to
-  this server (#1795); the mint records nothing on issuance, and the reason is
-  written at the endpoint. The redeem reads the account the ticket names again
-  and refuses a disabled or deleted one, and it sits behind the switch too:
-  turning Single Logout off refuses every outstanding ticket and empties the
-  ticket store at the save (#1793). The mint sits behind the existing `EnableSingleLogout` switch, so no
-  server gains a new _minting_ surface without turning Single Logout on - but the
-  attribute came off the logout route on every install, whatever that switch
-  says, so a server that never enabled Single Logout does gain an
-  anonymously reachable route there. The `api_key` form
-  still works for a client that cannot mint where it carries a user's own access
-  token; a Jellyfin server API key names no user and is now refused, which a bare
-  `[Authorize]` used to admit. **The surface that uses the ticket is the
-  self-service linking page** (`/SSOViews/linking`): beside each OpenID
-  provider the signed-in user holds a link with, a **Sign out everywhere**
-  control asks the server for a ticket over the API client and navigates with
-  it, so the access token never appears in a URL the plugin produces. Where
-  Single Logout is off the control says so instead of doing nothing, and where
-  the server is out of tickets it says to come back. Jellyfin's own Sign out is
-  unchanged and still ends the Jellyfin session alone.
+  has to put an access token in a URL (#1768).** `POST OID/logout-ticket/{provider}`
+  mints one bound to that caller, valid for a minute and redeemable once. **Read
+  before upgrading:** `GET OID/logout/{provider}` refuses in the method, not under
+  `[Authorize]`, so it is anonymously reachable.
 
 ### Changed
 
-- **The OpenID endpoint's help names the issuer (#1836).** It read "The OpenID
-  endpoint. Must have a .well-known path available.", which describes a base
-  address and invites the value an administrator hands other services. The
-  field is the issuer: the plugin appends the well-known path to it, so it has
-  to equal the issuer the discovery document publishes. The help now says so,
-  names the subfolder or front-controller shape that surprises people, and says
-  where to read the value. Both catalogues carry the new text.
-
+- **The OpenID endpoint's help names the issuer (#1836).** The field is the
+  issuer rather than a base address, because the plugin appends the well-known
+  path to it, and both catalogues carry the new text.
 - **The credential-less refusals of the RP-initiated OpenID logout write a
-  bounded number of audit lines, on any configuration (#1792).** When that
-  route stopped carrying `[Authorize]` for the one-time ticket, a request with
-  no credential began to reach the method and be answered by a warning line in
-  the audit trail, throttled by the rate limiter in front of it. The limiter is
-  off on a fresh install and creates no bucket for a non-public peer, so on a
-  stock install, or behind a reverse proxy Jellyfin has not been told to
-  resolve, that line was written at request rate for anybody. The two refusals
-  now share a ceiling that does not depend on the limiter: the first ten in a
-  minute are recorded one by one, the rest are counted and written as one line
-  when the minute turns, saying how many went unrecorded. The provider name
-  those lines print is a route segment the caller chooses, and it is now cut at
-  128 characters and marked `[truncated]`, on the refusal line and on the
-  completion line alike. Neither bound changes the answer a caller receives.
-  The route's own documentation now also records, from the host's source at
-  the pinned Jellyfin version, that a present token which resolves to nothing
-  is returned as an authorization with no user rather than thrown, so the
-  expired `api_key` case meets the same throttled, audited refusal as a request
-  with no token. The two refusals also draw on a rate-limit class of their own
-  now, `logout-refusal`, rather than the shared `logout` class: while they
-  shared it, a flood of guesses from one public address spent that address's
-  budget for the inbound SAML logout and for the ticket mint as well, so the
-  people behind the same address were answered `429` on a sign-out. The class
-  shows up as its own `class` label on the throttle counter.
-
+  bounded number of audit lines, on any configuration (#1792).** The first ten in
+  a minute are recorded one by one and the rest counted into one line, on a
+  `logout-refusal` rate-limit class of their own.
 - **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
-  `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
-  different causes, and three of them are permanent for the request that met
-  them: a caller that resolves to no user, a caller whose access token is empty,
-  and a request naming no provider all meet exactly the same refusal on every
-  retry. 503 is the status that tells a client to come back, so the one caller
-  that could never succeed was the one being asked to keep asking, at an endpoint
-  that is deliberately not rate-limited, where each ask costs a configuration
-  read and a store sweep. The three permanent causes now answer `401` for a
-  caller a ticket cannot be bound to and `400` for a request naming no provider,
-  which are the statuses the route already gives those shapes elsewhere. The
-  capacity ceiling keeps its `503` and its body saying that signing out of
-  Jellyfin still ends the local session, because that is the one class a caller
-  can clear by waiting. A client that treats 503 as retryable and 4xx as final
-  needs no change; one that retried every refusal will now stop on the three it
-  could never have got past. The mint also charges the Logout rate-limit class
-  now, after its authorization check, so where `EnableRateLimit` is set a
-  client in a loop is answered `429` before it has filled its own ticket share
-  and locked its own sign-out for the rest of the minute. That is defence in
-  depth and not the guarantee: the limiter is off on a fresh install and keys
-  on a public peer only, so there the per-account share of the ticket store
-  stays the bound, and its arithmetic is recorded beside the route's entry on
-  the throttled roster and re-derived from the constants by a test.
-
+  A caller a ticket cannot be bound to gets `401` and a request naming no
+  provider `400`, and only the capacity ceiling keeps its `503`.
 - **An avatar served by an OpenID provider on the administrator's own network is
-  fetched when that provider has Allow Private Network Addresses set (#1764).** The
-  opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,
-  userinfo and back-channel logout), and the avatar fetch stayed on the strict tier
-  for every origin, so a provider
-  that serves its pictures from its own host was refused one request to a host it
-  already reached for everything else (#1762). The avatar now earns the private
-  tier at the moment its URL is chosen, when both facts hold at once: the provider
-  carries the opt-in, and the URL's origin, meaning scheme, host and port compared
-  exactly, is the origin of that provider's own discovery, token or userinfo
-  endpoint, the last counting only while the login reads it. The URL travels bound
-  to that verdict, so the fetch never applies it to
-  another address and re-reads nothing to decide. A private address literal on
-  that origin passes the URL validator under the same tier and nowhere else. A
-  redirect from a private-tier avatar is followed only to a target the strict tier
-  admits, so the verdict never carries past the origin it was earned for. Every
-  other origin, and every provider without the opt-in, is fetched exactly as
-  before, and the refusal an operator reads names what the setting covers now.
-
-- **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target, net10.0, for Jellyfin 12 (#1770).**
-  `4.3.0-stable` of 2026-09-15 was the last build for Jellyfin 10.11 and .NET 9,
-  and nothing is developed for that generation any more. This is the end of
-  support for the 4.x line, announced here as `SECURITY.md` says it will be,
-  and it comes with no advance notice: the line was retired by decision before
-  5.0.0 shipped, so the six months of security fixes for a previous line that
-  `SECURITY.md` used to promise are not kept for 4.x, and the file now says so.
-  A 10.11 server loses nothing it has: the manifests are regenerated from every
-  release that exists, so 4.3.0 stays on `manifest-release` and the 4.3 betas on
-  `manifest-beta`, and Jellyfin's own `targetAbi` filter keeps offering a 10.11
-  server that build and a 12 server the 5.x one from the same repository URL.
-  In the tree, every project targets `net10.0` alone, `build.yaml` carries the
-  12.0 metadata and `build-jf12.yaml` is gone together with every step that
-  copied it over `build.yaml`, the two 10.11 publish workflows stay on `main`
-  with the 4.3 line and are not on this branch, the end-to-end matrix boots a
-  Jellyfin 12 server only, and the ABI floor job builds the one target against
-  `build.yaml`'s floor - which today equals the version the build compiles
-  against, so it proves the same thing as the build until that pin moves.
-  Nothing is published from this line before `5.0.0-stable`.
+  fetched when that provider has Allow Private Network Addresses set (#1764).**
+  The avatar earns the private tier where the opt-in is set and the URL's origin
+  is exactly that provider's discovery, token or userinfo origin.
+- **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target,
+  net10.0, for Jellyfin 12 (#1770).** This ends support for the 4.x line, with no
+  advance notice and no six months of security fixes, which `SECURITY.md` now
+  says. A 10.11 server keeps 4.3.0, since the manifests cover every release.
 
 ### Fixed
 
 - **A server on a beta build is offered the release of its own line (#1841).**
-  The two channels numbered one line differently: the stable channel carried
-  5.0.0.0 while the beta channel carried 5.0.0.88 for that same line, so a
-  server watching the beta channel saw a lower version on the stable one, was
-  never offered an update, and stayed on a pre-release build. Every release is
-  now carried into the beta channel as well, so that channel always leads; the
-  stable channel keeps only releases, as before. Beside it, a release that does
-  not number above every beta of its own line is refused before it is created,
-  because a release the beta channel carries at a lower version is still never
-  offered and a published release cannot be renumbered.
-
+  The stable channel carried 5.0.0.0 while the beta channel carried 5.0.0.88, so
+  every release is now carried into the beta channel too and one that does not
+  outrank its line's betas is refused before it is created.
 - **A discovery document whose issuer the endpoint refuses is logged with both
-  values (#1835).** The fail-closed warning carried the identity library's text,
-  which quotes one of the two values and says neither which one it is nor which
-  of them belongs in the endpoint field; a provider installed in a subfolder,
-  such as Nextcloud publishing `.../nextcloud/index.php`, took a reader two
-  rounds to repair. Where the policy refused the published issuer, the warning
-  now names the configured endpoint and the published issuer on lines of their
-  own and says the field has to carry the published one exactly. The published
-  value is the provider's text and is stripped, substituted and bounded at the
-  call like the library's; every other failed read logs what it logged before.
-
+  values (#1835).** The warning quoted the library's text, which names one value
+  and not which it is; it now names the configured endpoint and the published
+  issuer on lines of their own.
 - **Test Connection reports an issuer mismatch as its own result, with both
-  values (#1837).** A document that was served and whose issuer the configured
-  endpoint refuses came back as "Could not read the OpenID discovery document",
-  with advice about reachability, the well-known path and HTTPS, none of which
-  was wrong. The probe now answers that the document was read, that its issuer
-  is not the configured endpoint and that every login on the provider is
-  refused, and lists the configured endpoint and the published issuer beside it.
-  It asks the administrator to confirm that the published issuer belongs to the
-  expected provider before putting it in the field. The reason comes from the
-  same policy comparison that writes the log entry of #1835, so the screen and
-  the log name one cause. Every other result is unchanged.
-
+  values (#1837).** It came back under the reachability message, which was true
+  and not the cause; the probe now says the document was read, that its issuer is
+  not the configured endpoint, and lists both.
 - **An administrator refusal names the two ways to link that account (#1765).**
-  An administrator account is never adopted by name, so a first SSO login cannot
-  turn into administrator access, and turning `AllowExistingAccountLink` on does
-  not change that. The rule is right and is unchanged; what the server log said
-  after it was "link it explicitly via the admin endpoints", which names a
-  category rather than a route, and the reporter searched the documentation
-  before finding the page that does it (#1762). Both refusals that state this
-  rule - the adoption refusal and the legacy username-keyed link that points at
-  an administrator - now name both ways in: sign in to that account with its own
-  password and link it at `/SSOViews/linking`, or pre-provision the link with an
-  elevated call to the account-management API. The second matters on a server
-  running SSO-only login, where the account being refused may have no password
-  door left and the page is not reachable for it. The refusals themselves are
-  unchanged, and no account becomes linkable that was not before.
-
-- **The refused-login line follows the code the provider returned (#1763).**
-  When an authorization request cannot be prepared, the plugin writes one line
-  to the server log, and that line always ended by naming the redirect URI and
-  telling the administrator the provider must hold it exactly as written. That
-  sentence was written for one refusal: a callback the client does not hold,
-  which the provider answers `invalid_request`, and which happens server to
-  server under pushed authorization so the URI appears on no page the
-  administrator can reach. The same endpoint also refuses the **client** - a
-  secret or client ID that does not match, or a client the provider holds as
-  public while a secret is sent - and answers **401**, which reaches the log as
-  `Unauthorized`. An administrator who had already checked the redirect URI
-  against the provider was sent back to check it again (#1762). The closing
-  sentence now follows what came back: `invalid_request` keeps the redirect URI
-  sentence, a client refusal names the client ID and secret and the
-  public-or-confidential registration instead, and anything else gets a
-  sentence that interprets nothing. That third sentence is not a leftover: the
-  identity library hands this line one field, and for any status but a 400 it
-  holds the HTTP reason phrase or a transport failure rather than a code the
-  provider chose, so a line that named a cause there would be naming one the
-  answer does not carry. For the same reason no sentence rules the other cause
-  **out** - the provider's own description never reaches this log. The browser
-  still sees the same fixed generic message, and the refusal is unchanged.
-
-- **A provider address that does not answer no longer uses up the whole
-  request, and a failed connect says what the address guard skipped (#1760).**
-  The outbound connect tries a host's allowed addresses one after another, and
-  an attempt had no bound of its own: an address that dropped the connection
-  silently - an IPv6 address a container cannot route, a public address that
-  needs NAT loopback - held it until the caller's whole timeout, so a working
-  address listed after it was never tried and the log said only that the
-  request timed out (#1759). Each attempt is now bounded at five seconds, so a
-  discovery read with its ten-second budget reaches the next address. When the
-  connect fails anyway, its message counts the addresses the guard refused and,
-  where they are on a private network, names **Allow Private Network Addresses**
-  with its reach: it allows them for an OpenID provider's discovery, token and
-  userinfo requests, while SAML metadata and, until #1764 above widened it to
-  the provider's own origin, avatars are fetched without it. It names no
-  address, because the message reaches the server log.
-  Loopback, link-local and cloud-metadata
-  addresses are counted but never pointed at that setting, which does not relax
-  them. The guard's policy is unchanged: every address is still classified
-  before anything connects to it.
+  The log said "link it explicitly via the admin endpoints", which names a
+  category rather than a route; both refusals now name the self-service page and
+  the account-management API.
+- **The refused-login line follows the code the provider returned (#1763).** The
+  line always ended by naming the redirect URI, which is wrong advice for a
+  client the provider refused with 401, so the closing sentence now follows what
+  came back and interprets nothing where it cannot.
+- **A provider address that does not answer no longer uses up the whole request,
+  and a failed connect says what the address guard skipped (#1760).** Each
+  attempt is bounded at five seconds, and a failed connect counts the refused
+  addresses and names **Allow Private Network Addresses** with its reach.
 
 ## 5.0.0
 
 A feature release, and the first stable release of the Jellyfin 12 line. It
 advances the plugin's maturity to **Full Release** on the back of the rebuilt
-settings pages, named provisioning profiles, the account-link roster and its
-self-service page, sign-in counters, providers declared in environment
-variables, a translated dashboard, and the self-lockout guards that keep an
-administrator and an SSO-only account from stranding themselves.
+settings pages, provisioning profiles, the account-link roster, sign-in
+counters, declarative providers and the self-lockout guards.
 
-**Not verified for this release, by decision.** Two items of the release QA
-checklist were not walked on the candidate: reverse-proxy forwarded-header
-attribution, and an upgrade from an older build over the top of an existing
-install (decided on #1729 on 2026-09-16). The native-client round trips were
-walked on iPhone and Apple TV, with the official app and with Swiftfin each,
-and not on the Android pair the checklist names. The pairwise co-existence
-phase of the provider matrix checked no pair, because the sibling repositories
-it pairs with have been private since 2026-09-19 (#1773), so its green
-conclusion is not co-existence evidence and the run says so. What was
-verified: the seven-provider matrix against a Jellyfin 12.0 server in the
-candidate's own publish run, the canonical provider against a 12.1 server on
-the published package, and five days and a half of the candidate as the
-newest beta of the line with no release-blocking defect reported. The window
-was closed early by decision on 2026-09-21, so that the work moves to the 5.1
-line, which becomes the beta line; anything found on 5.0.0 afterwards is fixed
-forward there.
+**Not verified for this release, by decision** (decided on #1729 on 2026-09-16):
+reverse-proxy forwarded-header attribution, and an upgrade over an existing
+install. The native-client round trips were walked on iPhone and Apple TV and
+not on the Android pair, and the pairwise phase checked no pair, so its green
+conclusion is not co-existence evidence (#1773). Verified: the seven-provider
+matrix on Jellyfin 12.0, the canonical provider on 12.1, and five and a half
+days of soak, closed early by decision on 2026-09-21.
 
 ### Added
 
-- **A login refused by the provider's role allow-list now reaches a
-  notification destination (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
-  single sign-on turned somebody away: Jellyfin raises its own
-  authentication-failed notification only from the session mint, on the arm where
-  no user resolved, and an SSO login the role allow-list refuses returns before
-  the mint. Both protocols now publish Jellyfin's own authentication-failed event
-  at that refusal, so a configured destination receives it as
-  `AuthenticationFailure` with no change on that side. The event is the server's
-  own type on purpose - the webhook plugin consumes twenty closed Jellyfin types
-  and no open one, so an event type this plugin declared would reach nobody. The
-  payload names the provider and a fixed reason and **nothing that names the
-  person**:
-  no username, no subject, no claim value, the same rule the audit trail is
-  written under and applied harder because this payload leaves the machine. It
-  also means the entry Jellyfin writes to its own activity log for that refusal
-  carries no name, only the time and the client address. A notification never
-  decides a login: a bus that throws or stalls is logged and left behind, and the
-  denial
-  answers exactly as before, and it does not wait: the notification is given a
-  short budget and a destination that has stopped answering is left behind rather
-  than holding a refusal that was already decided. The OpenID refusal has two
-  causes - no matching role, or no username resolved at all - and they are
-  reported apart, so an operator is never sent to the provider's role assignment
-  for a scope that was simply not granted. Every other refusal still notifies
-  nobody: a missing `sub`, a step-up requirement, an expired authentication, a
-  malformed SAML response. Those are separate moments and this change does not
-  claim them.
-
+- **A login refused by the provider's role allow-list now reaches a notification
+  destination (#1142).** Both protocols publish Jellyfin's own
+  authentication-failed event at that refusal, carrying the provider and a fixed
+  reason and nothing that names the person.
 - **A way back from a link import that restored the wrong document (#1519).**
   `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
-  canonical link one provider holds. It exists because the link import merges -
-  it adds and overwrites and never removes - so re-importing the correct file
-  after the wrong one does not undo it: the correct document is refused whole,
-  and one leftover entry blocks the restore of every other link. Emptying the
-  provider and importing again clears that, and it is the smallest true way
-  back: a replace mode on the import would be a second destructive path with
-  the same blast radius as the mistake it answers. It touches links and nothing
-  else - no account, no permission and no password - and it creates, adopts and
-  re-points nothing. It is administrator-only, and the confirmation is the
-  server's rather than a browser dialog's: the caller sends the number of links
-  it was shown, and a call written against a stale page is refused instead of
-  emptying a different number than the operator saw. It refuses before removing
-  anything when the result would leave an administrator account with no way to
-  sign in, and names those accounts so the way out is explicit. A way in is a
-  link on another **enabled** provider and nothing else: a link left on a disabled
-  one signs nobody in, and a stored password proves nothing, because this plugin
-  mints an unusable one onto the accounts it provisions and records nowhere which
-  those were. It refuses only where it would TAKE the last way in, so emptying an
-  already-disabled provider is never blocked. Accounts left holding no link at all
-  are signed out; accounts that still hold one elsewhere keep their sessions. The
-  act and every refusal are audited, and so is the case the check cannot cover: if
-  something changes while the run is in flight, an administrator left without a
-  way in is named in the log the moment it happens.
-
+  canonical link one provider holds, which makes a re-import possible. It refuses
+  a call written against a stale page, or one leaving an administrator no way in.
 - **An unreadable `SSO-Auth.xml` is kept, announced, and refused rather than
-  quietly replaced (#1543).** Jellyfin's plugin base class answers a
-  configuration it cannot deserialize by building a default one and writing it
-  back over the file — so a write truncated by a full disk, a filesystem
-  corruption, an interrupted restore or a hand edit cost you every provider,
-  every account link and every stored secret, AND the only artefact a repair
-  could have worked on, in the same act. The plugin now spends the window it has
-  before that: it checks the stored file itself, in its own constructor, before
-  anything reads the configuration, and when it does not read back it copies it
-  aside as `SSO-Auth.xml.unreadable-<UTC timestamp>` — once per incident, so a
-  server that keeps failing to start on the same damaged file does not write one
-  full copy of it per boot into the directory it needs writable. A boot on which
-  the file itself has changed is a new incident and is copied again, which is what
-  happens when the server's own attempt to write its defaults also fails. A copy
-  counts as kept only when a file beside the configuration actually holds those
-  bytes, so one that was emptied, edited in place or replaced does not stop the
-  next boot taking another. That comparison is streamed rather than loaded, so a
-  damaged file of any size is still compared, and its lengths are checked first,
-  so a copy that no longer matches is ruled out even when its contents cannot be
-  reached; only a file whose length still matches and which cannot be opened at
-  all leaves the question open, and there the record stands. A copy name an
-  earlier fault already occupies is
-  walked past rather than surrendered to, instead of costing the copy; and a log
-  sink that fails along with the disk that caused the damage costs the
-  announcement and never the refusal. The marker beside it records which damaged
-  file the incident is about and which copy was kept for it, and it inherits
-  nothing from the incident before it, so a second, unrelated damage months later
-  is copied in its own right rather than skipped because a marker happened to be
-  lying there — and the log names that copy rather than an older one. An Error line in the log says what
-  happened and where the copy went; the configuration page says the same until a
-  configuration arrives. While the server is in that state every SSO sign-in
-  answers 503 and points at the log, instead of reporting that the provider is
-  unknown — which is what a default configuration would have made every flow say,
-  sending you to look for a deleted provider instead of a damaged file.
-
-  The refusal ends when a configuration comes back, and there are two ways for
-  that to happen. Restoring the file on disk is one: a stored configuration that
-  reads back and holds a provider ends the state at the next start, with nothing
-  written through the plugin at all, because restoring a backup over the file is
-  not a write it ever sees. The other is a persist, and there the rule is one
-  condition whichever door the write came through: a configuration holding at
-  least one provider is persisted — a provider saved on
-  the settings page, an imported document, or one a declarative source supplies.
-  Saving an unrelated setting does not end it and does not remove the marker, and
-  on a server in this state the page holds no providers, so every save made from
-  it that is not a provider save is an unrelated one. It
-  survives a restart, because by the next start the server has already replaced
-  the damaged file with a readable default and would otherwise decide it was
-  healthy while serving nobody's settings. This plugin does not touch Jellyfin
-  password sign-in — but an account it provisioned has no usable password, so on
-  a server whose administrators all arrived through SSO there is no local door to
-  fall back to: the state lives in a marker file beside the configuration, so
-  moving the unreadable file out of the way, deleting that marker and restarting
-  puts SSO back exactly where it was before this check existed. Deleting the
-  marker on its own is not enough while the file is still unreadable — the next
-  start finds the same damage and marks it again. Every log line that announces
-  the refusal says both halves, and so does the marker file itself.
-
-  A file that could not be READ at all — locked by a scanner, a backup agent or a
-  sync client at exactly the moment plugins load — is not treated as damage and
-  changes nothing, including on the boot where a marker from an earlier incident
-  still stands, which is the boot a restore-and-restart ends on: the server's own
-  read a moment later may well succeed, and refusing on it would take SSO offline
-  on a server whose configuration is perfectly good. A restore that rewrites the
-  file _while_ it is being read is a different case and is judged damage, because
-  nothing in the bytes separates a torn read from real corruption; that costs one
-  boot of refusal, and the next start reads the finished file and clears the
-  marker itself. Nothing here makes the write atomic either: the destructive act
-  is on the load side and is the host's, so a write-side repair would not have
-  reached it.
-
+  quietly replaced (#1543).** Jellyfin writes a default configuration over a file
+  it cannot deserialize, costing every provider, link and secret. The plugin now
+  copies it aside once per incident and answers every sign-in with 503.
 - **A starting policy can seed the home screen (#1101).** The provisioning
-  template gains a **Home screen sections** list: the sections of the web
-  client's home screen, one per line, top slot first, in the exact names
-  Jellyfin declares. It is written once, when the account is created, into the
-  same document the web client reads its layout from, and it is written whole -
-  the sections you list and nothing in the remaining slots - so a new account
-  opens on exactly that layout rather than on your sections followed by the
-  client's own defaults. An empty list writes nothing and the account keeps
-  Jellyfin's own layout; an unknown name, or more entries than the ten slots
-  the client renders, is refused at save. The layout is a second write beside
-  the account itself and never fails a login: if the display-preferences store
-  cannot be written, the account is created without it and the log says so. It
-  seeds the web client only, because the section vocabulary and the ten-slot
-  layout are the web client's. Two things this was first asked for are not
-  here, for reasons read out of the client rather than decided: the app theme
-  never reaches the server, because the web client keeps it in the browser,
-  and a landing screen is set per library under keys that need a library id
-  nobody has when an account is created.
-
-- **Named provisioning profiles are editable from the dashboard (#1105).** A
-  profile is a starting policy under a name that any number of providers can
-  share - the `guest` profile beside the default one - and until now the only
-  way to define one was to edit the plugin configuration by hand. The
-  configuration page carries a **Provisioning Profiles** section: list, add,
-  rename, delete, and the same nine controls the provider forms carry, with the
-  same rules - a field you leave alone keeps Jellyfin's own default, and zero is
-  a real value for the bitrate ceiling and the session limit. Each provider form
-  gains the selector that points at one. Add copies the starting policy of a
-  provider you choose, under the name you type, so a new profile begins as what
-  that provider does today rather than as a blank form that silently writes
-  nothing; adding one changes no account until you point a provider at it.
-  Deleting a profile some provider or role rule still names is refused and the
-  references are named, because clearing them would switch those providers to a
-  different starting policy from a delete button. Renaming one repoints every
-  reference in the same save, so nothing is ever left pointing at a name the
-  configuration no longer defines. Pointing a provider at a profile clears that
-  provider's own inline fields when you save, since new accounts get exactly one
-  policy from one source; you are asked before that happens, and adding a
-  profile from the provider's own policy first is the way to keep it. Existing
-  configurations are untouched: a provider that names no profile keeps its
-  inline policy exactly as it is.
-
-- **The starting policy is on the provider forms (#1367).** Everything a
-  provider writes onto a brand-new account - the permissions, the remote
-  bitrate ceiling, the session limit, the two language preferences, the
-  subtitle mode and the three playback switches - was configurable only by
-  editing the plugin configuration by hand. Both provider forms now carry it,
-  under **Starting policy for new accounts**. Every control has three states
-  rather than two, because every field of the template does: a control you
-  leave alone sends nothing at all and Jellyfin's own default governs, which
-  is why the three playback switches are lists reading Yes, No or leave
-  Jellyfin's own default and not checkboxes - a checkbox would post a
-  deliberate No for a field you never touched, onto every account the provider
-  creates. A form on which you set nothing sends no template rather than an
-  empty one, so a provider that takes its policy from a named provisioning
-  profile stays saveable from the dashboard; on such a provider the section
-  says where the policy comes from and leaves its own fields alone. The
-  subtitle mode is a list of exactly the mode names Jellyfin declares, so the
-  spelling a save accepts is the only one you can pick. The permission rows
-  offer the names the server publishes rather than a list kept on the page,
-  which is why administrator, all-folders and Live TV access are absent - each
-  keeps its own setting above - and why no account can be created disabled
-  from here. A configuration written by hand is not rewritten by opening or
-  saving a provider. Every label and help line is in the English and German
-  catalogues.
-
-- **The dashboard shows who is linked, and can cut one account off (#1121).**
-  Finding out which Jellyfin accounts sign in through SSO meant asking the API,
-  and revoking one meant the same; neither was on the settings page. It now
-  carries a Linked Accounts panel: every account holding an SSO link, the
-  provider and the identity-provider subject behind each link, and when that link
-  was last used to sign in. Each row offers a revoke, which removes that
-  account's links from every provider and ends every session it holds, on every
-  device. It asks first, and the question names what the revoke does instead of
-  asking whether you are sure: the account is switched back to Jellyfin's
-  built-in password provider, so it can sign in with a password again even on a
-  server that is otherwise SSO-only, and the server-wide setting is left exactly
-  as it was. The panel is equally plain about what a revoke does not buy. Where a
-  provider is permitted to link existing accounts, the same name can be adopted
-  again at the next SSO login, so the local account has to be disabled or renamed
-  as well when the cut has to hold. A link left behind by a deleted account is
-  shown rather than hidden, because nothing else shows it, and it carries no
-  revoke button: the revoke resolves an account by its username, which such a row
-  no longer has, so a button there could only ever fail. Nothing new is exposed
-  on the server - the panel reads the existing administrator-only roster and
-  drives the existing administrator-only revoke, with its rate limit and its
-  audit line unchanged - and every value it paints is written as text, never as
-  markup, because a subject identifier is whatever the identity provider chose to
-  send.
-
-- **A group can decide who may start a SyncPlay session (#827).** Everything else
-  the identity provider decides about an account is re-read at every login -
-  administrator rights, folder access, Live TV, the permission surface, the
-  parental-rating ceiling - but SyncPlay was not among them, so a deployment that
-  expresses its access model in groups had one setting it could only manage by
-  hand, per account, forever. A provider can now map its roles onto the account's
-  SyncPlay access, and the mapping is re-asserted at every sign-in, so a group
-  withdrawn at the identity provider withdraws the access with it. It is off
-  until it is configured, and it is under the same authorization master switch as
-  every other role-derived grant: turning that off leaves SyncPlay exactly as it
-  was. A login that matches nothing changes nothing - an unmapped or misspelled
-  claim can never widen access, only leave it where it stood. Where a login
-  belongs to several mapped groups the STRICTEST of them wins, which is worth
-  saying out loud because Jellyfin numbers its SyncPlay levels the other way
-  round from its parental ratings: "least privilege" here is the highest value,
-  not the lowest, and the plugin states the ranking itself rather than inheriting
-  it from an order upstream is free to change. A level is written by name -
-  `CreateAndJoinGroups`, `JoinGroups` or `None`, spelled exactly - and any other
-  spelling, a number among them, is refused when the configuration is saved
-  rather than silently ignored at the next login.
-
-- **One action checks every configured provider at once (#1084).** The settings
-  page could say whether the provider currently open in the editor looks
-  complete, and nothing could say it about the others: an administrator with six
-  providers had to open six forms to find the one that would refuse a login.
-  A "Configuration check" section above the provider lists now answers for all
-  of them in one press - every OpenID and SAML provider, whether a login against
-  it would get past the configuration, and what is wrong where it would not. The
-  answer comes from the server rather than from the form, which is what lets it
-  cover providers nobody has opened, and it is the same judgement a save is
-  refused by: the reason a row gives is the message the save path itself would
-  produce, so the check and the settings page cannot disagree about one
-  provider. Required settings that are still empty are named through the form's
-  own labels, so the report speaks the page's language. Advisory in both
-  directions - it never blocks a save and it changes nothing, so running it
-  leaves every provider's stored values and toggles exactly as they were. A
-  provider that is switched off is reported as switched off rather than as
-  broken. What the check does NOT do is contact any identity provider, and it
-  says so on every run: reachability is what Test Connection in a provider's own
-  editor is for, and fanning out probes here would empty the throttle budget
-  those routes share and report working providers as unreachable.
-
+  template gains a **Home screen sections** list, written whole and once at
+  account creation, for the web client only.
+- **Named provisioning profiles are editable from the dashboard (#1105).** The
+  configuration page carries a **Provisioning Profiles** section and each
+  provider form a selector. Deleting a profile something still names is refused,
+  and renaming repoints every reference in the same save.
+- **The starting policy is on the provider forms (#1367).** Both forms carry what
+  a provider writes onto a brand-new account, with three states per control so
+  one you leave alone sends nothing and Jellyfin's default governs.
+- **The dashboard shows who is linked, and can cut one account off (#1121).** A
+  Linked Accounts panel lists every account holding a link with its provider,
+  subject and last sign-in, and each row offers a revoke that ends every session.
+  An orphaned link is shown without a revoke button.
+- **A group can decide who may start a SyncPlay session (#827).** A provider can
+  map its roles onto the account's SyncPlay access, re-asserted at every sign-in
+  and under the same `EnableAuthorization` switch as every other grant. Where a
+  login holds several mapped groups the strictest wins.
+- **One action checks every configured provider at once (#1084).** A
+  "Configuration check" section answers, for every provider, whether a login
+  would get past the configuration, using the same judgement a save is refused
+  by. It contacts no identity provider, which is what Test Connection is for.
 - **A provisioning policy can be named once and shared by several providers
-  (#1105).** The policy written onto a brand-new account at creation used to
-  exist only as a block inside one provider, so a deployment wanting the same
-  starting permissions on two providers had to write them twice and keep the two
-  copies in step by hand. A configuration can now hold named provisioning
-  profiles, and a provider says which one its new accounts get - the `guest`
-  profile beside the default one, pointed at from as many providers as should
-  share it. Nothing changes for a provider that names no profile: it keeps its
-  own inline template, which is every provider configured before this existed,
-  and an existing configuration provisions exactly as it did. A profile is
-  judged by the same checks an inline template is, so it cannot become a second
-  route to the permissions the plugin refuses to write from configuration -
-  administrator, all-folders, Live TV and the account-disable flag are rejected
-  in a profile exactly as they are in a template. Two states are refused on
-  save rather than persisted: a provider naming a profile the configuration does
-  not define, and a provider naming a profile while still carrying an inline
-  template, which would be two account-creation policies with nothing saying
-  which one won. If a name somehow stops resolving anyway - a configuration file
-  edited around the save path - the account is created with no policy written at
-  all rather than falling back to the inline block, so a profile that was
-  replaced can never come back on the next first login. Profiles travel with a
-  configuration export and are merged back by an import, so a provider and the
-  policy it points at do not arrive separately. The plugin's settings page does
-  not yet offer a profile editor: profiles are configured through the admin API,
-  a configuration file, or an import, and a dashboard save leaves them
-  untouched.
-
+  (#1105).** A provider says which named profile its new accounts get, and one
+  naming none keeps its inline template exactly as before. A name that stops
+  resolving writes no policy rather than falling back.
 - **A provider can pick which provisioning profile a new account gets from the
-  login's own roles (#1106).** Naming one profile per provider (#1105) meant a
-  deployment wanting guests to start narrower than staff needed a second
-  provider, a second client registration at the identity provider, and a second
-  sign-in button - for a difference that the identity provider already states in
-  the roles it sends. A provider can now carry an ordered list of
-  role-to-profile rows, so one provider provisions a `guest` login from the
-  `guest` profile and everybody else from the provider's own default. The
-  resolution order is one sentence and it is the order the rows are written in:
-  the first row whose roles the login holds wins, then the provider's own named
-  profile, then its inline template, then nothing. First-row-wins rather than
-  some combination of the matches, because two profiles are two permission sets
-  rather than two points on a scale - there is no "most restrictive" to pick -
-  so the administrator states the precedence by ordering the rows, and
-  re-ordering them is the whole of how it is changed. Nothing changes for a
-  provider that configures no rows, which is every provider configured before
-  this existed, and a stored configuration written without them provisions
-  exactly as it did. The roles are the ones the login already produced for role
-  mapping, so no new claim or attribute is read. Two states are refused on save
-  rather than persisted: a row naming a profile the configuration does not
-  define, and a row that names no profile or lists no roles - each would sit in
-  the list looking like a rule while selecting nothing. If a row's profile stops
-  resolving anyway - a configuration file edited around the save path - the
-  account is created with no policy written at all, and in particular it does
-  NOT fall back to the provider's default. That matters more here than one level
-  up: a row exists to send one group somewhere narrower, so falling back would
-  hand precisely those accounts the wider policy they were moved off, silently,
-  at the moment they are created. As with profiles themselves, the settings page
-  does not yet offer an editor for the rows: they are configured through the
-  admin API, a configuration file, or an import, and a dashboard save leaves
-  them untouched.
-
+  login's own roles (#1106).** An ordered list of role-to-profile rows resolves
+  first-row-wins, then the named profile, then the inline template, then nothing.
+  A row whose profile stops resolving writes no policy rather than the wider one.
 - **Counters for the sign-in path, on a metrics endpoint an operator can scrape
-  (#1139).** Until now the only signal about logins was the log, and a log line
-  cannot be alerted on: nobody can ask it how many sign-ins failed in the last
-  five minutes. `GET /SSO/Metrics` answers that. It publishes, in the Prometheus
-  text format any monitoring system reads, how many sign-ins succeeded per
-  provider, how many were refused and for which of the reasons the plugin gives,
-  how many accounts were created or taken over, how many requests the rate
-  limiter turned away and for which kind of endpoint, and how many
-  server-to-provider fetches failed, telling an unreadable discovery document
-  apart from a failed code exchange because the two are fixed in different
-  places. Every counter is published even at zero, so an alert on a rate can be
-  written before the thing it watches for has ever happened. The route needs
-  administrator rights like every other operator surface here: the counters name
-  which providers a server has and how often sign-ins against them fail, which
-  is reconnaissance for somebody who cannot sign in, so a scraper is given a
-  token like any other client. No counter carries a username, an identity-
-  provider subject or a claim value; a breakdown is either a provider name from
-  the configuration or one member of a fixed list. The number of distinct
-  breakdowns the plugin will hold is capped, and a scrape that hit that cap says
-  so on the same scrape rather than looking complete. Nothing is persisted and
-  the counts start again at each restart, which is what a monitoring system
-  expects of a counter. Installations that scrape nothing are unaffected: the
-  endpoint answers when it is asked and does nothing otherwise.
-
+  (#1139).** `GET /SSO/Metrics` publishes sign-ins, refusals by reason, account
+  creations, rate-limiter rejections and failed fetches in the Prometheus format,
+  every counter present even at zero. It needs administrator rights and names no
+  person.
 - **Providers can be declared entirely in environment variables (#1097).** A
-  deployment that describes its identity providers in a mounted file can now
-  describe them in its own environment instead, under the same rules and through
-  the same apply. A variable names a path into the configuration with `__`
-  between the steps, which is the separator a compose file or a Kubernetes
-  manifest already uses elsewhere, so
-  `JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__OidClientId` sets the client id of
-  the provider called `keycloak`, and `__Roles__0` sets the first entry of a
-  list. The names are resolved against the configuration itself rather than
-  against a list somebody maintains, so every field of an OpenID or SAML
-  provider is settable under its own name, and a field added later is settable
-  the day it arrives. Setting none of these leaves the server behaving exactly as
-  it did before. A variable the plugin cannot place refuses the whole
-  environment instead of applying the rest: a misspelled name, a value that is
-  not the field's type, a gap in a numbered list, and a name aimed at something
-  the server manages for itself are all refusals, and a refusal leaves the stored
-  configuration untouched. Two things are worth knowing before writing one. A
-  provider is declared whole, exactly as it is in a mounted file, because the
-  merge works provider by provider: naming a single field of a provider that
-  already exists leaves the rest of that provider at its defaults, and on an
-  OpenID provider that counts as repointing it, which clears its account links.
-  And where a file and the environment both describe the same provider, the
-  environment is applied second and wins, while a provider neither of them names
-  is left exactly as it was. The rate-limit tuning and the SSO-only switch are
-  not settable this way, because no declarative source applies them; a variable
-  naming one is refused rather than quietly ignored.
-
-- **The account-link roster now reports the last SSO login (#1120).** Each link
-  in the roster carries the moment a login last signed in through it, so an
-  administrator can tell a live link from one nobody has used. Nothing is added
-  to the log: the plugin keeps one timestamp per link that already exists,
-  overwritten by the next login rather than appended to, and it is removed the
-  moment the link is - by unlinking, by removing an account's links from the
-  dashboard, and by deleting or repointing the provider. The stored value is
-  deliberately coarse. It is rewritten only once it is more than an hour old, so
-  signing in repeatedly costs no write to the plugin configuration, and the
-  roster reports "not later than" rather than a precise instant. A link nobody
-  has used since this version, or one made before it, reports nothing at all
-  instead of a made-up date. The value is withheld from the configuration page
-  in both directions: it cannot be read back through it, and a settings save can
-  neither clear it nor invent one. It is not part of the portable link export
-  either, because a login instant belongs to the server that observed it and
-  cannot be restored onto another.
-
-- **Jellyfin accounts can follow a rename at the identity provider (#1138).** A
-  new per-provider option, **Follow Username Renames From The Provider**, renames
-  a linked Jellyfin account on the user's next SSO login when their username has
-  changed at the provider. Off by default, in which case the Jellyfin name stays
-  as it was and the two drift apart, which is what happens today. This is the
-  display name only: the account is found by its stable subject identifier
-  either way, so turning it on cannot change which account a login reaches, and
-  it adds no way to select an account by name. The new name is cleaned up the
-  same way a newly created account's name is, so a rename can never put a name on
-  an account that Jellyfin would have refused at creation. If another Jellyfin
-  account already holds the name, the rename is skipped and both accounts keep
-  their names rather than the outcome depending on who logged in last. A rename
-  that fails for any other reason is logged and the login still succeeds, because
-  a display name that has drifted is cosmetic and a refused login is not. Each
-  rename is recorded as an audit event naming both the old and the new name. The
-  option is in the provider forms for OpenID and SAML.
-
-- **A per-provider starting policy for accounts SSO creates (#1099).** A
-  provider can carry a template whose set fields are written onto a brand-new
-  SSO account at creation: any of the boolean Jellyfin permissions, a
-  remote-client bitrate ceiling, and a maximum session count. It is written
-  once, at creation, and never re-applied, so a change you make on the user
-  afterwards survives every later login. That is the difference from the
-  role-to-permission mappings, which are re-asserted on every login on purpose.
-  Opt-in field by field: anything the template does not name is left at
-  Jellyfin's own default, and a provider with no template creates accounts
-  exactly as before. A template cannot grant administrator, all-folders or Live
-  TV access, which keep their own dedicated settings, and it cannot disable an
-  account; those names are refused when you save, and refused again when the
-  template is written, so a configuration file edited by hand cannot use one
-  either. A negative bitrate or session count is refused at save rather than
-  quietly changed. Zero means no limit and unlimited, as it does elsewhere in
-  Jellyfin. The template is set on each provider's form in the
-  dashboard, under Starting policy for new accounts, and in the plugin
-  configuration.
-
+  variable names a path into the configuration with `__` between the steps, so
+  every field of a provider is settable under its own name. One the plugin cannot
+  place refuses the whole environment and changes nothing.
+- **The account-link roster now reports the last SSO login (#1120).** One
+  timestamp per link, rewritten only once it is more than an hour old and removed
+  with the link, so the roster reports "not later than" rather than an instant.
+  It is withheld from the configuration page in both directions.
+- **Jellyfin accounts can follow a rename at the identity provider (#1138).**
+  **Follow Username Renames From The Provider**, off by default, renames a linked
+  account at the next login when the provider's username changed. It is the
+  display name only, and each rename is audited with both names.
+- **A per-provider starting policy for accounts SSO creates (#1099).** A template
+  whose set fields are written onto a brand-new account at creation and never
+  re-applied. It is opt-in field by field and cannot grant administrator,
+  all-folders or Live TV access or disable an account.
 - **The starting policy can also seed playback preferences (#1100).** The same
-  per-provider template now carries the language and playback block: preferred
-  audio language, preferred subtitle language, subtitle mode, whether the
-  default audio track plays, and whether audio and subtitle selections are
-  remembered. It behaves exactly like the rest of the template. Each field is
-  opt-in, anything left unset stays at Jellyfin's own default, and the values are
-  written once when the account is created and never re-applied, so a preference
-  you or the user change afterwards survives every later login. Clearing one of
-  the three switches is a real setting rather than an absent one, so a template
-  can turn it off and have it stick. The subtitle mode is the one field with a
-  fixed vocabulary: an unrecognised name is refused when you save, naming the
-  modes Jellyfin accepts, and refused again when the template is written, so a
-  configuration file edited by hand cannot slip one through and leave an account
-  on a mode nobody chose. The two language fields are passed to Jellyfin as given
-  rather than checked against a list, so any code Jellyfin accepts works. As with
-  the rest of the template, these are on the provider forms in the dashboard as
-  well as in the plugin configuration.
-
+  template carries the two language fields, the subtitle mode and the three
+  playback switches, each opt-in and written once. The subtitle mode has a fixed
+  vocabulary refused at save and again at write.
 - **A guest or trial group can carry a fixed access duration (#1146).** A
-  provider can map identity-provider roles to a length of access in hours, and
-  an account created by a login holding one of those roles is given a deadline
-  of that moment plus the mapped duration. It is the second way into the expiry
-  machinery: the claim below is the provider naming a date, this one is you
-  naming a length, which is what a guest or trial group usually needs. The
-  deadline is stamped once, when the account is created, and a later login by
-  the same account leaves it exactly where it is, so a trial does not quietly
-  become unlimited access for anyone who keeps signing in. A login holding two
-  mapped roles takes the shorter of the two. Where a login carries both a mapped
-  role and an expiry claim, the claim wins, because the provider is the
-  authority on a date it emitted. Only a newly created account is given a
-  deadline: an SSO login that takes over an existing Jellyfin account is not,
-  and losing the role later neither extends nor clears a deadline already
-  recorded. Nothing changes for a provider that maps no role, which is every
-  provider by default. A duration of zero or less is refused when you save, as
-  is one longer than a century, and so is a mapping that lists no roles. The
-  mappings are set in the plugin configuration; the provider forms in the
-  dashboard do not carry them yet.
-
-- **Account expiry now ends access on the deadline rather than at the next
-  login (#1145).** The instant a login carries is persisted against that
-  account's SSO link, and an hourly background pass disables any linked account
-  whose deadline has gone by and revokes that account's tokens. Until now the
-  deadline was only checked when the expired user came back, so a guest who
-  simply stopped logging in kept an enabled account, any long-lived token and,
-  with password login still on, a password door, for as long as those happened
-  to last. The deadline is stored in the plugin configuration, so it survives a
-  restart, and a settings save can neither clear it nor set one. Nothing changes
-  for a provider that names no expiry claim, which is every provider by default.
-  An administrator is never disabled by this pass, exactly as on the login path:
-  a provider that starts emitting a past instant reaches every account at once,
-  and someone has to be left who can open the settings page. A provider you
-  switch off is skipped rather than swept, and an account already disabled is
-  left alone rather than logged again on every pass.
-
-- **An account-expiry instant read from a provider claim (#1143).** A provider
-  can name a claim (OpenID) or assertion attribute (SAML) that carries the
-  instant its account access ends, and both protocols now read it onto the
-  verified identity as a UTC timestamp. It is read and carried, nothing more:
-  no login is refused, no account is disabled, and a provider that names no
-  claim behaves exactly as before, which is every provider by default. The
-  value is accepted as a JWT `NumericDate` or an ISO-8601 timestamp with or
-  without an offset, and an offset-less value is read as UTC rather than as the
-  server's local time. A claim that is absent, or whose value is neither shape,
-  carries no instant instead of failing the login. For OpenID the name may be a
-  dotted path into the claim's JSON, the same convention the role claim uses.
-  The field is settable in the plugin configuration; the provider forms in the
-  dashboard do not carry it yet.
-
-- **OpenID providers on a private network (#1058).** A new per-provider option,
-  **Allow Private Network Addresses**, lets a provider's backchannel
-  (discovery, JWKS, token, userinfo, back-channel logout) reach an identity
-  provider that lives on the administrator's own network. Previously the
-  outbound SSRF / DNS-rebind guard refused every non-public address with no way
-  to say a provider was deliberately internal, so the standard self-hosted shape
-  (Authelia or Keycloak on a `10.x`/`192.168.x` address behind a reverse proxy)
-  failed discovery with _"The outbound host resolves only to blocked
-  addresses"_, and the existing insecure toggles did not help because they relax
-  discovery policy rather than the transport. The option is **off by default**
-  and scoped to the one provider it is set on: it permits RFC 1918, carrier-grade
-  NAT and IPv6 unique-local only, while loopback, link-local and the cloud
-  metadata ranges (`169.254.169.254`, `192.0.0.192`) stay blocked regardless.
-  Every other provider and the SAML metadata importer keep the full guard, and
-  so did the avatar fetch until #1764 (in 5.1.1) covered a picture served from the
-  provider's own origin. Enabling it is surfaced as a security downgrade in the config page
-  and recorded in the insecure-toggle audit log.
-
-- **OpenID role claims carried as an object map.** A new per-provider option,
-  **Role claim is an object map**, reads the roles from the property _names_ of
-  a JSON object instead of from a list of strings. Zitadel needs it: it emits
-  `{"jellyfin-access": {"<orgId>": "<domain>"}}` under
-  `urn:zitadel:iam:org:project:roles`, which no previous configuration could
-  read, so its role gate could never be enabled. Only the names are read -
-  never the values, never nested objects - and every other claim shape still
-  fails closed to no roles. The option is **off by default**, so no existing
-  provider changes behaviour.
-
-- **Managed login-page buttons (#722).** An opt-in global option, **Manage
-  login-page buttons** (off by default), keeps a "Sign in with …" button block
-  on Jellyfin's login page in sync with the configured, enabled providers - so a
-  configured provider surfaces a button without hand-crafted branding HTML. The
-  managed region is spliced into the login branding disclaimer and removed
-  cleanly when the option is turned off, preserving any surrounding admin
-  disclaimer text; provider names and labels are HTML-encoded. Per provider,
-  **Hide login button** omits one provider's button and **Login button text**
-  overrides its label.
-
+  provider can map roles to a length of access in hours, stamped once when the
+  account is created, so a trial does not become unlimited access. Two mapped
+  roles take the shorter, and an expiry claim wins over a mapped role.
+- **Account expiry now ends access on the deadline rather than at the next login
+  (#1145).** An hourly pass disables any linked account whose deadline has gone
+  by and revokes its tokens. An administrator is never disabled by this pass and
+  a switched-off provider is skipped.
+- **An account-expiry instant read from a provider claim (#1143).** A provider can
+  name a claim or attribute carrying the instant its access ends, and both
+  protocols read it as a UTC timestamp. It is read and carried and nothing more:
+  no login is refused and no account disabled.
+- **OpenID providers on a private network (#1058).** **Allow Private Network
+  Addresses**, off by default and per provider, lets that provider's backchannel
+  reach a provider on the administrator's own network. Loopback, link-local and
+  the metadata ranges stay blocked, and the opt-in is audited as a downgrade.
+- **OpenID role claims carried as an object map.** **Role claim is an object
+  map**, off by default, reads roles from the property names of a JSON object
+  instead of a list of strings, which is what Zitadel emits. Every other claim
+  shape still fails closed to no roles.
+- **Managed login-page buttons (#722).** **Manage login-page buttons**, off by
+  default, keeps a "Sign in with …" block on the login page in sync with the
+  enabled providers and removes it cleanly when turned off. Per provider, **Hide
+  login button** omits one and **Login button text** overrides its label.
 - **Every release now carries an OpenVEX document (#1093).** `openvex.json` and
-  its `openvex.sha256` ship as release assets beside `sbom.cyclonedx.json` on
-  all four release legs, so a scanner that flags an advisory in a transitive
-  dependency can read the recorded disposition for it instead of guessing. Only
-  the plugin zip still carries an `.md5`, which is what keeps the manifest
-  checksum paired with the build it belongs to.
-
-- **An export of one account's SSO linkages (#1091).** A new administrator-only
-  endpoint, `GET /SSO/Links/Export/{jellyfinUserId}`, returns every OpenID and
-  SAML linkage held for one Jellyfin account in a single document, in the same
-  shape the whole-table export already produces. Answering an access request
-  previously meant either two calls per protocol against the per-user listings
-  or exporting the whole link table and redacting every other account by hand.
-  The document names the account by username rather than by its internal id and
-  carries no provider secret, signing key or token; an account that exists but
-  holds no linkage exports an empty document, which is a different answer from
-  the 404 an unknown id returns. The endpoint is rate-limited under a budget of
-  its own, so an administrator session cannot be used to walk the user table one
-  id at a time, and the throttle is applied before the account lookup so the
-  404 cannot be used to test for an account either.
-
-- **A linked-account roster for administrators (#1119).** A new
-  administrator-only endpoint, `GET /SSO/Links/Roster`, lists every Jellyfin
-  account that holds an SSO link, with the provider and canonical name behind
-  each one, in a single read. Finding out _which_ accounts were linked
-  previously meant walking the whole Jellyfin user list and asking the per-user
-  listings one request at a time. An account linked to several providers is one
-  row carrying several links, and a link whose account has since been deleted is
-  reported as an orphan rather than dropped, which is the one place that state is
-  visible at all. The roster is assembled from the link maps alone, so no
-  provider secret, signing key or certificate can appear in it.
-
-- **An account can be linked to an identity before its first login (#1133).** A
-  new administrator-only endpoint writes the link from an identity-provider
-  subject to an existing Jellyfin account directly, so an account created by an
-  invite or provisioning tool signs in through SSO the first time rather than
-  starting as a password account somebody links by hand afterwards. The existing
-  link write is unchanged and still requires the person being linked to complete
-  a login at the identity provider; this one takes an administrator credential
-  instead, and differs in one behaviour because of it: a subject already linked
-  to a different account is refused and the existing link is left exactly as it
-  was, where the older write would have moved it. Sending the same mapping twice
-  succeeds, so a tool that retries a request whose answer it never saw does not
-  have to tell the two cases apart. A link is refused for a provider that does
-  not exist or is turned off, for an account id that no account holds, and for a
-  blank subject. Every link made this way is recorded as an audit event naming
-  the administrator, the provider and the account, and never the subject itself.
+  its `openvex.sha256` ship beside `sbom.cyclonedx.json` on all four release
+  legs. Only the plugin zip still carries an `.md5`, which keeps the manifest
+  checksum paired with its build.
+- **An export of one account's SSO linkages (#1091).**
+  `GET /SSO/Links/Export/{jellyfinUserId}` returns every linkage held for one
+  account, which an access request used to need several calls for. It carries no
+  secret and is rate-limited before the account lookup.
+- **A linked-account roster for administrators (#1119).** `GET /SSO/Links/Roster`
+  lists every account holding a link with the provider and canonical name behind
+  each, in one read. A link whose account was deleted is reported as an orphan
+  rather than dropped.
+- **An account can be linked to an identity before its first login (#1133).** An
+  administrator-only endpoint writes the link from a subject to an existing
+  account, so an account created by an invite tool signs in through SSO the first
+  time. A subject already linked elsewhere is refused, and every link is audited.
 
 ### Changed
 
 - **A failed release call no longer throws away the build behind it (#1736).**
-  The daily Jellyfin 12 beta was one job: it compiled the plugin, packaged it,
-  wrote the checksum and SBOM sidecars and then created the GitHub release. When
-  the release API answered `500` three times in a few seconds on 2026-09-13,
-  everything before it was discarded with it and the whole build had to be run
-  again from the start. Building and publishing are two jobs now, the first
-  handing the finished package to the second, so re-running the failed publish
-  releases the package that was already built rather than rebuilding it. The
-  build number the version is derived from belongs to the run rather than to the
-  attempt, so the second try publishes the same version under the same tag. The
-  release ships the same assets under the same names, and the job that creates
-  it is now the only one in the workflow holding write access. What this does
-  not cover, said rather than left to be discovered: a failure AFTER the release
-  has been published meets a sealed, immutable release on the second attempt and
-  still cannot be finished by re-running it. That bound is the immutable-release
-  rule and was there before the split.
-
-- **This line is 5.0, because the Jellyfin generation under it changed
-  (#1579).** Jellyfin 12.0 went GA on 2026-09-07 and its announcement is
-  explicit that plugins built for 10.11 will not load on it: the server targets
-  .NET 10 and several plugin interfaces changed. The scheme at the top of this
-  file reserves **X** for exactly that, a breaking or Jellyfin-ABI change, so
-  what was numbered 4.4 is 5.0 in all three places that carry the number: the
-  assembly, `build.yaml` and `build-jf12.yaml`.
-
-  **4.3 stays the last release for Jellyfin 10.11.** It is finishing its soak
-  and ships as the stable for that generation; nothing on this line is offered
-  to a 10.11 server. The net9.0 half of the build is not removed here, because
-  taking a target framework out also takes the 10.11-only package pins and the
-  ABI-floor job with it and re-opens which assemblies the package must carry.
-  That is its own change.
-
-  The number is the only thing this entry is about. What the line compiles
-  against moved in the same delivery and is recorded above.
-
+  Building and publishing are two jobs, so re-running a failed publish releases
+  the package already built, under the same version. A failure after the release
+  is published still meets a sealed release on the second attempt.
+- **This line is 5.0, because the Jellyfin generation under it changed (#1579).**
+  Jellyfin 12.0 went GA on 2026-09-07 and plugins built for 10.11 do not load on
+  it, which is what **X** is reserved for, so what was numbered 4.4 is 5.0. 4.3
+  stays the last release for Jellyfin 10.11.
 - **The settings page is five pages (#1527).** One 222 KB page carrying all 123
-  controls became five, joined by the dashboard's own tab strip: **Overview**,
-  **Providers**, **Accounts**, **Policies** and **Server**. Nothing was added to
-  the settings and nothing was taken away - every one of the 123 controls keeps
-  its id, its marker classes and the save path it always had, and the `.NET`
-  workflow now runs `tools/ui-mock-fields.js`, which refuses a control that is on
-  no page, on two pages, on a page `docs/ui/mock/FIELDS.md` does not name for it,
-  or that has left the insecure or sensitive box its row declares. Two more
-  failures the split made possible are refused there too: a page controller that
-  reaches an id its own page does not carry, and a tab link, page controller or
-  core reference naming something the plugin does not register - which would
-  otherwise be four dead tabs and no route to the settings at all. **Overview is
-  new and holds no setting**: a card per provider saying whether it is offered at
-  the login page, whether its configuration is complete and when SSO last signed
-  somebody in through it, plus a what-to-do-next list derived from the same
-  aggregate check the Configuration check button runs. It reports no provider as
-  reachable, because the check it reads does not answer that - whether an
-  identity provider actually answers is still what Test Connection reports - and
-  a check that could not be read is said in words rather than shown as "nothing
-  configured". The Configuration check button itself is on **Providers**, beside
-  the field labels its answer names. The address an administrator has bookmarked
-  is unchanged: the plugin's page name still opens the plugin, and it opens on
-  Overview. `config.js` is gone as a file, split into a shared `sso-core.js` and
-  a ten-line module per page. **The columns collapse rail-first on a narrow
-  screen**, so the readiness panel and the field help are read before the form
-  and its Save rather than after them. Overview re-reads the server on every
-  visit; the four pages that hold controls do not, because re-reading them would
-  discard an edit made and not yet saved.
-
+  controls became **Overview**, **Providers**, **Accounts**, **Policies** and
+  **Server**, every control keeping its id and save path. Overview is new and
+  holds no setting, and the bookmarked address still opens the plugin.
 - **One Save on the Server page, an unsaved-changes indicator, and the outcome
-  where the button is (#1572).** The Server page carried two Save buttons for
-  two server-wide switches, and each one re-read the whole configuration, set
-  its own flag and posted the result. They are now one Save that reads that
-  document once and posts it once, so there is no moment at which one switch is
-  stored and the other is not: a refusal leaves **both** exactly as they were
-  stored. It writes only the switches you actually moved, so pressing Save on a
-  page loaded ten minutes ago cannot silently undo a change somebody made in the
-  meantime to the switch you did not touch. Every page that holds a control now
-  tracks whether it has been edited and shows a line saying so, and each Save is
-  closed while a control the save needs is empty - the on-blur warnings that
-  mirror a server check go on warning and go on **not** blocking, because one of
-  those can be wrong about a value the server would have taken and an empty
-  required field cannot. The freeze on a provider or a profile a configuration
-  file owns is untouched: that freeze now records its own reason on the button
-  and the gate reads it, so the gate can never hand back a Save the freeze
-  closed. The thirteen modal alerts these pages raised for a save, a delete or a
-  failure are gone, and each outcome is written into the page instead - beside
-  the button that was pressed, in the sticky footer, rather than in the editor
-  header many screens above it, and announced to a screen reader.
-  `tools/ui-unsaved-state.js` runs the shipped page script against the shipped
-  pages in the `.NET` workflow and refuses each way that state can be wrong by
-  name.
-
-  **The tab that refreshes itself is deliberately not part of this**, and the
-  reason is worth stating: the review found that re-reading a page which holds
-  an open editor empties both library checklists and does not refill them, so
-  the next save would persist an empty Enabled Folders and every user of that
-  provider would lose library access at their next sign-in. Removing a
-  permission row is a click, which the edit tracking cannot see, so a re-read
-  would render the removed row straight back out of storage. Those are
-  properties of the load path rather than of the new state, and making it safe
-  to run twice is its own change.
-
+  where the button is (#1572).** One Save reads and posts the document once and
+  writes only the switches you moved, so a refusal leaves both as stored. The
+  thirteen modal alerts are gone, each outcome written beside the button.
 - **The login audit line now names the Jellyfin account, and the
-  provider-presented name beside it where the two differ (#1551).** The
-  `[SSO Audit] Login succeeded` line carried the username the identity provider
-  presented. Jellyfin publishes its own `AuthenticationSuccess` event for the
-  same mint and names the **resolved account** in it, and the two are not always
-  the same name: an existing account link resolves an account under whatever
-  name it already carries and `SyncUsernameFromProvider` is off by default, a
-  created account was provisioned under Jellyfin's own name allowlist which drops
-  characters a provider's name may carry, and a requested rename can have been
-  declined - so the audit line could name somebody the server's own event never
-  mentioned.
-  Correlating the plugin's trail with the host's notification - which is the only
-  way to tell an SSO login from a password login at a notification destination -
-  was then not possible for exactly the accounts whose names had drifted. The
-  line now carries the name the host is about to carry, read off the very result
-  the host publishes rather than derived a second time beside it, and appends
-  `The provider presented the name '<name>'.` only where the presented name
-  differs, decided on the names as the line prints them rather than on the raw
-  values, so a provider cannot make the line assert a difference it then shows
-  two identical names for. A login whose names agree writes the line
-  byte-for-byte as before.
-  **A log parser matching the old line for the provider's username reads the
-  account's name instead.**
-
+  provider-presented name beside it where the two differ (#1551).** The line
+  carried the presented name, which is not always the resolved account. **A parser
+  reading that field now gets the account's name.**
 - **Restoring an account-link backup now says how many links it restored
-  (#1520).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
-  button that posts to it, answered the same empty success whatever the number
-  was - a file that rebound every link and a file that rebound none produced
-  the same `204` and the same fixed sentence on the settings page. The count
-  existed only in the server log, which is not where anybody looks during a
-  migration, and that is how #1517 - an import that silently restored nothing -
-  went unnoticed across every beta it shipped in. The endpoint now answers 200
-  with the total and a per-provider breakdown, and the page prints the number.
-  A restore of nothing says so and points at the likely cause, which is the
-  configuration export posted in place of the account-link export: both declare
-  format version 1, so nothing else tells them apart. **An integration that
-  asserts on `204` from this route has to accept `200` instead**; nothing else
-  about the request or the refusals changed. The reference page also quoted a
-  refusal sentence for a missing or unparseable body that no caller was ever
-  served - Jellyfin refuses such a body before the plugin runs - and now says
-  what is actually returned.
-
-- **A misspelled protocol segment on a link route now answers 400 (#1399).**
-  The three account-link routes carry an `oid` or `saml` segment in their path,
-  and a value that is neither used to throw. The refusal was correct and is
-  unchanged; what the caller saw afterwards was not decided by this plugin but
-  by whatever the server does with an exception, which made it the one refusal
-  on that surface an integration could not rely on while its four neighbours
-  each answer a chosen status with a chosen message. All three routes now answer
-  `400` with the same fixed sentence naming the two accepted values. The
-  sentence never repeats what was sent, so a mistyped segment is not reflected
-  back into the response. This matters where the segment comes from a
-  provisioning tool's own configuration, which is the ordinary way a wrong one
-  arrives.
-
+  (#1520).** The route answered the same empty `204` whether it rebound every link
+  or none, which is how #1517 went unnoticed. It now answers `200` with a total
+  and a breakdown, so **an integration asserting on `204` has to accept `200`**.
+- **A misspelled protocol segment on a link route now answers 400 (#1399).** A
+  value that was neither `oid` nor `saml` used to throw, so the caller saw
+  whatever the server made of it; all three routes now answer `400` with a fixed
+  sentence and never repeat what was sent.
 - **The redirect URI on the settings page now comes from the server (#1303).**
-  The page used to work the value out for itself, in the browser, from the base
-  URL override and a fixed path. That made two things compose a string an
-  identity provider compares letter for letter, and when the two disagreed the
-  login did not fail on this server: it failed at the provider, with a
-  `redirect_uri` mismatch that looks like a plugin fault and that nobody here
-  ever sees. The field now shows what the server answers, so what is registered
-  at the provider and what the login sends are the same string with one author.
-  There is no local fallback, which has one visible cost: the field is filled in
-  for a provider that has been saved, and a provider still being typed shows
-  "Save this provider to see its exact redirect URI" instead of a preview. One
-  case is not covered and the field's help text names it: both sign-in routes
-  stay live, and users who still start at the older `/sso/OID/p/<name>` address
-  send the older `/sso/OID/r/<name>` form, which has to be registered as well.
-
+  The page composed the value in the browser, so a disagreement failed at the
+  provider rather than here; the field now shows what the server answers, which
+  costs the preview for an unsaved provider.
 - **A role claim the plugin could not read now says so in the log (#1149).** A
-  mistyped role-claim path and a provider that genuinely sends no roles used to
-  look identical from outside: both ended with an empty role set and no entry,
-  and under a configured role allow-list both ended with a denied login and
-  nothing to explain it. An OpenID login whose role claim could not be read now
-  leaves one `[SSO Audit]` warning naming the provider and a fixed reason code -
-  the claim value did not parse as JSON, the configured path did not resolve, or
-  the node it reached was not the configured shape. A login that carried no role
-  claim, or one whose claim resolved to an empty list, leaves nothing, so the
-  entry stays a signal rather than appearing on every sign-in. The claim value is
-  never part of the entry: a role claim can carry group memberships and other
-  personal data, so the provider name and the reason code are all it records.
-
-- **Test connection now says when a provider's document was refused for its
-  shape (#1064).** An OpenID document that a provider serves perfectly well can
-  still be rejected before it is parsed, because it names the same JSON member
-  twice or because its body cannot be inspected as JSON at all. Test connection
-  reported both of those under the one message it had, which asks the
-  administrator to check that the endpoint is reachable, serves
-  `/.well-known/openid-configuration` and is served over HTTPS - all of which
-  were already true, so the diagnostic answered confidently and pointed
-  somewhere else. The two refusals now have their own messages, worded exactly
-  as the matching server-log entry, so an administrator reading the panel and
-  the log sees one wording rather than two. Every other read failure keeps the
-  message it had. Which member repeated stays in the server log and is not
-  echoed into the admin panel.
-
-- **Renamed to "Community SSO for Jellyfin".** The plugin's display name (the
-  catalog entry, the dashboard plugin name, and the documentation) is now
-  **Community SSO for Jellyfin**. The plugin GUID, the assembly, and the
-  configuration are unchanged, so the rename lands as an in-place update that
-  keeps every existing setting.
+  mistyped path and a provider that sends no roles used to look identical, so an
+  unreadable claim now leaves one `[SSO Audit]` warning naming the provider and a
+  reason code, never the claim value.
+- **Test connection now says when a provider's document was refused for its shape
+  (#1064).** A document that repeats a JSON member, or that cannot be inspected
+  as JSON, was reported under the reachability message; the two refusals now have
+  their own messages, worded as the matching log entry.
+- **Renamed to "Community SSO for Jellyfin".** The display name in the catalog,
+  the dashboard and the documentation changed while the GUID, the assembly and
+  the configuration did not, so the rename lands as an in-place update.
 
 ### Fixed
 
-- **The Test Connection verdict is translated (#1728).** The verdict and the
-  facts under it - the issuer, the endpoints, the JWKS key count, a certificate's
-  subject and validity - arrived as English sentences built on the server, so a
-  German dashboard showed German help around an English result, and the gate
-  that counts untranslated sentences in the page could not see them because
-  they were never in the page. The server now answers with catalogue keys and
-  the provider values beside them, the page renders each through the catalogue
-  in the administrator's language, and a fact the document did not advertise
-  reads as "(not advertised)" in that language too. The wire shape of the two
-  Test endpoints changes: `Message` and `Details` become `Key` and `Facts`, each
-  fact a `Key` with a `Value`, which the end-to-end SAML rollover probe now reads
-  for the stored thumbprint. The two screened discovery refusals keep opening
-  with the wording the server log carries, on the English side of the
-  catalogue; on a translated dashboard the log is the English half of that
-  pairing, on purpose.
-
+- **The Test Connection verdict is translated (#1728).** The verdict was built as
+  English sentences on the server, which the untranslated-sentence gate could not
+  see either. The server now answers with catalogue keys, which changes both Test
+  endpoints: `Message` and `Details` become `Key` and `Facts`.
 - **The self-service page asks before it removes your last way in, and says why
-  when the server refuses (#1731).** The server refuses a last-link self-unlink
-  that would strand the account (#1720), and the page around it was silent in
-  both directions: Delete went out with no confirmation of any kind, unlike the
-  administrator revoke beside it, and a refusal landed in the generic "something
-  went wrong" banner. Pressing Delete on what would be the last link that can
-  sign you in now raises a confirmation naming the consequence, and a refused
-  removal shows the three facts the server's 403 carries - that this was the
-  last way in, that the account takes no password, and that an administrator can
-  undo it. A link on a switched-off provider is not a way in in either
-  direction, which is the reading the server's own refusal takes: it does not
-  keep the page quiet about the removal of the last working link, and removing
-  such a link on its own raises no question. The question **names the
-  consequence and never promises the refusal**: the server's guard does not
-  cover an administrator (#1732) or an account carrying a password this plugin
-  minted and never recorded (#1733), and for those two the removal goes
-  through - a dialog naming only benign outcomes would have turned a hesitant
-  press into a confident one on exactly the press that costs the account. A
-  failed removal also takes the delete control off the page, because a batch
-  that fails part-way leaves rows on screen that the page can no longer speak
-  for, and the question above is counted off those rows; the banner beside it
-  already asks for a reload, and a reload is what rebuilds them. Both sentences
-  are catalogue rows in English and German, and
-  `tools/ui-self-service-unlink.js` drives the shipped page against a recording
-  client and both catalogues so none of these properties can be lost in
-  silence. The confirmation is the courtesy and the server's refusal is still
-  the rule: declining here only stops the request.
-
+  when the server refuses (#1731).** Delete went out with no confirmation and a
+  refusal landed in the generic banner. The question names the consequence and
+  never promises the refusal: #1732 and #1733 are cases where it goes through.
 - **The Test Connection, configuration export and configuration import progress
-  lines go through the catalogue (#1739).** `Testing…`, `Exporting…` and
-  `Importing…` were written straight into the page, so a `de-DE` administrator
-  pressing **Verbindung testen** read the line the button writes while it works
-  in English, and the same for the two configuration transfers. The untranslated
-  ratchet could not see them and no floor would have: it keeps a literal only if
-  it contains a space - the test that separates a sentence from a token - and
-  that test runs before a length is considered at all, so #1725's probe at a
-  floor of two could not reach a one-word line either. The four sites now carry
-  catalogue keys with an English and a German row, and a second by-SITE arm
-  refuses a literal handed to either progress renderer, the way the save-status
-  arm already refuses one handed to a save renderer, so the next progress line
-  cannot arrive as a word the catalogue never sees. The empty literal that clears
-  a result region is not prose and stays unrefused.
-
+  lines go through the catalogue (#1739).** The three lines were written straight
+  into the page and the ratchet could not see a one-word literal; the four sites
+  now carry catalogue keys and a by-site arm refuses a literal there.
 - **Eight short English sentences on the provider page now go through the
-  translation catalogue (#1725).** The gate that counts sentences bypassing the
-  catalogue read only literals of twenty characters or more, so the field names
-  in "… is required.", the address named by the "copied to the clipboard" notice
-  under the SAML editor, the metadata import's progress line and the test
-  result's fallback stayed English on a German dashboard while the gate was
-  green. Each now reads a catalogue row with an English and a German value, the
-  two literals that are not page prose - a console label and the device name the
-  linking page registers under - are exempted by name with their reason, and the
-  gate has no length floor any more.
-
+  translation catalogue (#1725).** The gate read only literals of twenty
+  characters or more, so shorter sentences stayed English while it was green; the
+  gate now has no length floor.
 - **The login's completion page names both addresses when it cannot finish where
-  it was opened, and says what it is still waiting for after twenty seconds
-  (#1714).** After the identity provider sends the browser back, the page loads
-  Jellyfin's web client into a hidden frame and waits for it to write the page's
-  storage, which the frame shares only at the same address. A page opened at one
-  address while the server had built the login for another - a TLS-terminating
-  proxy the server is not told about, a second hostname, an unset Base URL
-  Override - showed "Logging in..." for as long as the tab stayed open, with
-  nothing in the server log after the callback. The page now compares the two
-  addresses first and, on a mismatch, shows both, offers the way back to the
-  login and stops; while it waits at one address, twenty seconds without the web
-  client swap the status line for a notice naming the address it is expected
-  from, and the wait goes on so a slow client still completes. Reading the
-  stored server entry can no longer throw out of the wait unseen.
-
+  it was opened (#1714).** A page opened at one address while the server built
+  the login for another showed "Logging in..." for as long as the tab stayed
+  open. It now compares the two first and, on a mismatch, shows both and says
+  after twenty seconds what it is waiting for.
 - **The Base URL Override field accepts the path a path-base deployment needs
-  (#1712).** Jellyfin mounted under a path base resolves its base URL with that
-  path and the server keeps it in an override, so the value that keeps a login
-  working there is the origin plus that path. The Providers tab flagged every
-  path as an error beside the field, listed it under "Needs attention" in the
-  readiness rail, and saved it anyway. Both validators now accept a path and
-  the help text says when one is needed. An address pasted from the plugin's
-  own `/sso/...` route, a query and a fragment are still refused, in words that
-  no longer call the path itself the error.
-
+  (#1712).** The Providers tab flagged every path as an error and saved it
+  anyway; both validators now accept a path, while a `/sso/...` address, a query
+  and a fragment are still refused.
 - **A browser no longer keeps the previous build's scripts after an upgrade
-  (#1705).** Every plugin asset carries a tag a browser sends back to ask
-  whether its copy is still current, and that tag was the assembly's file
-  version, which the project pins at the line's three-part number: every build
-  of one line answered the same tag, the server said 304, and the dashboard
-  ran the old build's script against the new build's pages with nothing on
-  the page saying so. The tag is now a digest of the assembly's bytes, so two
-  builds whose bytes differ cannot share one, whatever any version field says;
-  where the bytes cannot be read it falls back to the assembly version rather
-  than to no tag. The `no-cache` answer is unchanged: a browser keeps the
-  asset and asks, and after an upgrade the first ask is now answered in full.
-
+  (#1705).** The asset tag was the assembly's file version, pinned at the line's
+  three-part number, so the dashboard ran the old script against the new pages.
+  The tag is now a digest of the assembly's bytes.
 - **A settings tab returned to now shows what the server holds, instead of what
-
-  it last loaded (#1576, #1572).** The Jellyfin dashboard keeps three views
-  alive and hands a cached one back without re-running its controller, so a
-  settings tab left and returned to went on showing the configuration as it was
-  when the page was built - a provider added, renamed or deleted from another
-  window, or by a declarative source, was simply not there. Only the Overview
-  tab re-read itself, because it holds no control to overwrite.
-  The other four re-read on every return now, and they refuse to when the page
-  holds work: a re-read is skipped outright while a provider editor is open, and
-  skipped while the page holds anything the last read did not put there - which
-  includes a permission or role-mapping row removed by a click, because the
-  comparison is recomputed from the controls rather than read off a flag
-  something has to set. The same two questions are asked a second time,
-  immediately before anything is written, so an edit made while the
-  configuration was in flight is not overwritten by it; and the library
-  checklists are never rebuilt by a return, which is what would otherwise have
-  persisted an empty Enabled Folders set and cost every user of that provider
-  their library access at the next sign-in. When a return is refused, the page
-  raises its unsaved-changes notice rather than refreshing silently.
-  A media library added while the dashboard has been left open on one of those
-  tabs is not picked up by a return; the checklist is the one the page loaded,
-  until the next save, import, or reload of the dashboard.
-
+  it last loaded (#1576, #1572).** The dashboard hands a cached view back without
+  re-running its controller. The four control-bearing tabs re-read on every
+  return and refuse to while an editor is open or the page holds work.
 - **The login audit line's `admin=` field now reports the rights the session was
-  actually granted, not the role mapping's verdict (#1554).** The
-  `[SSO Audit] Login succeeded` line printed the result of matching the login's
-  roles against the configured `AdminRoles` list, and the session mint does not
-  always agree with it. The whole permission block is behind
-  `EnableAuthorization`, which is off by default, so `admin=True` could be
-  printed for a session that was never made an administrator; and the break-glass
-  administrator is deliberately never demoted, so that account signing in where
-  no role maps to admin was printed as `admin=False` while holding an
-  administrator session. The first is a false alarm and the second is a
-  **missed** one, and a trail that under-reports real administrator access is the
-  failure an audit trail is bought to prevent. The field is now read from the
-  same authentication result the host publishes in its own
-  `AuthenticationSuccess` event, after the permission write, so the two records
-  cannot disagree; a mapping that differs from the outcome is appended as
-  `The provider's roles mapped to admin=<value>.` rather than replacing it, and a
-  login where the two agree writes the line byte-for-byte as before.
-  **A structured log sink received `IsAdmin` as a Boolean and now receives a
-  String - `True`, `False`, or `unknown` where there was no result to read - so a
-  rule written as `IsAdmin == true` has to be rewritten. The rendered text of
-  `admin=True` and `admin=False` is unchanged.**
-
+  granted, not the role mapping's verdict (#1554).** `admin=True` could stand for
+  a session never made administrator, and break-glass read `admin=False` while
+  holding one. **A structured sink receives `IsAdmin` as a String, not a Boolean.**
 - **A failed configuration read no longer leaves a pressed Save with no outcome
-  at all (#1577).** Saving or deleting a provider reads the stored configuration
-  before it writes, and four of those reads had no failure arm. The two saves
-  wrap their write in a promise that only the write settled, so a read that
-  failed - an expired dashboard session, a server error, or the very restart the
-  editor asks for after a save - left that promise hanging: neither outcome arm
-  ran and pressing Save did nothing visible whatsoever, which is the one failure
-  a settings page can make that looks exactly like success. All four now answer,
-  and the two deletes say in the editor that nothing was read and therefore
+  at all (#1577).** Four of the reads that precede a write had no failure arm, so
+  Save did nothing visible; all four now answer, and the two deletes say that
   nothing was changed.
-
-- **A refused account-link import no longer logs a different sentence from
-  the one it answers, and the default-provider line is sanitized (#1566).**
-  Two residuals of #1557. The refusal a link import answers is a sentence this
-  plugin composes out of the document's own values, and the log line carrying
-  it substituted the whole sentence, so the plugin's own `[truncated]` marker
-  on an overlong issuer read `(truncated]` in the log while the answer on the
-  wire kept it. The document's values - protocol, provider, username, issuer -
-  are now substituted where they enter the sentence, and the sentence reaches
-  the log unchanged except for the line-ending strip, so the log and the wire
-  agree. And the line written at every SSO login of an enforced account, naming
-  the configured default provider, carried neither sanitizer; it carries both
-  now, like every other provider name the plugin prints.
-
+- **A refused account-link import no longer logs a different sentence from the
+  one it answers, and the default-provider line is sanitized (#1566).** The log
+  substituted the whole composed sentence, so the `[truncated]` marker read
+  `(truncated]` there; the values are now substituted where they enter it.
 - **A discovery read whose caller has gone away now ends with the caller
-  (#1558).** The hardened OpenID discovery read took no cancellation token, so
-  nothing a caller could do abandoned it: the only bound was the per-request
-  fetch timeout, and the library makes a second request for the JWKS the
-  document names, so a challenge whose browser had already left held its
-  outbound connection for up to two of those. The read now takes the caller's
-  lifetime and hands it to every request it makes, and the login challenge and
-  the admin Test-connection probe pass their request lifetime down. A read the
-  caller abandoned is neither logged as a fail-closed read nor counted against
-  the provider, because it is neither; it answers a fixed 400 that nobody
-  reads, deliberately not an exception, because the server's own middleware
-  logs every escaped exception at Error and a closed tab must not become one.
-  A read the caller is still waiting on that hits the timeout is unchanged: it
-  fails closed, is logged, and counts, exactly as before.
-
-  **The back-channel logout deliberately does NOT pass its request lifetime
-  down**, and the review of this change is where that was decided. The request
-  there is the identity provider's POST, and the party whose outcome depends on
-  the read is the user the provider ordered signed out. A provider whose
-  outbound socket timeout is shorter than the discovery read - Keycloak's
-  default is five seconds - would abort the POST, and a read ended by that
-  abort would turn an ordered termination into a silent no-op, the shape #1183
-  closed. So that read runs to its own budget whether or not the provider is
-  still listening, and a test pins it.
-
+  (#1558).** The read took no cancellation token, so a challenge whose browser had
+  left held its connection for two fetch timeouts. The back-channel logout keeps
+  its own budget, because the party depending on it is the user being signed out.
 - **A declarative document that could not be written still locked its providers
-  against the settings page (#1534).** A provider document mounted as a file or
-  set through the environment freezes the providers it names, so the settings
-  page refuses an edit and points at the document instead. The freeze was
-  recorded before the document was written, and since #1521 a write that cannot
-  reach the disk - a read-only volume, a full disk on a freshly built server -
-  is undone again. The two then disagreed: the document was gone and the freeze
-  stayed, so for the rest of that run the plugin reverted every edit an
-  administrator made to those providers back to values that were in effect
-  nowhere, while the boot log said nothing had been changed. The freeze is now
-  recorded only once the write has landed, so a document that never reached the
-  file locks nothing and the providers stay editable. A document that was
-  already current still freezes its providers, since it writes nothing and has
-  nothing to wait for.
-
-- **A first login that failed half way left an account nobody could use
-  (#1533).** When SSO creates a Jellyfin account for a new user, several
-  things still have to happen before that account is usable: it is given the
-  SSO routing and a password, it is stored, and the link between it and the
-  identity provider is written. If any of those failed — a full disk, a
-  provider an administrator deleted while the login was in flight — the
-  account stayed behind with no link and no usable password, and it then
-  blocked that person from ever being provisioned again under the same name,
-  because SSO refuses to adopt an account it did not link. Fixing the original
-  problem did not clear it; only deleting the account by hand did. The account
-  is now removed again when the login cannot be completed, so there is nothing
-  left behind and the person can sign in once the underlying problem is fixed.
-  The log says when this happens, and says it louder if the removal itself
-  fails and the account has to be deleted manually after all. Accounts that
-  already existed before a login are never touched by this.
-
+  against the settings page (#1534).** The freeze was recorded before the write,
+  and since #1521 a failed write is undone, so the plugin reverted every edit to
+  values in effect nowhere. The freeze is now recorded only once the write lands.
+- **A first login that failed half way left an account nobody could use (#1533).**
+  An account created but not linked and without a usable password stayed behind
+  and blocked that person from being provisioned again. It is now removed when the
+  login cannot be completed, and the log says so.
 - **A configuration write that could not reach the disk was applied anyway
-  (#1521).** Every configuration change - a link import, a configuration
-  import, adding a provider, the canonical link a first login writes - was
-  applied to the running plugin and only then written to the XML. If that write
-  failed, which is what a full disk or a read-only volume produces and what a
-  freshly built migration target can hit, the running server kept the change
-  while the file did not have it: logins behaved as though the import had
-  succeeded until the next restart, and the next unrelated settings save
-  committed it silently, at a moment nobody would connect to the import. Both
-  imports and the operator page promised the opposite - "no step
-  half-applies", "either gets its complete link table back or is left exactly
-  as it was" - and those sentences covered a rejected document but not a
-  refused write. The write now happens first and the change is rolled back out
-  of the running plugin if it fails, so the server goes back to what it had
-  stored. The same applies to the settings page, which previously made the
-  whole posted page live before serializing a byte of it. Retry the import or
-  the save once the disk or the mount is fixed. What this does **not** cover is
-  the write itself: Jellyfin's plugin base class serializes straight over the
-  file with no temporary copy, so a disk that fills mid-write still leaves a
-  truncated one, and an unloadable configuration file is replaced by an empty
-  one on the next start - copy `SSO-Auth.xml` before a migration step and check
-  it after a failed one, before restarting (#1532).
-
+  (#1521).** Every change was applied to the running plugin and only then written,
+  so a failed write left the server behaving as though it had succeeded. The
+  write now happens first and is rolled back if it fails (#1532).
 - **Restoring an account-link backup restored nothing, and said it had worked
-  (#1517).** `POST /sso/Config/Links/Import`, and the **Import Account Links**
-  button that posts to it, accepted the file the matching export produces,
-  answered success and wrote no link at all: the document arrived with its
-  entries dropped, because the property holding them could not be assigned by
-  the serializer the host binds a request body with. The version check ran, so
-  a wrong file was still refused; only the payload was silently lost. An
-  operator who migrated or rebuilt a server on any beta from `4.3.0-beta.43`
-  has an empty link table and no sign of it, and every account that signed in
-  through SSO is unlinked - **re-run the import after upgrading**, and read the
-  audit line it writes: it names how many links were rebound, and said 0. The
-  four refusals both operator pages quote were unreachable for the same reason
-  and answer again.
-
-- **The OpenID provider API stored a post-logout return URL the configuration
-  page would have refused (#1504).** `OID/Add` writes the provider it is given
-  without the configuration save's checks, and the check that a post-logout
-  redirect URI sits at or under the configured base URL was not among the ones
-  it ran at the door. Such a URL was stored and answered with success, and the
-  logout path then dropped it, so the return never fired and nothing said why.
-  The door now refuses it with the message the configuration page gives, and
-  skips the check exactly where the page does: without a base URL override the
-  base is the request host, unknown at save time, and the logout-time allow-list
-  stays the only check.
-
-- **The configuration page could not see that a provisioning profile is decided
-  by a configuration file (#1498).** A profile a declarative source defines is
-  frozen on the server, the way a provider from that source is: a save keeps
-  the stored value and records the ignored write. The page knew this for
-  providers and not for profiles, so editing such a profile printed "Saved"
-  while nothing changed, and renaming it left an unmanaged copy under the new
-  name with the managed providers still pointing at the old one. The managed
-  report now names the profiles beside the providers, the profile editor
-  disables a managed profile's fields and its Save, Rename and Delete and says
-  at the selector why, and each of the three acts refuses a managed profile
-  before it touches anything, naming the source and the restart.
-
+  (#1517).** The entries were dropped, because the property holding them could
+  not be assigned by the host's serializer. **An operator who migrated on any beta
+  from `4.3.0-beta.43` has an empty link table: re-run the import.**
+- **The OpenID provider API stored a post-logout return URL the configuration page
+  would have refused (#1504).** `OID/Add` did not check that the URI sits at or
+  under the configured base URL, so it was stored, answered with success and then
+  dropped at logout time. The door now refuses it with the page's message.
+- **The configuration page could not see that a provisioning profile is decided by
+  a configuration file (#1498).** Editing a frozen profile printed "Saved" while
+  nothing changed, and renaming it left an unmanaged copy behind. The managed
+  report now names profiles beside providers and each act refuses first.
 - **The provider API stored a starting policy the configuration page would have
-  refused (#1502).** `OID/Add` and `SAML/Add` write the provider they are given
-  without running the configuration save's checks, and nothing ran the
-  provisioning-template ones at that door. A template naming a permission that
-  is not one Jellyfin declares, a subtitle mode or home-screen section it does
-  not know, a negative ceiling, or a provisioning profile the configuration
-  does not define was stored as posted and answered with success. Nothing was
-  widened by it - every writer skips a value it cannot read - but the template
-  did nothing, and the first sign was an account that arrived without the
-  policy. Both doors now refuse such a body and store nothing. The reason is the
-  same message the configuration page shows, naming the field; for an API caller
-  it is written to the server log, because Jellyfin answers every refused request
-  with a bare 400 outside a development host.
-
+  refused (#1502).** `OID/Add` and `SAML/Add` ran no provisioning-template checks,
+  so a template naming an unknown permission, mode or profile was stored and
+  simply did nothing. Both doors now refuse such a body.
 - **The sign-in buttons did not look like the login page's own buttons (#1372).**
-  Jellyfin restyles every link in the login disclaimer at runtime: it adds its
-  own `button-link` class, which is declared after `emby-button` at the same
-  specificity and so wins. What that class takes away is the padding the button
-  classes had set, and it underlines the label on hover. The button this plugin
-  ships therefore rendered barely wider than its text, in link colour and
-  underlined, and an administrator who wanted it to match the buttons above it
-  had to write nine declarations of custom CSS. Each button now carries the four
-  declarations that restore what the runtime class removed, as an inline style,
-  which beats a class rule in every state including hover. Nothing else changes:
-  the plugin still manages only its own region of the disclaimer, and your custom
-  CSS stays yours. The buttons are still not stretched across the page, because
-  the disclaimer is a flex item that shrinks to its content and widening it would
-  mean restyling Jellyfin's own containers; the wiki carries that two-line
-  snippet for anyone who wants it. Found and measured by
-  [@teekennedy](https://github.com/teekennedy) in discussion #1342.
-
-- **A second, unremovable set of sign-in buttons on the login page (#1344).**
-  The plugin fences the buttons it manages inside the login disclaimer with a
-  marker comment, and finds that region again by an exact search on the next
-  sync. The opening marker's wording changed in an earlier release, so on any
-  server whose disclaimer already held the previous wording the plugin stopped
-  recognising its own region: it added a second set of buttons beside the first,
-  and nothing it could do afterwards removed the first. Turning the buttons off
-  removed only the newer set and left the older one behind, so the duplicate
-  outlived the feature that created it and only a hand edit of the disclaimer
-  cleared it. The region is now recognised by the stable
-  `<!-- SSO-LOGIN-BUTTONS:BEGIN` token alone, and the wording that follows it is
-  no longer read, so a server holding either wording converges to exactly one
-  managed set on its next sync and to none when the buttons are turned off -
-  including a server already left holding two. An admin's own disclaimer text,
-  before, between and after the managed regions, is preserved as it always was.
-  A future edit to that wording can no longer orphan anything.
+  Jellyfin adds its own `button-link` class at runtime, which removes the padding
+  the button classes set. Each button now carries the four declarations that
+  restore it; found by [@teekennedy](https://github.com/teekennedy) in #1342.
+- **A second, unremovable set of sign-in buttons on the login page (#1344).** The
+  opening marker's wording changed in an earlier release, so the plugin stopped
+  recognising its own region and added a second set nothing could remove. The
+  region is recognised by the stable `SSO-LOGIN-BUTTONS:BEGIN` token alone now.
 
 ### Security
 
-- **The break-glass check no longer accepts a password nobody can type
-  (#1746).** Turning SSO-only login on asks one account to prove it can still
-  sign in without the identity provider, and that check counted any stored
-  password as proof. On a server whose provider names the built-in password
-  provider as its **Default Provider**, every SSO sign-in writes that provider
-  back onto the account, and the password behind it on an account this plugin
-  provisioned is 64 random bytes nobody was ever shown. So an operator could
-  name such an account as the break-glass administrator, pass the check, switch
-  SSO-only login on, and end up with a recovery door that opens for nobody - the
-  one outcome the check exists to prevent. Both readings in the SSO-only service
-  now ask the same question the self-unlink refusal asks since #1733: is the
-  stored password one this plugin minted. The direction only ever refuses more,
-  never fewer: nobody loses a **way in**, though an operator whose chosen account
-  is sealed does lose the ability to switch the mode on with that account until
-  they act. The refusal now says so and says what to do about it - a password
-  this server generated for an account is not one anybody can sign in with, so
-  setting a real one from the Jellyfin dashboard is what makes the account
-  eligible, and it is what makes the recorded digest stop matching and the door a
-  door again. The same reading now also describes accounts to the per-provider
-  bulk unlink, so the two cannot drift apart about what a password door is;
-  stated plainly, that unlink's mass-lockout guard does not consult the password
-  fields today and weighs only links, so this half changes no refusal on its own.
-  What it inherits from #1733 is that record's own floor: an account sealed by a
-  plugin version that kept no record still reads as holding a password of its
-  own, so this is a floor rather than coverage.
-
-- **The self-unlink refusal now reaches the accounts it was written for
-  (#1733).** This plugin mints an unguessable password onto every account it
-  provisions - 64 random bytes, never displayed, never stored anywhere else and
-  never recoverable - and used to record nowhere which accounts those were. A
-  stored password was therefore a credential somebody holds or a seal nobody can
-  open, and the two were the same bytes, so the guard that asks whether an
-  account has a way in other than its SSO links could only read the account's
-  authentication provider. On a server whose provider sets the built-in password
-  provider as its **Default Provider** - which the settings page offers as a
-  common choice - every account this plugin creates lands on that provider
-  holding a password nobody has, so the guard answered "has a way in" for all of
-  them and the lockout it exists to refuse was reachable exactly as before. The
-  plugin now records which passwords it minted, and only those count as no way
-  in. The record is a digest of the stored value rather than a flag, so it stops
-  applying the moment anything else writes that account's password: a user who
-  sets a real password on an account the plugin created keeps full control of
-  their own links, with nothing to notice the change and nothing to migrate. It
-  is written where the password is minted - both on account creation and by the
-  boot-time pass that seals older accounts - never leaves the server, and is
-  dropped when the account is deleted. A configuration save can neither read it
-  nor invent an entry.
-
-  **Two things it does not reach, said rather than left to be discovered.** The
-  SSO-only activation guard still counted any stored password as a way in, so on
-  a server whose provider names the built-in password provider as its **Default
-  Provider** an account whose only password this plugin minted could still be
-  named as the break-glass administrator and still pass the check that is
-  supposed to prove a way back in. That was a security question of its own rather
-  than something this change settled, it was tracked as #1746, and the entry
-  above records how it was answered. The managed-status report is a separate
-  case and is not one of them: it reads the account's authentication provider and
-  never its stored password, so nothing in it changed either way.
-  The migration document's list of what a rebuilt server does not get back now
-  names this record too.
-
-  And an account
-  sealed by an earlier version of this plugin, which kept no record. Those
-  accounts read as holding a password of their own, exactly as every account did
-  before this change, and the boot-time pass does not re-seal them because they
-  already hold a password. That is the safe direction - a refusal that does not
-  fire costs a user nothing they had, where a wrong refusal would take away
-  control they do have - and the way in for such an account is unchanged: link a
-  second provider first, or ask an administrator.
-
-- **An administrator can no longer strand their own server through the Revoke
-  button either (#1741).** `POST sso/Unregister/{username}` removes every SSO
-  link an account holds, repoints it and ends its sessions in one call, and it
-  asked nothing about who the caller was beyond elevation. With the self-service
-  unlink refusing an administrator's own last-link removal where no other
-  administrator can sign in (#1732), Revoke on their own row on the settings page
-  was the obvious next move and the one-call route to the same lockout. The route
-  now takes the same reading before it removes anything: where the caller is the
-  account being revoked, that account accepts no password, it holds an SSO link
-  on an enabled provider, and no other enabled administrator holds one, it
-  refuses with a 403 that says what was measured and names the remedies -
-  another administrator performs the revoke, or another administrator account is
-  linked first - and the settings page shows that sentence from the catalogue
-  rather than the generic failure. Another administrator's stored password is
-  never counted, for the reason the bulk unlink gives and the entry below
-  restates. An administrator whose own account routes to the built-in password
-  provider is not refused, on this route or the self-service one, unless the
-  password behind it is one this plugin minted: both routes read the record the
-  entry above adds, so that account is refused on both. An account whose links all sit on
-  switched-off providers, or that holds none, is not refused: those links cannot
-  sign anybody in as they stand, and the repoint is the way back for an
-  administrator already stranded onto this plugin's provider id. That reading is
-  the self-service one and carries the same cost, stated rather than hidden: a
-  link on a switched-off provider is a way in again once the provider is
-  switched back on, so an administrator who switches their only provider off and
-  then revokes their own account is not refused. An
-  administrator revoking somebody else's links pays nothing for this, an API key
-  is not the holder of any account and is never refused by this rule, a caller
-  the server cannot resolve at all is treated as the account itself, and a server
-  that cannot be surveyed refuses rather than proceeding. The refusal is audited
-  like the self-service one. Two administrators revoking themselves at the same
-  moment can each see the other and both pass, the same window the self-service
-  guard names, because the user records are not under the configuration lock.
-
+- **The break-glass check no longer accepts a password nobody can type (#1746).**
+  It counted any stored password as proof, including the 64 random bytes this
+  plugin mints, so a recovery door could be named that opens for nobody. An
+  account sealed by a version that kept no record is not reached: a floor.
+- **The self-unlink refusal now reaches the accounts it was written for (#1733).**
+  A credential somebody holds and a seal nobody can open were the same bytes, so
+  the guard answered "has a way in" for every account this plugin created. It now
+  records a digest of the passwords it mints, which stops applying once anything
+  else writes one.
+- **An administrator can no longer strand their own server through Revoke either
+  (#1741).** `POST sso/Unregister/{username}` asked nothing about the caller
+  beyond elevation, the one-call route to the lockout #1732 closed. It refuses
+  with a 403 naming the remedies where no other enabled administrator holds a
+  link.
 - **An administrator can no longer strand their own server through the
-  self-service unlink (#1732).** The refusal above exempts an administrator, and that
-  exemption was decided for an administrator acting on somebody ELSE's link.
-  `/SSOViews/linking` is not an administrator page - it acts on the caller's own
-  account - so an administrator who opened it on a server that accepts no
-  password for them was one press from the same lockout a user was, with the
-  difference that the recovery the refusal points a user at IS them. Where they
-  were the only administrator who could sign in, nothing was left but editing the
-  plugin's configuration file on disk. The exemption is now a pair of facts: the
-  removal goes through when the caller is not the holder, or when some other
-  administrator can still sign in, and it is refused when neither holds. The
-  narrow shape was chosen deliberately - an administrator is also the person who
-  legitimately cleans up a retired provider or a test account, and refusing every
-  such removal would take that from every server including the ones where a
-  second administrator stands ready. What counts as another administrator's way
-  in is the reading the per-provider bulk unlink already takes, a link on an
-  enabled provider with a stored password never counted, so a break-glass
-  administrator who really does sign in with a password reads here as having
-  none and the cleanup is refused on a server that had a recovery account all
-  along; that direction costs a call and the other costs the server, and telling
-  the minted passwords apart is tracked as #1733. The refusal says which of the
-  two it is, and it states what was measured rather than what was concluded: an
-  administrator is told that no other administrator holds an SSO link that can
-  sign them in, and is sent to another administrator or to a second provider
-  rather than being told to ask an administrator. Both sentences come from the
-  localization catalogue. This covers the self-service unlink route and only it;
-  the administrator `Unregister` action is a separate one-call path with no
-  last-administrator guard of its own, which is #1741.
-
-- **A user whose account accepts no password can no longer lock themselves out
-  by unlinking their last provider (#1720).** On a server where the account's
-  authentication provider is this plugin's, Jellyfin accepts no password for
-  it, so the SSO links are the only way in - and the self-service page's
-  Delete removed the last one with no warning and no fallback. The account was
-  not disabled and nothing was broken; it was simply unreachable by its owner,
-  whose session the last-link revoke had just ended, and on the default
-  provider posture (`AllowExistingAccountLink` off) a fresh sign-in could not
-  recover it either - only an administrator could. The removal now refuses it
-  in the SERVER rather than in the page, because a page can be reloaded,
-  scripted around or out of date against the server it talks to. Three facts
-  decide the refusal and each is read where it cannot drift: the caller is not
-  an administrator and their account accepts no password, both read at the
-  request boundary from the resolved account, and the link in front of the
-  removal is the last one that could still sign them IN, read inside the
-  removal's own transaction. A way in is a link on an ENABLED provider, which is
-  the reading the login path takes: a leftover link on a provider somebody
-  switched off does not clear the refusal, and removing such a link is never
-  refused, because it takes away nothing. A password door is the built-in
-  password provider and nothing else, because an id naming no registered
-  provider refuses a password exactly as this plugin's id does - an account on a
-  third-party password provider is therefore refused although its password works,
-  which is a call to undo where the other direction costs the account. An
-  administrator is not refused - that is a deliberate act with a person behind
-  it - and `Unregister` is the route that repoints an account back to password
-  sign-in. A user who still holds a link on another ENABLED provider is not
-  refused either. The refusal names what would have happened and both ways out,
-  and it is audited. **What it does not reach** is said here rather than left to
-  be discovered: an account routed to the built-in password provider reads as
-  having a password, and where that password is the unguessable one this plugin
-  mints there is no way to tell it from one somebody knows, so those accounts
-  are outside this rule; and an administrator removing their own last link
-  through the same page is exempt from it.
-
-- **An identity-provider- or request-supplied value can no longer plant an
-  audit record in ANY line this plugin writes (#1557).** #1555 closed the
-  forgery inside the audit emitter's own entries and said plainly what it did
-  not reach: ordinary plugin log lines elsewhere still carried
-  identity-provider text under the line-ending strip alone, so the audit
-  marker was still plantable through them and an unanchored search over the
-  log file still reported logins that never happened. One of those
-  lines is reachable without any credential: the OpenID callback endpoint is
-  unauthenticated by design, and the `error_description` it logs on a refused
-  redirect is whatever the visitor put in the URL. Three more take an identity
-  provider or a user allowed to edit their own profile: the notice written when
-  a presented username carries a character the host drops (the bracket is one
-  of them, so the attacker's name reaches it by construction), the refusal of an
-  unusable `picture` claim, and the SAML role denial that prints the raw NameID
-  and the role strings. Every logging call in the plugin that carries a foreign
-  value now substitutes the value's opening square bracket with a round one
-  beside the line-ending strip, exactly as the audit emitter already did, and
-  the conformance rule that guarded the emitter now reads every logging call in
-  the tree, so a line added later cannot arrive with the older sanitizer alone.
-  Each of the four sites above is driven by a forging payload in the suite.
-
-  The review of this change found two more routes the rule cannot see, and
-  both are closed here with their own payload tests. The refusal written when a
-  discovery document names a member twice printed that member's name through
-  a control-character filter that let the bracket through; the name is
-  substituted the same way now, with the screen's own truncation marker joined
-  afterwards so it stays whole. And the avatar fetch handed its exception to
-  the log, which renders on the lines that follow the message and quotes the
-  remote host's HTTP reason phrase verbatim - a host the picture claim chose.
-  That entry now carries the exception type and its sanitized message inline
-  and no exception object, at the cost of the stack trace for a best-effort
-  fetch.
-
-  **What this does NOT cover, stated plainly.** The rule reaches a value the
-  code has already marked foreign with the line-ending strip; a foreign value
-  that reaches a log line by another route is caught by review and by a payload
-  test, as the two above were, not by the rule. A value logged with no
-  sanitizer at all is not this rule's subject and never was; that is CodeQL's
-  log-forging query, which is why both sanitizers stay written out at the
-  logging call. The substitution is byte-exact: a fullwidth bracket is not the
-  marker's byte and is left alone, so a tool that normalises text before
-  matching is outside what this can promise. What an operator's own tooling
-  does with the log file is still that tooling's business. Anchoring a search
-  at the start of a line was sound before this and remains the sound way to
-  read the trail.
-
-  **If you parse plugin log lines, read this.** A foreign value that legitimately
-  carries an opening square bracket - a provider name, a role, a relay state, a
-  rejected avatar URL - now prints a round one in every plugin line, not only in
-  audit entries. Filesystem paths this server composed for itself are unchanged.
-
-- **The account-link import no longer stores an issuer the provider could not
-  have issued (#1518).** The import wrote the OpenID issuer an operator's backup
-  file named and compared it to nothing. The one guard beside it fires only when
-  the TARGET already holds a binding for that canonical name, and a rebuilt
-  migration target holds none - so on the run that matters every entry's issuer
-  was stored verbatim. That is terminal rather than degrading: the link's every
-  future login is refused for a mismatch, the trust-on-first-use arm reaches only
-  an ABSENT binding, and no login can repair it. The ordinary migration that hits
-  it is the one where the identity provider moves behind TLS or a new hostname at
-  the same time as the server: the import succeeds, the audit line counts the
-  links, the page says they were restored, and the whole userbase is locked out
-  at once, discovered by the users. The incoming issuer is now checked against
-  what the provider is configured to issue and a mismatch is refused at import
-  time, with the whole document rejected and nothing written, naming both issuers
-  so an operator can re-point the provider or re-key the links deliberately
-  instead of guessing. The check runs the same two library rules a login runs -
-  the id_token is validated against the discovery issuer, and the discovery
-  issuer against the configured authority - rather than a second copy of them, so
-  a trailing slash is tolerated exactly as discovery tolerates it. A refused
-  import now also leaves a line in the server log, which only a successful one
-  did before.
-
-  **If this refuses your migration, read this before working around it.** The
-  way through is to remove the `Issuer` field from the offending entries: the
-  links restore unbound and the first login binds each one to whatever the
-  provider issues now. That is weaker than a carried binding for the window
-  before that first login, so do it deliberately. Do NOT change `OidEndpoint`
-  afterwards to make a stale issuer fit - changing it clears that provider's
-  whole link table by design, deleting what you just restored. And do NOT switch
-  `DoNotValidateIssuerName` on to get past the check: it is skipped for such a
-  provider, because with issuer-name validation off a login there accepts any
-  issuer and so could have stamped the value, but the binding comparison at
-  login never reads that toggle - a stale issuer still refuses every restored
-  link, permanently and silently, and issuer validation is now off for everyone
-  on that provider. It turns a loud refusal into the outcome the refusal exists
-  to prevent.
-
-- **An identity-provider-supplied value can no longer forge a second audit
-  record inside an audit line (#1555).** Every foreign value the SSO audit
-  trail prints was already stripped of line endings, so none of them could
-  SPLIT an entry - and nothing bounded a value inside the sentence it landed
-  in, so a presented username could close the sentence and write a whole
-  second, plausible record on the same physical line. An unanchored search of
-  the log, or a SIEM rule matching the substring, then reports a login that
-  never happened, under any name the attacker chooses; the value is
-  attacker-supplied wherever the identity provider lets a person edit their own
-  `preferred_username`, which is most of them. Every foreign value the emitter
-  prints now also has its opening square bracket replaced by a round one at the
-  logging call, which is enough because the `[SSO Audit] ` prefix a trail is
-  filtered on can begin no other way. The repair is on the emitter rather than
-  on the login line, so it covers every audit entry that carries a foreign
-  value, and a conformance rule fails the build if a future entry arrives
-  without it.
-
-  **What this entry does NOT cover, stated plainly.** The property this change
-  delivered is the audit emitter's, not the log file's. Ordinary plugin log
-  lines elsewhere - the OpenID callback error, the username-sanitization
-  notice, the rejected avatar URL, the SAML denial - still carried
-  identity-provider text under the line-ending strip alone after it, so the
-  marker was still plantable through them and an unanchored search over the
-  whole log was still not sound. That was #1557, which is its own entry above
-  in this release and not part of this one. Anchoring a search at the start of
-  a line is, and was already made sound for the first field by #1551.
-
-  **If you parse this trail, read this.** A name legitimately containing an
-  opening square bracket now prints a round one instead, as a name containing a
-  line ending already printed without it. The substitution is deliberately not
-  a deletion: deleting would make two different names print alike, and the
-  login line's presented-name clause - which fires only when the two names
-  differ - would then go silent for a difference the provider chose. Structured
-  sinks are unchanged in shape: the fields were separate template parameters
-  before and still are, and the value they receive is the substituted one, the
-  same value the rendered line shows. Filesystem paths this server composed for
-  itself are not foreign values and are printed exactly, because the
-  unreadable-configuration lines exist to name a file an operator has to find.
-
+  self-service unlink (#1732).** `/SSOViews/linking` acts on the caller's own
+  account, so the exemption written for acting on somebody else's link left an
+  administrator one press from the lockout. A stored password is never counted.
+- **A user whose account accepts no password can no longer lock themselves out by
+  unlinking their last provider (#1720).** Delete removed it with no warning and
+  no fallback, leaving an account only an administrator could reach. The refusal
+  is in the server; an account on the built-in password provider reads as having
+  a password and is outside this rule.
+- **A foreign value can no longer plant an audit record in ANY line this plugin
+  writes (#1557).** #1555 closed the forgery inside the audit emitter, and
+  ordinary log lines still carried foreign text under the line-ending strip.
+  Every logging call now substitutes the opening square bracket, so **such a
+  value prints `(` in every plugin line.**
+- **The account-link import no longer stores an issuer the provider could not have
+  issued (#1518).** It wrote the issuer the backup named and compared it to
+  nothing, so a migration where the provider also moved locked the userbase out.
+  **The way through is to remove the `Issuer` field, never to switch
+  `DoNotValidateIssuerName` on.**
+- **An identity-provider-supplied value can no longer forge a second audit record
+  inside an audit line (#1555).** Nothing bounded a value inside its sentence, so a
+  presented username could close it and write a second plausible record on one
+  line. Every foreign value the emitter prints now has that bracket replaced.
 - **An account the plugin creates is now stored with the password and the login
-  routing it is given (#1440).** Both were written onto the account object the
-  server handed back at creation and neither reached the database: the session
-  that follows a login re-reads the account by id and saves that copy, so the
-  account was persisted routed at Jellyfin's own password provider with no
-  password stored - which is an account that accepts the EMPTY password on the
-  ordinary login form, reachable by anybody who can reach the server and without
-  ever touching the identity provider. Found by driving a real login against a
-  real server and reading the account back, not by any test in the suite: every
-  one of those asserted on the copy in memory, where both values were always
-  present. One save now carries the routing, the password and - where a provider
-  holds new accounts for approval - the disabled flag, and a save that fails
-  deletes the half-made account instead of leaving it behind enabled and
-  reachable.
-
-- **Accounts an old plugin version created without a password no longer accept
-  the empty one on the ordinary login form (#1440).** A Jellyfin account created
-  with no password accepts the empty password, and every release up to and
-  including v3.4.0.2 provisioned SSO accounts that way - the account was stamped
-  onto a provider id that accepts nothing, which shut the door until a provider's
-  default-provider setting repointed the account at a real password provider and
-  left the empty password behind it. Those accounts are still on servers that
-  have since upgraded, and the fix at the point of creation, which has minted a
-  random password since v3.5.0.0, never reaches an account that already exists.
-  The plugin now gives every SSO-linked account with no stored password an
-  unguessable one, once at server start. It changes nothing else: an account that
-  already carries a password keeps exactly the one it has, no account's login
-  provider routing is touched, and an account no provider links to is left alone
-  because it is not this plugin's to change. A single line in the log says how
-  many accounts were sealed and nothing that identifies them; a server with none
-  to seal - every server provisioned since v3.5.0.0 - says nothing at all.
-
-- **A provider a mounted file or the environment declared can no longer be
-  altered or deleted through the plugin's other administrator endpoints
-  (#1415).** The settings page already kept the declared value and discarded
-  what was posted over it, but that only covered the one route the page saves
-  through. Four endpoints wrote by a different door, and importing a
-  configuration wrote by a fifth, so an administrator adding or deleting a
-  declared provider through the API replaced or removed it until the next
-  restart put it back, and every login against that provider could fail in the
-  meantime with nothing in the log saying why. All five now refuse, and the
-  refusal names the provider and the source that decided it, so the change can
-  be made where it will survive a restart. A configuration import that names a
-  declared provider is refused whole rather than applied with those providers
-  quietly dropped, and it says how many it found, so a restore that cannot be
-  completed is never reported as one that was. A provider no source declared
-  adds, deletes and imports exactly as before, which is every provider on a
-  server that declares none.
-
-- **A back-channel logout token can no longer break the check that decides
-  whether it is one (#1349).** The plugin looks for a fixed member in a logout
-  token's `events` claim, and found it with the same call #1340 took out of the
-  discovery readers: one that decodes every candidate member name long enough to
-  still match, where a name written with an unpaired surrogate escape has no
-  decoding. A token whose `events` object named only such a member raised an
-  error out of the validator instead of being refused, so the uniform response
-  the endpoint answers every unusable token with was not sent and the rejection
-  never reached the audit trail. The member is now looked up through the same
-  walk that skips a name it cannot decode and keeps going: such a token is
-  refused as not a logout token, with that reason recorded, and a token carrying
-  the real member beside an undecodable one is still recognised and still ends
-  the session it names. Reaching this needed a token that had already passed
-  signature, issuer, audience and lifetime validation, so it was never a way in
-  for a caller without the provider's signing key.
-
-- **A discovery document can no longer break both of the plugin's discovery
-  checks with a member name it never had to look at (#1340).** The two readers
-  that decide whether a provider advertises PKCE `S256` and the RFC 9207
-  response `iss` parameter both looked their member up with a call that decodes
-  every candidate name long enough to still match. A name written with an
-  unpaired surrogate escape has no decoding, so the lookup raised an error
-  instead of answering, and which of the two readers it hit depended only on how
-  long that unrelated name was. Both facts are now read through one lookup that
-  skips a name it cannot decode and keeps going, so a provider that does
-  advertise `S256` beside such a name still reads as advertising it, rather than
-  having every login under **Require PKCE** refused. Both answers are otherwise
-  unchanged, each still failing in the direction it is documented to: PKCE
-  support closed, the response `iss` flag tolerant. No login on the shipped
-  configuration reached this - the repeated-member screen already reports such a
-  body unreadable before either reader sees it - and the two documents that
-  reach it join the fuzz corpus so the smoke gate replays them.
-
+  routing it is given (#1440).** Neither reached the database, so the account was
+  persisted on Jellyfin's password provider with no password, which accepts the
+  empty one. One save carries both, and a failed save deletes the half-made one.
+- **Accounts an old version created without a password no longer accept the empty
+  one on the login form (#1440).** Every release up to v3.4.0.2 provisioned
+  accounts that way, and the fix at creation never reaches an account that exists.
+  Every SSO-linked account without a stored password is given an unguessable one
+  at server start.
+- **A declared provider can no longer be altered or deleted through the plugin's
+  other administrator endpoints (#1415).** Four endpoints and the configuration
+  import wrote by other doors, so a provider a mounted file or the environment
+  declared could be removed until the next restart put it back. All five refuse
+  now, naming the provider and the source.
+- **A back-channel logout token can no longer break the check that decides whether
+  it is one (#1349).** A member name written with an unpaired surrogate escape has
+  no decoding, so the lookup raised an error instead of refusing the token. The
+  member is now looked up through a walk that skips a name it cannot decode.
+- **A discovery document can no longer break the plugin's discovery checks with a
+  member name it never had to look at (#1340).** The readers for PKCE `S256` and
+  the RFC 9207 response `iss` decoded every candidate name, so an undecodable
+  unrelated name could refuse every login under **Require PKCE**.
 - **A token minted for one endpoint is no longer read as a token for the other
-  (#1317).** Neither JWT the plugin verifies used to have its `typ` header
-  looked at, so the only thing separating an id_token from a back-channel
-  logout token was the shape of its payload. Measured before the fix: a genuine
-  logout token, correctly typed and signed by the provider's own key, validated
-  on the login path and produced a user; and a logout token whose header said
-  `at+jwt` validated at the logout endpoint. Both entry points now refuse a
-  token that declares itself an access token (`at+jwt`), a DPoP proof
-  (`dpop+jwt`) or, on the login path, a security event (`secevent+jwt`) or a
-  logout token (`logout+jwt`), in every spelling of those media types. Nothing
-  a working provider sends is affected: `typ` is optional in an id_token, so a
-  token that omits it, sends the generic `JWT`, or sends a vendor value of the
-  provider's own is accepted exactly as before. An absent header is not treated
-  as a wrong one.
-
-- **A single dropped discovery response no longer cancels a sign-out the
-  identity provider ordered (#1183).** On an inbound back-channel logout the
-  plugin reads the provider's discovery document to obtain the keys the logout
-  token is verified against. That read used to be attempted once, and any
-  failure left the sessions the provider had just ended still running, with only
-  a log entry to say so. A transient failure is now retried once, within a
-  worst case of 21 seconds for the whole request, and only on this path: the
-  login redirect and the admin Test-connection button still make exactly one
-  attempt, because a failure there creates no session in the first place.
-  Nothing is accepted that was not accepted before - when both attempts fail the
-  request is still refused, still with the same answer and the same recorded
-  reason, and a logout token whose signing keys were never obtained is still
-  never acted on. A provider endpoint that is not a usable URL is a
-  configuration mistake rather than a transient fault and is not retried.
-
+  (#1317).** Neither JWT had its `typ` header looked at, and a genuine logout token
+  was measured validating on the login path. Both entry points now refuse a token
+  declaring itself an access token, a DPoP proof or a logout token.
+- **A single dropped discovery response no longer cancels a sign-out the identity
+  provider ordered (#1183).** The read that obtains the logout token's keys was
+  attempted once, so any failure left the sessions the provider had ended still
+  running. A transient failure is retried once within a 21-second worst case.
 - **An identity provider can no longer write unbounded log through a failed
-  discovery read (#1194).** When a discovery or JWKS fetch failed, the
-  fail-closed warning quoted the identity library's error text whole, and that
-  text names the URL the fetch was connecting to. On the JWKS leg the provider
-  chooses that URL, because its own discovery document named it in `jwks_uri`,
-  so a hostile server could put as much text in the log as it liked, once per
-  anonymous login challenge, with only the 1 MB response cap in the way.
-  Measured before the fix: a document advertising a 200 KB `jwks_uri` produced a
-  205,042-character entry from a single read. The quoted text is now cut at 512
-  characters with a `[truncated]` marker, so a cut entry cannot be mistaken for
-  a whole one, and the endpoint an operator reads the entry to find still
-  survives in every ordinary failure.
-
-- **A back-channel logout that did not happen is now its own audit entry.** When
-  an identity provider orders a session termination and the plugin cannot reach
-  that provider to verify the request, the termination does not happen and the
-  signed-out session keeps running. That used to be recorded with the same
-  warning as a forged or replayed logout token, which is the opposite situation:
-  an attacker blocked, with nothing that was supposed to end. The two are now
-  separate entries at separate levels: a refused token stays a warning, while a
-  termination that was ordered and not performed is logged as an error naming the
-  reason, so it can be alerted on without wading through the rejection noise. The
-  same entry covers a validated logout whose token revocation failed. OpenID
-  back-channel rejections are also no longer worded as SAML rejections, so a log
-  filter for OpenID logout failures finds them. The HTTP response is unchanged:
-  every rejection is still the one uniform 400 with nothing that distinguishes
-  the branches to the caller.
-
-- **A document that says two things about a user's roles now grants none of
-  them.** When a provider's UserInfo response names the role claim twice, the
-  two copies reach the plugin as two separate claims, each one clean on its own,
-  so the screen that refuses a repeated member inside a claim value never saw
-  them. The roles of both copies were merged, which means a second copy naming
-  an extra role granted that role. Copies that disagree are now refused
-  outright: the login proceeds with no roles rather than with the union.
-  Providers that emit the same role claim in both the id_token and the UserInfo
-  response are unaffected, because copies that agree still grant, and so is the
-  common shape of one claim per group, which is a list written as repeated
-  claims rather than two statements about one object.
-
+  discovery read (#1194).** On the JWKS leg the provider chooses the URL the
+  quoted error text names: a 200 KB `jwks_uri` produced a 205,042-character entry
+  from one read. The text is now cut at 512 characters and marked `[truncated]`.
+- **A back-channel logout that did not happen is now its own audit entry.** A
+  termination the plugin could not verify was recorded with the same warning as a
+  forged token, which is the opposite situation. The two are now separate entries
+  at separate levels, and the uniform 400 response is unchanged.
+- **A document that says two things about a user's roles now grants none of them.**
+  A UserInfo response naming the role claim twice arrived as two clean claims whose
+  roles were merged, so a second copy naming an extra role granted it. Copies that
+  disagree are refused outright and the login proceeds with no roles.
 - **A provider response that names a JSON member twice is refused before it is
-  parsed.** A repeated member is accepted silently by every reader these
-  documents reach, and none of them raises an error, so which of the two values a
-  consumer acts on is decided by parser internals rather than by the document -
-  RFC 8259 leaves it unspecified and calls such objects interoperability-unsafe.
-  A **successfully served** OpenID discovery document, and the JWKS it names, are
-  now screened on the transport, so such a body never reaches the reader that
-  would resolve it: the refused document's `jwks_uri` is never requested at all,
-  rather than requested and reported afterwards. A document that cannot be
-  inspected as JSON - malformed, truncated, nested too deeply, or carrying a
-  character set the runtime does not know - is refused the same way. There is no
-  size limit here; bounding what the plugin reads from a provider is tracked
-  separately. An error response (a 404, a 500) is deliberately not screened and
-  keeps its own status, so the log still names what the provider actually
-  returned; the plugin uses no value out of such a body.
-
-  Note for operators. A provider whose discovery or JWKS document repeats **any**
-  member name inside one object will now fail to sign users in, where previously
-  the repeat was resolved silently, and no configuration overrides that. The
-  server log records which of the two documents was refused, why, and which
-  member name was repeated, so the entry says what to report to the provider.
-  That name is the provider's to choose, so at most 128 characters of it are
-  recorded, marked `[truncated]` when it is cut, and control characters, Unicode
-  format characters and the line and paragraph separators are removed from it
-  first. A line-ending strip alone removes none of the first two, and each of
-  those classes can split, truncate, reorder or corrupt the entry it lands in.
-  Twenty discovery and JWKS documents from ten widely used hosted providers were
-  checked and none repeats a member; that sample is hosted providers rather than
-  the self-hosted identity servers many installations run, so it bounds the risk
-  without eliminating it.
-
-  Two consequences worth knowing. The same refusal on the back-channel logout
-  path leaves the session untouched rather than ending it - the behaviour any
-  unreadable discovery document already had, unchanged here and tracked
-  separately. And the admin **Test connection** button does not yet name this as
-  a cause, so a refused document currently shows there under a check that does not
-  describe it.
-
-- **A token whose JWS header marks an extension critical is refused (#1038).**
-  RFC 7515 §4.1.11 requires a recipient to reject a token whose `crit` header
-  names an extension it does not understand and process. The plugin implements
-  no JWS extension, and the token library ignores `crit` entirely, so a
-  genuinely signed `id_token` or back-channel `logout_token` carrying one was
-  accepted with the constraint it declared silently dropped - an extension is
-  marked critical precisely because ignoring it changes what the token asserts,
-  such as a narrowed audience or a proof-of-possession binding. Both token paths
-  now refuse such a token from one shared rule, so they cannot drift apart.
-
-  This was not exploitable on its own: the token still had to carry a signature
-  from a key the provider's own JWKS advertises, so nobody could mint one. What
-  changes is that a provider using a JWS extension the plugin cannot honour now
-  gets a refusal rather than a login granted on terms the plugin never applied.
-  The back-channel refusal carries its own reason code
-  (`unprocessed_critical_header`) rather than the generic signature failure, so
-  an operator can tell a provider that needs a feature apart from an attempted
-  forgery.
+  parsed.** Which value a consumer acts on is decided by parser internals rather
+  than by the document, so discovery, JWKS and an uninspectable body are screened
+  on the transport. **Such a document will fail to sign users in, and no
+  configuration overrides that.**
+- **A token whose JWS header marks an extension critical is refused (#1038).** The
+  plugin implements no JWS extension and the library ignores `crit`, so a signed
+  token carrying one was accepted with its declared constraint dropped. It was
+  never exploitable without the provider's own signature.
 
 ## 4.3.0
 
 A feature release. This line advances the plugin's maturity to **Beta** on the
-back of a large login-hardening and code-quality pass: SSO-only login
-enforcement, full role-based access control, a redesigned configuration UI, and
-a broad security + perfection audit.
+back of a large login-hardening and code-quality pass.
 
 ### Added
 
 - **SSO-only login enforcement (#165).** An optional mode that closes the
-  built-in username/password door so accounts authenticate only through the
-  configured SSO provider. It is fail-closed by construction: activation is
-  refused unless a designated, enabled break-glass administrator keeps a working
-  password login, so no reachable configuration can strand the last admin. The
-  per-login enforcement and the enable sweep agree on which accounts are moved,
-  and the mode is fully reversible on disable.
+  built-in password door so accounts authenticate only through SSO. Activation is
+  refused unless a designated break-glass administrator keeps a working password
+  login, and the mode is fully reversible on disable.
 - **Full role-based access control (#164).** Providers can map identity-provider
   roles to Jellyfin permissions through a generic permission-role mapping,
-  validated fail-closed at save so a malformed mapping is rejected at the door
-  rather than silently granting nothing at login.
+  validated fail-closed at save.
 - **Redesigned configuration UI (#697).** The admin settings page was reworked
   into clearer, native accordion sections.
 
 ### Changed
 
-- **The self-service linking and auth-completion pages were polished
-  (#666, #667, #669).** The linking page renders a proper help label and an
-  empty-state placeholder instead of bare headings; the auth-completion status
-  line is an `aria-live` region that announces failures to assistive tech and
-  now offers a "Return to login" link instead of dead-ending.
+- **The self-service linking and auth-completion pages were polished (#666,
+  #667, #669).** The linking page renders a proper help label and an empty state,
+  and the auth-completion status line is an `aria-live` region that offers a
+  "Return to login" link.
 - **Browser-navigated login errors are now styled (#668).** A rejection reached
-  by direct navigation (the OpenID/SAML challenge and callback routes) is
-  rendered as a themed HTML page with a return link and a strict
-  Content-Security-Policy, instead of raw plain text on what looked like a broken
-  page. The uniform denial message was reworded to be actionable without
-  enumerating.
+  by direct navigation is a themed HTML page with a return link and a strict
+  Content-Security-Policy instead of raw plain text.
 - **Internal consolidation (#670, #671, #695).** The duplicated challenge
-  redirect-path resolver and a single-caller OpenID wrapper were unified, and the
-  provider-config validation doc was corrected to describe the single source of
-  truth - no behavioural change, locked in by conformance tests.
+  redirect-path resolver and a single-caller OpenID wrapper were unified, with no
+  behavioural change, locked in by conformance tests.
 
 ### Security
 
 - **SAML parsing hardened (#698).**
-- **SAML `DoNotValidateAudience` is now audited (#672).** Enabling this default-on
-  protection's escape hatch leaves an `[SSO Audit]` trail on save and import, at
-  parity with the OpenID insecure toggles.
+- **SAML `DoNotValidateAudience` is now audited (#672).** Enabling this
+  default-on protection's escape hatch leaves an `[SSO Audit]` trail on save and
+  import, at parity with the OpenID insecure toggles.
 - **Rate-limit endpoint-class bucket keys are typed (#694).** The per-client
-  limiter keys are named constants rather than bare string literals, so a typo
-  can no longer silently split a security budget; a conformance test forbids
-  regressions.
-- **SSO-only no longer strips a third-party provider account's login path (#690).**
+  limiter keys are named constants rather than bare literals, so a typo can no
+  longer silently split a security budget.
+- **SSO-only no longer strips a third-party provider account's login path
+  (#690).**
 - **The OpenID authorize-state store is keyed on UTC (#696), and role-privilege
   mapping guards null folder sets (#693).**
 
@@ -2019,13 +506,9 @@ A bug-fix release.
 ### Fixed
 
 - **Admin-or-self authorization now denies explicitly on a null auth context
-  (#626).** `RequestHelpers.AssertCanUpdateUser` previously failed closed by
-  throwing a `NullReferenceException` (which could surface as a 500) on a null
-  or ambiguous authorization context. It now returns an explicit `false` - a
-  clean, total deny. Normal authenticated requests are unaffected; the fix
-  removes a fragile reliance on an exception for a security-critical denial and
-  eliminates the internal-error surface. A masked test that had tolerated the
-  old exception was corrected to assert the explicit deny.
+  (#626).** `RequestHelpers.AssertCanUpdateUser` failed closed by throwing a
+  `NullReferenceException`, which could surface as a 500, and now returns an
+  explicit `false`. Normal authenticated requests are unaffected.
 
 ## 4.2.0
 
@@ -2034,20 +517,9 @@ A breaking release.
 ### Removed
 
 - **`SAML/Auth` no longer accepts a raw SAML assertion (BREAKING, #528).** #251
-  replaced the assertion browser round-trip with a one-time, server-side login
-  outcome token: the assertion-consumer callback (`SAML/post`) validates the
-  signed assertion once and hands the intermediate page only an opaque token,
-  and `SAML/Auth` redeems that token to mint the session without re-parsing the
-  assertion. For one release `SAML/Auth` also still accepted and fully
-  re-validated the pre-#251 shape - a full base64 assertion POSTed straight to
-  it - so a login already in flight during an upgrade would not break. That
-  deprecation window has now closed: `SAML/Auth` accepts **only** the opaque
-  outcome token. A scripted client that POSTs a raw assertion straight to
-  `SAML/Auth`, bypassing the rendered page, is now rejected fail-closed (a clean
-  400 in the uniform SAML body, nothing minted). The normal browser login and
-  linking flows are unaffected - the plugin has rendered only tokens for login
-  since #251. Callers that scripted the legacy direct-assertion POST must switch
-  to the callback-plus-token round-trip.
+  replaced the assertion round-trip with a one-time outcome token, and for one
+  release `SAML/Auth` also accepted the older shape. That window has closed: a
+  client POSTing a raw assertion is refused, and the browser flows are unaffected.
 
 ## 4.1.1
 
@@ -2057,110 +529,71 @@ configuration changes.
 ### Fixed
 
 - **The plugin no longer fails to load on Jellyfin 10.11 (#590).** 4.1.0.0
-  shipped with `Duende.IdentityModel.OidcClient` 7.x, whose assemblies are built
-  against the .NET 10 framework and reference
-  `Microsoft.Extensions.Logging.Abstractions` 10.0.0.0 in their manifest - an
-  assembly the host provides (Jellyfin 10.11 runs on .NET 9 and ships 9.0.0.0)
-  and the plugin therefore does not bundle. Because .NET rolls a host assembly
-  reference forward to a newer host but never down a major version, the packaged
-  plugin threw `FileNotFoundException` the moment the host constructed it, and
-  the server disabled it at startup - taking down every OpenID and SAML login.
-  `dotnet build` and `dotnet test` stayed green because they run against the full
-  publish output, which contains the 10.x assembly; the failure only surfaced on
-  a real host, the same blind spot the SAML/OIDC crypto DLLs hit in 4.1.0.0.
-
-  The OIDC client is pinned back to the 6.x line, which references
-  `Logging.Abstractions` 8.0.0.0 and rolls forward onto the host's 9.0.0.0
-  cleanly; the whole dependency graph stays on the .NET 9 ABI. No behaviour
-  changes - the OpenID and SAML flows are identical to 4.1.0.0.
+  shipped an OIDC client referencing `Microsoft.Extensions.Logging.Abstractions`
+  10.0.0.0, which a .NET 9 host does not provide, so the host disabled the plugin
+  at startup. The client is pinned back to the 6.x line, with no behaviour change.
 
 ### Added
 
 - **A conformance test locks the ABI floor in.**
   `ArchitectureConformanceTests.HostProvidedFrameworkAssemblies_StayOnTheHostNet9Abi`
-  fails the build if any host-provided `Microsoft.Extensions.*` assembly is
-  referenced above the .NET 9 host ABI, so a future dependency bump that
-  re-crosses the floor is caught before release instead of in the field.
+  fails the build if a host-provided `Microsoft.Extensions.*` assembly is
+  referenced above the .NET 9 host ABI.
 
 ## 4.1.0
 
-The first feature release of the revived plugin. It folds in a full
-security-parity pass over the SAML and OpenID login path, encrypts provider
-secrets at rest, adds outgoing SAML request signing, exposes the previously
-config-only provider flags in the admin UI, and lands a large internal rework
-that decomposes the login controller into small, testable services.
+The first feature release of the revived plugin: a security-parity pass over the
+login path, provider secrets encrypted at rest, outgoing SAML request signing,
+admin-UI toggles for config-only flags, and the login controller decomposed.
 
 ### Breaking
 
-- **Provider secrets are now encrypted at rest (#158).** Client secrets and
-  signing keys are stored as an AES-256-GCM envelope (`ssoenc:` values) instead
-  of plaintext. **Upgrading is transparent** - an existing plaintext config is
-  read as-is and re-encrypted on the next save, no action required.
-  **Downgrading is breaking:** an older plugin build cannot read `ssoenc:`
-  values. Before rolling back, open each provider on the settings page and
-  re-enter its secret in plaintext (or restore the pre-upgrade config backup),
-  then install the older build. See
-  [Secrets encrypted at rest and downgrade](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup#secrets-encrypted-at-rest-and-downgrade).
+- **Provider secrets are now encrypted at rest (#158).** Secrets and signing keys
+  are stored as an AES-256-GCM envelope (`ssoenc:` values), and upgrading is
+  transparent. **Downgrading is breaking:** re-enter each secret in plaintext, or
+  restore the pre-upgrade backup, before installing an older build.
 - **OpenID logins that relied on legacy username matching are refused until you
   migrate (#358).** Links created by 4.0.0.4 and earlier are keyed on the
-  username, which the IdP controls. After upgrade, a login carrying such a
-  legacy link is not followed automatically - the account is adopted only when
-  the provider has `AllowExistingAccountLink` enabled (treat this as a short,
-  supervised maintenance window, not a standing setting), or when an admin links
-  the account explicitly via `AddCanonicalLink`. A returning administrator with
-  a pre-existing legacy link must be linked by an admin; self-migration is
-  refused for admins even with the flag on. Plan this before upgrading - see the
-  migration runbook under
-  [OpenID Connect id_token requirements](https://github.com/iderex/jellyfin-plugin-sso/wiki/Provider-Setup#openid-connect-id_token-requirements)
-  and the
-  [Security Model](https://github.com/iderex/jellyfin-plugin-sso/wiki/Security-Model)
-  wiki page.
+  username, which the identity provider controls, so they are no longer followed.
+  The account is adopted only under `AllowExistingAccountLink` or by an admin.
 
 ### Security
 
 The login path was hardened end to end and now fails closed by default.
 
 - **SAML:** XXE-safe XML loading, strict single-assertion conformance, a signed
-  algorithm allowlist (SHA-1 and other weak algorithms rejected), replay
-  protection with a bounded cache, and enforced time-bound, audience, and
-  recipient checks.
-- **OpenID Connect:** PKCE S256, `state`, and `iss` / RFC 9207 response
-  validation, all sourced from the login's own discovery document rather than
-  trusting request-supplied facts; full `id_token` validation; and a verified-
-  email gate for account login and adoption.
-- **Account linking:** OpenID links are bound to the IdP issuer (#186) and to
-  the stable `sub` / `NameID`, so a renamed or re-pointed account cannot be
-  silently taken over.
-- **Abuse resistance:** rate limiting across the login, link/unlink, and
-  unregister endpoints; active session/token revocation when a user is
-  unregistered or their last link is removed; and provider-name validation that
-  rejects control characters.
-- **Transport and supply chain:** security response headers / CSP on the plugin
-  pages, SSRF-guarded avatar fetches, and a Trojan-Source (unicode) guard in CI.
+  algorithm allowlist, replay protection with a bounded cache, and enforced
+  time-bound, audience and recipient checks.
+- **OpenID Connect:** PKCE S256, `state` and RFC 9207 `iss` validation sourced
+  from the login's own discovery document, full `id_token` validation, and a
+  verified-email gate for account login and adoption.
+- **Account linking:** OpenID links are bound to the issuer (#186) and to the
+  stable `sub` / `NameID`, so a renamed account cannot be silently taken over.
+- **Abuse resistance:** rate limiting across the login, link/unlink and
+  unregister endpoints, session and token revocation when a user is unregistered,
+  and provider-name validation.
+- **Transport and supply chain:** security response headers and CSP on the plugin
+  pages, SSRF-guarded avatar fetches, and a Trojan-Source guard in CI.
 
 ### Features
 
 - **Outgoing SAML AuthnRequest signing (#167),** including ECDSA signing keys
-  (#493) alongside RSA, for IdPs that require signed requests.
-- **Admin-UI toggles for provider flags** that were previously config-file only
-  (for example `AllowExistingAccountLink` and the verified-email requirement),
+  (#493) alongside RSA, for identity providers that require signed requests.
+- **Admin-UI toggles for provider flags** that were previously config-file only,
   plus a real device name on linked sessions.
 - **Provider-name hardening** so invalid names are rejected at configuration
   time.
 
 ### Architecture / internal
 
-- The monolithic `SSOController` was decomposed into a thin controller over pure,
-  single-responsibility helpers and `Api/Flows/*Service` login services (#318),
-  with a fail-closed `VerifiedIdentity` keystone. Structural rules are locked in
-  as architecture-conformance tests that run in CI. This is an internal change
-  with no user-facing configuration impact.
+- The monolithic `SSOController` was decomposed into a thin controller over pure
+  helpers and `Api/Flows/*Service` login services (#318), with a fail-closed
+  `VerifiedIdentity` keystone and structural rules locked in as conformance
+  tests. This is internal and changes no configuration.
 
 ### Fixes
 
 - Login rejections consistently return their intended status codes and never
   surface as HTTP 500.
-- Corrected avatar handling (missing-file self-heal, file-extension and path
-  handling) and disabled-provider handling across the login and linking flows.
-- Numerous smaller robustness fixes in state handling, session minting, and the
-  admin/linking pages.
+- Corrected avatar and disabled-provider handling across the login and linking
+  flows, with smaller robustness fixes in state handling and session minting.

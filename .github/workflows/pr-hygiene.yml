@@ -30,6 +30,9 @@
 #       * a build.yaml version bump also touches CHANGELOG.md.
 #       * a pull request putting a non-English localization catalogue on the
 #         board carries a vouch line naming the reader and the language (#1494).
+#       * a commit subject stays within 72 characters, a commit body within 25
+#         lines, and the pull-request body within 200 words outside one fenced
+#         block of verification output (#1900).
 #     The whole FAIL tier is skipped for bots, and for nobody else (#1516). It
 #     was skipped for authors from outside this repository too, until the
 #     association that decides it was read on two routes and answered
@@ -564,6 +567,132 @@ jobs:
                 "reading, never that the reading happened, and it reads the pull " +
                 "request rather than the tree.";
               (failTierApplies ? failures : warnings).push(report);
+            }
+
+            // --- Check 6: the caps on a commit subject, a commit body and the ----
+            // pull-request body (#1900). A message a person reads in `git log` is a
+            // subject and a short why; the evidence goes in the pull request and the
+            // issue, linked. Merge commits and bots are exempt as at check 1b. The
+            // pull-request body is counted outside fenced code, with template
+            // comments stripped, and may carry one fenced block of verification
+            // output.
+            const SUBJECT_MAX = 72;
+            const BODY_MAX_LINES = 25;
+            const PR_BODY_MAX_WORDS = 200;
+            const PR_BODY_MAX_FENCES = 1;
+            const SHAPE =
+              `Shape: a subject of at most ${SUBJECT_MAX} characters ending in its ` +
+              `[#N]; a body of at most ${BODY_MAX_LINES} lines saying why, how it was ` +
+              "verified (one command) and what is out of scope; a pull-request body " +
+              `of at most ${PR_BODY_MAX_WORDS} words outside one fenced block of ` +
+              "verification output. The evidence goes in the pull request and the " +
+              "issue, linked (CONTRIBUTING.md, Commit Messages).";
+            const messageOverCaps = (message) => {
+              const lines = (message || "").replace(/\r/g, "").split("\n");
+              const subject = [...lines[0]].length;
+              const bodyLines = lines.slice(1);
+              while (bodyLines.length && bodyLines[0].trim() === "") bodyLines.shift();
+              while (bodyLines.length && bodyLines[bodyLines.length - 1].trim() === "") {
+                bodyLines.pop();
+              }
+              const found = [];
+              if (subject > SUBJECT_MAX) {
+                found.push(`subject is ${subject} characters, cap ${SUBJECT_MAX}`);
+              }
+              if (bodyLines.length > BODY_MAX_LINES) {
+                found.push(`body is ${bodyLines.length} lines, cap ${BODY_MAX_LINES}`);
+              }
+              return found;
+            };
+            const prBodyOverCaps = (prBody) => {
+              const parts = (prBody || "")
+                .replace(/\r/g, "")
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .split(/^[ \t]*(?:```|~~~).*$/m);
+              const fences = Math.floor((parts.length - 1) / 2);
+              const words = parts
+                .filter((_, i) => i % 2 === 0)
+                .join("\n")
+                .split(/\s+/)
+                .filter((w) => /[A-Za-z0-9]/.test(w)).length;
+              const found = [];
+              if (words > PR_BODY_MAX_WORDS) {
+                found.push(`${words} words outside fenced code, cap ${PR_BODY_MAX_WORDS}`);
+              }
+              if (fences > PR_BODY_MAX_FENCES) {
+                found.push(`${fences} fenced blocks, cap ${PR_BODY_MAX_FENCES}`);
+              }
+              return found;
+            };
+
+            // The near-misses, one line inside each cap and one over it, run on
+            // every pull request as at check 5, and a disagreement fails the job
+            // whoever opened the pull request.
+            const numbered = (n) =>
+              Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n");
+            const message = (subjectLength, bodyLineCount) =>
+              "x".repeat(subjectLength) +
+              (bodyLineCount ? "\n\n" + numbered(bodyLineCount) + "\n" : "");
+            const wordsOf = (n) =>
+              Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+            // The rows carry the numbers as literals on purpose: a row derived from
+            // the constant moves with it, and a widened cap would pass its own test.
+            const CAP_SELF_TEST = [
+              ["a subject at the cap", messageOverCaps(message(72, 3)), 0],
+              ["a subject one over the cap", messageOverCaps(message(73, 3)), 1],
+              ["a body at the cap", messageOverCaps(message(10, 25)), 0],
+              ["a body one over the cap", messageOverCaps(message(10, 26)), 1],
+              ["a pull-request body at the cap", prBodyOverCaps(wordsOf(200)), 0],
+              ["a pull-request body one over the cap", prBodyOverCaps(wordsOf(201)), 1],
+              [
+                "words inside one fence are not counted",
+                prBodyOverCaps(wordsOf(10) + "\n```text\n" + wordsOf(300) + "\n```\n"),
+                0,
+              ],
+              [
+                "a second fence is refused",
+                prBodyOverCaps("```\na\n```\ntext\n```\nb\n```\n"),
+                1,
+              ],
+              [
+                "a template comment is not counted",
+                prBodyOverCaps("<!-- " + wordsOf(300) + " -->\n" + wordsOf(5)),
+                0,
+              ],
+            ];
+            for (const [name, got, expected] of CAP_SELF_TEST) {
+              if (got.length !== expected) {
+                failures.push(
+                  `Check 6 self-test "${name}" disagreed: expected ${expected} ` +
+                    `finding(s), got [${got.join("; ")}]. The caps at check 6 in ` +
+                    ".github/workflows/pr-hygiene.yml no longer decide what they say " +
+                    "they decide; repair them before merging anything.",
+                );
+              }
+            }
+
+            const overCaps = commits
+              .filter((c) => {
+                const authorIsBot =
+                  (c.author && c.author.type === "Bot") ||
+                  /\[bot\]/.test((c.commit.author && c.commit.author.name) || "");
+                const isMerge =
+                  c.parents.length > 1 || c.commit.message.startsWith("Merge ");
+                return !authorIsBot && !isMerge;
+              })
+              .map((c) => [c.sha.slice(0, 7), messageOverCaps(c.commit.message)])
+              .filter(([, found]) => found.length > 0);
+            if (failTierApplies && overCaps.length > 0) {
+              const list = overCaps
+                .map(([sha, found]) => `${sha} (${found.join("; ")})`)
+                .join(", ");
+              failures.push(`Commit message(s) over the caps: ${list}. ${SHAPE}`);
+            }
+            const prBodyFindings = prBodyOverCaps(body);
+            if (failTierApplies && prBodyFindings.length > 0) {
+              failures.push(
+                `Pull-request body over the caps: ${prBodyFindings.join(", ")}. ${SHAPE}`,
+              );
             }
 
             // --- Report --------------------------------------------------------

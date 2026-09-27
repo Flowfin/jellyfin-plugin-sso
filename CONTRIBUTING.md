@@ -26,6 +26,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Translating the UI](#translating-the-ui)
 - [Styleguides](#styleguides)
   - [Commit Messages](#commit-messages)
+  - [CHANGELOG Entries](#changelog-entries)
   - [Sign Your Work (DCO)](#sign-your-work-dco)
 - [Join The Project Team](#join-the-project-team)
 
@@ -259,11 +260,17 @@ The standing guard is `SSO-Auth.Tests/Localization/LocalizationCatalogTests.cs`,
 
 Short, imperative subject line (`Add SAML replay cache`, not `feat: add ...`); explain the _why_ in the body. **Every commit subject ends with its issue reference(s) in brackets** - `Add SAML replay cache [#123]`, multiple issues as `[#123][#456]` - so the link survives `git blame`/`bisect`/`log`, which show only the subject. GitHub's auto-close keywords (`Closes #N`) additionally go in the body when the commit resolves the issue. The PR-hygiene gate enforces the bracketed subject reference per commit (bots and merge commits exempt).
 
+**The shape is capped (#1900).** A subject has at most 72 characters. A body has at most 25 lines and says why, how it was verified (one command), what is out of scope, and links. A pull-request body has at most 200 words outside fenced code and may carry one fenced block of verification output. A message a person reads in `git log` is a subject and a short why; the evidence belongs in the pull request and the issue, linked. The gate refuses each cap by name and prints the shape (bots and merge commits exempt).
+
 A commit message may only use printable ASCII plus a short, named set of extra characters: tab, the em and en dash, the ellipsis, the section sign, the rightwards arrow, the greater-than-or-equal sign, and the German letters `ÄÖÜäöüß`. Anything else fails the gate, naming the commit, the code point and the line. The set is an allowlist rather than a list of forbidden characters, because that is the only shape that also refuses a script nobody has thought of yet - the reasoning is Unicode Technical Standard #55 and the Trojan Source work (CVE-2021-42574). Widening it is a deliberate edit of the table in `.github/workflows/pr-hygiene.yml`, where the table also records which characters were measured in the existing history and which one was refused.
 
 The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
 
 The gate applies to every author, bots excepted (#1516), so a subject without its bracketed reference fails a required check and a failing required check blocks the merge whoever wrote it. If you are contributing from outside this repository and no issue exists yet, file one first and reference it, or open the pull request and say so: I file the issue, and you amend the subject, which is one `git commit --amend` and a push. The character check judges every author on the same tier, because a message nobody can read is a problem whoever wrote it.
+
+### CHANGELOG Entries
+
+**An entry is two or three sentences (#1897).** It says what changed, the setting or route it touches and its default, and the issue that holds the rest; the depth belongs in the issue, the pull request and the wiki, which is where a reader who wants it will look. A release intro keeps its decision sentences, and a passage admitting something was not verified stays as it is, because that is the one kind of sentence a shorter entry must not lose.
 
 ### Sign Your Work (DCO)
 

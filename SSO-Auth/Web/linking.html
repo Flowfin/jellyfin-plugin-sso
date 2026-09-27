@@ -70,6 +70,28 @@
             role="alert"
             hidden
           ></div>
+          <!-- The one success this page cannot draw (#1882): the last SSO link that could sign the
+          holder in is gone and the session with it, as the question before the press said. Shown by
+          linking.js in place of a reload, which would only draw the generic banner over two feeds
+          answering 401. A sentence assembled around its own sign-in link, so the way back is one press
+          away; the link is relative, so a server under a path prefix keeps it. -->
+          <div
+            id="sso-linking-signed-out"
+            class="sso-linking-error"
+            role="alert"
+            hidden
+            data-i18n-parts="link.signed_out"
+          >
+            Your last SSO link is removed and this sign-in has ended, as the
+            prompt said.
+            <a
+              href="../web/index.html"
+              class="button-link"
+              data-i18n="link.sign_in_again"
+              >Sign in again</a
+            >
+            with your password to continue.
+          </div>
           <p>
             <span data-i18n-parts="link.add_hint"
               >Use the

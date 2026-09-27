@@ -41,6 +41,29 @@ const ssoConfigLinking = {
     }
   },
 
+  // The sentence for the one success this page cannot draw (#1882): the last SSO link that could sign
+  // the holder in is gone and, with it, the session this page was loaded under. A THIRD element rather
+  // than either banner above: the generic one says the page can no longer be trusted as shown, the
+  // refusal says the server declined, and this says the server did exactly what the question before the
+  // press announced. Authored in the markup around its own sign-in link, filled from the catalogue by
+  // the parts pass and never from a server value. The other two go down with it, because a page that
+  // says both that something went wrong and that the removal succeeded says nothing. And every control
+  // that would send a request goes with them: the session is gone, so a second Delete or a sign-out press
+  // could only answer 401 and raise the generic banner beside this sentence.
+  showSignedOut: (view) => {
+    ssoConfigLinking.hideError();
+    const refused = document.querySelector("#sso-linking-refused");
+    if (refused) {
+      refused.hidden = true;
+    }
+    const banner = document.querySelector("#sso-linking-signed-out");
+    if (banner) {
+      banner.hidden = false;
+    }
+    ssoConfigLinking.stopOffering(view);
+    ssoConfigLinking.stopOfferingSignOut();
+  },
+
   // Every "Sign out everywhere" control drawn on this page (#1768), so a refusal that applies to all of
   // them - Single Logout is off on this server, which is one global switch - can take all of them away
   // without walking the tree. Emptied when the page loads its providers.
@@ -482,8 +505,12 @@ const ssoConfigLinking = {
     // removal goes through, and a dialog naming only benign outcomes would have turned a hesitant press
     // into a confident one on the press that costs the account. Warning of a lockout the server then
     // refuses costs a moment of caution; the other direction costs the account.
+    const removesEveryWayIn = ssoConfigLinking.removesEveryWayIn(
+      rendered,
+      selected,
+    );
     if (
-      ssoConfigLinking.removesEveryWayIn(rendered, selected) &&
+      removesEveryWayIn &&
       !window.confirm(
         t(
           "link.delete_last_confirm",
@@ -515,9 +542,41 @@ const ssoConfigLinking = {
 
     return (
       Promise.all(delete_requests)
-        .then(() => {
-          window.location.reload();
-        })
+        // A removal that went through is shown by reloading the page, which draws the links the holder
+        // still holds. WHERE IT WAS THE LAST LINK, THE RELOAD IS THE WRONG ANSWER (#1882): the server
+        // ends every session of the account the moment its last SSO link is gone, which is what the
+        // question above said would happen, so the reloaded page has no session to draw with, its two
+        // feeds answer 401, and it shows the generic banner - a sentence that says something went wrong
+        // and tells the holder to reload a page that will fail the same way until they sign in again.
+        // So after a removal the page asks the links feed once more, and where the answer is the 401
+        // the sign-out leaves behind it says what happened, in the past tense, with the way back. Any
+        // other answer means the session is still there and the page reloads as before. The generic
+        // banner keeps every other failure, and a 401 on a page nobody pressed Delete on is still one.
+        //
+        // THE FEED IS ASKED AFTER EVERY REMOVAL, NOT ONLY AFTER THE LAST WAY IN, because the two counts
+        // differ on purpose: the question above counts links on ENABLED providers, which is what can
+        // sign the holder in, while the server revokes when NO link is left anywhere, a link on a
+        // switched-off provider included. A holder whose only link sits on a switched-off provider is
+        // asked nothing, removes it, and is signed out all the same; the one extra read is what lets the
+        // page say so instead of reloading into the banner. The review of this change found that shape.
+        .then(() =>
+          ApiClient.fetch(
+            {
+              type: "GET",
+              url: ApiClient.getUrl(`sso/oid/links/${currentUserId}`),
+            },
+            true,
+          ).then(
+            () => window.location.reload(),
+            (rejection) => {
+              if (rejection && rejection.status === 401) {
+                ssoConfigLinking.showSignedOut(view);
+                return;
+              }
+              window.location.reload();
+            },
+          ),
+        )
         // ApiClient.fetch rejects on a non-2xx status, so a rejected DELETE must not fall through to
         // the unconditional reload below it: that would show the exact same page a successful removal
         // shows, with no indication that the link the user asked to remove is still present (#536).
