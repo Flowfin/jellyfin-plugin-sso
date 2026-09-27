@@ -1,57 +1,23 @@
+# Publishes a Jellyfin 12 beta from the dispatched branch: gate, matrix, build, release, manifest.
+# Do not drop the .md5 sidecar: the manifest checksum is read from it and installs fail without it.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing#publish-jf12-betayml
 name: Publish JF12 Beta
 
-# The Jellyfin 12 (.NET 10) BETA channel - the 5.x line (#135). Jellyfin 12.0 moved the server to
-# .NET 10 and a 10.11-ABI plugin will not load there, so upgraders need a 12-targeted build. From #954
-# to #1770 one multi-target tree (net9.0;net10.0) fed two legs from different refs: the JF10.11 leg
-# from `main`, frozen on the 4.3 candidate for its soak, and this one from the development branch. The
-# 10.11 line ended with 4.3.0-stable and this branch builds net10.0 alone, so this is the one beta leg
-# here; publish-beta.yml stays on `main` with the 4.3 line. This leg publishes an installable
-# prerelease into the `manifest-beta` branch. Jellyfin filters plugin versions client-side by
-# targetAbi, so the one beta manifest goes on carrying the 4.3 betas at targetAbi 10.11 beside the 5.x
-# builds at 12.0, and each server installs only its compatible build - a 10.11 server keeps installing
-# 4.3 from the same URL.
-#
-# The build METADATA (version, targetAbi 12.0.0.0, framework net10.0, the net10 shipping closure) is
-# build.yaml, the one metadata file in the tree since #1770; nothing is copied over it before JPRM
-# builds.
-# No push trigger: a beta is no longer minted on every merge (that spammed one release per PR).
-# nightly-betas.yml (the scheduler on the default branch) dispatches this workflow once a day; the gate
-# job below then skips the build unless the dispatched ref has advanced since the last JF12 beta.
-# Still manually
-# runnable via workflow_dispatch.
 on:
   workflow_dispatch:
 
-# Explicit deny-all at workflow level; the publish job below opts into write access explicitly.
 permissions: {}
 
-# Serialize ALL writers of manifest-beta - this leg, regenerate-manifest.yml, and the 10.11 beta leg
-# that stays on main and can still be dispatched by hand - under ONE shared concurrency group, so
-# their manifest-branch regenerations never run concurrently and race (a reader-vs-pusher TOCTOU that
-# could transiently drop another just-published build from manifest-beta, #135 review).
-# cancel-in-progress is false - a publish holding contents:write must never be killed mid-run.
 concurrency:
   group: publish-manifest-beta
   cancel-in-progress: false
 
 jobs:
-  # Publish only when the dispatched ref has advanced since the last JF12 beta, so a scheduled daily
-  # run on an unchanged branch does not mint a duplicate release. Since #1585 that ref is the
-  # development branch rather than `main`; since 2026-09-21 it is `5.1`, because `5.0` shipped its
-  # stable that day (#1729). The comparison is written against whatever ref dispatched this run.
-  # Compares the current ref HEAD (github.sha) to the commit the newest 5.1.1-JF12-beta.<n> tag
-  # points at. When no tag matches - the first run after the base moved to 5.1 - last_sha is empty
-  # and the build proceeds: the safe default is to publish, never to silently skip a real change.
-  # (The first run after #954 moved this leg from the retired 4.2 branch always built for the same
-  # reason, and #1585's move off the frozen `main` did too.)
   gate:
     name: Gate on new commits in the dispatched ref
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # The version is derived here, ahead of the build, because the package is built by build.yml
-    # under it and `publish` releases under it: both read it from this one place, so the two cannot
-    # disagree about which build is being released even when the second runs long after the first.
     outputs:
       changed: ${{ steps.check.outputs.changed }}
       base: ${{ steps.version.outputs.base }}
@@ -64,10 +30,6 @@ jobs:
         sparse-checkout-cone-mode: false
     - name: Derive the JF12 beta version
       id: version
-      # Beta version = build.yaml's `version` (the line's next target) with the run number as the
-      # fourth octet: X.Y.Z.<run>, released as "X.Y.Z-JF12-beta". A monotonic build number; RUN_NUMBER
-      # via env (no ${{ }} spliced into the shell). Never rename this workflow without bumping
-      # build.yaml's version (github.run_number resets on rename).
       env:
         RUN_NUMBER: ${{ github.run_number }}
       run: |
@@ -84,16 +46,9 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
         CUR: ${{ github.sha }}
-      # Fail-open: on any uncertainty (API error, no prior tag, unparseable sha) default to changed=true
-      # and build. Skipping a real change is worse than an occasional duplicate beta.
       run: |
         set -uo pipefail
-        # --paginate is load-bearing: the refs endpoint returns 30 per page in LEXICOGRAPHIC order,
-        # so once >30 JF12 beta tags exist the numerically-newest falls off page 1, the gate picks a
-        # stale tag, and an unchanged day mints a duplicate beta - every day, self-amplifying (each
-        # new tag sorts later and keeps the newest off-page). Same idiom as publish-beta.yml's gate:
-        # emit one tag per line across ALL pages, then sort numerically in the shell (a per-page jq
-        # max would be wrong - gh applies --jq per page, and the numeric max can sit on any page).
+        # --paginate is load-bearing: ref pages sort lexicographically, newest tag leaves page 1.
         last_tag=$(gh api --paginate "repos/${REPO}/git/matching-refs/tags/5.1.1-JF12-beta." \
           --jq '.[].ref | sub("refs/tags/"; "") | select(test("^5[.]1[.]1-JF12-beta[.][0-9]+$"))' 2>/dev/null \
           | sort -t. -k4 -n | tail -1 || echo "")
@@ -110,87 +65,18 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
         fi
 
-  # The full seven-stack provider matrix, on the exact commit this beta ships (#1464). Until this job
-  # existed the JF12 line published daily behind no cross-provider evidence at all: #1462 wired the
-  # matrix into the JF10.11 leg and left this one covered only by the `release:` trigger it removed,
-  # which had never once started a run. Calling the harness as a job runs it INSIDE this run, so the
-  # pass belongs to the commit being published rather than to whatever main held when a cron last fired.
-  #
-  # WHAT THIS PASS IS EVIDENCE ABOUT, stated here because the job name cannot carry it. The harness
-  # packages the net10.0 build from build.yaml and installs it into a Jellyfin 12 server, which since
-  # #1770 is the one artifact this tree produces; until #1466 it built a net9.0 package for a 10.11
-  # server on every caller, so the pass covered the shared source and not the bytes. It is the bytes:
-  # a packaged load failure of the #181/#590 class is inside this pass.
-  #
-  # WHAT IS STILL OUTSIDE IT, and it is a real bound rather than a formality. The server is 12.0, the
-  # version SSO-Auth.csproj compiles net10.0 against, so the harness proves the artifact against the
-  # server it was built for and against no later 12.0 build. rc3 onward and GA are untested here, and a
-  # 12.0 server that has moved under the plugin would not be caught by this job. #1466 records that as
-  # the residual it leaves rather than as one it closed.
-  #
-  # AHEAD of the package job, so a red stack stops the publish instead of documenting it afterwards, and
-  # gated on the same output as the package job, so an unchanged ref still costs nothing.
   provider-matrix:
     name: Provider matrix (net10.0 into a Jellyfin 12 server)
     needs: gate
     if: needs.gate.outputs.changed == 'true'
-    # A called workflow can hold no more than the calling job grants it. e2e-login.yml denies everything
-    # at its top level and its harness job asks for `contents: read` to check out and build the plugin,
-    # so that is granted here and nothing else is - this job publishes nothing.
     permissions:
       contents: read
     uses: ./.github/workflows/e2e-login.yml
     with:
       providers: all
-    # By name rather than `inherit`: the called workflow gets the one secret its pairwise job can use
-    # and none of the others this repository holds. Where the secret does not exist the value is empty,
-    # the pairwise job falls back to the workflow token, sees no private sibling, and reports a run in
-    # which no pair was checked instead of dying and stopping this publish at the matrix (#1773).
     secrets:
       PAIRWISE_READ_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN }}
 
-  # THE BUILD IS A SEPARATE JOB FROM THE PUBLISH (#1736), so the unit of loss on a failure is the leg
-  # that failed rather than the whole run. Run 34749421228 of 2026-09-13 compiled the assemblies, read
-  # the version, packaged the plugin and wrote its sidecars, then met three `500`s from the release API
-  # in a few seconds and discarded all of it. With the split, "Re-run failed jobs" starts `publish`
-  # alone against the package this job already uploaded; `github.run_number` is keyed to the RUN rather
-  # than the attempt, so a second attempt derives the same 5.0.0.<run> version and the same tag.
-  #
-  # WHICH HALF OF THE PUBLISH THIS COVERS, because the other half is not made re-runnable by it.
-  # A failure BEFORE the release is created - the three `500`s above - re-runs cleanly. A failure AFTER
-  # the draft has been sealed, say the manifest regeneration refusing, meets an immutable published
-  # release on the second attempt and reds on the asset upload instead of recovering. That asymmetry
-  # is the immutable-release rule rather than the split: the single job had it too, and this change
-  # neither widens nor narrows it. The repair for that half is regenerate-manifest.yml, not this button.
-  #
-  # TWO THINGS TO KNOW BEFORE PRESSING EITHER BUTTON, because the split is what makes them routine.
-  # "Re-run failed jobs" re-enters the shared `publish-manifest-beta` concurrency group, which holds at
-  # most one PENDING run - so a re-run pressed while the JF10.11 leg is publishing and the nightly is
-  # queued evicts that queued run, exactly as regenerate-manifest.yml records for its own dispatch. The
-  # next night's gate finds the tag unchanged and rebuilds, so it self-heals.
-  # "Re-run all jobs" after a release was already sealed concludes SUCCESS having published nothing:
-  # the gate finds the tag it minted on the first attempt pointing at this very commit and skips both
-  # jobs. That is the single-job behaviour unchanged, and manifest-freshness.yml is what notices.
-  #
-  # This is the shape publish.yml has carried since it was written - a build job whose artifact an
-  # upload job releases - brought to this leg rather than invented for it.
-  #
-  # publish-jf12-stable.yml has the same build/publish split since #1833, for a different reason: that
-  # is where both legs started building through build.yml. The two 10.11 legs stay on `main` with the
-  # 4.3 line and are not on this branch.
-  #
-  # THE PACKAGE IS BUILT BY THE REUSABLE build.yml, WITH PROVENANCE (#1833). Until that change this job
-  # built inline and attested nothing, so no 5.x beta carries an attestation. build.yml attests the zip
-  # inside a reusable workflow (SLSA Build L3), generates the SBOM in a job of its own that holds no
-  # signing scope, and uploads the zip, its metadata, the effective build.yaml and the provenance bundle
-  # as `build-artifact`, with the SBOM and the VEX as `sbom-artifact` and `vex-artifact`. The caller
-  # contract in build.yml's header is why this job grants id-token and attestations write; it holds no
-  # write access to the repository, which lives on `publish` alone.
-  #
-  # WHAT THE CALL DOES NOT CARRY OVER from the inline job it replaced: a `dotnet build --warnaserror` of
-  # the whole solution ahead of packaging. JPRM compiles the plugin under the same Directory.Build.props,
-  # which sets TreatWarningsAsErrors and, on Actions, RestoreLockedMode, so the shipped assembly meets
-  # both; the test, bench and fuzz projects are compiled by the pull-request CI rather than here.
   package:
     name: Build the JF12 beta package
     needs: [gate, provider-matrix]
@@ -212,44 +98,29 @@ jobs:
     if: needs.gate.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Creates the GitHub release and updates the manifest branch, so this is where the write grant is.
     permissions:
       contents: write
 
     steps:
-    # THE CHECKOUT COMES FIRST AND THE ORDER IS LOAD-BEARING. actions/checkout cleans the workspace, so
-    # a checkout after the download would delete the package it is about to release. The tree is here
-    # only so the two local actions below resolve; nothing else in this job reads it, and build.yaml in
-    # it carries the committed version rather than this run's - the shipped one is inside the artifact.
+    # The checkout comes first: actions/checkout cleans the workspace and would delete a download.
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    # The zip, JPRM's `*.zip.meta.json` (the manifest generator's only input), the effective build.yaml
-    # with this run's version in it, and the provenance bundle `<zip>.intoto.jsonl`.
     - name: Download the package built above
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: build-artifact
         path: _dist
-    # CycloneDX SBOM of the net10 shipping closure, generated in build.yml's isolated sbom job.
     - name: Download the SBOM
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: sbom-artifact
         path: _dist
-    # The committed OpenVEX document (#1092/#1093).
     - name: Download the VEX
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: vex-artifact
         path: _dist
-    # THE VERSION IS RE-ASSERTED ON THIS SIDE OF THE JOB BOUNDARY. In one job the release step sat two
-    # steps below the `if [ -z "$base" ]` guard, with nothing between them that could blank the value.
-    # A cross-job read cannot fail that way: `needs.<job>.outputs.<name>` answers the empty string for a
-    # name that does not exist rather than erroring, so a later edit to the `outputs:` block above -
-    # a rename, a typo - would mint the tag `-JF12-beta.<run>` and burn it permanently, this repository
-    # having immutable releases. The gate's own regex would never match that tag again either, so the
-    # daily run would go on re-publishing. One test, before anything is created.
     - name: Check the version survived the job boundary
       env:
         BASE: ${{ needs.gate.outputs.base }}
@@ -262,9 +133,6 @@ jobs:
         if ! printf '%s' "$BETA" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
           echo "::error::The gate job handed over beta='${BETA}', which is not a four-part version"; exit 1
         fi
-        # AND THAT THE TWO NAME ONE BUILD. The git tag is built from BASE and the run number while the
-        # installed plugin version is BETA, so they are two independently carried names for the same
-        # thing and a release whose tag and version disagree is one nobody can match up afterwards.
         if [ "$BETA" != "${BASE}.${GITHUB_RUN_NUMBER}" ]; then
           echo "::error::base='${BASE}' and beta='${BETA}' do not name one build at run ${GITHUB_RUN_NUMBER}"; exit 1
         fi
@@ -272,20 +140,13 @@ jobs:
     - name: Prepare GitHub Release assets
       run: |-
         pushd _dist
-        # A release without its provenance bundle is the defect #1833 repaired, so its absence reds
-        # here rather than publishing without it.
         ls ./*.zip.intoto.jsonl
-        # ONLY the plugin zip gets a `.md5` - see the same note in publish-beta.yml. The
-        # manifest generator keeps the LAST asset ending in `.md5`, so a second one
-        # sorting after the plugin's becomes the published checksum and every install
-        # fails verification.
+        # ONLY the plugin zip gets a .md5: the manifest generator keeps the LAST .md5 as checksum.
         for file in ./*.zip; do
           md5sum ${file#./} > ${file%.*}.md5
           sha256sum ${file#./} > ${file%.*}.sha256
         done
         sha256sum sbom.cyclonedx.json > sbom.cyclonedx.sha256
-        # Also the staging check: sha256sum exits non-zero on a missing file under `bash -e`,
-        # so a leg that failed to place the document reds here instead of publishing without it.
         sha256sum openvex.json > openvex.sha256
         ls -l
         popd
@@ -293,28 +154,13 @@ jobs:
       id: publish-assets
       uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
-          # Immutable-releases repo: attach assets while the release is a DRAFT, then publish the draft
-          # (same flow as publish-beta.yml). Release NAME is the clean 5.1.1-JF12-beta; the git TAG
-          # carries the build number (5.1.1-JF12-beta.<run>) to stay unique per run. The tag never
-          # matches publish.yml's [0-9]+.[0-9]+.[0-9]+-stable glob, so a JF12 beta never triggers the
-          # stable channel; prerelease: true keeps it out of any stable manifest. Installed plugin
-          # version is 5.0.0.<run> (hidden fourth octet keeps Jellyfin's update ordering monotonic).
           draft: true
           prerelease: true
           name: ${{ needs.gate.outputs.base }}-JF12-beta
           generate_release_notes: true
           fail_on_unmatched_files: true
           tag_name: ${{ needs.gate.outputs.base }}-JF12-beta.${{ github.run_number }}
-          # Anchor the tag to the exact commit this build ran on (#627 class). Without this the
-          # create-release API defaults target_commitish to the default branch's CURRENT head, which
-          # can have advanced past the dispatched commit by publish time - the tag would then name a
-          # commit this build did not ship and generate_release_notes would diff the wrong range.
-          # (Historically this leg ran from the retired 4.2 branch, where the default was outright
-          # wrong; pinning github.sha is correct on main too, so it stays.)
           target_commitish: ${{ github.sha }}
-          # One pattern now: build.yaml is staged beside the zip by build.yml and arrives inside the
-          # artifact, so the release ships the same asset set under the same names. Listing the working
-          # tree's build.yaml here would ship the committed version instead of this run's.
           files: |
             _dist/*
           body: |
@@ -326,19 +172,12 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Publish the draft release
-      # Seal the draft (assets attached) into an immutable published prerelease. A draft has no git tag
-      # yet, so publish by release id, not tag name. -F sends draft as a typed boolean.
       env:
         GH_TOKEN: ${{ github.token }}
         RELEASE_ID: ${{ steps.publish-assets.outputs.id }}
         REPO: ${{ github.repository }}
       run: gh api "repos/${REPO}/releases/${RELEASE_ID}" -X PATCH -F draft=false
     - name: Publish Beta Plugin Manifest
-      # ignorePrereleases: false so the beta is included. Regenerates manifest-beta from ALL prerelease
-      # releases - this build (targetAbi 12.0.0.0) and the 4.3 betas that remain on the channel (the last
-      # 10.11 builds, targetAbi 10.11.0.0). Each release ships its own build.yaml, so every version lands
-      # in the manifest with its correct targetAbi, and a Jellyfin server installs only the build matching
-      # its generation - which is what keeps a 10.11 server on 4.3 from the same URL.
       uses: ./.github/actions/generate-manifest
       with:
         plugin-metadata: _dist/*.zip.meta.json
@@ -347,17 +186,11 @@ jobs:
         include-prereleases: "true"
         github-token: ${{ github.token }}
     - name: Verify the published manifest
-      # Post-publish DETECTOR for the class of "the manifest ships a checksum that matches
-      # nothing" (#942) - it turns a silent, user-facing install outage into a red build.
-      # It does not prevent: the release is already sealed and the manifest already written
-      # by the time it runs.
       uses: ./.github/actions/verify-manifest
       with:
         repository: ${{ github.repository }}
         manifest-branch: manifest-beta
         github-token: ${{ github.token }}
         expect-version: ${{ needs.gate.outputs.beta }}
-        # 10.11.0.0 stays required although nothing here builds for it: the 4.3 betas are the last
-        # builds a 10.11 server can install, and a regeneration that lost them would empty that
-        # generation's repository (#943, #1770).
+        # 10.11.0.0 stays required though nothing here builds for it: 4.3 betas serve 10.11 servers.
         require-abis: "10.11.0.0 12.0.0.0"

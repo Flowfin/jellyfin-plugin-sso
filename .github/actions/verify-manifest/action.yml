@@ -1,3 +1,6 @@
+# Proves a just-published manifest installs: downloads what it points at and checks the MD5.
+# Read the manifest through the API, not raw.githubusercontent: raw caches 300 s and serves stale.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing#actionsverify-manifest
 name: Verify the published plugin manifest
 description: >-
   Prove that a just-published plugin manifest actually installs: download exactly
@@ -94,15 +97,6 @@ runs:
         work="$(mktemp -d)"
         manifest="$work/manifest.json"
 
-        # Read through the API, which is read-your-writes against the commit the generator
-        # just made. Retried because the generator's write and this read are separate API
-        # calls; when a version is expected, the retry waits for THAT version rather than
-        # merely for a successful fetch - a fetch that succeeds with stale content is the
-        # failure mode, not a fetch that errors.
-        # manifest_is_current - is the fetched document the one this run expects to see? Both
-        # the expected version and the required ABIs are part of that question: asserting
-        # either against a single, possibly-lagging read would turn a slow API into a red
-        # build on a release that is already sealed and cannot be re-made.
         manifest_is_current() {
           if [ -n "$EXPECT_VERSION" ] && ! jq -e --arg v "$EXPECT_VERSION" \
                '.[0].versions | map(.version) | index($v)' "$manifest" >/dev/null 2>&1; then
@@ -131,8 +125,6 @@ runs:
           exit 1
         fi
 
-        # verify <version> - download what the manifest points at and compare.
-        # Returns non-zero on any mismatch, unreachable artifact, or missing entry.
         verify() {
           entry="$(jq -c --arg v "$1" 'first(.[0].versions[] | select(.version == $v))' "$manifest")"
           if [ -z "$entry" ] || [ "$entry" = "null" ]; then
@@ -145,9 +137,7 @@ runs:
             echo "::error::version $1 has an empty checksum or sourceUrl in the published manifest"
             return 1
           fi
-          # Retried: this runs moments after the release was sealed, and asset propagation
-          # can 404 or 5xx transiently - a false red here would fail an otherwise correct
-          # publish that can no longer be re-made (the release is immutable).
+          # Retried: asset propagation can 404 transiently and the sealed release cannot be re-made.
           if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --max-time 180 "$url" -o "$work/published.zip"; then
             echo "::error::version $1 - the manifest's sourceUrl is not downloadable: $url"
             return 1
@@ -161,10 +151,7 @@ runs:
           return 0
         }
 
-        # An ASSIGNMENT, not a `for … in $(...)` word list: `set -e` ignores a failed
-        # command substitution in a for-list, so a jq error there would yield zero
-        # iterations and a green run - the gate would pass on an empty, truncated or
-        # non-JSON manifest, which is exactly the catastrophic case it must catch.
+        # An assignment, not a for-list: set -e ignores a failed substitution in a for-list.
         abis="$(jq -r '.[0].versions | map(.targetAbi) | unique | .[]' "$manifest")" || {
           echo "::error::the published manifest is not a readable plugin manifest (jq could not read .[0].versions); first bytes: $(head -c 200 "$manifest")"
           exit 1
@@ -177,14 +164,7 @@ runs:
         fail=0
         checked=0
 
-        # DID THE ABI SET SHRINK? This is the undated form of the eviction check, and it is
-        # the one that matters: a generation is pushed out of the manifest by the OTHER
-        # generation publishing (the generator reads only the first 30 releases, and the
-        # JF10.11 line publishes far more often than the JF12 one). So the leg that must
-        # notice is whichever one just published - no per-leg list of ABIs to keep in step
-        # with reality, and no value that silently expires when a new generation goes GA.
-        # Compared against the previous revision of this same manifest branch; on the very
-        # first publish there is none, and the check simply does not apply.
+        # Compared with the previous revision: a generation is evicted by the other one publishing (#943).
         prev_sha="$(gh api "repos/${REPO}/commits?path=manifest.json&sha=${BRANCH}&per_page=2" --jq '.[1].sha // empty' 2>/dev/null || true)"
         if [ -n "$prev_sha" ] \
            && gh api "repos/${REPO}/contents/manifest.json?ref=${prev_sha}" \
@@ -200,9 +180,6 @@ runs:
           echo "note: no previous revision of this manifest to compare against; the shrink check does not apply"
         fi
 
-        # An explicit floor on top, for generations known to belong in this manifest today.
-        # Quoted expansion: $abis is already newline-separated, and leaving it unquoted lets
-        # pathname expansion match a stray filename and report an absent ABI as present.
         for required in $REQUIRE_ABIS; do
           if printf '%s\n' "$abis" | grep -qxF "$required"; then
             echo "ok   abi=$required is present"
@@ -224,7 +201,6 @@ runs:
           fi
         done
 
-        # Belt and braces: a run that verified nothing must never report success.
         if [ "$checked" -eq 0 ]; then
           echo "::error::the verification checked no manifest entries at all"
           exit 1

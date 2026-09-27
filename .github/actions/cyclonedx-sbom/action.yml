@@ -1,3 +1,6 @@
+# Emits a CycloneDX JSON SBOM of the plugin's locked net10.0 restore graph for a publish leg.
+# Keep --disable-package-restore: the SBOM must describe the locked closure, not a fresh restore.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing#actionscyclonedx-sbom
 name: Generate CycloneDX SBOM
 description: >-
   Emit a CycloneDX JSON SBOM for the SSO-Auth plugin from the locked restore
@@ -23,15 +26,7 @@ runs:
     - name: Generate CycloneDX SBOM
       id: generate
       shell: bash
-      # CycloneDX is a NuGet global tool, so it is pinned by VERSION - the correct
-      # pin mechanism for a NuGet package, and stricter than adopting a single-
-      # release third-party wrapper action into the SHA-pin trust set. It reads the
-      # caller's already-restored graph (`--disable-package-restore`): the real
-      # restore ran under RestoreLockedMode against the committed packages.lock.json,
-      # so the SBOM documents exactly the locked closure and no drifted or poisoned
-      # package can be pulled in merely to describe the bill of materials. The
-      # output path is passed through an env var, not interpolated into the script,
-      # so a caller value can never be evaluated as shell.
+      # A NuGet global tool is pinned by version; the output path goes through env, never the script.
       env:
         OUTPUT_DIR: ${{ inputs.output-dir }}
       run: |

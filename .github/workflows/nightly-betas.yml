@@ -1,35 +1,15 @@
+# Daily scheduler on the default branch: dispatches publish-jf12-beta.yml on the line branch.
+# The --ref below is the branch the betas build from: rename that branch and this line follows.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing#nightly-betasyml
 name: Nightly betas
 
-# Publish betas on a daily cadence instead of on every push (#632). GitHub `schedule` events only run
-# a workflow from the DEFAULT branch, so this single scheduler lives on the default branch. It
-# dispatches one beta leg, publish-jf12-beta.yml (JF12).
-#
-# THE JF10.11 LEG ENDED WITH 4.3.0-stable (#1511). 4.3 was the last release for Jellyfin 10.11, and
-# on 2026-09-15 it was promoted and work on that line stopped by decision. Its nightly dispatch of
-# publish-beta.yml is removed rather than left to mint betas after the stable: a JF10.11 beta built
-# after the stable would sit above it on the beta channel for a line nobody works on. publish-beta.yml
-# itself stays on `main` with the 4.3 line and is not on this branch (#1770).
-#
-# THE JF12 REF IS THE DEVELOPMENT BRANCH (#1585). While the JF12 leg pointed at the frozen `main` it
-# published the same code every night with a rising build number while the work sat unreleased, so
-# it builds from the branch the work is developed on. If that branch is ever renamed, the `--ref`
-# below is the one line that has to follow it. It was renamed from `4.4` to `5.0` on 2026-09-09 and
-# this line followed one merge too late (#1592). On 2026-09-21 the 5.0 line shipped
-# `5.0.0-JF12-stable` and the ref moved to `5.1` (#1729), the line that carries the work from here;
-# a beta built from `5.0` after its stable would sit above the stable on the beta channel for a line
-# that only takes fixes forward on `5.1`.
-#
-# Each dispatched workflow has its own gate job that skips the build unless its ref has advanced since
-# that lineage's last beta, so an unchanged day mints nothing.
 on:
   schedule:
     - cron: "0 4 * * *" # 04:00 UTC, once daily
   workflow_dispatch:
 
-# Deny-all at the workflow level; the job opts into the single grant it needs.
 permissions: {}
 
-# Never run two dispatchers at once; never cancel one mid-flight.
 concurrency:
   group: nightly-betas
   cancel-in-progress: false
@@ -39,21 +19,10 @@ jobs:
     name: Dispatch the daily beta builds
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only permission needed: workflow_dispatch the two publish workflows. REPO is passed via env so no
-    # ${{ }} expansion is spliced into the shell.
     permissions:
       actions: write
     steps:
       - name: Trigger the JF12 beta (the 5.1 development branch)
-        # The job fails if the dispatch fails, and "Publish failure alert" watches this workflow, so the
-        # failure is surfaced (#982). The `if:` below dates from when a JF10.11 step ran first and this
-        # one had to run whether or not that one failed; with one step it changes nothing and is kept.
-        #
-        # The ref is the development branch rather than `main`, for the reason in the header. The
-        # first run after this lands publishes: that leg's gate compares its ref's HEAD to the commit
-        # the newest 5.1.0-JF12-beta tag points at, there is none yet, and the gate's fail-open default
-        # is to build. That is the same shape as the #954 move off the 4.2 branch, which its own
-        # comment records.
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}

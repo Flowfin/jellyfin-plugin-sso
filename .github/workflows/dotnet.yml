@@ -1,3 +1,6 @@
+# Builds, tests and scans the plugin on every push and pull request; the required checks live here.
+# Do not rename the `build` job or give it a `name:`: the ruleset's required check matches that id.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#dotnetyml
 name: .NET
 
 on:
@@ -6,21 +9,14 @@ on:
   pull_request:
     branches: [ "**" ]
 
-# Read-only: build/test/scan only, no job here writes to the repo or a release.
 permissions:
   contents: read
 
-# Cancel a superseded run on the same ref so a new push / PR update does not
-# queue behind an obsolete build.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # No `name:` on this job: the "Protect main" ruleset's required status check
-  # matches the literal check-run name, which defaults to the job id ("build")
-  # when no `name:` is set. Overriding it here would rename the check run and
-  # silently break the required-status-check gate.
   build:
 
     runs-on: ubuntu-latest
@@ -29,219 +25,56 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # No step pushes via git, so do not leave the GITHUB_TOKEN persisted in
-        # .git/config (zizmor "artipacked" hardening - shrinks the credential blast radius).
         persist-credentials: false
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        # The one SDK the build needs: net10.0 for the Jellyfin 12 line, installed explicitly rather than
-        # relying on whatever the runner image happens to ship. The 9.0.x line stood beside it for the
-        # Jellyfin 10.11 leg until #1770 retired that target.
         dotnet-version: 10.0.x
-        # Cache the NuGet global-packages folder keyed on the committed lockfiles,
-        # so a clean --locked-mode restore is a cache hit.
         cache: true
         cache-dependency-path: '**/packages.lock.json'
     - name: Jellyfin compatibility metadata check
       run: bash scripts/check-jellyfin-compat.sh
     - name: Settings-page field and controller reconciliation
-      # The settings surface is five pages since #1527, and two properties hold it together that no
-      # C# rule can see: every one of the page's form controls is on the tab docs/ui/mock/FIELDS.md
-      # names for it, and each page's controller only reaches ids its own page declares. The second
-      # is the one that costs: the controllers register their handlers unguarded, so an id that
-      # moved to another tab is a TypeError that leaves the REST of that page's controls inert.
-      # Until this step the tool existed and nothing ran it, so both were prose (#1526 built it,
-      # #1527 widened it and gated it here). Node is preinstalled on the runner and the tool has no
-      # dependencies, so this adds no install.
       run: node tools/ui-mock-fields.js
     - name: Unsaved-changes state of the settings pages
-      # The step above and every C# rule over these assets read their TEXT, so none of them can say what
-      # the unsaved-changes state DOES - and inverting its one condition is exactly how it fails: a page
-      # that reads clean while it holds an edit is re-read on the next tab return and the edit is gone
-      # (#1572). This runs the shipped sso-core.js against the shipped serverPage.html and refuses each
-      # arm by name. Same runtime and same absence of dependencies as the step above.
       run: node tools/ui-unsaved-state.js
     - name: Library checklists on both client shapes
-      # The two steps above read the assets or drive the unsaved-changes state; neither can say whether a
-      # LIST DRAWS, and that is where #1607 sat. `createElement("input", { is: ... })` is correct on 10.11
-      # and throws on the Jellyfin 12 client, which registers no emby-* customized built-in and refuses the
-      # options argument outright, so the provider page's library checklists came up empty on a server with
-      # libraries and the next save wrote that emptiness over the provider's folder restriction. This runs
-      # the shipped sso-core.js against both client shapes and refuses each arm by name. Same runtime and
-      # same absence of dependencies as the two steps above.
       run: node tools/ui-folder-checklist.js
     - name: Sentences that bypass the translation catalog
-      # de.json and en.json carry the same keys and nothing is missing from either, so every check the
-      # localization has is green while a de-DE administrator reads a page that is half English (#1602). A
-      # sentence written as a literal in the bundle never reaches a catalog, so it cannot be reported as
-      # absent from something it was never in - the gap is invisible to a completeness check by
-      # construction. This pins the COUNT instead, and refuses it moving either way: up is the drift, and
-      # down without lowering the pin leaves slack the next one hides in. Same runtime and same absence of
-      # dependencies as the three steps above.
       run: node tools/ui-untranslated.js
     - name: Template text that bypasses the translation catalog
-      # The step above reached zero and asks only about the SCRIPTS. Text written between two tags is not
-      # a literal in a bundle, so no amount of scanning JavaScript finds it, and the walk of 2026-09-11
-      # read a de-DE client showing five pages of mixed language while every localization check in the
-      # tree was green (#1529). This counts the TEXT RUNS and the localizable attributes the six templates
-      # show without a marker, and ratchets them the same way. Same runtime and same absence of
-      # dependencies as the four steps above.
       run: node tools/ui-untranslated-markup.js
     - name: A sentence that holds markup
-      # The C# rules over the catalogs read TEXT, and they can say that a parts value names the same slots
-      # the element has children. What they cannot say is what happens when it does not, and that is the
-      # whole safety of the mechanism: the applier must leave the English sentence whole rather than
-      # assemble a partial one, because a sentence missing the `<code>` sample out of instructions for
-      # recovering from a lockout is worse than a sentence in the wrong language (#1529). A live server
-      # cannot answer it either, since its catalog comes from the server and the refusal cases would need a
-      # broken one shipped to reach them. Same runtime and same absence of dependencies as the steps above.
       run: node tools/ui-sentence-parts.js
     - name: The linked-accounts filter
-      # A filter is not a string, so no rule that reads these assets can judge it, and both ways it goes
-      # wrong are silent (#1529). A narrowed table that does not say it is narrowed looks exactly like a
-      # complete one, and an administrator counting rows to answer "how many accounts are linked" gets the
-      # filter's answer. A filter with no match that says "no account holds a link" is a statement about
-      # the server rather than about the box, on a page whose other button revokes links. This drives the
-      # shipped renderer and refuses both by name. Same runtime and same absence of dependencies as the
-      # steps above.
       run: node tools/ui-account-filter.js
     - name: The pending-approvals panel
-      # The panel decides which accounts an administrator is offered to ENABLE, and every property that
-      # matters is a decision rather than a string (#1529): which rows are built, what the button sends,
-      # and what the page says when the server refuses. A row the server did not report would be an
-      # offer to enable an account nobody provisioned inert; a body that lost a slash would refuse the
-      # subject that carries one; a bare 403 read as the administrator refusal would send a signed-out
-      # reader to the dashboard for the wrong reason. This drives the shipped panel against a recording
-      # ApiClient and refuses each by name. Same runtime and same absence of dependencies as the steps above.
       run: node tools/ui-pending-approvals.js
     - name: The self-service unlink
-      # The one control a user has over their own links, on the page a non-admin actually reaches
-      # (#1731). Both properties are decisions rather than strings, and both fail silently: whether the
-      # page ASKS before the press depends on counting the links that can still sign the holder in,
-      # across rows two different branches build, and whether it SAYS why afterwards depends on telling
-      # the stranding 403 from the two other 403s this route answers. A page that never asks looks
-      # exactly like one whose condition is wrong, and the server's refusal shown as the generic banner
-      # reads as a broken page - which is pressed again. This drives the shipped linking.js against a
-      # recording ApiClient and both catalogues, and refuses each by name. Same runtime and same absence
-      # of dependencies as the steps above.
       run: node tools/ui-self-service-unlink.js
     - name: The sign-out-everywhere control
-      # The one control on the self-service page that ends a session rather than a link (#1768). It exists
-      # so that the RP-initiated logout is reached with one press and WITHOUT the access token in a URL,
-      # and whether it keeps that promise is decided at press time: the route it navigates to is built
-      # from what the server answered, so a page that fell back to the token when the mint failed,
-      # navigated before the ticket arrived, or minted twice for one press reads identically to a rule
-      # over the source. This drives the shipped linking.js against a recording ApiClient whose access
-      # token is a known sentinel, presses the control, and refuses a navigation carrying that sentinel
-      # or an api_key, a navigation with no ticket, a second mint in flight, and a refusal shown as the
-      # generic banner - against both catalogues. Same runtime and same absence of dependencies as the
-      # steps above.
       run: node tools/ui-sign-out-everywhere.js
     - name: The Test Connection verdict
-      # The verdict of a Test Connection is built on the other side of an HTTP call, so no scan of the
-      # bundle can see it, and the sentence stayed English on a German dashboard while every localization
-      # gate above was green (#1728). The server now answers with catalogue keys and the page renders them,
-      # and whether it does is a decision rather than a string: a renderer writing the key, the English
-      # default or a blank line reads the same to a rule over the text. This drives the shipped renderer
-      # through the page's own localize() against both catalogues and refuses each by name. Same runtime
-      # and same absence of dependencies as the steps above.
       run: node tools/ui-test-verdict.js
     - name: The help census
-      # Stage 2 of the 4.4 surface moves every help text these five pages show - a first sentence under
-      # the field, the whole text behind a `<details>`, the same text in the rail - and promises that
-      # nothing is deleted, only moved (#1661). Nothing could check that promise. The C# rules in
-      # LocalizationCatalogTests are key-wise over ALL assets pooled together, so a key that survives on
-      # one page covers its own deletion from another: drop the `config.template_bitrate_help` field from
-      # the Policies page and every one of them stays green, because the Providers page still names that
-      # key twice. This reconciles docs/ui/HELP-CENSUS.md against the pages in both directions, per page
-      # and per field, and counts the prose itself - missing is a deletion, twice is a copy left standing,
-      # elsewhere is a move to the wrong field. Same runtime and same absence of dependencies as the
-      # steps above.
       run: node tools/ui-help-census.js
     - name: The condensed help
-      # The census above reads BYTES, and a help text sealed inside a fold nobody named, over a lead line
-      # that stays empty because no applier ran, satisfies it exactly as well as a working field does - the
-      # text is present, once, in the field that names it, and no reader ever sees it (#1662). This reads
-      # the authored markup and then LOADS SSO-Auth/Web/i18n.js and drives it over both catalogues, so the
-      # sentence the applier derives is judged rather than assumed. It refuses a help text still written
-      # flat, a fold with no lead line to fill, a summary named by anything but the row the folds share, a
-      # sentence under the field that is not the first sentence of the text behind it, a fold hidden while
-      # it holds more, and a rail card answering a field that does not have focus. Same runtime and same
-      # absence of dependencies as the steps above.
       run: node tools/ui-condensed-help.js
     - name: The readiness rail
-      # #1664 moved the readiness panel out of the two provider editors and into ONE card in the rail, so
-      # the rail became the only place readiness appears - and nothing here could say what it DOES. The C#
-      # rules in ProviderCheckSurface read the two ids, the list shipping "hidden" and each spec's required
-      # ids; a rail that quietly stops being filled satisfies all three, and a page whose readiness list is
-      # empty looks exactly like a page where every provider is fine (#1678). Worse is the confident
-      # direction: one shared list removed the isolation two panels had, so a reply for the protocol that is
-      # no longer open could paint its answer under the other form. This drives the shipped sso-core.js over
-      # the shipped providersPage.html ids and labels and refuses each way the card can be wrong by name,
-      # behind a calibration that runs positive and negative before the real page is opened. Same runtime and
-      # same absence of dependencies as the steps above.
       run: node tools/ui-readiness-rail.js
     - name: The provider wizard
-      # The wizard is the one thing on this surface that is made entirely of decisions: which step opens
-      # the next, and what it says when it refuses to (#1665). Every rule this tree already has over these
-      # assets reads TEXT - the catalogue tests can say each refusal sentence exists in both languages, the
-      # field reconciliation can say every id the controller reaches is on this page - and none of them can
-      # ask whether a step that is not complete opens the next one anyway. That failure is the confident
-      # one: a wizard whose gates always pass walks an administrator to Enable with an endpoint that has
-      # never answered, which is the state its last step exists to prevent. This runs the shipped
-      # sso-core.js over the shipped providersPage.html, presses the wizard's own buttons after running its
-      # controller, and refuses each way it can be wrong by name, behind a calibration that runs positive
-      # and negative before the real page is opened. Same runtime and same absence of dependencies as the
-      # steps above.
       run: node tools/ui-provider-wizard.js
     - name: The option folds
-      # The Sensitive and Insecure regions are folds now (#1666), and a fold that names only its region is
-      # a closed box over a live downgrade: an administrator reads "Insecure options", sees it collapsed,
-      # and cannot tell from the page that one of the six inside is ticked. So the summary carries a count,
-      # and a count that is WRONG is worse than none - "0 of 6 in use" over a ticked DisableHttps tells an
-      # administrator the opposite of the truth. Nothing else here can ask it: the C# rules read the markup
-      # and the field census reads which region a control sits in, and a page whose summaries never get
-      # filled satisfies both. This reads the shipped markup for four collapsed folds with somewhere to put
-      # a count, then drives the shipped sso-core.js recount over a tree built out of that same markup, in
-      # both directions and for a ticked box as well as a filled field. Behind a calibration that runs
-      # positive and negative before the real page is opened. Same runtime and same absence of dependencies
-      # as the steps above.
       run: node tools/ui-option-folds.js
     - name: Overview downgrade-mark check
-      # Overview is the page an administrator opens BEFORE they have decided which provider they mean, so
-      # a provider with an OpenID security defense switched off, or with account adoption widened, has to
-      # say so there and not only on the card of the tab somebody reaches once they already know (#1727).
-      # A mark that is simply always present is the same page as no mark at all, which is why every arm
-      # here pairs a flagged card with a clean one in the SAME render and refuses both directions. It
-      # drives the shipped sso-core.js renderer over a stub tree rather than reading its text: which card
-      # carries which row is a decision the renderer takes, and no reading of these assets makes it. Same
-      # runtime and same absence of dependencies as the steps above.
       run: node tools/ui-overview-downgrade-mark.js
     - name: Dropped-secret report check
-      # A save with a blank secret field drops the stored client secret when the discovery endpoint or
-      # the client id changed, and the page used to say "saved" (#1872). The rule is the server's and is
-      # right; the page reads the answer back and says it. Whether it says it is a decision inside a
-      # function, so this drives the shipped sso-core.js decision over every pair of readings with a
-      # known answer, and reads the order of the two statements the answer depends on. Same runtime and
-      # same absence of dependencies as the steps above.
       run: node tools/ui-secret-dropped.js
     - name: VEX document check
-      # The published VEX statements are only useful if they parse and carry machine-readable
-      # dispositions, so a malformed edit fails here rather than at the release leg that ships the
-      # document (#1092). Structural only: the product-against-SBOM leg of the same checker takes the
-      # SBOM as a second argument, and no SBOM exists at this point in the job.
       run: python3 scripts/check-vex.py security/vex/openvex.json
     - name: Release-leg VEX check
-      # A valid document nobody ships is worth nothing to a consumer, so the leg set is
-      # checked here too: every workflow that stages the SBOM as a release asset also stages
-      # the VEX, with a sha256 and no md5 (#1093). Static, because the release legs run on a
-      # tag rather than on a pull request - this is the only route that reads them before the
-      # release they would have shipped from.
       run: python3 scripts/check-release-vex.py
     - name: Restore dependencies
-      # --locked-mode fails the restore if the committed packages.lock.json files would change,
-      # so a drifted or tampered dependency graph cannot build in CI.
       run: dotnet restore --locked-mode
     - name: Vulnerable dependency scan
       run: |
@@ -253,49 +86,13 @@ jobs:
         fi
     - name: Build
       run: dotnet build --no-restore --warnaserror
-    # The fuzz harness is deliberately absent from SSO-Auth.sln, so the restore and
-    # build above never see it and a module rename in the plugin could break it
-    # unnoticed until the weekly fuzzing run days later (#1132, #1008). Compiling it
-    # inside the job the "Protect main" ruleset gates on makes that break red on the
-    # PR that causes it.
-    #
-    # It stays OUT of the solution and is built by path on purpose: joining the
-    # solution would also pull it into `dotnet test`, the coverage gate and the
-    # vulnerable-dependency scan above, all of which are meant to see the shipping
-    # project set and nothing else.
-    #
-    # This compiles the harness; it does not fuzz. No clang, no `sharpfuzz` CLI and
-    # no libFuzzer runtime is needed for that, and the libFuzzer run itself stays
-    # non-gating in fuzz.yml, which gains no push or pull_request trigger.
     - name: Restore the fuzz harness (locked)
-      # Same --locked-mode reasoning as the solution restore above: the harness has
-      # its own committed packages.lock.json and a drifted graph must not build.
       run: dotnet restore SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj --locked-mode
     - name: Build the fuzz harness (Release)
       run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror
-    # Replaying the committed seeds is a BEHAVIOURAL gate, and it is a different
-    # question from the compilation above: a plugin change can leave the harness
-    # building perfectly while making a known-hostile input throw an exception the
-    # fail-closed filters do not name, which on the real callback is an
-    # unauthenticated 500. Smoke mode needs no clang, no `sharpfuzz` CLI and no
-    # libFuzzer runtime, so this costs seconds; the coverage-guided run stays
-    # non-gating in fuzz.yml, which still has no push or pull_request trigger.
-    #
-    # The target list is DERIVED from the corpus directories rather than written
-    # here, so a target added to the harness is replayed by the fact of having a
-    # corpus and cannot be silently uncovered by a list nobody updated.
-    #
-    # Both empty answers are failures. RunSmoke exits 2 for a missing directory but
-    # 0 for a directory that happens to hold nothing, so a corpus that stopped
-    # being checked out, or a glob that stopped matching, would otherwise read as a
-    # clean pass. The seed count is counted here and required to be non-zero, and
-    # the whole loop is required to have found at least one target.
     - name: Replay the fuzz seed corpus
       run: |
         set -o pipefail
-        # nullglob so a corpus that vanished leaves the loop with nothing to do and
-        # is caught by the counter below, rather than by `find` failing on a literal
-        # unexpanded glob - both fail the step, but only one of them says why.
         shopt -s nullglob
         targets=0
         for dir in SSO-Auth.Fuzz/corpus/*/; do
@@ -317,34 +114,14 @@ jobs:
         echo "Replayed ${targets} target(s) with no unmapped exception."
     - name: Test
       run: dotnet test --no-build --verbosity normal
-    # Line and branch coverage for the RC coverage gate (#718, #1109). A second,
-    # instrumented run of the net10.0 leg (the MTP CodeCoverage extension emits
-    # Cobertura, carrying the branch counts per line as condition-coverage); the
-    # plain run above stays the canonical pass/fail signal for test correctness,
-    # so a test failure under instrumentation (exit code 2 - timing heisenbugs
-    # under the ~13x instrumentation overhead) is ignored HERE only; the
-    # zero-tests exit (8) and any collector failure still fail this step.
+    # --ignore-exit-code 2 tolerates a test failure under instrumentation only; the Test step above is the verdict.
     - name: Coverage (net10.0)
       run: dotnet test --project SSO-Auth.Tests/SSO-Auth.Tests.csproj -f net10.0 --no-build --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --ignore-exit-code 2
     - name: Enforce the security-surface coverage bars
-      # Fail-closed thresholds on the security-decision surface only (#718, #1109):
-      # the whole-codebase line and branch numbers are reported into the job
-      # summary below and go no further, while the gate keys on the modules that
-      # decide auth/authz/linking/abuse outcomes, so a trivially-thin non-critical
-      # path cannot trip it and a security-path regression cannot slip through it.
-      #
-      # set -o pipefail is LOAD-BEARING: without it the step's status is tee's
-      # exit 0 and every rejection the script makes (below-bar, unreadable or
-      # empty report) would be silently discarded - the gate would be decorative.
-      # GitHub's default shell for a bare `run:` is `bash -e` WITHOUT pipefail
-      # (the same trap the vulnerable-dependency step above guards against).
       run: |
         set -o pipefail
         python3 scripts/check-coverage.py TestResults/coverage.cobertura.xml | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Upload coverage report
-      # always(): the report must survive a gate failure - it is exactly the
-      # artifact needed to diagnose one. if-no-files-found stays error, so a
-      # missing report still reds the job through this step.
       if: ${{ always() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
       with:
@@ -353,14 +130,6 @@ jobs:
         if-no-files-found: error
         path: TestResults/coverage.cobertura.xml
 
-  # Verify the plugin's used Jellyfin API surface actually exists on the OLDEST server it claims to
-  # support (build.yaml targetAbi), not only in the SDK the shipping build compiles against. A member
-  # added after the floor would compile against the SDK but throw MissingMethodException at login on an
-  # older server (#142). Builds SSO-Auth against Jellyfin.* pinned to that floor. TODAY THE FLOOR IS
-  # THE PIN: build.yaml's targetAbi is 12.0.0.0 and SSO-Auth.csproj compiles against 12.0.0, so this job
-  # proves the same thing as the build job until the pin moves above the floor (#1770). It stays,
-  # because the day the pin moves is the day it bites, and its job name is a required status context
-  # on the branch ruleset.
   abi-floor:
     name: ABI floor build
     runs-on: ubuntu-latest
@@ -380,16 +149,11 @@ jobs:
         echo "version=$floor" >> "$GITHUB_OUTPUT"
         echo "Building against Jellyfin $floor (the declared targetAbi floor)."
     - name: Build against the ABI floor
-      # A Jellyfin version that may differ from the shipping build's, so locked-mode is off here;
-      # --warnaserror turns any missing or changed API on the floor into a hard failure. One target
-      # since #1770, so no -f: `dotnet build` builds net10.0 and nothing else.
       env:
         FLOOR: ${{ steps.floor.outputs.version }}
+      # RestoreLockedMode=false on purpose: the floor version differs from the lockfile's pin.
       run: dotnet build SSO-Auth/SSO-Auth.csproj -c Release --warnaserror -p:JellyfinVersion="$FLOOR" -p:RestoreLockedMode=false
 
-  # Size report for the lean pass (#1887): comment lines and their delta against the base, comment
-  # blocks over 10 lines, methods over 60 code lines, files over 500 code lines, workflow comment
-  # lines. It reports and does not gate; the budgets are #1886's table and the ratchet is #1906.
   lean:
     name: Size report
     runs-on: ubuntu-latest
@@ -398,7 +162,6 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-        # The delta reads the base of the pull request out of git, so both ends have to be present.
         fetch-depth: 0
     - name: Measure the product source and the workflows
       env:
@@ -409,15 +172,9 @@ jobs:
         if [ -n "$BASE" ]; then args+=(--base "$BASE"); fi
         python3 tools/lean.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # Verify the plugin actually packages as a loadable Jellyfin plugin (JPRM builds it against the
-  # targeted ABI and produces the manifest) on every PR, not only at release time.
   package:
     name: Package (JPRM)
-    # build.yml is a reusable workflow whose build job declares id-token/attestations: write for its
-    # release-only SLSA attest step (#147). A caller must grant every permission the callee declares, or
-    # the reusable-workflow call fails to start ("workflow file issue"). This CI caller leaves `attest`
-    # at its default (false), so the attest step never runs and no token or attestation is minted - the
-    # grant only satisfies the reusable-workflow permission check.
+    # id-token/attestations: write only satisfy the reusable workflow's declared set; attest stays false, nothing is minted.
     permissions:
       contents: read
       id-token: write
