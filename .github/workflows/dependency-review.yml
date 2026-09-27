@@ -1,10 +1,11 @@
+# Dependency review on every pull request: new or upgraded dependencies checked for advisories.
+# Do not add a name: to the job: the required status context is the job id "dependency-review".
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#dependency-reviewyml
 name: Dependency review
 
 on:
   pull_request:
 
-# Read-only: the dependency-review action only inspects the PR diff against the
-# advisory database, it never writes to the repo.
 permissions:
   contents: read
 
@@ -13,10 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # No `name:` on this job: the "Protect main" ruleset's required status check
-  # matches the literal check-run name, which defaults to the job id
-  # ("dependency-review") when no `name:` is set. Overriding it here would
-  # rename the check run and silently break the required-status-check gate.
   dependency-review:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,7 +24,5 @@ jobs:
       - name: Dependency review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          # Fail closed: any known vulnerability in a newly introduced or
-          # upgraded dependency blocks the PR. Relax only with a documented
-          # reason.
+          # Fail closed: any known vulnerability in a new or upgraded dependency blocks the PR.
           fail-on-severity: low

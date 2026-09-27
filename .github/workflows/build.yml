@@ -1,3 +1,6 @@
+# Reusable build: JPRM packages the plugin, optionally attests it (SLSA L3), uploads zip, SBOM, VEX.
+# Every caller must grant contents:read, id-token:write, attestations:write, even with attest false.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Releasing#buildyml
 name: Build
 
 on:
@@ -24,25 +27,6 @@ on:
         description: "Plugin version to build instead of build.yaml's. Empty builds build.yaml's version unchanged."
         type: string
 
-# Deny-all at the workflow level; the build job opts into the scopes it needs. The
-# plain build only reads; the provenance attestation step (opt-in via `attest`)
-# needs an OIDC token and attestation write.
-#
-# ⚠️ REUSABLE-WORKFLOW CALLER CONTRACT - read before changing the build job's
-# permissions or adding a caller. Because the build job DECLARES id-token +
-# attestations: write below, EVERY caller of this reusable workflow MUST grant
-# those same scopes on its calling job - INCLUDING a caller that leaves `attest`
-# false. A caller that does not grant them fails the reusable-workflow call at
-# STARTUP ("workflow file issue", a 0–1s run), not at the attest step. (This bit
-# the .NET workflow once: dotnet.yml's package job called build.yml with only
-# contents:read and startup_failed the whole run.) The scopes are NOT "capped away"
-# for non-attesting callers - they are a hard prerequisite to start. Callers that
-# must keep granting contents:read + id-token:write + attestations:write:
-#   - .github/workflows/dotnet.yml              (CI Package job; leaves attest false)
-#   - .github/workflows/publish-jf12-stable.yml (attest: true)
-#   - .github/workflows/publish-jf12-beta.yml   (attest: true, with the beta's version)
-# Until #1833 neither 5.x publish leg called this workflow: both built inline, so every 5.x release up
-# to that change shipped checksums and an SBOM and no provenance.
 permissions: {}
 
 jobs:
@@ -58,7 +42,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # JPRM builds the plugin; nothing pushes via git, so drop the persisted token.
           persist-credentials: false
 
       - name: Setup .NET
@@ -66,10 +49,6 @@ jobs:
         with:
           dotnet-version: "${{ inputs.dotnet-version }}"
 
-      # A caller that builds under a version of its own (the JF12 beta's X.Y.Z.<run>) gets it written
-      # into build.yaml as well as handed to JPRM, so the build.yaml staged below is the one this
-      # build ran against. The manifest generator reads targetAbi and version from that asset.
-      # JPRM splices its `version` input into a shell command, so only a dotted number gets that far.
       - name: Check the requested version
         if: ${{ inputs.version != '' }}
         env:
@@ -94,17 +73,8 @@ jobs:
         id: jprm
         with:
           dotnet-target: "${{ inputs.dotnet-target }}"
-          # Empty is JPRM's own default, which reads build.yaml.
           version: "${{ inputs.version }}"
 
-      # SLSA v1.1 Build L3 provenance for the plugin zip. Running the attestation
-      # inside this reusable workflow is what lifts the provenance from Build L2 to
-      # L3: the recorded builder is a trusted, reusable workflow rather than an
-      # inline job. Gated on `attest` so only the release pipeline signs (CI/PR
-      # builds neither ship an artifact nor hold the signing token). The bytes
-      # attested here are the exact bytes the release ships (upload/download of
-      # `build-artifact` preserves them), so a downloaded release zip verifies with:
-      #   gh attestation verify <plugin>.zip --repo Flowfin/jellyfin-plugin-sso
       - name: Attest build provenance
         id: attest
         if: ${{ inputs.attest }}
@@ -112,10 +82,7 @@ jobs:
         with:
           subject-path: "${{ steps.jprm.outputs.artifact }}"
 
-      # The attestation lives in the platform's attestation store, where `gh attestation verify`
-      # finds it. A checker that reads release assets only (Scorecard's Signed-Releases) does not
-      # look there, so the same bundle also ships as an asset beside the zip (#1833). The name
-      # ends in neither `.zip` nor `.md5`, which the manifest generator selects its assets by.
+      # The bundle name ends in neither .zip nor .md5, which the manifest generator selects by.
       - name: Stage the provenance bundle and build.yaml beside the zip
         id: stage
         env:
@@ -136,28 +103,16 @@ jobs:
           name: build-artifact
           retention-days: 30
           if-no-files-found: error
-          # A re-run of every job in a publish run builds again under the same run id, where
-          # uploading a name the run already holds would be a conflict.
+          # A re-run of all jobs uploads under the same run id; without overwrite that conflicts.
           overwrite: true
-          # The zip AND the metadata JPRM writes beside it. The manifest generator reads that
-          # metadata (version, targetAbi and the plugin-level fields) as JSON rather than
-          # parsing build.yaml, because the runner image ships jq but NOT yq - verified against
-          # the runner-images tool list rather than assumed. build.yaml rides along because each
-          # release ships its own, and the bundle is there only when `attest` produced one: a
-          # listed path that matches no file adds nothing to the artifact.
+          # The .intoto.jsonl path matches no file when attest is false; that adds nothing.
           path: |
             ${{ steps.jprm.outputs.artifact }}
             ${{ steps.jprm.outputs.artifact }}.meta.json
             ${{ steps.jprm.outputs.artifact }}.intoto.jsonl
             ${{ steps.stage.outputs.dir }}/build.yaml
 
-  # The CycloneDX SBOM runs in its OWN release-only job, DELIBERATELY WITHOUT the
-  # signing scopes the build job holds. The SBOM generator installs a NuGet global
-  # tool at run time; keeping it out of the job that carries id-token/attestations
-  # write means a compromised tool can never reach the Sigstore signing identity or
-  # mint a provenance attestation (SLSA L3 build-isolation). The SBOM is shipped as
-  # a checksummed release asset (like the beta/JF12 legs), not attested - the
-  # isolation is worth more than attesting the side-document.
+  # No signing scopes on purpose: the SBOM tool is a run-time NuGet install (SLSA L3 isolation).
   sbom:
     name: Generate SBOM
     if: ${{ inputs.attest }}
@@ -171,16 +126,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # One SDK: the SBOM documents the net10.0 closure, which is the one target
-      # the plugin builds since #1770.
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
 
-      # Materialise the locked restore graph the SBOM reads. --locked-mode rejects a
-      # drifted or tampered graph (RestoreLockedMode is also forced in CI), so the
-      # SBOM documents exactly the committed packages.lock.json closure.
       - name: Restore dependencies
         run: dotnet restore --locked-mode
 
@@ -199,13 +149,6 @@ jobs:
           if-no-files-found: error
           path: ${{ steps.sbom.outputs.sbom-path }}
 
-      # The committed OpenVEX document, uploaded as its own artifact so the release leg
-      # can ship it beside the SBOM without checking out a tree over its downloaded assets
-      # (#1092/#1093). It rides this job because this job already has the tree, not because
-      # it is generated here - the statements are reviewed in the repository and shipped as
-      # reviewed. `if-no-files-found: error` keeps a deleted or moved document a red release
-      # rather than a release that quietly stops carrying its dispositions. The whole job is
-      # release-only (`if: inputs.attest`), so no CI or PR run pays for this.
       - name: Upload VEX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
         with:

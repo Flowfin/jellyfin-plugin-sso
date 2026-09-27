@@ -1,3 +1,6 @@
+# Prettier check on every push and pull request: js, html, md, css and scss must be formatted.
+# Do not add a name: to the job: the required status context is the job id "prettier".
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#prettieryml
 name: Prettier Lint
 
 on:
@@ -6,7 +9,6 @@ on:
   pull_request:
     branches: [ "**" ]
 
-# Read-only: the lint only inspects tracked files, it never writes.
 permissions:
   contents: read
 
@@ -15,17 +17,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # No `name:` on this job: the "Protect main" ruleset's required status check
-  # matches the literal check-run name, which defaults to the job id
-  # ("prettier") when no `name:` is set. Overriding it here would rename the
-  # check run and silently break the required-status-check gate.
   prettier:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
-        # Default checkout (the PR merge commit) - it is what should be linted,
-        # and checking out head_ref made the job an untrusted-checkout finding.
+        # Default checkout (the PR merge commit), not head_ref: that was an untrusted-checkout finding.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

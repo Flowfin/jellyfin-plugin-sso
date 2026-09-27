@@ -1,23 +1,6 @@
-# Static analysis of the GitHub Actions workflows themselves (zizmor). The
-# workflow YAML is release-critical attack surface - publish-beta.yml runs on
-# every push to main with contents:write - so it is audited like any other code.
-#
-# The gate runs zizmor's regular persona at --min-severity=low: it fails the
-# build on any actionable (low/medium/high/critical) security finding -
-# template-injection, cache-poisoning, dangerous-triggers, excessive-permissions,
-# unpinned-uses, etc. - and uploads that same set to the code-scanning tab. The
-# regular persona is the one zizmor documents for CI ("high-signal, low-noise,
-# actionable"). The pedantic persona is deliberately NOT used to gate: it adds
-# low-severity hygiene findings (undocumented permissions, missing concurrency,
-# pin-comment mismatches, unnamed jobs) that are stylistic, not security-blocking,
-# and some are context-blind (it would demand run-cancelling concurrency on the
-# release workflows, which must never be cancelled mid-publish). That backlog is
-# tracked as a code-quality task (#263), not gated here.
-#
-# Rule for future workflow changes: every new or edited workflow must pass this
-# gate before merge. Keep actions SHA-pinned, keep checkout on
-# persist-credentials:false, grant write permissions per job (never
-# workflow-level), and never restore a cache in a job that publishes a release.
+# Audits the workflow YAML with zizmor (regular persona, --min-severity=low) on every push and PR.
+# Do not rename the job: "Audit workflows (zizmor)" is a required status context.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#zizmoryml
 name: Workflow Security Analysis
 
 on:
@@ -26,12 +9,8 @@ on:
   pull_request:
     branches: [ "**" ]
 
-# Explicit deny-all at workflow level; the job below grants only what it needs.
 permissions: {}
 
-# Cancel a superseded run on the same ref so a new push / PR update does not
-# queue behind an obsolete scan. This is an audit job, not a publish, so
-# cancelling a superseded run is safe.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -50,14 +29,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # WHY THIS IS READ RATHER THAN RESTATED. A version written in the workflow
-      # AND in the requirements input is a version no routine updater can finish
-      # moving: nothing writes a workflow `env:` value, so a version-update pull
-      # request moves the requirements files and leaves the third place behind.
-      # Reading it keeps the assert below doing the same work against the pair
-      # that can actually drift, the input against its GENERATED closure.
-      #
-      # It runs after the checkout because it reads a file out of the tree.
+      # Read from requirements/zizmor.in rather than restated here: nothing updates a workflow env value.
       - name: Read the pinned zizmor version from its requirements input
         run: |
           set -euo pipefail
@@ -72,30 +44,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
-          # PIN THE RESOLVER ITSELF. Left floating, a changed or compromised uv
-          # release silently changes how the closure below is resolved and
-          # installed, in a job whose whole point is that the install is pinned.
-          # uv is the thing that verifies the hashes, so an unpinned uv is an
-          # unpinned verifier.
+          # Pinned: uv verifies the hashes, so an unpinned uv is an unpinned verifier.
           version: "0.11.32"
 
       - name: Install zizmor from the hash-pinned closure
-        # --require-hashes: every distribution is verified against the digest
-        # committed in requirements/zizmor.txt, and uv refuses the install when a
-        # requirement in the file carries no hash. --no-build: install from
-        # prebuilt wheels only, never executing a source-dist build script.
-        #
-        # This replaces `uvx --no-build "zizmor@${ZIZMOR_VERSION}"`, which resolved
-        # the tool from the index at run time: what got installed was whatever the
-        # index served that minute, and nothing in the tree recorded it. The
-        # closure moves that decision into the repository, where a change to it is
-        # a reviewable diff.
-        #
-        # The venv lives outside the workspace so the audit below cannot pick up
-        # the tool's own files as targets.
-        #
-        # A bare `run:` is `bash -e` without pipefail; set it explicitly so a
-        # failure anywhere in this block fails the step.
         run: |
           set -euo pipefail
           uv venv "${RUNNER_TEMP}/zizmor-venv"
@@ -103,13 +55,6 @@ jobs:
             --no-build --require-hashes -r requirements/zizmor.txt
 
       - name: Assert the installed auditor is the pinned one
-        # ZIZMOR_VERSION was READ out of requirements/zizmor.in above, so what this
-        # compares is the installed tool against the INPUT, and the pair that can
-        # drift is the input against its generated closure: the .txt is written by
-        # `uv pip compile` and a hand edit to it is exactly what this catches.
-        # `zizmor --version` prints "zizmor <version>"; the field is cut rather
-        # than the whole line matched, so a future banner change does not red the
-        # gate for the wrong reason.
         run: |
           set -euo pipefail
           installed=$("${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version | awk '{print $NF}')
@@ -120,12 +65,6 @@ jobs:
           echo "zizmor ${installed} installed from the hash-pinned closure."
 
       - name: Audit workflows (SARIF for code scanning)
-        # The binary comes from the hash-pinned closure installed above, not from
-        # the index at run time. --strict-collection: fail closed if any workflow
-        # fails to parse, so a malformed or tampered file cannot slip past the
-        # audit. --format=sarif always exits 0; the gate step below is what fails
-        # the build, so pipefail here is what turns a broken redirect into a
-        # failure rather than an empty SARIF.
         run: |
           set -euo pipefail
           "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --strict-collection --min-severity=low --format=sarif . > results.sarif
@@ -133,12 +72,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload SARIF
-        # Only upload where the GITHUB_TOKEN can write security events: pushes to main
-        # and same-repo human PRs. Fork and Dependabot pull requests run with a
-        # read-only token, so the upload is skipped there - the gate step below still
-        # runs and blocks on findings. continue-on-error keeps the security gate
-        # independent of the upload: a transient code-scanning upload failure must not
-        # skip the "Fail on actionable findings" step below.
+        # Fork and Dependabot PRs carry a read-only token; the gate step below still runs and blocks.
         if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
