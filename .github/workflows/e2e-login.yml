@@ -1,62 +1,25 @@
-# End-to-end SSO login harness (#720/#727/#919). Boots a real Jellyfin 12 + identity-provider stack with
-# the PACKAGED plugin zip installed, and drives full login round-trips headlessly, asserting a Jellyfin
-# session token is minted and usable, that the role gate refuses a role-less user, and that a replayed
-# one-time state/token is refused. It supplements - never replaces - the manual Release-QA checklist.
-#
-# Provider-matrix policy (#919/#1462): a PR touching the harness, the nightly run, and a DEFAULT manual
-# dispatch exercise ONLY the canonical Keycloak harness (there is deliberately no `push` trigger - the PR
-# run already validated it, and paying the ~10-min Docker run again on the merge commit is wasteful). The
-# FULL provider matrix (one entry per shipped test/e2e/<provider>/ harness) is release-gate evidence rather
-# than a per-commit cost, and it is reached through `workflow_call`: publish-jf12-beta.yml (#1464) calls
-# this workflow as a job at the commit it is about to ship, so no beta is published except behind a green
-# seven-stack pass. A
-# manual dispatch with `providers: all` is the other way in, and is how a newly added harness is proven
-# green before a publish. This runs on the GitHub runners' working Docker; it also runs locally once Docker
-# is restored (see test/e2e/README.md).
-#
-# WHAT A PASS HERE IS ABOUT: the net10.0 package, built from build.yaml, installed into the Jellyfin 12
-# server the plugin compiles against. Until #1770 the tree multi-targeted two generations and a
-# `generation` input chose the target framework, the build metadata and the server image together
-# (#1464/#1466); with one target there is one artifact and the three are fixed. What no run covers is a
-# 12.x server later than the version the build compiles against - the tag is pinned to that version and
-# the pin lives in one place:
-#
-#     git grep -n "JellyfinVersion Condition" -- SSO-Auth/SSO-Auth.csproj
+# Boots Jellyfin 12 plus an identity provider with the packaged plugin and drives real SSO logins.
+# Keep JELLYFIN_IMAGE_TAG at the version SSO-Auth.csproj pins: an older server refuses the plugin.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#e2e-loginyml
 name: E2E Login Harness
 
 on:
-  # Nightly, so a real-stack OIDC+SAML login pass is per-day evidence (#720 gate-(a) support), offset
-  # from the Scorecard (27 4) and Stryker (41 5) crons so the scheduled runs do not contend for a runner.
   schedule:
     - cron: "17 3 * * *"
-  # Re-validate whenever the harness itself changes (a PR touching the compose/realm/driver or this
-  # workflow), so the E2E stays green as it evolves - without paying the ~10-min Docker run on every push.
   pull_request:
     paths:
       - "test/e2e/**"
       - ".github/workflows/e2e-login.yml"
-  # Called as a job by publish-jf12-beta.yml, at the commit it is about to publish (#1462/#1464). This is the only
-  # route that ties a full-matrix pass to a shipped artifact, and it replaces a `release:` trigger that
-  # stood here until 2026-08-30 and had never once started a run: the publish authenticates as the
-  # repository's own automation, and an event raised with that credential starts no further workflow run.
-  # It was removed rather than left promising a gate it could not fire.
   workflow_call:
     inputs:
       providers:
         description: "Which provider harnesses to run"
         type: string
         default: canonical
-    # A called workflow sees no repository secret unless the caller hands it one, so the pairwise
-    # token is declared here and passed by publish-jf12-beta.yml by name. Optional on purpose: absent,
-    # the pairwise job falls back to the workflow token, which sees no private sibling, and it then
-    # reports that no pair was checked rather than failing (#1773).
     secrets:
       PAIRWISE_READ_TOKEN:
         description: "A token that can read the sibling plugin repositories and their releases"
         required: false
-  # On-demand from any branch. `providers: all` runs the FULL matrix, which is the only way to exercise a
-  # newly-added provider harness before a publish actually happens - without it a new entry's first-ever
-  # run would be on publish day.
   workflow_dispatch:
     inputs:
       providers:
@@ -67,44 +30,22 @@ on:
           - all
         default: canonical
 
-# Deny-all at the workflow level; the e2e job reads the repo to build the plugin and needs nothing else.
 permissions: {}
 
-# Cancel a superseded run on the same ref, but ONLY on the pull-request route, where a later push really
-# does supersede the run before it. Every other route produces a result something is waiting on: the
-# nightly, a manual dispatch, and - since #1462 - the seven-stack pass a beta publish is now gated on.
-# Whether a CALLED workflow's `github.workflow` resolves to this file's name or to the caller's decides
-# whether the publish's matrix shares this group with the 03:17 nightly, and those windows can meet
-# (nightly-betas.yml dispatches the publish at 04:00 and this job's timeout is 30 minutes). Nothing here
-# depends on that resolution: outside a pull request nothing cancels anything, so the worst case is a
-# queued run rather than a killed publish gate.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Choose which providers to run: the FULL matrix whenever the caller asked for `providers: all` - the
-  # publish-jf12-beta job that calls this workflow, or a manual dispatch; every other trigger (a PR touching
-  # the harness, the nightly schedule, a default dispatch) runs just the one canonical Keycloak harness.
-  # A provider joins that matrix by adding one { name, compose } object below, at its
-  # test/e2e/<provider>/ compose file - the matrix grows one line per issue (#919).
   select:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
-      # Whether this is a full-matrix run. Published separately from the matrix itself because a step
-      # can be gated on the TRIGGER without being gated on which provider it is looking at, and the
-      # full-matrix-only phases below need exactly that (#1140).
       full: ${{ steps.pick.outputs.full }}
     steps:
       - id: pick
         env:
-          # A manual dispatch or a reusable-workflow call may opt into the full matrix. The input is a
-          # constrained choice on the dispatch side, and its value reaches the shell only through env
-          # (never interpolated into the script body). `github.event_name` cannot stand in for it: inside
-          # a called workflow that context reports the CALLER's event, so it is never `workflow_call`, and
-          # on the publish route it is whatever started publish-jf12-beta.yml. The input is the only signal, and
-          # it is empty on the schedule and pull-request routes, which is the canonical-only default.
+          # Inside a called workflow github.event_name reports the caller's event, so this input is the only signal.
           INPUT_ALL: ${{ inputs.providers == 'all' }}
         run: |
           set -euo pipefail
@@ -115,9 +56,6 @@ jobs:
           zitadel='{"name":"Zitadel (OIDC)","compose":"test/e2e/zitadel/docker-compose.yml"}'
           pocketid='{"name":"Pocket ID (OIDC)","compose":"test/e2e/pocket-id/docker-compose.yml"}'
           kanidm='{"name":"Kanidm (OIDC)","compose":"test/e2e/kanidm/docker-compose.yml"}'
-          # The full provider matrix (the publish call and `providers: all` only). Every self-hostable
-          # provider in the README table now has a harness here; adding one is a further object plus its
-          # test/e2e/<provider>/ directory.
           if [ "$INPUT_ALL" = "true" ]; then
             include="[$keycloak,$authelia,$authentik,$dex,$zitadel,$pocketid,$kanidm]"
             full=true
@@ -135,18 +73,10 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    # Job-level, so every `docker compose` invocation in this job names the same stack. Set on only
-    # some of them, the run would bring one server up and the log read and the teardown would address
-    # another. THE SERVER TAG IS PINNED TO THE VERSION THE PLUGIN COMPILES AGAINST, for the reason the
-    # canonical compose file gives at its own image line: .NET will not bind an assembly reference DOWN,
-    # so a server older than the referenced Jellyfin assemblies refuses to load the plugin.
-    # SSO-Auth.csproj pins 12.0.0, so the tag is 12.0 and follows that pin; moving one without the other
-    # reintroduces exactly the mismatch the pin exists to prevent. Each compose file defaults to the same
-    # tag when the variable is unset, so a local `docker compose up` boots the same server (#1466).
     env:
+      # The same version SSO-Auth.csproj compiles against; move both or neither (#1466).
       JELLYFIN_IMAGE_TAG: "12.0"
     strategy:
-      # One provider's failure must not cancel the others in the release matrix.
       fail-fast: false
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
@@ -167,11 +97,6 @@ jobs:
           dotnet-target: net10.0
 
       - name: Install the packaged plugin into the Jellyfin config
-        # Unpack the exact packaged zip the release ships (meta.json + the plugin and its
-        # non-host-provided dependency DLLs) into the bind-mounted Jellyfin plugins directory, so the
-        # harness exercises the SAME artifact users install - including the packaged crypto DLL load
-        # path on Linux (#181) that `dotnet test` cannot see. World-writable so the Jellyfin container
-        # can persist the plugin's own provider configuration under /config regardless of its uid.
         env:
           ARTIFACT: ${{ steps.jprm.outputs.artifact }}
         run: |
@@ -184,8 +109,6 @@ jobs:
           chmod -R 0777 test/e2e/jellyfin
 
       - name: Generate the Authelia test TLS cert
-        # Authelia 4.38 requires a secure session URL, so its harness serves TLS. The self-signed test cert
-        # is generated here (never committed - no private key in the repo) for the authelia matrix entry.
         if: contains(matrix.compose, 'authelia')
         run: |
           set -euo pipefail
@@ -195,9 +118,6 @@ jobs:
             -addext "subjectAltName=DNS:login.example.com"
 
       - name: Generate the Kanidm test TLS cert
-        # Kanidm is TLS-only and its image has no shell to sequence its own cert-generate, so the harness
-        # gets a self-signed test cert the same way Authelia does (never committed - no private key in the
-        # repo). The CN/SAN must match the service-DNS alias and server.toml's domain/origin.
         if: contains(matrix.compose, 'kanidm')
         run: |
           set -euo pipefail
@@ -214,11 +134,8 @@ jobs:
           docker compose -f "$COMPOSE" up \
             --abort-on-container-exit --exit-code-from harness
 
+      # grep reads the log from a file, not a pipe: under pipefail an early grep -q match fails printf (#1453).
       - name: Assert secrets-at-rest and the audit trail (#928 U8)
-        # Two assertions the in-container harness cannot make itself (no docker access, no bind mount of
-        # Jellyfin's config): the persisted provider secret is an ssoenc:v1 envelope on disk, not
-        # plaintext, and the security audit trail actually reached the log. Runs only on a green harness,
-        # so a real login/config failure surfaces as the harness failure, not here.
         if: success()
         env:
           COMPOSE: ${{ matrix.compose }}
@@ -236,12 +153,6 @@ jobs:
           fi
 
           echo "===== audit trail ====="
-          # The log is written to a file and grep reads that file, deliberately: the earlier form was
-          # `printf '%s' "$logs" | grep -qF`, and under `set -o pipefail` a `grep -q` that matches early
-          # can close the pipe while printf is still writing, so printf fails its write and the pipeline
-          # takes printf's status even though grep succeeded. That reported a present audit line as
-          # missing on run 33194788849 (#1453). Nothing here may make the presence of a line depend on
-          # how long the producer of the text lives.
           logfile="${RUNNER_TEMP:-/tmp}/jellyfin-audit.log"
           docker compose -f "$COMPOSE" logs jellyfin --no-color >"$logfile" 2>/dev/null || true
           echo "read $(wc -c <"$logfile") bytes of Jellyfin log from the $COMPOSE stack"
@@ -256,109 +167,30 @@ jobs:
           done
 
       - name: KEK loss fails closed (#1130)
-        # Takes away the key that wraps the at-rest provider secrets, restarts Jellyfin against the
-        # orphaned envelope and requires the login to be REFUSED rather than fall back to plaintext
-        # or mint a replacement key; then puts the key back and requires the login to work again. It
-        # was verified by hand once in the #717 live pass and nothing re-checked it since, so a
-        # regression to a fallback path would ship silently.
-        #
-        # The phase drives that one refusal itself, and probes the same endpoint BEFORE the key goes
-        # away, because the harness exits non-zero on any failed login and its exit code alone cannot
-        # tell a fail-closed refusal from a stack that broke for an unrelated reason.
-        #
-        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
-        # reasons as the phase below: it costs extra login passes, and it is the one stack that can be
-        # re-run in place (the seeds behind Zitadel, Pocket ID and Kanidm are not idempotent). Runs on
-        # a green harness only, so a real login failure surfaces as the harness failure.
-        #
-        # AHEAD of the migration phase, deliberately. Its precondition is an ssoenc:v1 envelope in the
-        # persisted configuration, which the secrets-at-rest step above has just asserted, so it needs
-        # nothing from the step below - and being gated behind a phase that has never executed on any
-        # run would make this one unreachable. It leaves the stack exactly as it found it: the same key
-        # back in place, the configuration untouched, containers stopped rather than removed.
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/kek-loss-fails-closed.sh
 
       - name: Legacy plaintext secret migrates to ssoenc:v1 (#1140)
-        # A pre-#158 config carried its provider secret in plaintext. This plants one back into the
-        # persisted configuration, restarts Jellyfin against it, and requires the login to keep working
-        # and the value to be rewritten as an envelope. It was verified by hand once in the #717 live
-        # pass and nothing re-checked it since, so a migration regression would only have surfaced on a
-        # real upgrade.
-        #
-        # Full-matrix runs only, and only on the canonical Keycloak stack: it costs two extra
-        # login passes, and it is the one stack that can be re-run in place (the seeds behind Zitadel,
-        # Pocket ID and Kanidm are not idempotent) and whose expected client secret the compose file
-        # states. Runs on a green harness only, so a real login failure surfaces as the harness failure.
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/legacy-secret-migration.sh
 
       - name: Two clients behind one proxy are budgeted apart (#1125)
-        # Puts an nginx front end in front of Jellyfin, names it in the server's known proxies, and
-        # requires that exhausting one forwarded client's rate-limit budget does NOT throttle a
-        # second forwarded client arriving through the same proxy. It was verified by hand once in
-        # the #717 live pass and nothing in test/e2e put a proxy in front of Jellyfin at all, so a
-        # regression that collapsed every client behind a proxy into one bucket would ship silently
-        # and lock a whole site out on one client's noise.
-        #
-        # The audit half of #1125 is deliberately absent: the audit trail records no client address
-        # and is not going to start, so there is nothing there to assert against.
-        #
-        # The proxy sits behind a compose profile and this step is the only thing that starts it, so
-        # the per-PR harness run is unchanged. Full-matrix runs only, and only on the
-        # canonical Keycloak stack, for the same reasons as the phases above: it costs extra login
-        # passes, and it is the one stack that can be re-run in place. Runs on a green harness only,
-        # so a real login failure surfaces as the harness failure.
-        #
-        # AHEAD of the rollover phase below, which mutates the identity provider. This one only
-        # edits Jellyfin's own persisted files and puts both back.
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/proxy-client-attribution.sh
 
       - name: The start-up pass seals a password-less SSO account (#1440)
-        # The second half of the #1440 remediation, which nothing outside a unit test had ever run.
-        # The canonical harness proves the create arm; reaching the start-up pass needs a server that
-        # already holds a password-less linked account, and a current build makes none - so this phase
-        # makes one, through the server's own admin API, in the exact shape a build up to v3.4.0.2
-        # stored it in, and asserts the empty password mints a session on it BEFORE the restart. That
-        # control is what makes the refusal afterwards attributable to the pass rather than to the
-        # account's routing, which refuses the same login for a different reason the whole time.
-        #
-        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
-        # reasons as the phases above: it costs an extra login pass, and it is the one stack that can
-        # be re-run in place. Runs on a green harness only, so a real login failure surfaces as the
-        # harness failure.
-        #
-        # AHEAD of the rollover phase below, which mutates the identity provider. This one only
-        # changes account state in Jellyfin and puts the routing back.
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
         run: bash test/e2e/phases/passwordless-account-sweep.sh
 
       - name: SAML signing-cert rollover, the new cert validates and the old one is refused (#1128)
-        # Rotates the realm's SAML signing key mid-run, imports the new certificate into the plugin,
-        # and requires all three of the issue's clauses in ONE run: an assertion signed by the
-        # rotated-in key mints a usable session, an assertion signed by the retired key is refused
-        # with a pinned 400, and the plugin's stored SamlCertificate observably changes. The
-        # wrong-certificate rejection is unit covered and a live rotation was demonstrated by hand
-        # once in the #717 pass, but nothing has driven rotate-then-relogin end to end since.
-        #
-        # LAST of the phases, deliberately. It is the only one that mutates the IDENTITY PROVIDER
-        # rather than Jellyfin, and although it removes the key provider it added, a phase after it
-        # would be reading a realm this one has written to. Nothing here depends on the two phases
-        # above: the order is about what this one leaves behind, not about what it needs.
-        #
-        # Full-matrix runs only, and only on the canonical Keycloak stack, for the same
-        # reasons as the two phases above, plus one of its own: it is the only entry in the matrix
-        # whose identity provider exposes an admin API this phase can rotate a signing key through.
-        # Runs on a green harness only, so a real login failure surfaces as the harness failure.
         if: success() && needs.select.outputs.full == 'true' && matrix.compose == 'test/e2e/docker-compose.yml'
         env:
           COMPOSE: ${{ matrix.compose }}
@@ -378,47 +210,14 @@ jobs:
           COMPOSE: ${{ matrix.compose }}
         run: docker compose -f "$COMPOSE" down -v || true
 
-  # Pairwise co-existence (#1247). This plugin claims it works alone AND that it works with every
-  # supported sibling installed at the same time. The first half is what the matrix above proves; this
-  # job proves the second half ONE PAIR AT A TIME - the packaged artefact installed beside each sibling
-  # that has published a release, on a server that boots with both.
-  #
-  # It lives in THIS workflow rather than in one of its own, and that is the whole of how the issue's
-  # release clause is met: publish-jf12-beta.yml already calls this workflow at the commit it is about to
-  # ship, and a calling job succeeds only when every job in the called workflow does. So a red pair
-  # blocks the beta publish with no edit to the publish workflow, and the nightly cron gives it a
-  # per-day result.
-  #
-  # THE COUPLING THAT BUYS IS REAL AND IS NOT HIDDEN: this board's publish now depends on artefacts
-  # other boards publish. A sibling with no release, no plugin zip, or a release built for the other ABI
-  # line is SKIPPED and the skip is reported, so none of those can block anything. What does block is an
-  # artefact whose bytes do not match its own published sha256, and a pair that actually collides. The
-  # first is deliberate - a downloaded plugin package that fails its own integrity sidecar is either a
-  # corrupt download, which a re-run clears, or a tampered one, which must stop a release rather than be
-  # noted and passed.
-  #
-  # No identity provider and no login round-trip. What a pair goes wrong at is co-existence, and every
-  # form of that is visible on a server that has merely come up with both plugins installed.
-  #
-  # WHAT THE SIBLING SET IS DEPENDS ON THE TOKEN, since 2026-09-19 (#1773). The sibling repositories
-  # are private, so the listing under this job's own token sees this repository and nothing beside it.
-  # The script does not die on that: it ends green, and it writes into the job log, an annotation and
-  # the step summary that no pair was checked, how many repositories the token could see, and why. A
-  # listing that fails as a call stays fatal. The secret PAIRWISE_READ_TOKEN, where it exists, is used
-  # for the listing and the downloads instead, and the day it exists the phase pairs again with no
-  # further change here; whether it is created is a decision made by hand, and until then a green
-  # conclusion of this job is not co-existence evidence, which is why the run says so out loud.
   pairwise:
     needs: select
     name: Pairwise co-existence
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # To check this repository out and to build the packaged plugin. The sibling listing and the
-      # artefact downloads run under the token the step below chooses, not under this grant.
       contents: read
     env:
-      # The same pin as the login matrix above, for the same reason.
       JELLYFIN_IMAGE_TAG: "12.0"
     steps:
       - name: Checkout Repository
@@ -440,14 +239,9 @@ jobs:
       - name: Run the pairwise co-existence phase
         env:
           PLUGIN_ARTIFACT: ${{ steps.jprm.outputs.artifact }}
-          # The sibling set is derived from this account's plugin repositories at run time, so a board
-          # publishing its first release joins without an edit here.
           PAIRWISE_OWNER: ${{ github.repository_owner }}
           PAIRWISE_SELF: ${{ github.event.repository.name }}
-          # The token is the switch, not a precondition: the secret where the repository holds one and
-          # the caller passed it, the workflow token otherwise. Under the workflow token the private
-          # siblings are invisible and the script reports an unchecked run; under a token that can read
-          # them it pairs.
+          # Under the workflow token the private siblings are invisible and the run reports that no pair was checked.
           GH_TOKEN: ${{ secrets.PAIRWISE_READ_TOKEN || github.token }}
         run: bash test/e2e/pairwise/run-pairwise.sh
 

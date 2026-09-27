@@ -1,56 +1,19 @@
-# CodeQL advanced setup - semantic security analysis of the whole codebase.
-#
-# This replaces the GitHub CodeQL DEFAULT setup, which only analyzes the
-# repository's default branch (main) and pull requests targeting it. Feature
-# work lands on the 4.2 dev branch first, so under default setup a 4.2 PR got
-# NO per-PR CodeQL and code was only scanned once it reached main (#574).
-# Advanced setup lets us widen the triggers to cover main AND the release
-# branches, closing that gap.
-#
-# Parity with the default setup it replaces (do not weaken): the same three
-# languages (csharp, javascript-typescript, actions) and the same
-# security-extended query suite. csharp is analyzed with an autobuild so the
-# analysis sees the compiled plugin; the interpreted languages need no build.
-#
-# Hardened per the repo's workflow policy (see zizmor.yml): every action is
-# SHA-pinned with a version comment, checkout runs with persist-credentials:false,
-# permissions are deny-all at the top level and the job grants only the CodeQL
-# minimum (security-events:write, contents:read, actions:read).
-#
-# The check-run names this workflow produces ARE depended on: the branch ruleset
-# requires `CodeQL` and `Analyze (csharp)`, so renaming the workflow or a matrix
-# language removes a required context instead of renaming one. This header
-# claimed the opposite until #1027. Do not restate the required set here, where
-# it drifts unnoticed; print it:
-#
-#   gh api repos/Flowfin/jellyfin-plugin-sso/rules/branches/main \
-#     --jq '.[] | select(.type=="required_status_checks")
-#           | .parameters.required_status_checks[].context'
+# CodeQL advanced setup: csharp, javascript-typescript, actions; security-extended; all code lines.
+# Do not rename the workflow or a matrix language: "CodeQL" and "Analyze (csharp)" are required.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#codeqlyml
 name: CodeQL
 
 on:
   push:
-    # main is the one code line (beta-only, #954; the 4.2 branch is retired). The
-    # 4.* / 5.* globs future-proof any later release branch so it is covered without
-    # editing this file (a `*` matches any branch name that has no `/`, so plain
-    # numeric release branches like 4.2 / 4.3 / 5.0 all match). A release line
-    # that ever uses a non-numeric name must still be added here explicitly.
+    # The 4.* / 5.* globs match numeric release branches only; add a non-numeric line by hand.
     branches: [main, "4.2", "4.*", "5.*"]
   pull_request:
-    # The pull_request branches filter matches the PR's BASE (target) branch, so
-    # this is what gives 4.2-targeted PRs their per-PR scan.
     branches: [main, "4.2", "4.*", "5.*"]
   schedule:
-    # Weekly baseline scan (default setup ran one too) so the whole tree is
-    # re-analyzed against updated CodeQL queries even without a push.
     - cron: "17 3 * * 1"
 
-# Explicit deny-all at workflow level; the job below grants only the CodeQL
-# minimum.
 permissions: {}
 
-# A newer run on the same ref supersedes an in-flight one; this is analysis, not
-# a publish, so cancelling a superseded run is safe.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -65,15 +28,11 @@ jobs:
       contents: read # check out the code to analyze
       actions: read # required for CodeQL to analyze the `actions` language and read workflow runs
     strategy:
-      # Do not let one language's failure cancel the others' analysis.
       fail-fast: false
       matrix:
         include:
-          # csharp is compiled: autobuild builds the plugin so the analysis sees
-          # real dataflow, not just source. setup-dotnet (below) pins the SDK.
           - language: csharp
             build-mode: autobuild
-          # Interpreted / declarative languages need no build.
           - language: javascript-typescript
             build-mode: none
           - language: actions
@@ -82,12 +41,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # No step pushes via git, so do not persist the GITHUB_TOKEN in
-          # .git/config (zizmor "artipacked" hardening).
           persist-credentials: false
 
-      # Pin the SDK the plugin targets (net10.0) so CodeQL's autobuild builds
-      # csharp with the right toolchain. Skipped for the buildless languages.
       - name: Setup .NET
         if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0

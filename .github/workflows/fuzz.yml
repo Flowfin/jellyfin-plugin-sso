@@ -1,44 +1,10 @@
-# Weekly coverage-guided fuzzing of the login-path parse/validate surface (#174).
-#
-# Runs the out-of-band SharpFuzz harness (SSO-Auth.Fuzz, #402) under libFuzzer on
-# Linux - the only platform where the `sharpfuzz` instrumentation CLI and the
-# libFuzzer runtime work. The headline target is the SAML response parse/validate
-# path (`SamlResponseLoader.TryParse` -> `SamlResponse` ctor + `IsValid` + every
-# claim getter, seeded from the SamlTestFactory-shaped corpus), which is what
-# #174 asks for; the same harness also exposes the OIDC `discovery`, `idtoken`,
-# `jwks` and `roles` readers, fuzzed in the same sweep at no extra maintenance.
-#
-# NON-GATING BY CONSTRUCTION: this workflow runs ONLY on a weekly schedule and on
-# manual dispatch - never on push or pull_request - so it is not a PR check and
-# gates no merge. A crasher is treated as its own security finding (triage +
-# minimise + a separate parser fix, GHSA path if exploitable; see the harness
-# README), never a silent in-harness patch. The job therefore ARCHIVES every
-# crasher and the evolved corpus as artifacts and, when a crasher is found, marks
-# the run red purely as a notification signal to me.
-#
-# ASSERTIONS ARE COMPILED IN HERE AND NOWHERE ELSE (#1081). The parse-surface
-# post-conditions from #1082 are `Debug.Assert`, so the shipped Release compile
-# strips the calls and a fuzz run against it would exercise a surface with none
-# of them live. The build step below defines DEBUG for this build alone. It is
-# passed on the command line rather than written into a build file on purpose:
-# `ParseSurfaceAssertions_NeverReachTheShippedBuild` refuses a DefineConstants in
-# Directory.Build.props or SSO-Auth.csproj outright, so keeping the constant here
-# leaves that guard at full strength and no publish route can inherit it. A
-# failing assertion aborts the process, which libFuzzer records as an ordinary
-# crasher and the report step below turns red; it is triaged exactly like any
-# other reproducer, per the harness README.
-#
-# Hardened per the repo workflow policy (see zizmor.yml): every action is
-# SHA-pinned with a version comment, checkout runs with persist-credentials:false,
-# permissions are deny-all at the top level with the job granted only
-# contents:read, and no untrusted context is interpolated into a run script (the
-# matrix target and the dispatch duration are passed through `env`).
+# Weekly libFuzzer run of the SharpFuzz harness over the SAML and OIDC parse surfaces; no PR check.
+# Keep DEBUG on this command line only: a DefineConstants in a build file reaches the shipped build.
+# https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Review-Gate#fuzzyml
 name: Fuzz (SharpFuzz)
 
 on:
   schedule:
-    # Weekly, Mondays 05:42 UTC. Off the top of the hour (GitHub throttles exact
-    # :00 crons) and distinct from the CodeQL weekly scan (17 3 * * 1).
     - cron: "42 5 * * 1"
   workflow_dispatch:
     inputs:
@@ -47,11 +13,8 @@ on:
         required: false
         default: "600"
 
-# Explicit deny-all at workflow level; the job below grants only what it needs.
 permissions: {}
 
-# A newer run on the same ref supersedes an in-flight one; this is analysis, not
-# a publish, so cancelling a superseded run is safe.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -60,71 +23,39 @@ jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
-    # Generous ceiling, and it is per LEG rather than for the matrix: each target
-    # is one job, bounded below by -max_total_time (600s default) plus the
-    # SDK/instrumentation build and the clang compile. Adding a target adds a
-    # parallel leg, not time to this one, so the ceiling does not move with the
-    # target count - the number that would move it is a dispatch running with a
-    # -max_total_time near an hour.
     timeout-minutes: 60
     permissions:
       contents: read # check out the repo, harness, and seed corpus to fuzz
     strategy:
-      # One target's crasher (a real finding) must not cancel the others' runs.
       fail-fast: false
       matrix:
-        # saml is the #174 target and is listed first; the rest are the sibling
-        # readers the same harness (#402) exposes. jwks (#1156) is the only one
-        # whose surface touches key material rather than JSON alone, and roles
-        # (#1158) the only one whose output decides a privilege rather than a
-        # diagnostic, which is why each is worth its own leg.
         target: [saml, discovery, idtoken, jwks, roles]
     env:
-      # The managed harness executable libFuzzer drives, and the plugin assembly
-      # SharpFuzz instruments in place (loaded by the harness from the same dir).
       FUZZ_DLL: SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.Fuzz.dll
       PLUGIN_DLL: SSO-Auth.Fuzz/bin/Release/net10.0/SSO-Auth.dll
-      # libfuzzer-dotnet is the native shim (built with clang -fsanitize=fuzzer)
-      # that hosts the CLR and bridges Fuzzer.LibFuzzer.Run to libFuzzer. Pinned
-      # to an immutable commit so the compiled-from-source shim is reproducible.
       LIBFUZZER_DOTNET_REF: c33d28305eba24261ce1945a39576e659f437b90
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # No step pushes via git, so do not persist the GITHUB_TOKEN in
-          # .git/config (zizmor "artipacked" hardening).
           persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # The harness and the plugin it references both target net10.0, the
-          # one target since #1770, so one SDK restores the locked graph.
           dotnet-version: 10.0.x
 
       - name: Restore harness (locked)
-        # --locked-mode fails if the committed packages.lock.json would change, so
-        # a drifted/tampered dependency graph cannot build here either.
         run: dotnet restore SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj --locked-mode
 
       - name: Build harness (Release, assertions enabled)
-        # DEBUG is what keeps the [Conditional("DEBUG")] post-conditions on the parse
-        # surface through the compile. TRACE is restated because this property
-        # REPLACES the default constant set rather than adding to it, and Release
-        # defines TRACE; %3B is MSBuild's escape for the separator, which keeps the
-        # value one argument whatever the shell does with a semicolon. Configuration
-        # stays Release, so the fuzzer keeps optimized code and the output paths in
-        # `env` above do not move.
+        # DEBUG keeps the parse-surface assertions live; TRACE is restated because the property replaces the set; %3B is the separator.
         run: dotnet build SSO-Auth.Fuzz/SSO-Auth.Fuzz.csproj -c Release --no-restore --warnaserror -p:DefineConstants=DEBUG%3BTRACE
 
       - name: Install clang (libFuzzer)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
 
       - name: Build libfuzzer-dotnet
-        # Fetch the pinned native shim source and compile it with libFuzzer linked
-        # in. -fsanitize=fuzzer pulls libFuzzer from the clang runtime, so no
-        # separate libFuzzer package is needed.
         env:
           REF: ${{ env.LIBFUZZER_DOTNET_REF }}
         run: |
@@ -133,20 +64,15 @@ jobs:
           clang -O2 -fsanitize=fuzzer libfuzzer-dotnet.cc -o libfuzzer-dotnet
 
       - name: Install SharpFuzz CLI
-        # Pinned to the SharpFuzz runtime version the harness references (2.3.0).
         run: |
           dotnet tool install --global SharpFuzz.CommandLine --version 2.3.0
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
       - name: Instrument the plugin assembly
-        # SharpFuzz rewrites SSO-Auth.dll in place to emit libFuzzer coverage
-        # feedback; the harness loads that instrumented copy from the same dir.
         run: sharpfuzz "$PLUGIN_DLL"
 
       - name: Fuzz
-        # continue-on-error keeps a crasher (non-zero libFuzzer exit) from failing
-        # the job here; the archive + report steps below run regardless and the
-        # report step is what turns a real finding red.
+        # A crasher must not fail this step; the report step below is what turns a finding red.
         continue-on-error: true
         env:
           TARGET: ${{ matrix.target }}
@@ -165,8 +91,6 @@ jobs:
             "SSO-Auth.Fuzz/corpus/${TARGET}"
 
       - name: Archive crashers
-        # The reproducers are the finding. Always upload; ignore if none were
-        # written (the expected clean-run case).
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -176,8 +100,6 @@ jobs:
           retention-days: 90
 
       - name: Archive evolved corpus
-        # The corpus libFuzzer grew this run - reseeds the next run and documents
-        # the coverage reached.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -187,10 +109,6 @@ jobs:
           retention-days: 90
 
       - name: Report findings
-        # Non-gating notification: if libFuzzer wrote any reproducer, surface it
-        # loudly and fail THIS leg so the scheduled run goes red and notifies
-        # me. This is a signal to open a security finding, not a merge
-        # gate - the workflow never runs on a pull request.
         env:
           TARGET: ${{ matrix.target }}
         run: |
