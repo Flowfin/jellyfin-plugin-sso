@@ -313,6 +313,22 @@ internal static class OidcAuthorizeStateBuilder
         return picture;
     }
 
+    /// <summary>
+    /// The claim type the configured role path starts at, or <see langword="null"/> when no role claim path is set.
+    /// </summary>
+    /// <remarks>
+    /// The first segment of <see cref="OidConfig.RoleClaim"/>, split the way the role gate splits it, so the two
+    /// agree on every path, a blank or dot-led one included (the segment is then empty, not null). The
+    /// denial warning reads it (#1881) so that the one value it may print is the one the gate compared.
+    /// </remarks>
+    /// <param name="config">The provider configuration.</param>
+    /// <returns>The role claim's type, or <see langword="null"/>.</returns>
+    internal static string? RoleClaimType(OidConfig config)
+    {
+        var segments = SplitRoleClaimPath(config);
+        return segments.Length > 0 ? segments[0] : null;
+    }
+
     // Splits the configured role-claim path on unescaped dots; escaped "\." are normalized to ".".
     // Computed once per login - the path depends only on the configuration, not on any claim.
     private static string[] SplitRoleClaimPath(OidConfig config) => SplitClaimPath(config.RoleClaim);

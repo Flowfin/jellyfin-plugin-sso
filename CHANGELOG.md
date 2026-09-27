@@ -9,6 +9,20 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ## Unreleased
 
+### Security
+
+- **A refused OpenID login no longer writes the person's profile into the
+  server log (#1881).** The warning the role gate writes when it refuses a
+  login printed every claim with its value, so each refused attempt put the
+  display name, username, given and family name and e-mail address of anybody
+  the provider let through to the callback into the log, for as long as the log
+  is kept. The line keeps its purpose: every claim type is still listed, and the
+  configured role claim keeps its value, which is what an operator compares
+  against the allow-list, as does `sub`, the key the audit trail already names
+  a person by. Every other value reads `<redacted>`, and the header names the provider
+  rather than the username. The line also names which refusal it was, no role
+  matched or no username resolved, as the notification of #1142 already did.
+
 ## 5.1.1
 
 A feature release, and the first stable release of the 5.1 line. It is numbered

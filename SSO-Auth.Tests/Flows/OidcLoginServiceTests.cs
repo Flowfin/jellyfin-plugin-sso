@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Linq;
 using System.Net.Http;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
 using Jellyfin.Plugin.SSO_Auth.Api;
@@ -127,6 +129,61 @@ public class OidcLoginServiceTests
 
         Assert.True(result); // this request's own redirect still uses the freshly-derived spelling
         Assert.False(SSOPlugin.Instance.ReadConfiguration(c => c.OidConfigs["kc"].NewPath)); // stored value untouched
+    }
+
+    [Fact]
+    public void ClaimsForDenialLog_KeepsEveryType_AndOnlyTheRoleClaimAndSubKeepTheirValue()
+    {
+        // The role-denial warning used to print every claim with its value, so a refused login wrote the
+        // person's display name, username and e-mail address into the server log (#1881). The shape below is
+        // what Keycloak's profile scope delivers; the line must still show which claims arrived, with the
+        // role claim's value (what the operator compares against the allow-list) and sub (the audit key).
+        var claims = new[]
+        {
+            new Claim("sub", "6f2c-alice"),
+            new Claim("realm_access", "{\"roles\":[\"viewer\"]}"),
+            new Claim("name", "Alice Example"),
+            new Claim("preferred_username", "alice"),
+            new Claim("given_name", "Alice"),
+            new Claim("family_name", "Example"),
+            new Claim("email", "alice@example.org"),
+            new Claim("Realm_Access", "{\"roles\":[\"admin\"]}"),
+        };
+        var config = new OidConfig { RoleClaim = "realm_access.roles", Roles = new[] { "jellyfin-access" } };
+
+        var logged = OidcLoginService.ClaimsForDenialLog(claims, config).ToList();
+
+        Assert.Equal(claims.Select(c => c.Type), logged.Select(c => c.Type));
+        Assert.Equal("6f2c-alice", logged.Single(c => c.Type == "sub").Value);
+        Assert.Equal("{\"roles\":[\"viewer\"]}", logged.Single(c => c.Type == "realm_access").Value);
+        var line = string.Join(" ", logged.Select(c => c.Type + "=" + c.Value));
+        foreach (var profile in new[] { "Alice", "alice@", "Example", "=alice" })
+        {
+            Assert.DoesNotContain(profile, line, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(6, logged.Count(c => c.Value == "<redacted>"));
+    }
+
+    [Fact]
+    public void ClaimsForDenialLog_WithNoRoleClaimConfigured_KeepsOnlySub()
+    {
+        // No role path means no allow-list comparison to serve, so a claim that merely happens to be named
+        // like a role claim keeps nothing; a null path must not match a claim type either.
+        var claims = new[] { new Claim("sub", "s-1"), new Claim("Sub", "s-2"), new Claim("roles", "viewer"), new Claim("email", "bob@example.org") };
+
+        var logged = OidcLoginService.ClaimsForDenialLog(claims, new OidConfig()).ToList();
+
+        Assert.Equal(new[] { "s-1", "<redacted>", "<redacted>", "<redacted>" }, logged.Select(c => c.Value));
+    }
+
+    [Fact]
+    public void RoleClaimType_IsTheFirstSegmentOfTheConfiguredPath_WithEscapedDotsKept()
+    {
+        Assert.Equal("realm_access", OidcAuthorizeStateBuilder.RoleClaimType(new OidConfig { RoleClaim = "realm_access.roles" }));
+        Assert.Equal("urn:zitadel:iam:org:project:roles", OidcAuthorizeStateBuilder.RoleClaimType(new OidConfig { RoleClaim = "urn:zitadel:iam:org:project:roles" }));
+        Assert.Equal("a.b", OidcAuthorizeStateBuilder.RoleClaimType(new OidConfig { RoleClaim = @"a\.b.c" }));
+        Assert.Null(OidcAuthorizeStateBuilder.RoleClaimType(new OidConfig()));
     }
 
     // Builds an OidcLoginService over the same collaborator graph the controller constructs, against a
