@@ -26,6 +26,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Translating the UI](#translating-the-ui)
 - [Styleguides](#styleguides)
   - [Commit Messages](#commit-messages)
+  - [CHANGELOG Entries](#changelog-entries)
   - [Sign Your Work (DCO)](#sign-your-work-dco)
 - [Join The Project Team](#join-the-project-team)
 
@@ -266,6 +267,10 @@ A commit message may only use printable ASCII plus a short, named set of extra c
 The reason this is worth a gate of its own: the Unicode check on source files does not read git metadata, and a commit message cannot be corrected after it lands, only rewritten out of history.
 
 The gate applies to every author, bots excepted (#1516), so a subject without its bracketed reference fails a required check and a failing required check blocks the merge whoever wrote it. If you are contributing from outside this repository and no issue exists yet, file one first and reference it, or open the pull request and say so: I file the issue, and you amend the subject, which is one `git commit --amend` and a push. The character check judges every author on the same tier, because a message nobody can read is a problem whoever wrote it.
+
+### CHANGELOG Entries
+
+**An entry is two or three sentences (#1897).** It says what changed, the setting or route it touches and its default, and the issue that holds the rest; the depth belongs in the issue, the pull request and the wiki, which is where a reader who wants it will look. A release intro keeps its decision sentences, and a passage admitting something was not verified stays as it is, because that is the one kind of sentence a shorter entry must not lose.
 
 ### Sign Your Work (DCO)
 
