@@ -123,3 +123,8 @@ dotnet_diagnostic.CA1825.severity = none
 # Test helpers take their arguments from the test itself; a null there is a
 # failing test, not a public contract (#1887).
 dotnet_diagnostic.CA1062.severity = none
+
+[SSO-Auth.Fuzz/**.cs]
+# A fuzz harness catches everything so that one input cannot end the run;
+# the exception is the finding it reports (#1887).
+dotnet_diagnostic.CA1031.severity = none
