@@ -7,7 +7,34 @@ digit and differ by release cadence). The channel and Jellyfin generation are a
 suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 `-JF12-*`), never part of the installed numeric version.
 
-## Unreleased
+## 5.1.1
+
+A feature release, and the first stable release of the 5.1 line. It is numbered
+5.1.1 rather than 5.1.0 because the beta channel already carries 5.1.0.<run>
+builds, and a release is offered to a server on one of them only where it
+outranks every beta of its own line (#1841). Over 5.0.0 it adds the one-time
+ticket for the RP-initiated OpenID logout, so the self-service page's **Sign out
+everywhere** never puts an access token in a URL; a per-provider switch that
+leaves alone the folders the configuration does not manage; the private-network
+opt-in reaching an avatar served from the provider's own origin; and diagnostics
+for a wrong issuer - the log line, the Test Connection result and the endpoint's
+help - that name both values. The Jellyfin 10.11 / .NET 9 build leg is retired,
+which is the end of support for the 4.x line (#1770). **Read the #1768 entry
+before upgrading:** the OpenID logout route no longer carries `[Authorize]` and
+refuses in the method instead. The configuration page's maturity label reads
+Full Release on this line from this release on, as it has on 5.0 since 5.0.0.
+
+**Not verified for this release, by decision** (decided on #1879 on
+2026-09-27): the SAML login against a real identity provider, the Quick Connect
+round trips on Android and Android TV, reverse-proxy forwarded-header
+attribution, and an upgrade from an older build over the top of an existing
+install. The OpenID login against a real provider and the browser items of the
+checklist are the ones walked on the candidate during its soak, and their
+record is on #1879, not here. The candidate's own beta publish runs the provider
+matrix against a Jellyfin 12 server; the soak, seven days as the newest beta of
+the line, and the gate walk are recorded on #1879 with their dates. Anything
+found on 5.1.1 afterwards is fixed forward on the 5.2 line, which opens at this
+commit.
 
 ### Added
 
@@ -69,6 +96,226 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   the server is out of tickets it says to come back. Jellyfin's own Sign out is
   unchanged and still ends the Jellyfin session alone.
 
+### Changed
+
+- **The OpenID endpoint's help names the issuer (#1836).** It read "The OpenID
+  endpoint. Must have a .well-known path available.", which describes a base
+  address and invites the value an administrator hands other services. The
+  field is the issuer: the plugin appends the well-known path to it, so it has
+  to equal the issuer the discovery document publishes. The help now says so,
+  names the subfolder or front-controller shape that surprises people, and says
+  where to read the value. Both catalogues carry the new text.
+
+- **The credential-less refusals of the RP-initiated OpenID logout write a
+  bounded number of audit lines, on any configuration (#1792).** When that
+  route stopped carrying `[Authorize]` for the one-time ticket, a request with
+  no credential began to reach the method and be answered by a warning line in
+  the audit trail, throttled by the rate limiter in front of it. The limiter is
+  off on a fresh install and creates no bucket for a non-public peer, so on a
+  stock install, or behind a reverse proxy Jellyfin has not been told to
+  resolve, that line was written at request rate for anybody. The two refusals
+  now share a ceiling that does not depend on the limiter: the first ten in a
+  minute are recorded one by one, the rest are counted and written as one line
+  when the minute turns, saying how many went unrecorded. The provider name
+  those lines print is a route segment the caller chooses, and it is now cut at
+  128 characters and marked `[truncated]`, on the refusal line and on the
+  completion line alike. Neither bound changes the answer a caller receives.
+  The route's own documentation now also records, from the host's source at
+  the pinned Jellyfin version, that a present token which resolves to nothing
+  is returned as an authorization with no user rather than thrown, so the
+  expired `api_key` case meets the same throttled, audited refusal as a request
+  with no token. The two refusals also draw on a rate-limit class of their own
+  now, `logout-refusal`, rather than the shared `logout` class: while they
+  shared it, a flood of guesses from one public address spent that address's
+  budget for the inbound SAML logout and for the ticket mint as well, so the
+  people behind the same address were answered `429` on a sign-out. The class
+  shows up as its own `class` label on the throttle counter.
+
+- **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
+  `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
+  different causes, and three of them are permanent for the request that met
+  them: a caller that resolves to no user, a caller whose access token is empty,
+  and a request naming no provider all meet exactly the same refusal on every
+  retry. 503 is the status that tells a client to come back, so the one caller
+  that could never succeed was the one being asked to keep asking, at an endpoint
+  that is deliberately not rate-limited, where each ask costs a configuration
+  read and a store sweep. The three permanent causes now answer `401` for a
+  caller a ticket cannot be bound to and `400` for a request naming no provider,
+  which are the statuses the route already gives those shapes elsewhere. The
+  capacity ceiling keeps its `503` and its body saying that signing out of
+  Jellyfin still ends the local session, because that is the one class a caller
+  can clear by waiting. A client that treats 503 as retryable and 4xx as final
+  needs no change; one that retried every refusal will now stop on the three it
+  could never have got past. The mint also charges the Logout rate-limit class
+  now, after its authorization check, so where `EnableRateLimit` is set a
+  client in a loop is answered `429` before it has filled its own ticket share
+  and locked its own sign-out for the rest of the minute. That is defence in
+  depth and not the guarantee: the limiter is off on a fresh install and keys
+  on a public peer only, so there the per-account share of the ticket store
+  stays the bound, and its arithmetic is recorded beside the route's entry on
+  the throttled roster and re-derived from the constants by a test.
+
+- **An avatar served by an OpenID provider on the administrator's own network is
+  fetched when that provider has Allow Private Network Addresses set (#1764).** The
+  opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,
+  userinfo and back-channel logout), and the avatar fetch stayed on the strict tier
+  for every origin, so a provider
+  that serves its pictures from its own host was refused one request to a host it
+  already reached for everything else (#1762). The avatar now earns the private
+  tier at the moment its URL is chosen, when both facts hold at once: the provider
+  carries the opt-in, and the URL's origin, meaning scheme, host and port compared
+  exactly, is the origin of that provider's own discovery, token or userinfo
+  endpoint, the last counting only while the login reads it. The URL travels bound
+  to that verdict, so the fetch never applies it to
+  another address and re-reads nothing to decide. A private address literal on
+  that origin passes the URL validator under the same tier and nowhere else. A
+  redirect from a private-tier avatar is followed only to a target the strict tier
+  admits, so the verdict never carries past the origin it was earned for. Every
+  other origin, and every provider without the opt-in, is fetched exactly as
+  before, and the refusal an operator reads names what the setting covers now.
+
+- **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target, net10.0, for Jellyfin 12 (#1770).**
+  `4.3.0-stable` of 2026-09-15 was the last build for Jellyfin 10.11 and .NET 9,
+  and nothing is developed for that generation any more. This is the end of
+  support for the 4.x line, announced here as `SECURITY.md` says it will be,
+  and it comes with no advance notice: the line was retired by decision before
+  5.0.0 shipped, so the six months of security fixes for a previous line that
+  `SECURITY.md` used to promise are not kept for 4.x, and the file now says so.
+  A 10.11 server loses nothing it has: the manifests are regenerated from every
+  release that exists, so 4.3.0 stays on `manifest-release` and the 4.3 betas on
+  `manifest-beta`, and Jellyfin's own `targetAbi` filter keeps offering a 10.11
+  server that build and a 12 server the 5.x one from the same repository URL.
+  In the tree, every project targets `net10.0` alone, `build.yaml` carries the
+  12.0 metadata and `build-jf12.yaml` is gone together with every step that
+  copied it over `build.yaml`, the two 10.11 publish workflows stay on `main`
+  with the 4.3 line and are not on this branch, the end-to-end matrix boots a
+  Jellyfin 12 server only, and the ABI floor job builds the one target against
+  `build.yaml`'s floor - which today equals the version the build compiles
+  against, so it proves the same thing as the build until that pin moves.
+  Nothing is published from this line before `5.0.0-stable`.
+
+### Fixed
+
+- **A server on a beta build is offered the release of its own line (#1841).**
+  The two channels numbered one line differently: the stable channel carried
+  5.0.0.0 while the beta channel carried 5.0.0.88 for that same line, so a
+  server watching the beta channel saw a lower version on the stable one, was
+  never offered an update, and stayed on a pre-release build. Every release is
+  now carried into the beta channel as well, so that channel always leads; the
+  stable channel keeps only releases, as before. Beside it, a release that does
+  not number above every beta of its own line is refused before it is created,
+  because a release the beta channel carries at a lower version is still never
+  offered and a published release cannot be renumbered.
+
+- **A discovery document whose issuer the endpoint refuses is logged with both
+  values (#1835).** The fail-closed warning carried the identity library's text,
+  which quotes one of the two values and says neither which one it is nor which
+  of them belongs in the endpoint field; a provider installed in a subfolder,
+  such as Nextcloud publishing `.../nextcloud/index.php`, took a reader two
+  rounds to repair. Where the policy refused the published issuer, the warning
+  now names the configured endpoint and the published issuer on lines of their
+  own and says the field has to carry the published one exactly. The published
+  value is the provider's text and is stripped, substituted and bounded at the
+  call like the library's; every other failed read logs what it logged before.
+
+- **Test Connection reports an issuer mismatch as its own result, with both
+  values (#1837).** A document that was served and whose issuer the configured
+  endpoint refuses came back as "Could not read the OpenID discovery document",
+  with advice about reachability, the well-known path and HTTPS, none of which
+  was wrong. The probe now answers that the document was read, that its issuer
+  is not the configured endpoint and that every login on the provider is
+  refused, and lists the configured endpoint and the published issuer beside it.
+  It asks the administrator to confirm that the published issuer belongs to the
+  expected provider before putting it in the field. The reason comes from the
+  same policy comparison that writes the log entry of #1835, so the screen and
+  the log name one cause. Every other result is unchanged.
+
+- **An administrator refusal names the two ways to link that account (#1765).**
+  An administrator account is never adopted by name, so a first SSO login cannot
+  turn into administrator access, and turning `AllowExistingAccountLink` on does
+  not change that. The rule is right and is unchanged; what the server log said
+  after it was "link it explicitly via the admin endpoints", which names a
+  category rather than a route, and the reporter searched the documentation
+  before finding the page that does it (#1762). Both refusals that state this
+  rule - the adoption refusal and the legacy username-keyed link that points at
+  an administrator - now name both ways in: sign in to that account with its own
+  password and link it at `/SSOViews/linking`, or pre-provision the link with an
+  elevated call to the account-management API. The second matters on a server
+  running SSO-only login, where the account being refused may have no password
+  door left and the page is not reachable for it. The refusals themselves are
+  unchanged, and no account becomes linkable that was not before.
+
+- **The refused-login line follows the code the provider returned (#1763).**
+  When an authorization request cannot be prepared, the plugin writes one line
+  to the server log, and that line always ended by naming the redirect URI and
+  telling the administrator the provider must hold it exactly as written. That
+  sentence was written for one refusal: a callback the client does not hold,
+  which the provider answers `invalid_request`, and which happens server to
+  server under pushed authorization so the URI appears on no page the
+  administrator can reach. The same endpoint also refuses the **client** - a
+  secret or client ID that does not match, or a client the provider holds as
+  public while a secret is sent - and answers **401**, which reaches the log as
+  `Unauthorized`. An administrator who had already checked the redirect URI
+  against the provider was sent back to check it again (#1762). The closing
+  sentence now follows what came back: `invalid_request` keeps the redirect URI
+  sentence, a client refusal names the client ID and secret and the
+  public-or-confidential registration instead, and anything else gets a
+  sentence that interprets nothing. That third sentence is not a leftover: the
+  identity library hands this line one field, and for any status but a 400 it
+  holds the HTTP reason phrase or a transport failure rather than a code the
+  provider chose, so a line that named a cause there would be naming one the
+  answer does not carry. For the same reason no sentence rules the other cause
+  **out** - the provider's own description never reaches this log. The browser
+  still sees the same fixed generic message, and the refusal is unchanged.
+
+- **A provider address that does not answer no longer uses up the whole
+  request, and a failed connect says what the address guard skipped (#1760).**
+  The outbound connect tries a host's allowed addresses one after another, and
+  an attempt had no bound of its own: an address that dropped the connection
+  silently - an IPv6 address a container cannot route, a public address that
+  needs NAT loopback - held it until the caller's whole timeout, so a working
+  address listed after it was never tried and the log said only that the
+  request timed out (#1759). Each attempt is now bounded at five seconds, so a
+  discovery read with its ten-second budget reaches the next address. When the
+  connect fails anyway, its message counts the addresses the guard refused and,
+  where they are on a private network, names **Allow Private Network Addresses**
+  with its reach: it allows them for an OpenID provider's discovery, token and
+  userinfo requests, while SAML metadata and, until #1764 above widened it to
+  the provider's own origin, avatars are fetched without it. It names no
+  address, because the message reaches the server log.
+  Loopback, link-local and cloud-metadata
+  addresses are counted but never pointed at that setting, which does not relax
+  them. The guard's policy is unchanged: every address is still classified
+  before anything connects to it.
+
+## 5.0.0
+
+A feature release, and the first stable release of the Jellyfin 12 line. It
+advances the plugin's maturity to **Full Release** on the back of the rebuilt
+settings pages, named provisioning profiles, the account-link roster and its
+self-service page, sign-in counters, providers declared in environment
+variables, a translated dashboard, and the self-lockout guards that keep an
+administrator and an SSO-only account from stranding themselves.
+
+**Not verified for this release, by decision.** Two items of the release QA
+checklist were not walked on the candidate: reverse-proxy forwarded-header
+attribution, and an upgrade from an older build over the top of an existing
+install (decided on #1729 on 2026-09-16). The native-client round trips were
+walked on iPhone and Apple TV, with the official app and with Swiftfin each,
+and not on the Android pair the checklist names. The pairwise co-existence
+phase of the provider matrix checked no pair, because the sibling repositories
+it pairs with have been private since 2026-09-19 (#1773), so its green
+conclusion is not co-existence evidence and the run says so. What was
+verified: the seven-provider matrix against a Jellyfin 12.0 server in the
+candidate's own publish run, the canonical provider against a 12.1 server on
+the published package, and five days and a half of the candidate as the
+newest beta of the line with no release-blocking defect reported. The window
+was closed early by decision on 2026-09-21, so that the work moves to the 5.1
+line, which becomes the beta line; anything found on 5.0.0 afterwards is fixed
+forward there.
+
+### Added
+
 - **A login refused by the provider's role allow-list now reaches a
   notification destination (#1142).** An operator running `jellyfin-plugin-webhook` was told nothing when
   single sign-on turned somebody away: Jellyfin raises its own
@@ -96,6 +343,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   nobody: a missing `sub`, a step-up requirement, an expired authentication, a
   malformed SAML response. Those are separate moments and this change does not
   claim them.
+
 - **A way back from a link import that restored the wrong document (#1519).**
   `DELETE /sso/{mode}/Links/{provider}/{expectedLinkCount}` removes every
   canonical link one provider holds. It exists because the link import merges -
@@ -121,6 +369,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   act and every refusal are audited, and so is the case the check cannot cover: if
   something changes while the run is in flight, an administrator left without a
   way in is named in the log the moment it happens.
+
 - **An unreadable `SSO-Auth.xml` is kept, announced, and refused rather than
   quietly replaced (#1543).** Jellyfin's plugin base class answers a
   configuration it cannot deserialize by building a default one and writing it
@@ -281,6 +530,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   audit line unchanged - and every value it paints is written as text, never as
   markup, because a subject identifier is whatever the identity provider chose to
   send.
+
 - **A group can decide who may start a SyncPlay session (#827).** Everything else
   the identity provider decides about an account is re-read at every login -
   administrator rights, folder access, Live TV, the permission surface, the
@@ -301,6 +551,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   `CreateAndJoinGroups`, `JoinGroups` or `None`, spelled exactly - and any other
   spelling, a number among them, is refused when the configuration is saved
   rather than silently ignored at the next login.
+
 - **One action checks every configured provider at once (#1084).** The settings
   page could say whether the provider currently open in the editor looks
   complete, and nothing could say it about the others: an administrator with six
@@ -321,6 +572,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   says so on every run: reachability is what Test Connection in a provider's own
   editor is for, and fanning out probes here would empty the throttle budget
   those routes share and report working providers as unreachable.
+
 - **A provisioning policy can be named once and shared by several providers
   (#1105).** The policy written onto a brand-new account at creation used to
   exist only as a block inside one provider, so a deployment wanting the same
@@ -347,6 +599,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   not yet offer a profile editor: profiles are configured through the admin API,
   a configuration file, or an import, and a dashboard save leaves them
   untouched.
+
 - **A provider can pick which provisioning profile a new account gets from the
   login's own roles (#1106).** Naming one profile per provider (#1105) meant a
   deployment wanting guests to start narrower than staff needed a second
@@ -446,6 +699,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   neither clear it nor invent one. It is not part of the portable link export
   either, because a login instant belongs to the server that observed it and
   cannot be restored onto another.
+
 - **Jellyfin accounts can follow a rename at the identity provider (#1138).** A
   new per-provider option, **Follow Username Renames From The Provider**, renames
   a linked Jellyfin account on the user's next SSO login when their username has
@@ -481,6 +735,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   Jellyfin. The template is set on each provider's form in the
   dashboard, under Starting policy for new accounts, and in the plugin
   configuration.
+
 - **The starting policy can also seed playback preferences (#1100).** The same
   per-provider template now carries the language and playback block: preferred
   audio language, preferred subtitle language, subtitle mode, whether the
@@ -498,6 +753,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   rather than checked against a list, so any code Jellyfin accepts works. As with
   the rest of the template, these are on the provider forms in the dashboard as
   well as in the plugin configuration.
+
 - **A guest or trial group can carry a fixed access duration (#1146).** A
   provider can map identity-provider roles to a length of access in hours, and
   an account created by a login holding one of those roles is given a deadline
@@ -517,6 +773,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   is one longer than a century, and so is a mapping that lists no roles. The
   mappings are set in the plugin configuration; the provider forms in the
   dashboard do not carry them yet.
+
 - **Account expiry now ends access on the deadline rather than at the next
   login (#1145).** The instant a login carries is persisted against that
   account's SSO link, and an hourly background pass disables any linked account
@@ -532,6 +789,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   and someone has to be left who can open the settings page. A provider you
   switch off is skipped rather than swept, and an account already disabled is
   left alone rather than logged again on every pass.
+
 - **An account-expiry instant read from a provider claim (#1143).** A provider
   can name a claim (OpenID) or assertion attribute (SAML) that carries the
   instant its account access ends, and both protocols now read it onto the
@@ -545,6 +803,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   dotted path into the claim's JSON, the same convention the role claim uses.
   The field is settable in the plugin configuration; the provider forms in the
   dashboard do not carry it yet.
+
 - **OpenID providers on a private network (#1058).** A new per-provider option,
   **Allow Private Network Addresses**, lets a provider's backchannel
   (discovery, JWKS, token, userinfo, back-channel logout) reach an identity
@@ -559,9 +818,10 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   NAT and IPv6 unique-local only, while loopback, link-local and the cloud
   metadata ranges (`169.254.169.254`, `192.0.0.192`) stay blocked regardless.
   Every other provider and the SAML metadata importer keep the full guard, and
-  so did the avatar fetch until #1764 below covered a picture served from the
+  so did the avatar fetch until #1764 (in 5.1.1) covered a picture served from the
   provider's own origin. Enabling it is surfaced as a security downgrade in the config page
   and recorded in the insecure-toggle audit log.
+
 - **OpenID role claims carried as an object map.** A new per-provider option,
   **Role claim is an object map**, reads the roles from the property _names_ of
   a JSON object instead of from a list of strings. Zitadel needs it: it emits
@@ -571,6 +831,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   never the values, never nested objects - and every other claim shape still
   fails closed to no roles. The option is **off by default**, so no existing
   provider changes behaviour.
+
 - **Managed login-page buttons (#722).** An opt-in global option, **Manage
   login-page buttons** (off by default), keeps a "Sign in with …" button block
   on Jellyfin's login page in sync with the configured, enabled providers - so a
@@ -580,12 +841,14 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   disclaimer text; provider names and labels are HTML-encoded. Per provider,
   **Hide login button** omits one provider's button and **Login button text**
   overrides its label.
+
 - **Every release now carries an OpenVEX document (#1093).** `openvex.json` and
   its `openvex.sha256` ship as release assets beside `sbom.cyclonedx.json` on
   all four release legs, so a scanner that flags an advisory in a transitive
   dependency can read the recorded disposition for it instead of guessing. Only
   the plugin zip still carries an `.md5`, which is what keeps the manifest
   checksum paired with the build it belongs to.
+
 - **An export of one account's SSO linkages (#1091).** A new administrator-only
   endpoint, `GET /SSO/Links/Export/{jellyfinUserId}`, returns every OpenID and
   SAML linkage held for one Jellyfin account in a single document, in the same
@@ -599,6 +862,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   its own, so an administrator session cannot be used to walk the user table one
   id at a time, and the throttle is applied before the account lookup so the
   404 cannot be used to test for an account either.
+
 - **A linked-account roster for administrators (#1119).** A new
   administrator-only endpoint, `GET /SSO/Links/Roster`, lists every Jellyfin
   account that holds an SSO link, with the provider and canonical name behind
@@ -609,6 +873,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   reported as an orphan rather than dropped, which is the one place that state is
   visible at all. The roster is assembled from the link maps alone, so no
   provider secret, signing key or certificate can appear in it.
+
 - **An account can be linked to an identity before its first login (#1133).** A
   new administrator-only endpoint writes the link from an identity-provider
   subject to an existing Jellyfin account directly, so an account created by an
@@ -627,98 +892,6 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Changed
 
-- **The OpenID endpoint's help names the issuer (#1836).** It read "The OpenID
-  endpoint. Must have a .well-known path available.", which describes a base
-  address and invites the value an administrator hands other services. The
-  field is the issuer: the plugin appends the well-known path to it, so it has
-  to equal the issuer the discovery document publishes. The help now says so,
-  names the subfolder or front-controller shape that surprises people, and says
-  where to read the value. Both catalogues carry the new text.
-
-- **The credential-less refusals of the RP-initiated OpenID logout write a
-  bounded number of audit lines, on any configuration (#1792).** When that
-  route stopped carrying `[Authorize]` for the one-time ticket, a request with
-  no credential began to reach the method and be answered by a warning line in
-  the audit trail, throttled by the rate limiter in front of it. The limiter is
-  off on a fresh install and creates no bucket for a non-public peer, so on a
-  stock install, or behind a reverse proxy Jellyfin has not been told to
-  resolve, that line was written at request rate for anybody. The two refusals
-  now share a ceiling that does not depend on the limiter: the first ten in a
-  minute are recorded one by one, the rest are counted and written as one line
-  when the minute turns, saying how many went unrecorded. The provider name
-  those lines print is a route segment the caller chooses, and it is now cut at
-  128 characters and marked `[truncated]`, on the refusal line and on the
-  completion line alike. Neither bound changes the answer a caller receives.
-  The route's own documentation now also records, from the host's source at
-  the pinned Jellyfin version, that a present token which resolves to nothing
-  is returned as an authorization with no user rather than thrown, so the
-  expired `api_key` case meets the same throttled, audited refusal as a request
-  with no token. The two refusals also draw on a rate-limit class of their own
-  now, `logout-refusal`, rather than the shared `logout` class: while they
-  shared it, a flood of guesses from one public address spent that address's
-  budget for the inbound SAML logout and for the ticket mint as well, so the
-  people behind the same address were answered `429` on a sign-out. The class
-  shows up as its own `class` label on the throttle counter.
-- **The logout-ticket mint answers 503 only where a retry can clear it (#1796).**
-  `POST OID/logout-ticket/{provider}` answered `503 Service Unavailable` for four
-  different causes, and three of them are permanent for the request that met
-  them: a caller that resolves to no user, a caller whose access token is empty,
-  and a request naming no provider all meet exactly the same refusal on every
-  retry. 503 is the status that tells a client to come back, so the one caller
-  that could never succeed was the one being asked to keep asking, at an endpoint
-  that is deliberately not rate-limited, where each ask costs a configuration
-  read and a store sweep. The three permanent causes now answer `401` for a
-  caller a ticket cannot be bound to and `400` for a request naming no provider,
-  which are the statuses the route already gives those shapes elsewhere. The
-  capacity ceiling keeps its `503` and its body saying that signing out of
-  Jellyfin still ends the local session, because that is the one class a caller
-  can clear by waiting. A client that treats 503 as retryable and 4xx as final
-  needs no change; one that retried every refusal will now stop on the three it
-  could never have got past. The mint also charges the Logout rate-limit class
-  now, after its authorization check, so where `EnableRateLimit` is set a
-  client in a loop is answered `429` before it has filled its own ticket share
-  and locked its own sign-out for the rest of the minute. That is defence in
-  depth and not the guarantee: the limiter is off on a fresh install and keys
-  on a public peer only, so there the per-account share of the ticket store
-  stays the bound, and its arithmetic is recorded beside the route's entry on
-  the throttled roster and re-derived from the constants by a test.
-- **An avatar served by an OpenID provider on the administrator's own network is
-  fetched when that provider has Allow Private Network Addresses set (#1764).** The
-  opt-in used to reach the provider's own backchannel only (discovery, JWKS, token,
-  userinfo and back-channel logout), and the avatar fetch stayed on the strict tier
-  for every origin, so a provider
-  that serves its pictures from its own host was refused one request to a host it
-  already reached for everything else (#1762). The avatar now earns the private
-  tier at the moment its URL is chosen, when both facts hold at once: the provider
-  carries the opt-in, and the URL's origin, meaning scheme, host and port compared
-  exactly, is the origin of that provider's own discovery, token or userinfo
-  endpoint, the last counting only while the login reads it. The URL travels bound
-  to that verdict, so the fetch never applies it to
-  another address and re-reads nothing to decide. A private address literal on
-  that origin passes the URL validator under the same tier and nowhere else. A
-  redirect from a private-tier avatar is followed only to a target the strict tier
-  admits, so the verdict never carries past the origin it was earned for. Every
-  other origin, and every provider without the opt-in, is fetched exactly as
-  before, and the refusal an operator reads names what the setting covers now.
-- **The Jellyfin 10.11 / .NET 9 leg is retired; this line builds one target, net10.0, for Jellyfin 12 (#1770).**
-  `4.3.0-stable` of 2026-09-15 was the last build for Jellyfin 10.11 and .NET 9,
-  and nothing is developed for that generation any more. This is the end of
-  support for the 4.x line, announced here as `SECURITY.md` says it will be,
-  and it comes with no advance notice: the line was retired by decision before
-  5.0.0 shipped, so the six months of security fixes for a previous line that
-  `SECURITY.md` used to promise are not kept for 4.x, and the file now says so.
-  A 10.11 server loses nothing it has: the manifests are regenerated from every
-  release that exists, so 4.3.0 stays on `manifest-release` and the 4.3 betas on
-  `manifest-beta`, and Jellyfin's own `targetAbi` filter keeps offering a 10.11
-  server that build and a 12 server the 5.x one from the same repository URL.
-  In the tree, every project targets `net10.0` alone, `build.yaml` carries the
-  12.0 metadata and `build-jf12.yaml` is gone together with every step that
-  copied it over `build.yaml`, the two 10.11 publish workflows stay on `main`
-  with the 4.3 line and are not on this branch, the end-to-end matrix boots a
-  Jellyfin 12 server only, and the ABI floor job builds the one target against
-  `build.yaml`'s floor - which today equals the version the build compiles
-  against, so it proves the same thing as the build until that pin moves.
-  Nothing is published from this line before `5.0.0-stable`.
 - **A failed release call no longer throws away the build behind it (#1736).**
   The daily Jellyfin 12 beta was one job: it compiled the plugin, packaged it,
   wrote the checksum and SBOM sidecars and then created the GitHub release. When
@@ -782,6 +955,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   and its Save rather than after them. Overview re-reads the server on every
   visit; the four pages that hold controls do not, because re-reading them would
   discard an edit made and not yet saved.
+
 - **One Save on the Server page, an unsaved-changes indicator, and the outcome
   where the button is (#1572).** The Server page carried two Save buttons for
   two server-wide switches, and each one re-read the whole configuration, set
@@ -921,97 +1095,6 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ### Fixed
 
-- **A server on a beta build is offered the release of its own line (#1841).**
-  The two channels numbered one line differently: the stable channel carried
-  5.0.0.0 while the beta channel carried 5.0.0.88 for that same line, so a
-  server watching the beta channel saw a lower version on the stable one, was
-  never offered an update, and stayed on a pre-release build. Every release is
-  now carried into the beta channel as well, so that channel always leads; the
-  stable channel keeps only releases, as before. Beside it, a release that does
-  not number above every beta of its own line is refused before it is created,
-  because a release the beta channel carries at a lower version is still never
-  offered and a published release cannot be renumbered.
-- **A discovery document whose issuer the endpoint refuses is logged with both
-  values (#1835).** The fail-closed warning carried the identity library's text,
-  which quotes one of the two values and says neither which one it is nor which
-  of them belongs in the endpoint field; a provider installed in a subfolder,
-  such as Nextcloud publishing `.../nextcloud/index.php`, took a reader two
-  rounds to repair. Where the policy refused the published issuer, the warning
-  now names the configured endpoint and the published issuer on lines of their
-  own and says the field has to carry the published one exactly. The published
-  value is the provider's text and is stripped, substituted and bounded at the
-  call like the library's; every other failed read logs what it logged before.
-
-- **Test Connection reports an issuer mismatch as its own result, with both
-  values (#1837).** A document that was served and whose issuer the configured
-  endpoint refuses came back as "Could not read the OpenID discovery document",
-  with advice about reachability, the well-known path and HTTPS, none of which
-  was wrong. The probe now answers that the document was read, that its issuer
-  is not the configured endpoint and that every login on the provider is
-  refused, and lists the configured endpoint and the published issuer beside it.
-  It asks the administrator to confirm that the published issuer belongs to the
-  expected provider before putting it in the field. The reason comes from the
-  same policy comparison that writes the log entry of #1835, so the screen and
-  the log name one cause. Every other result is unchanged.
-
-- **An administrator refusal names the two ways to link that account (#1765).**
-  An administrator account is never adopted by name, so a first SSO login cannot
-  turn into administrator access, and turning `AllowExistingAccountLink` on does
-  not change that. The rule is right and is unchanged; what the server log said
-  after it was "link it explicitly via the admin endpoints", which names a
-  category rather than a route, and the reporter searched the documentation
-  before finding the page that does it (#1762). Both refusals that state this
-  rule - the adoption refusal and the legacy username-keyed link that points at
-  an administrator - now name both ways in: sign in to that account with its own
-  password and link it at `/SSOViews/linking`, or pre-provision the link with an
-  elevated call to the account-management API. The second matters on a server
-  running SSO-only login, where the account being refused may have no password
-  door left and the page is not reachable for it. The refusals themselves are
-  unchanged, and no account becomes linkable that was not before.
-
-- **The refused-login line follows the code the provider returned (#1763).**
-  When an authorization request cannot be prepared, the plugin writes one line
-  to the server log, and that line always ended by naming the redirect URI and
-  telling the administrator the provider must hold it exactly as written. That
-  sentence was written for one refusal: a callback the client does not hold,
-  which the provider answers `invalid_request`, and which happens server to
-  server under pushed authorization so the URI appears on no page the
-  administrator can reach. The same endpoint also refuses the **client** - a
-  secret or client ID that does not match, or a client the provider holds as
-  public while a secret is sent - and answers **401**, which reaches the log as
-  `Unauthorized`. An administrator who had already checked the redirect URI
-  against the provider was sent back to check it again (#1762). The closing
-  sentence now follows what came back: `invalid_request` keeps the redirect URI
-  sentence, a client refusal names the client ID and secret and the
-  public-or-confidential registration instead, and anything else gets a
-  sentence that interprets nothing. That third sentence is not a leftover: the
-  identity library hands this line one field, and for any status but a 400 it
-  holds the HTTP reason phrase or a transport failure rather than a code the
-  provider chose, so a line that named a cause there would be naming one the
-  answer does not carry. For the same reason no sentence rules the other cause
-  **out** - the provider's own description never reaches this log. The browser
-  still sees the same fixed generic message, and the refusal is unchanged.
-
-- **A provider address that does not answer no longer uses up the whole
-  request, and a failed connect says what the address guard skipped (#1760).**
-  The outbound connect tries a host's allowed addresses one after another, and
-  an attempt had no bound of its own: an address that dropped the connection
-  silently - an IPv6 address a container cannot route, a public address that
-  needs NAT loopback - held it until the caller's whole timeout, so a working
-  address listed after it was never tried and the log said only that the
-  request timed out (#1759). Each attempt is now bounded at five seconds, so a
-  discovery read with its ten-second budget reaches the next address. When the
-  connect fails anyway, its message counts the addresses the guard refused and,
-  where they are on a private network, names **Allow Private Network Addresses**
-  with its reach: it allows them for an OpenID provider's discovery, token and
-  userinfo requests, while SAML metadata and, until #1764 below widened it to
-  the provider's own origin, avatars are fetched without it. It names no
-  address, because the message reaches the server log.
-  Loopback, link-local and cloud-metadata
-  addresses are counted but never pointed at that setting, which does not relax
-  them. The guard's policy is unchanged: every address is still classified
-  before anything connects to it.
-
 - **The Test Connection verdict is translated (#1728).** The verdict and the
   facts under it - the issuer, the endpoints, the JWKS key count, a certificate's
   subject and validity - arrived as English sentences built on the server, so a
@@ -1106,6 +1189,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   the help text says when one is needed. An address pasted from the plugin's
   own `/sso/...` route, a query and a fragment are still refused, in words that
   no longer call the path itself the error.
+
 - **A browser no longer keeps the previous build's scripts after an upgrade
   (#1705).** Every plugin asset carries a tag a browser sends back to ask
   whether its copy is still current, and that tag was the assembly's file
@@ -1117,6 +1201,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   where the bytes cannot be read it falls back to the assembly version rather
   than to no tag. The `no-cache` answer is unchanged: a browser keeps the
   asset and asks, and after an upgrade the first ask is now answered in full.
+
 - **A settings tab returned to now shows what the server holds, instead of what
 
   it last loaded (#1576, #1572).** The Jellyfin dashboard keeps three views
@@ -1302,6 +1387,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   disables a managed profile's fields and its Save, Rename and Delete and says
   at the selector why, and each of the three acts refuses a managed profile
   before it touches anything, naming the source and the restart.
+
 - **The provider API stored a starting policy the configuration page would have
   refused (#1502).** `OID/Add` and `SAML/Add` write the provider they are given
   without running the configuration save's checks, and nothing ran the
@@ -1377,6 +1463,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   What it inherits from #1733 is that record's own floor: an account sealed by a
   plugin version that kept no record still reads as holding a password of its
   own, so this is a floor rather than coverage.
+
 - **The self-unlink refusal now reaches the accounts it was written for
   (#1733).** This plugin mints an unguessable password onto every account it
   provisions - 64 random bytes, never displayed, never stored anywhere else and
@@ -1454,6 +1541,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   like the self-service one. Two administrators revoking themselves at the same
   moment can each see the other and both pass, the same window the self-service
   guard names, because the user records are not under the configuration lock.
+
 - **An administrator can no longer strand their own server through the
   self-service unlink (#1732).** The refusal above exempts an administrator, and that
   exemption was decided for an administrator acting on somebody ELSE's link.
@@ -1482,6 +1570,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   localization catalogue. This covers the self-service unlink route and only it;
   the administrator `Unregister` action is a separate one-call path with no
   last-administrator guard of its own, which is #1741.
+
 - **A user whose account accepts no password can no longer lock themselves out
   by unlinking their last provider (#1720).** On a server where the account's
   authentication provider is this plugin's, Jellyfin accepts no password for
@@ -1782,6 +1871,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   filter for OpenID logout failures finds them. The HTTP response is unchanged:
   every rejection is still the one uniform 400 with nothing that distinguishes
   the branches to the caller.
+
 - **A document that says two things about a user's roles now grants none of
   them.** When a provider's UserInfo response names the role claim twice, the
   two copies reach the plugin as two separate claims, each one clean on its own,
@@ -1793,6 +1883,7 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
   response are unaffected, because copies that agree still grant, and so is the
   common shape of one claim per group, which is a list written as repeated
   claims rather than two statements about one object.
+
 - **A provider response that names a JSON member twice is refused before it is
   parsed.** A repeated member is accepted silently by every reader these
   documents reach, and none of them raises an error, so which of the two values a

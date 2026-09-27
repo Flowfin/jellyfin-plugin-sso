@@ -6,24 +6,31 @@ README and in the plugin's configuration page.
 
 ## Where it stands
 
-**Current stage: Release Candidate** - the fourth rung of the ladder.
+**Current stage: Full Release** - the fifth and last rung of the ladder.
 
 ```
-○ In-Development  →  ○ Alpha  →  ○ Beta  →  ● Release Candidate  →  ○ Full Release
-                                                  ▲ you are here
+○ In-Development  →  ○ Alpha  →  ○ Beta  →  ○ Release Candidate  →  ● Full Release
+                                                                      ▲ you are here
 ```
 
-The build is frozen and treated as production-ready: only a release-blocking
-defect pulls a change in, and everything else waits for the next cycle.
-Cautious production trials are in scope on instances with a rollback plan; as
-with any auth change, keep a config backup.
+The line is production-ready and published on the stable channel. `5.0.0` was
+the first stable release for Jellyfin 12, promoted on 2026-09-21 after its
+candidate had soaked as the newest beta with no release-blocking defect reported
+(#1729). `5.1.1` is the first stable release of the 5.1 line: the commit that
+froze the line on 2026-09-27 is the candidate, tagged after its seven-day soak,
+and the gate walk is recorded on #1879. It is safe for real instances with real
+accounts; as with any auth change, keep a config backup.
 
 The four Beta→RC gates were met with their evidence on 2026-07-24 and the flip
 was made in the README status line and the plugin’s configuration page. This
 page kept saying Beta until 2026-09-04, so a reader arriving from either of
 those two places was told two different rungs. The promotion record lives in
 the P8 epic rather than in a sentence somebody has to remember to move, and
-this page now names the rung that record put the tree on.
+this page now names the rung that record put the tree on. The flip from
+Release Candidate to Full Release was recorded on #1729 and made on the 5.0 line
+on 2026-09-21; this line carried the old label until the change that froze it
+for 5.1.1 (#1879) moved it on the configuration page, in both catalogues and
+here in one change.
 
 ## The maturity ladder
 
@@ -84,7 +91,7 @@ hardening; no new breaking change lands without a documented migration path.
   all boxes are checked with their evidence** - the promotion is an auditable
   record, never a judgement call.
 
-### 4. Release Candidate - _current_
+### 4. Release Candidate
 
 _This is the deliberate name for the stage between Beta and Full Release - a
 frozen, production-ready candidate awaiting confirmation in the field, rather
@@ -98,7 +105,7 @@ defect can pull a change in; everything else waits for the next cycle.
   - a candidate build survives a defined soak period with no release-blocking
     defect reported.
 
-### 5. Full Release
+### 5. Full Release - _current_
 
 Production-ready. Safe for real Jellyfin instances with real accounts, with the
 stability and upgrade guarantees expected of a stable line.

@@ -3,7 +3,7 @@ guid: "505ce9d1-d916-42fa-86ca-673ef241d7df"
 imageUrl: "https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/main/img/logo.png"
 # The next release target of this line. The beta workflow overrides it to X.Y.Z.<run> at build time,
 # and a X.Y.Z-JF12-stable tag releases X.Y.Z; bump it per change class.
-version: "5.1.0"
+version: "5.1.1"
 # The oldest Jellyfin server this plugin claims to load on. Jellyfin 12.0 moved the server to .NET 10,
 # so a 10.11-ABI plugin does not load there and this is the 12 line's floor. The shipping build compiles
 # against this same version today, so the CI `abi-floor` job proves nothing beyond the build job until
