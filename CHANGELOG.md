@@ -9,6 +9,12 @@ suffix on the git tag and GitHub release name only (`-stable`, `-beta.<run>`,
 
 ## Unreleased
 
+### Changed
+
+- **The PR-hygiene gate caps the commit subject at 72 characters, the commit
+  body at 25 lines and the pull-request body at 200 words outside one fenced
+  block (#1900).**
+
 ### Fixed
 
 - **Removing the last SSO link says the sign-out happened instead of reporting
