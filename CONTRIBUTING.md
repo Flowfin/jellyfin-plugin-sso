@@ -318,6 +318,8 @@ The project is licensed **GPL-3.0-only** (`GPL-3.0-only` is the [SPDX identifier
 
 The architecture, comment/documentation, and object-oriented rules a change is held to live in one canonical place - the [Coding Standards](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Coding-Standards) wiki page. This guide does not restate them; read that page before a non-trivial change. They are enforced by the conformance fitness functions in `SSO-Auth.Tests/ArchitectureConformanceTests.cs` and the adversarial review gate.
 
+Comments follow the [comment charter](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Coding-Standards#2-the-comment-charter), section 2 of that page: one sentence per member, the why in one to three sentences with a link to where the depth lives, nothing in source a reader does not need to run or change the code. `python3 tools/lean.py` prints the size report every pull request carries (comment lines and their delta, comment blocks over 10 lines, methods over 60 code lines, files over 500 code lines); it reports, and the budgets it measures against are in the charter.
+
 ### HTML/CSS/JS/Markdown
 
 We use [Prettier](https://prettier.io) to format these files. Run `npx prettier --write --end-of-line auto "**/*.{js,html,md,css,scss}"` before committing, and `npx prettier --check --end-of-line auto "**/*.{js,html,md,css,scss}"` to confirm - CI enforces the check (only `*.min.js` is exempt). Keep `--end-of-line auto` on both: it is what makes the check honest on a CRLF working copy, and it stops `--write` rewriting the line endings of every file you did not touch.

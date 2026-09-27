@@ -30,6 +30,10 @@ dotnet_diagnostic.SA1413.severity = none
 dotnet_diagnostic.SA1512.severity = none
 dotnet_diagnostic.SA1515.severity = none
 dotnet_diagnostic.SA1600.severity = warning
+# A copied summary and a sentence without its period are refused (#1887),
+# because the comment charter asks for one sentence per member.
+dotnet_diagnostic.SA1625.severity = warning
+dotnet_diagnostic.SA1629.severity = warning
 dotnet_diagnostic.SA1633.severity = none
 dotnet_diagnostic.SA1649.severity = none
 
@@ -87,9 +91,18 @@ dotnet_diagnostic.MA0016.severity = none
 dotnet_diagnostic.MA0051.severity = none
 
 # --- Migrated from jellyfin.ruleset: CA ------------------------------------
+# CA1031 is on (#1887). The boundary handlers that swallow every exception on
+# purpose are listed by name; #1903 shrinks this list to zero. A new
+# catch (Exception) anywhere else fails the build.
+dotnet_diagnostic.CA1031.severity = warning
+dotnet_code_quality.CA1031.excluded_symbol_names = M:Jellyfin.Plugin.SSO_Auth.Api.Avatar.AvatarService.TrySetAsync(Jellyfin.Database.Implementations.Entities.User,Jellyfin.Plugin.SSO_Auth.Api.Avatar.AvatarTarget)|M:Jellyfin.Plugin.SSO_Auth.Api.Events.SsoLoginEvents.PublishDeniedAsync(System.String,System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Flows.LoginCompletionService.CaptureLogoutState(Jellyfin.Plugin.SSO_Auth.Api.Identity.VerifiedIdentity,System.Guid,System.Nullable{Jellyfin.Plugin.SSO_Auth.Api.Logout.LogoutContext},MediaBrowser.Controller.Authentication.AuthenticationResult)|M:Jellyfin.Plugin.SSO_Auth.Api.Http.PluginPageCacheFilter.OnResultExecuting(Microsoft.AspNetCore.Mvc.Filters.ResultExecutingContext)|M:Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController.OidBackChannelLogout(System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController.OidLogout(System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController.PurgeProviderLinks(System.String,System.String,System.Int32)|M:Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController.SamlLogout(System.String,System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Linking.CanonicalLinkService.ClearPendingApprovalAfterLogin(Jellyfin.Plugin.SSO_Auth.Api.Provider.ProviderMode,System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Linking.CanonicalLinkService.RecordLastSsoLogin(Jellyfin.Plugin.SSO_Auth.Api.Provider.ProviderMode,System.String,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Linking.CanonicalLinkService.SeedHomeScreen(System.Guid,System.String,Jellyfin.Plugin.SSO_Auth.Config.ProvisioningPolicyTemplate)|M:Jellyfin.Plugin.SSO_Auth.Api.Linking.CanonicalLinkService.SyncUsernameIfRequestedAsync(System.Boolean,Jellyfin.Plugin.SSO_Auth.Api.Provider.ProviderMode,System.String,System.Guid,System.String)|M:Jellyfin.Plugin.SSO_Auth.Api.Linking.DeletedAccountLinkPruner.OnEvent(Jellyfin.Data.Events.Users.UserDeletedEventArgs)|M:Jellyfin.Plugin.SSO_Auth.Api.LoginButtons.LoginButtonManager.StartAsync(System.Threading.CancellationToken)|M:Jellyfin.Plugin.SSO_Auth.Api.LoginButtons.LoginButtonManager.Sync(Jellyfin.Plugin.SSO_Auth.Config.PluginConfiguration)|M:Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcDiscoveryReader.ReadAsync(Duende.IdentityModel.OidcClient.OidcClientOptions,System.String,System.Net.Http.IHttpClientFactory,Microsoft.Extensions.Logging.ILogger,System.Boolean,System.Threading.CancellationToken)|M:Jellyfin.Plugin.SSO_Auth.Api.Session.AccountExpirySweepService.TickAsync|M:Jellyfin.Plugin.SSO_Auth.Api.Session.PasswordlessLinkedAccountSweepService.StartAsync(System.Threading.CancellationToken)|M:Jellyfin.Plugin.SSO_Auth.Api.Session.SsoOnlyReconciliationService.StartAsync(System.Threading.CancellationToken)|M:Jellyfin.Plugin.SSO_Auth.Api.Shared.ChallengeNewPathResolver.ResolveChallengeNewPath``1(System.String,``0,System.Boolean,Microsoft.AspNetCore.Http.HttpRequest,Microsoft.Extensions.Logging.ILogger,System.Func{Jellyfin.Plugin.SSO_Auth.Config.PluginConfiguration,Jellyfin.Plugin.SSO_Auth.Config.SerializableDictionary{System.String,``0}})
+# CA1062 guards the public surface only (#1887); the internal surface is
+# covered by nullable reference types. The one public action that passes a
+# route value on unchecked is named here until #1891 reads it.
+dotnet_diagnostic.CA1062.severity = warning
+dotnet_code_quality.CA1062.api_surface = public
+dotnet_code_quality.CA1062.excluded_symbol_names = M:Jellyfin.Plugin.SSO_Auth.Api.Http.SSOController.OidCallback(System.String,System.String)
 # Demoted to suggestion.
-dotnet_diagnostic.CA1031.severity = suggestion
-dotnet_diagnostic.CA1062.severity = suggestion
 dotnet_diagnostic.CA1716.severity = suggestion
 dotnet_diagnostic.CA1720.severity = suggestion
 dotnet_diagnostic.CA1812.severity = suggestion
@@ -107,3 +120,6 @@ dotnet_diagnostic.CA1308.severity = none
 # test code (documented-accepted) applies here too.
 dotnet_diagnostic.CA1861.severity = none
 dotnet_diagnostic.CA1825.severity = none
+# Test helpers take their arguments from the test itself; a null there is a
+# failing test, not a public contract (#1887).
+dotnet_diagnostic.CA1062.severity = none
