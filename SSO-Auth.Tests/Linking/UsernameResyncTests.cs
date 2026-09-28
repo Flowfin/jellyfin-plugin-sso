@@ -26,21 +26,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Opt-in username re-sync (#1138): with the provider flag on, a login whose identity-provider username has
-/// changed renames the linked Jellyfin account to follow it.
-/// <para>
-/// The invariant every row here is written around is that THE SUBJECT STAYS THE KEY. Resolution is keyed on
-/// the OpenID <c>sub</c> / SAML <c>NameID</c> (#155, #186); the account is already resolved by the time the
-/// rename runs, so nothing in this feature can change which account a login reaches. A test that asserted a
-/// rename by looking the account up BY NAME would not be able to tell that apart from a name-keyed lookup
-/// sneaking back in, which is why every assertion here is against the resolved id.
-/// </para>
-/// <para>
-/// The second thing the rows pin is that the feature can never cost a login. A drifted display name is
-/// cosmetic; a refused login is not, so every failure path leaves the old name in place and still mints.
-/// </para>
-/// </summary>
+/// <summary>Opt-in username re-sync (#1138): with the provider flag on, a login whose identity-provider username has changed renames the linked Jellyfin account to follow it.</summary>
+/// <remarks>
+/// The subject stays the key: resolution is keyed on the OpenID <c>sub</c> or SAML <c>NameID</c> (#155,
+/// #186) and the account is already resolved when the rename runs, so nothing here can change which account
+/// a login reaches; every assertion is against the resolved id, because one made by name could not tell that
+/// apart from a name-keyed lookup sneaking back in. The feature can never cost a login, so every failure path
+/// leaves the old name in place and still mints.
+/// </remarks>
 public class UsernameResyncTests
 {
     private const string Subject = "sub-1";

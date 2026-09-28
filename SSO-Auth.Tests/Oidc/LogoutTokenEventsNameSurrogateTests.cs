@@ -19,24 +19,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// <see cref="OidcLogoutTokenValidator"/>'s events check states a total contract - "any parse failure is a
-/// fail-closed 'not a logout_token'" - and read the claim with <c>JsonElement.TryGetProperty</c>, the call
-/// that made both discovery flag readers throw in #1340. That method unescapes every candidate member name
-/// whose raw form is longer than the name being looked for, and an unpaired surrogate escape has no
-/// completion, so the decoder raised <c>InvalidOperationException</c> out of the lookup instead of an answer
-/// (#1349).
-///
-/// The padding is what decides whether the arm is reached at all, so every case here is built from the event
-/// name's OWN length rather than from a hand-written constant, and
-/// <see cref="TheSweepReachesTheDecoder_RatherThanPassingVacuously"/> pins where the boundary actually falls
-/// so a sweep that stopped reaching it could not read as a pass.
-///
-/// Reachability is narrow and worth saying plainly: this arm runs only after the handler has accepted the
-/// signature, issuer, audience and lifetime, so producing one of these tokens means holding the provider's
-/// signing key. What was lost is the refusal itself - the uniform 400 and the audited reason - on a path
-/// whose whole job is to answer rather than to throw.
-/// </summary>
+/// <summary>The events check of <see cref="OidcLogoutTokenValidator"/> states a total contract and read the claim with the call that made both discovery flag readers throw (#1340, #1349).</summary>
+/// <remarks>
+/// That method unescapes every candidate member name whose raw form is longer than the name looked for, and
+/// an unpaired surrogate escape has no completion, so the decoder raised out of the lookup instead of
+/// answering. Every case is built from the own length of the event name, and
+/// <see cref="TheSweepReachesTheDecoder_RatherThanPassingVacuously"/> pins where the boundary falls.
+/// Reachability is narrow: the arm runs only after signature, issuer, audience and lifetime are accepted, so
+/// what was lost is the refusal itself on a path whose job is to answer rather than to throw.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class LogoutTokenEventsNameSurrogateTests : IDisposable
 {

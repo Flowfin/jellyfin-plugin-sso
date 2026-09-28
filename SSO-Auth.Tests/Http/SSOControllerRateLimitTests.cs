@@ -12,22 +12,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// 429 response-shape pins for the login-path and outbound-fetch endpoints that were wired to the
-/// shared rate-limit gate but not individually characterised (#928 U2). Each drives its endpoint over
-/// the single-attempt budget and asserts the throttled response is byte-identical to the mapper's
-/// contract: a 429 with the fixed plain-text body and a Retry-After within the window. The structural
-/// "every such endpoint actually calls the gate" guarantee is <c>ArchitectureConformanceTests.
-/// EveryMustThrottleEndpoint_CallsTheRateLimitGate</c>; these prove the wiring produces the right wire
-/// response at each route. The already-pinned endpoints (SamlChallenge, OidCallback, Link, Unregister)
-/// keep their own tests; this fills the remainder.
-///
-/// It also carries the forwarded-header attribution battery (#1035). Those rows are about a different
-/// property on the same gate: not what a throttled response looks like, but WHICH bucket an attempt is
-/// counted against when the request carries an <c>X-Forwarded-For</c> the plugin never asked for. They
-/// live here rather than in a file of their own because the subject is the same endpoint and the same
-/// single-attempt budget, and a second home for one property is how the next reader loses it.
-/// </summary>
+/// <summary>429 response-shape pins for the login-path and outbound-fetch endpoints that were wired to the shared rate-limit gate but not individually characterised (#928 U2).</summary>
+/// <remarks>
+/// Each row drives its endpoint over the single-attempt budget and asserts the throttled response matches the
+/// contract of the mapper: a 429 with the fixed plain-text body and a Retry-After inside the window. That
+/// every such endpoint calls the gate is the conformance rule rather than these. It also carries the
+/// forwarded-header attribution battery (#1035), which is about which bucket an attempt is counted against;
+/// it lives here because the subject is the same endpoint and budget, and a second home loses a property.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerRateLimitTests
 {

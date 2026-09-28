@@ -21,37 +21,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// A token may not vouch for its own signing key (#1004). RFC 7515 lets a JWS header carry the key it was
-/// signed with - inline as <c>x5c</c>, or by reference as <c>jku</c> / <c>x5u</c> - and a verifier that
-/// reads any of them accepts whatever the attacker attached, which is a complete authentication bypass on
-/// both JWT paths this plugin runs. The trust root here is the discovery JWKS and nothing else.
-/// <para>
-/// EVERY ROW HERE ASSERTS A REJECTION, AND A REJECTION IS THE CHEAPEST THING IN THE WORLD TO GET WRONG:
-/// a fixture the verifier never understood is refused for its malformedness and the row goes green while
-/// the property it names does not hold. That is not hypothetical, it is the finding #1052 was split out
-/// for, measured on an earlier attempt at this battery whose <c>x5c</c> carried a SubjectPublicKeyInfo
-/// where RFC 7515 §4.1.6 requires a DER certificate. So each rejection row is paired with a control that
-/// makes the attack real:
-/// </para>
-/// <para>
-/// <see cref="TheForgedToken_ValidatesOnceItsOwnKeyIsAdvertised"/> proves the attacker's token is valid in
-/// every respect except whose key signed it, so the rejections above cannot be coming from a claim, a
-/// time bound, an algorithm or a malformed segment. <see
-/// cref="TheX5cFixture_AuthenticatesAVerifierThatReadsIt"/> goes one step further for the inline case: it
-/// takes the SHIPPED validation basis, adds the one behaviour the rows say is absent - a spec-correct
-/// <c>x5c</c>-reading resolver - and requires the forgery to be ACCEPTED. A fixture that cannot pass that
-/// test cannot fail the rows for the reason they name.
-/// </para>
-/// <para>
-/// WHAT IS PROVEN UNEVENLY, said here rather than left to be assumed from the row count. The <c>x5c</c>
-/// rows were run against a build whose shipped basis resolves the header certificate, and all three go
-/// red there, the endpoint row included. The <c>jku</c> and <c>x5u</c> rows had no such run: a faithful
-/// weakening would have to fetch the URL, which means writing the vulnerability into the plugin rather
-/// than into a test double. They rest on the positive control alone, which is weaker, and it is the reason
-/// this paragraph exists.
-/// </para>
-/// </summary>
+/// <summary>A token may not vouch for its own signing key (#1004): the trust root is the discovery JWKS and nothing else.</summary>
+/// <remarks>
+/// RFC 7515 lets a JWS header carry the key it was signed with, inline or by reference, and a verifier that
+/// reads any of them accepts whatever the attacker attached, which is a complete bypass on both JWT paths.
+/// Every row asserts a rejection, which is the cheapest thing in the world to get wrong (#1052), so each is
+/// paired with a control that makes the attack real: one proves the token is valid in every respect except
+/// whose key signed it, and one installs a spec-correct header-certificate resolver into the shipped basis
+/// and requires the forgery to be accepted. Proven unevenly: the two by-reference families rest on the
+/// positive control alone, because a faithful weakening would have to fetch the URL.
+/// </remarks>
 public sealed class OidcHeaderKeyMaterialTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";

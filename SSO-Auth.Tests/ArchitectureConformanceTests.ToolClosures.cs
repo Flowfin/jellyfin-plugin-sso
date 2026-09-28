@@ -9,23 +9,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The gate tools this repository installs from PyPI are pinned to bytes, and each version is written
-/// ONCE (#1595).
-/// <para>
-/// Before this, <c>zizmor</c> was installed with <c>uvx --no-build "zizmor@$&#123;ZIZMOR_VERSION&#125;"</c>:
-/// what ran was whatever the index served that minute, and nothing in the tree recorded it. The
-/// neighbouring <c>opengrep</c> workflow already fetched its binary against a committed SHA-256, so two
-/// tools gated this repository and only one of them was reviewable.
-/// </para>
-/// <para>
-/// The version is READ out of the requirements input rather than restated in the workflow, and that half
-/// is not tidiness. Nothing writes a workflow <c>env:</c> value, so a version written in both places is
-/// one a routine updater cannot finish moving: it changes the requirements files and leaves the third
-/// place behind. A restated literal is therefore a finding here, and so is a workflow that names no
-/// input - without that second half, deleting the <c>env:</c> and reading nothing would pass.
-/// </para>
-/// </summary>
+/// <summary>The gate tools this repository installs from PyPI are pinned to bytes, and each version is written once (#1595).</summary>
+/// <remarks>
+/// <c>zizmor</c> was installed against whatever the index served that minute while the neighbouring
+/// <c>opengrep</c> workflow already fetched its binary against a committed digest, so two tools gated this
+/// repository and one of them was reviewable. The version is read out of the requirements input rather than
+/// restated, because nothing writes a workflow <c>env:</c> value and a routine updater cannot finish moving a
+/// version written in two places; a workflow that names no input is a finding for the same reason.
+/// </remarks>
 public partial class ArchitectureConformanceTests
 {
     /// <summary>Every tool installed from a committed closure, and where its three files live.</summary>
@@ -143,21 +134,13 @@ public partial class ArchitectureConformanceTests
         Assert.False(YamlCallsInCode("# uvx resolves at run time\n", "uvx "));
     }
 
-    /// <summary>
-    /// Whether a YAML file names something on a line that is not a comment.
-    /// <para>
-    /// The shared <c>SourceCallsInCode</c> strips C# comments and leaves <c>#</c> alone, so pointing it at
-    /// a workflow makes every explanatory comment read as code. The first version of this rule did exactly
-    /// that and refused its own file for the sentence describing the <c>uvx</c> call it had just removed,
-    /// which is the failure the comment-versus-code distinction exists to prevent, arriving from the other
-    /// side.
-    /// </para>
-    /// <para>
-    /// Only whole-line comments are dropped. A trailing <c>#</c> after code is not modelled, because these
-    /// workflows put their reasoning on lines of its own and a quoted <c>#</c> inside a shell string would
-    /// otherwise be mistaken for one.
-    /// </para>
-    /// </summary>
+    /// <summary>Whether a YAML file names something on a line that is not a comment.</summary>
+    /// <remarks>
+    /// The shared <c>SourceCallsInCode</c> strips C# comments and leaves <c>#</c> alone, so pointing it at a
+    /// workflow makes every explanatory comment read as code, which is how the first version of this rule
+    /// refused its own file. Only whole-line comments are dropped, because these workflows put their reasoning
+    /// on lines of its own and a quoted <c>#</c> inside a shell string would otherwise be mistaken for one.
+    /// </remarks>
     private static bool YamlCallsInCode(string yaml, string needle) =>
         yaml
             .Split('\n')

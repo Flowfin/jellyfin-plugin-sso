@@ -60,18 +60,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void HostProvidedFrameworkAssemblies_StayOnTheHostAbi()
     {
-        // Locked in by #590 (the 4.1.0.0 field regression) and generalized per target (#135). Each
-        // Jellyfin generation the plugin targets provides the whole Microsoft.Extensions.* family from its
-        // ASP.NET Core shared framework - host-provided, deliberately NOT in build.yaml's artifacts. .NET
-        // rolls a host assembly reference FORWARD to a newer host but never DOWN a major version, so a
-        // dependency dragging one of these ABOVE the target host's .NET major compiles and keeps
-        // `dotnet test` green (both run against the full publish output, which carries the newer DLL) yet
-        // throws FileNotFoundException the moment the host DI constructs the plugin against its own,
-        // lower-versioned assembly - disabling it. That is exactly how OidcClient 7.x (which references
-        // Logging.Abstractions 10.0.0.0) broke 4.1.0.0 on the .NET 9 host. The floor is the host's .NET
-        // major: 10 for net10.0 (Jellyfin 12.0), the one target since #1770. When a later target is
-        // added beside it, the floor becomes conditional on the target again (NET11_0_OR_GREATER → 11),
-        // because a single constant would pin the floor to 10 and spuriously fail the newer build.
+        // Each targeted Jellyfin generation supplies the whole Microsoft.Extensions family from its shared
+        // framework, and .NET rolls such a reference forward but never down a major, so a dependency dragging
+        // one above the host major builds and tests green and then throws on the host (#590, #135). The floor
+        // is the host .NET major, 10 for the one target since #1770, and becomes conditional again when a
+        // later target is added beside it.
         const int hostAbiMajor = 10;
         var references = typeof(SSOPlugin).Assembly.GetReferencedAssemblies();
 
@@ -97,25 +90,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void BuildYamlArtifacts_EqualTheTfmPublishClosure()
     {
-        // Locked in by #608, the drop-list-completeness partner of HostProvidedFrameworkAssemblies_StayOnTheHostAbi
-        // above (which guards the OVER-reference direction - a host assembly pulled above the host ABI). JPRM
-        // packages the shipped plugin zip from exactly the files named in the build yaml's `artifacts:` list, so
-        // that hand-maintained list MUST equal the plugin's NON-HOST `dotnet publish` closure for the target
-        // framework. Two failure modes it closes, previously guarded only by a comment (the #605 review finding):
-        // a shipped runtime dependency MISSING from the list is dropped from the zip and throws
-        // FileNotFoundException the moment the host loads the plugin (the #590 class of field regression); a
-        // listed-but-unpublished file makes the JPRM package step fail on a missing artifact and is dead weight.
-        //
-        // The publish closure is read from SSO-Auth's own SSO-Auth.deps.json - the runtime-assembly manifest the
-        // ORDINARY build emits, so the test needs no separate `dotnet publish` invocation. Its per-target
-        // `runtime` set is exactly the set `dotnet publish -f <tfm>` copies: the whole package/reference closure
-        // MINUS the .NET + ASP.NET Core shared framework the host supplies through the FrameworkReference (proven
-        // byte-for-byte equal to the publish output when #608 was written). Subtracting the remaining
-        // HOST-PROVIDED families Jellyfin itself ships - Jellyfin/Emby/MediaBrowser and the EF Core, Polly and
-        // Unicode/text stacks they drag in, plus Microsoft.Extensions.* and Newtonsoft.Json - leaves precisely the
-        // set that must travel in the plugin zip: net10.0 -> build.yaml (Jellyfin 12.0, 8 DLLs - the SAML
-        // crypto assemblies are framework-provided on .NET 10 and correctly absent from both closure and
-        // list). Until #1770 this was per target, with the net9.0 leg reading an 11-DLL list of its own.
+        // The drop-list partner of the rule above (#608): JPRM packages the zip from exactly the artifacts
+        // list, so that hand-maintained list has to equal the non-host publish closure. A missing entry throws
+        // on load and a listed-but-unpublished one fails the package step. The closure is read from
+        // SSO-Auth.deps.json, the manifest the ordinary build already emits, minus the shared framework and
+        // the host-provided families Jellyfin ships, which leaves precisely the set that travels in the zip.
         const string targetFramework = "net10.0";
         const string buildYaml = "build.yaml";
 #if DEBUG

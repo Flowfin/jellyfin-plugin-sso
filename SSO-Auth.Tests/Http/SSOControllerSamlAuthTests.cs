@@ -16,18 +16,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the SAML session-minting leg (<c>SamlAuth</c>) via <see cref="SsoControllerHarness"/>.
-/// Since #251 that leg redeems the one-time login-outcome token the ACS callback minted, and since #528 it
-/// accepts ONLY that token - the assertion is validated once at the callback (covered by
-/// <see cref="SSOControllerSamlPostTests"/> and the validator suites) and never re-parsed here. These tests
-/// therefore drive the mint leg through the real token flow (callback renders a token, the token posts to
-/// SamlAuth) and pin the fail-closed browser-binding / correlation branches of <c>CorrelateAndBind</c> that
-/// are NOT exercised by the happy-path token tests in <see cref="SSOControllerSamlTokenTests"/>: a solicited
-/// login whose token is redeemed with the wrong binding cookie, a lost solicited correlation, and an
-/// unsolicited response under the solicited-only mode. The top-level disabled-provider guard (which precedes
-/// any redeem) is checked directly.
-/// </summary>
+/// <summary>In-process tests of the SAML session-minting leg through <see cref="SsoControllerHarness"/>, driven over the real token flow the callback mints.</summary>
+/// <remarks>
+/// Since #251 that leg redeems the one-time login-outcome token, and since #528 it accepts only that token,
+/// so the assertion is validated once at the callback and never re-parsed here. What is pinned are the
+/// fail-closed browser-binding and correlation branches the happy-path token tests do not exercise: a
+/// solicited login redeemed with the wrong binding cookie, a lost solicited correlation, and an unsolicited
+/// response under the solicited-only mode. The disabled-provider guard precedes any redeem and is checked
+/// directly.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerSamlAuthTests
 {

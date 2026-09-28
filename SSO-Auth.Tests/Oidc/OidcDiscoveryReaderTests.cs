@@ -288,20 +288,13 @@ public class OidcDiscoveryReaderTests
     [Fact]
     public async Task AnUnknownCharset_IsRefusedRatherThanThrown_AndRecordedByExceptionTypeOnly()
     {
-        // Content-Type is the provider's to choose, and an unknown charset makes the decode throw
-        // InvalidOperationException - on a body the ANONYMOUS challenge endpoint fetches. Unhandled, that
-        // escapes the screen: the read still fails closed via the caller's blanket catch, but the operator
-        // loses the reason and this handler becomes the one fail path that reports nothing. This is the one
-        // arm of the content-read catch a provider can reach; the other two are the row below.
-        //
-        // The decode failure's exception also quotes the Content-Type back. Measured: the InvalidOperationException
-        // carries an inner ArgumentException reading "'<charset>' is not a supported encoding name". Handing that
-        // exception to the sink would route a provider-authored string around every bound and filter the entry is
-        // built to keep out, so the entry names the exception TYPE and the object itself is never passed.
-        //
-        // Both halves are asserted because neither alone is enough: a sink renders the exception SEPARATELY
-        // from the formatted message, so a message that does not contain the charset says nothing about
-        // whether the exception carrying it was handed over.
+        // Content-Type is the choice of the provider, and an unknown charset makes the decode throw on a body
+        // the anonymous challenge endpoint fetches; unhandled, the read still fails closed through the blanket
+        // catch of the caller, but the operator loses the reason. This is the one arm of the content-read
+        // catch a provider can reach. The exception also quotes the Content-Type back, so the entry names the
+        // exception type and the object itself is never passed, which would route a provider-authored string
+        // around every bound. Both halves are asserted, because a sink renders the exception separately from
+        // the formatted message.
         const string MarkerCharset = "zzMarkerCharsetzz";
         var http = new CountingFactory(_ => JsonWithCharset(FullDiscovery(Authority), MarkerCharset));
         var logger = new CapturingLogger();
@@ -326,25 +319,13 @@ public class OidcDiscoveryReaderTests
     [Fact]
     public async Task ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm()
     {
-        // The content-read catch names three exception types and only one of them, InvalidOperationException
-        // above, can arrive here. Measured: the screen forwards through an HttpClient, whose default
-        // ResponseContentRead has already buffered the body by the time SendAsync returns, so a body that
-        // fails mid-copy raises one line ABOVE the try and never reaches the catch at all. HttpClient also
-        // wraps the IOException into an HttpRequestException on the way, which is why neither of those two
-        // arms has a reachable input rather than merely an untested one.
-        //
-        // What is pinned is therefore the position, not a refusal that cannot happen: the failure still fails
-        // the read closed, and no screen refusal is recorded for it. The day the read stops being pre-buffered
-        // this row goes red: the two arms become reachable, the screen starts refusing here, and their
-        // retention becomes checkable instead of decorative.
-        //
-        // THE READ IS MADE TWICE AND ONLY THE SECOND IS ASSERTED (#1591). Which failure arrives is a race
-        // the reader itself starts: it gives a fetch FetchTimeout to complete, and the first read a process
-        // makes pays the first touch of the whole fetch graph inside that budget. On a cold process here
-        // that first touch has outlasted the budget, the timeout won the race, and the row read a timeout
-        // error rather than the copy failure it is named for - so it said different things on a cold process
-        // and a warm one. The warm-up spends the first touch outside the read under assertion. Widening
-        // FetchTimeout would do the same thing by moving a production bound this row does not own.
+        // The content-read catch names three exception types and only one can arrive here, measured: the
+        // screen forwards through an HttpClient whose default has already buffered the body by the time
+        // SendAsync returns, so a body that fails mid-copy raises above the try and is wrapped on the way. What
+        // is pinned is the position rather than a refusal that cannot happen, and the day the read stops being
+        // pre-buffered this row goes red. The read is made twice and only the second is asserted (#1591),
+        // because the first read in a process pays the first touch of the fetch graph inside the timeout
+        // budget and the timeout won that race on a cold process.
         var warmUp = new CountingFactory(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new UncopyableContent() });
         await OidcDiscoveryReader.ReadAsync(OptionsFor(Authority), "kc", warmUp.Factory, Logger(), cancellationToken: TestContext.Current.CancellationToken);
 

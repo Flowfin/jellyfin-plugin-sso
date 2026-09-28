@@ -13,50 +13,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// A key the provider ADVERTISES may still be unusable, and a symmetric one is the case where believing the
-/// advertisement is fatal (#1004). RFC 7517 §6.1 defines <c>kty: oct</c>, whose secret travels in the JWKS
-/// as the <c>k</c> member, so an HMAC key published in a discovery document is known to everyone who can
-/// fetch that document. A verifier that turned such an entry into an issuer signing key would accept a
-/// token minted by any reader of a public URL, on either JWT path the plugin runs.
-/// <para>
-/// Two independent controls stand between the plugin and that outcome, and the rows here are arranged so
-/// each is visible on its own rather than hidden behind the other. The algorithm allowlist in
-/// <see cref="OidcSignatureKeys.AllowedSignatureAlgorithms"/> lists no <c>HS*</c> entry, and
-/// <see cref="OidcSignatureKeys.Convert"/> reads only the RSA <c>e</c>/<c>n</c> pair and the EC
-/// <c>crv</c>/<c>x</c>/<c>y</c> triple, so a <c>k</c> member reaches no key at all. Existing coverage
-/// asks the algorithm question with a key the provider never advertised
-/// (<c>OidcIdTokenValidatorTests</c>, <c>OidcLogoutTokenValidatorTests</c>); nothing asked whether an
-/// ADVERTISED secret becomes a signing key, which is the conversion half and the one this file holds.
-/// </para>
-/// <para>
-/// EVERY REJECTION ROW HERE IS PAIRED WITH A CONTROL, for the reason #1052 was split out of #1004: a
-/// fixture the verifier never understood is refused for its malformedness, and the row goes green while
-/// the property it names does not hold.
-/// <see cref="TheMacdToken_Authenticates_OnceTheAdvertisedSecretIsInTheBasis"/> installs into the SHIPPED
-/// basis the one behaviour these rows say is absent - the signing key a <c>k</c>-reading converter would
-/// have produced - and requires the forgery to be ACCEPTED, so the refusals cannot be coming from a claim,
-/// a time bound or a broken segment. <see cref="TheAlgorithmAllowlist_IsNotWhatRefusesTheMac"/> is its
-/// mirror: with <c>HS256</c> added to the shipped allowlist and the key still absent, the token is refused
-/// anyway, which is what attributes the refusal to conversion rather than to the algorithm list that
-/// <c>TokenValidationBasisConformanceTests</c> already guards.
-/// </para>
-/// <para>
-/// WHAT IS PROVEN UNEVENLY, stated here rather than left to be counted off the rows. On the back-channel
-/// path the production algorithm gate (#1164) judges <c>alg</c> before the handler runs, so
-/// <see cref="LogoutToken_MacdWithTheAdvertisedSecret_IsRejected"/> records THAT the token is refused and
-/// cannot attribute the refusal - its reason code says as much. The attribution rows below run against the
-/// shipped validation basis both paths derive from, which is the shared surface the conversion property
-/// lives on.
-/// </para>
-/// <para>
-/// Serialized because the back-channel row reaches the process-wide replay cache through
-/// <c>OidcLogoutTokenValidator.ResetReplaysForTests</c>. The reset is kept rather than reasoned away: this
-/// file's token is refused before any <c>jti</c> could be recorded, but a neighbouring class clearing that
-/// static under a one-time-use assertion is the intermittent failure #1171 exists to stop, and the cost of
-/// the collection is six fast rows not running in parallel.
-/// </para>
-/// </summary>
+/// <summary>A key the provider advertises may still be unusable, and a symmetric one is the case where believing the advertisement is fatal (#1004).</summary>
+/// <remarks>
+/// An HMAC key published in a JWKS is known to everyone who can fetch the document, so a verifier that turned
+/// such an entry into a signing key would accept a token minted by any reader of a public URL. Two independent
+/// controls stand between the plugin and that, the algorithm allowlist and a converter that reads only the RSA
+/// and EC members, and the rows are arranged so each is visible on its own. Every rejection is paired with a
+/// control that installs the missing behaviour into the shipped basis and requires the forgery to be accepted,
+/// because a fixture the verifier never understood is refused for its malformedness (#1052). On the
+/// back-channel path the production algorithm gate judges first, so that row cannot attribute its refusal.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class OidcAdvertisedSymmetricKeyTests : IDisposable
 {

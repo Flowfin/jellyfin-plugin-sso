@@ -16,20 +16,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// A compact token carrying MORE than three segments is unreadable in a way the readers did not name (#1249).
-/// Such a token gets far enough for the token library to base64url-decode a LATER segment, and that decode
-/// raises <see cref="FormatException"/> - which is not an <see cref="ArgumentException"/>, so it escaped every
-/// defensive catch on the id_token and <c>logout_token</c> paths.
-/// <para>
-/// Why it is a security test and not a tidiness one: <see cref="OidcSignatureKeys.TokenHasAcceptableKeyId"/> is
-/// the <c>kid</c> screen both token paths run BEFORE any signing key is looked up, and the back-channel logout
-/// endpoint takes its token straight from an anonymous POST body. The escape therefore replaced the endpoint's
-/// deliberately uniform 400 with a 500, which is an availability cost and an oracle: a 500 tells an
-/// unauthenticated caller that single-logout is switched on for that provider, which the uniform rejection
-/// exists to hide. Nothing is accepted and no session is revoked, so this is fail-stop rather than fail-open.
-/// </para>
-/// </summary>
+/// <summary>A compact token carrying more than three segments is unreadable in a way the readers did not name (#1249): a later segment decode raises <see cref="FormatException"/>, which escaped every defensive catch on both token paths.</summary>
+/// <remarks>
+/// It is a security test rather than a tidiness one, because the <c>kid</c> screen runs before any signing
+/// key is looked up and the back-channel endpoint takes its token from an anonymous POST body, so the escape
+/// replaced the deliberately uniform 400 with a 500, which is an availability cost and an oracle telling an
+/// unauthenticated caller that single-logout is on. Nothing is accepted and no session is revoked, so this is
+/// fail-stop rather than fail-open.
+/// </remarks>
 public sealed class OidcDegenerateTokenSegmentsTests
 {
     /// <summary>

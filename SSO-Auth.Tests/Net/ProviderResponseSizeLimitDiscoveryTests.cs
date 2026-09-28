@@ -14,17 +14,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The outbound size bound seen from the anonymous challenge path it exists to protect (#1169). The unit rows
-/// in <see cref="ProviderResponseSizeLimitTests"/> pin the handler; these pin what an operator and an
-/// unauthenticated caller actually get, which is the only place the bound's value can be judged.
-/// <para>
-/// The client here is built the way the composition root builds it - the limiter in front of the transport -
-/// rather than the way the other discovery tests build theirs, which is a bare stub. That difference is the
-/// test: a bound registered only in production and never exercised through the reader would be a bound
-/// nobody has seen work.
-/// </para>
-/// </summary>
+/// <summary>The outbound size bound seen from the anonymous challenge path it exists to protect (#1169).</summary>
+/// <remarks>
+/// The unit rows in <see cref="ProviderResponseSizeLimitTests"/> pin the handler; these pin what an operator
+/// and an unauthenticated caller actually get, which is the only place the value of the bound can be judged.
+/// The client is built the way the composition root builds it, with the limiter in front of the transport,
+/// rather than as a bare stub: a bound registered only in production would be one nobody has seen work.
+/// </remarks>
 public sealed class ProviderResponseSizeLimitDiscoveryTests
 {
     private const string Authority = "https://idp-size.example.test";

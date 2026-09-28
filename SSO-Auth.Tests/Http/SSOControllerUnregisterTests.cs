@@ -24,19 +24,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the <c>Unregister</c> endpoint via <see cref="SsoControllerHarness"/>: a known
-/// user's SSO is revoked (its canonical links are dropped and the auth provider is persisted), and the
-/// revoke returns Ok. The unknown-user guard is covered in <see cref="SSOControllerChallengeTests"/>.
-/// <para>
-/// AN ADMINISTRATOR MAY NOT STRAND THEIR OWN SERVER THROUGH IT (#1741). The route removes every link the
+/// <summary>In-process tests of the <c>Unregister</c> endpoint: a known user SSO is revoked, its canonical links are dropped, the auth provider is persisted, and the revoke returns Ok.</summary>
+/// <remarks>
+/// An administrator may not strand their own server through it (#1741). The route removes every link the
 /// account holds and ends its sessions in one call, and the self-service unlink refuses exactly that press
-/// where no other administrator holds a way in (#1732); this route takes the same reading, over the same
-/// two facts, before anything is removed. Every refusal arm below is paired with the case that must still
-/// go through, because a revoke that refused the administrator it exists for would be as wrong as one
-/// that stranded them.
-/// </para>
-/// </summary>
+/// where no other administrator holds a way in (#1732); this route takes the same reading over the same two
+/// facts before anything is removed. Every refusal arm is paired with the case that must still go through,
+/// because a revoke that refused the administrator it exists for would be as wrong as one that stranded them.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerUnregisterTests
 {

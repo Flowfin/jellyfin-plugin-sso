@@ -34,23 +34,14 @@ internal static class SamlTestFactory
         Assertion,
     }
 
-    /// <summary>
-    /// Produces a self-signed certificate plus a signed SAML response for the given subject/role.
-    /// </summary>
-    /// <param name="nameId">The value placed in saml:NameID.</param>
-    /// <param name="includeNameId">When false, the saml:NameID element is omitted entirely.</param>
-    /// <param name="role">The value of the "Role" attribute.</param>
-    /// <param name="notOnOrAfter">SubjectConfirmationData/@NotOnOrAfter; defaults to five minutes in the future.</param>
-    /// <param name="includeNotOnOrAfter">When false, the NotOnOrAfter attribute is omitted entirely.</param>
-    /// <param name="conditionsNotBefore">When set, emits a Conditions element carrying this NotBefore.</param>
-    /// <param name="conditionsNotOnOrAfter">When set, emits a Conditions element carrying this NotOnOrAfter.</param>
-    /// <param name="audience">When set, emits a Conditions/AudienceRestriction with this single Audience.</param>
-    /// <param name="audiences">When set, emits a Conditions/AudienceRestriction with these Audiences (overrides audience).</param>
-    /// <param name="scope">Which element to sign.</param>
-    /// <param name="sessionIndex">When set, emits an AuthnStatement carrying this SessionIndex attribute (#727, SLO-3a).</param>
-    /// <param name="includeAuthnStatement">When true, emits an AuthnStatement even without a sessionIndex (the absent-attribute case).</param>
-    /// <param name="signWithSha1">When true, sign with RSA-SHA1/SHA1 digest (for weak-algorithm tests).</param>
-    /// <param name="signingKeyBits">RSA signing-key size in bits; defaults to 2048. Set below the floor (e.g. 1024) for the minimum signing-key-strength tests (#733).</param>
+    /// <summary>Produces a self-signed certificate plus a signed SAML response for the given subject and role.</summary>
+    /// <remarks>
+    /// Each optional argument selects one fixture shape: an omitted NameID, an omitted or shifted subject
+    /// confirmation bound, a Conditions element with its own bounds, one or several audiences, which element
+    /// is signed, an AuthnStatement with or without a session index (#727), the weak algorithm pair, and a
+    /// signing key below the strength floor (#733). The subject confirmation bound defaults to five minutes
+    /// ahead and the key to 2048 bits, so a caller that passes nothing gets an honest response.
+    /// </remarks>
     /// <returns>A fixture exposing the certificate and the signed document.</returns>
     internal static SamlFixture Create(
         string nameId = "alice",
@@ -212,16 +203,13 @@ internal static class SamlTestFactory
         return new SamlFixture(certificate, document, responseId, assertionId);
     }
 
-    /// <summary>
-    /// Produces a Response-scope-signed fixture whose XML carries REAL inter-element line breaks and
-    /// indentation - the pretty-printed shape a conformant IdP serializes and signs over - instead of
-    /// the compact single line <see cref="Create"/> emits. The template uses LF line endings, so the
-    /// signed digest is computed over the EOL-normalized form the service provider reconstructs; the
-    /// interop test (#120) rewrites those line breaks to raw CRLF on the wire to exercise the reader's
-    /// XML 1.0 EOL normalization. Whitespace between elements is signature-covered (PreserveWhitespace),
-    /// so this shape is what actually pins the normalization property.
-    /// </summary>
-    /// <param name="notOnOrAfter">SubjectConfirmationData/@NotOnOrAfter; defaults to five minutes in the future.</param>
+    /// <summary>Produces a Response-scope-signed fixture whose XML carries real inter-element line breaks and indentation, the pretty-printed shape a conformant provider signs over, instead of the compact single line <see cref="Create"/> emits.</summary>
+    /// <remarks>
+    /// The template uses LF, so the digest is computed over the normalized form the service provider
+    /// reconstructs, and the interop test (#120) rewrites those breaks to raw CRLF on the wire. Whitespace
+    /// between elements is signature-covered, so this shape is what pins the normalization property.
+    /// </remarks>
+    /// <param name="notOnOrAfter">The subject confirmation NotOnOrAfter; defaults to five minutes ahead.</param>
     /// <returns>A fixture whose <see cref="SamlFixture.Document"/> serializes to the LF baseline.</returns>
     internal static SamlFixture CreateIndented(DateTime? notOnOrAfter = null)
     {

@@ -11,20 +11,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins that the AssertionConsumerServiceURL this service provider PUBLISHES in its metadata, the one it
-/// SENDS in the AuthnRequest, and the set it ACCEPTS a signed Recipient against are all composed in one
-/// place (#1163).
-///
-/// <para>
-/// Why a structural rule and not a unit test. <see cref="SamlRecipientValidator.IsBound"/> compares the
-/// signed Recipient and Destination against the expected set with <c>StringComparer.Ordinal</c>, and it
-/// only ever sees the set it was handed. A site that published one URL and accepted another would be an
-/// endpoint-binding bypass that every test of the validator passes, because the disagreement is between two
-/// CALLERS and the validator is not one of them. The property has to be asserted over the composition
-/// sites, which is what this does.
-/// </para>
-/// </summary>
+/// <summary>Pins that the assertion-consumer URL this service provider publishes in its metadata, the one it sends in the AuthnRequest, and the set it accepts a signed Recipient against are all composed in one place (#1163).</summary>
+/// <remarks>
+/// A structural rule rather than a unit test, because <see cref="SamlRecipientValidator.IsBound"/> only ever
+/// sees the set it was handed: a site that published one URL and accepted another would be an
+/// endpoint-binding bypass that every test of the validator passes, since the disagreement is between two
+/// callers and the validator is neither of them.
+/// </remarks>
 public class SamlAcsUrlConformanceTests
 {
     // The path this SP's ACS URL is composed from. It is the ordinal bytes the identity provider echoes

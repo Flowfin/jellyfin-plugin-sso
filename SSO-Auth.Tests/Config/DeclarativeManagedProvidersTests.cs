@@ -12,20 +12,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for the declarative freeze (#1102): a provider a mounted document or the environment decided is not
-/// alterable through the config-page save, and the save that tried says so in the audit trail. The merge
-/// rules the freeze rests on belong to <see cref="ConfigImport"/> and the loader's own behaviour to
-/// <see cref="DeclarativeProviderConfigTests"/>; what is pinned here is the part an operator's deployment
-/// depends on and cannot see - which providers end up managed, what a save to one does, and what a save to
-/// an unmanaged provider on the same page still does.
-/// </summary>
+/// <summary>Tests for the declarative freeze (#1102): a provider a mounted document or the environment decided is not alterable through the config-page save, and the save that tried says so in the audit trail.</summary>
 /// <remarks>
-/// The unit is the PROVIDER rather than the field because the merge replaces a named provider whole (a field
-/// the document omits comes back at its default at the next start), so a per-field freeze would promise a
-/// granularity the loader does not have. <see cref="AFieldTheDocumentOmits_ComesBackAtItsDefault"/> is the
-/// measurement that decides it, and it is a test rather than a sentence so the day the merge changes, this
-/// reddens instead of the promise quietly becoming false.
+/// The merge rules belong to <see cref="ConfigImport"/> and the loader behaviour to
+/// <see cref="DeclarativeProviderConfigTests"/>; what is pinned here is the part a deployment depends on and
+/// cannot see. The unit is the provider rather than the field, because the merge replaces a named provider
+/// whole, so a per-field freeze would promise a granularity the loader does not have;
+/// <see cref="AFieldTheDocumentOmits_ComesBackAtItsDefault"/> is the measurement that decides it.
 /// </remarks>
 public class DeclarativeManagedProvidersTests
 {

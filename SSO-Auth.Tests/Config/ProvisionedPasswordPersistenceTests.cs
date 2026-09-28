@@ -10,16 +10,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The minted-password record has to survive a restart (#1733), and that is not a formality: Jellyfin
-/// persists a plugin configuration as XML through <c>XmlSerializer</c>, and this is the first map in this
-/// configuration keyed on something other than a string.
-/// </summary>
+/// <summary>The minted-password record has to survive a restart (#1733), and this is the first map in this configuration keyed on something other than a string.</summary>
 /// <remarks>
-/// WHY THIS IS ITS OWN SUITE. A record that does not round-trip reverts the whole rule silently on the next
-/// restart: every account sealed before the restart reads as holding a password of its own again, the guard
-/// stops firing for exactly the population it was written for, and nothing anywhere goes red. No unit test
-/// of the write path or the read path can see that, because both sides hold the same live object.
+/// A record that does not round-trip reverts the whole rule silently on the next restart: every account sealed
+/// before it reads as holding a password of its own again, the guard stops firing for exactly the population
+/// it was written for, and nothing goes red. No unit test of the write or the read path can see that, because
+/// both sides hold the same live object.
 /// </remarks>
 public class ProvisionedPasswordPersistenceTests
 {

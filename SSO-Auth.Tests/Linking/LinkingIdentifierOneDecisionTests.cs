@@ -18,26 +18,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The provider-side canonical name reaches one comparison decision wherever it arrives (#1165), so a
-/// name that can be linked is the same name that can be unlinked and neither route can be shadowed by a
-/// variant the other accepts.
-/// <para>
-/// In this tree that decision is not spread across the add path, the remove path and login-time
-/// resolution: the identifier is never normalised, and all three index ONE map - the per-provider
-/// <c>CanonicalLinks</c> dictionary - so the comparison is the dictionary's own comparer and there is
-/// exactly one of it. That makes the property a fact about the map rather than about three call sites,
-/// which is what the rules below assert: the comparer is the ordinal default on every provider kind and
-/// survives a persistence round trip, and the end-to-end behaviour that follows from it holds on the
-/// routes an administrator actually drives.
-/// </para>
-/// <para>
-/// The failure this exists against is a later edit giving one of these maps a case- or culture-folding
-/// comparer to be helpful. That would make <c>Alice</c> and <c>alice</c> one link for whichever paths
-/// read the folded map and two for whichever did not - and the half that folds is a login-time identity
-/// collapse, not a convenience.
-/// </para>
-/// </summary>
+/// <summary>The provider-side canonical name reaches one comparison decision wherever it arrives (#1165), so a name that can be linked is the name that can be unlinked and neither route is shadowed by a variant the other accepts.</summary>
+/// <remarks>
+/// The identifier is never normalised and the add path, the remove path and login-time resolution index one
+/// map, so the comparison is the comparer of that dictionary and there is exactly one of it; the rules assert
+/// that it is the ordinal default on every provider kind and survives a persistence round trip. The failure
+/// this exists against is a later edit giving one map a folding comparer, which would make two spellings one
+/// link for the paths that read the folded map and two for the rest, and the folding half is an identity
+/// collapse at login time.
+/// </remarks>
 [Collection("SSOController")]
 public class LinkingIdentifierOneDecisionTests
 {

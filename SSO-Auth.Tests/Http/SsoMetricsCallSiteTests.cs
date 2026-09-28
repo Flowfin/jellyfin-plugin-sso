@@ -18,10 +18,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Drives the REAL paths the counters are attached to (#1139), so each call site is proven by the thing it
-/// counts actually happening.
-/// </summary>
+/// <summary>Drives the real paths the counters are attached to (#1139), so each call site is proven by the thing it counts actually happening.</summary>
 /// <remarks>
 /// <see cref="SSOControllerMetricsTests"/> is about the store and the exposition and reaches the counter
 /// facade directly, which says nothing about whether a login moves a counter. That is this file: a full

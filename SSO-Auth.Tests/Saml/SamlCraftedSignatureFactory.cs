@@ -31,19 +31,14 @@ public enum SamlReferenceForm
     XPointerId,
 }
 
-/// <summary>
-/// Builds SAML documents whose <c>ds:Signature</c> is CRAFTED rather than produced by
-/// <see cref="SignedXml.ComputeSignature"/> - the shapes the .NET signer refuses to emit but an attacker
-/// can hand-assemble (#1003): a <c>Reference</c> naming an ID that resolves to nothing, a whole-document
-/// (<c>URI=""</c>) reference carrying a digest over a different octet stream, and a reference covering an
-/// element other than the one the readers consume.
-///
-/// The crafted signatures are REAL cryptography, never mocks: the <c>SignedInfo</c> is exclusive-C14N
-/// canonicalized and signed with the fixture's RSA key, so <c>SignedXml.CheckSignature</c> would accept the
-/// signature itself. Only the reference binding is hostile - which is precisely the property the validator's
-/// reference checks must reject on, so a test built on these documents fails the moment those checks are
-/// weakened.
-/// </summary>
+/// <summary>Builds SAML documents whose signature is crafted rather than produced by <see cref="SignedXml.ComputeSignature"/>, which is the set of shapes the .NET signer refuses to emit and an attacker can hand-assemble (#1003).</summary>
+/// <remarks>
+/// The shapes are a reference naming an ID that resolves to nothing, a whole-document reference carrying a
+/// digest over a different octet stream, and a reference covering an element other than the one the readers
+/// consume. The signatures are real cryptography rather than mocks, canonicalized and signed with the
+/// fixture key, so only the reference binding is hostile, which is the property the reference checks of the
+/// validator have to reject on.
+/// </remarks>
 internal static class SamlCraftedSignatureFactory
 {
     private const string SamlNs = "urn:oasis:names:tc:SAML:2.0:assertion";

@@ -29,19 +29,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void NoServedAssetClaimsThatSavingNeedsARestart()
     {
-        // #1573, and the reason it is a rule rather than a deletion is that the sentence was in the markup
-        // for years and reads as harmless. It is not harmless and it was not true.
-        //
-        // Nothing in this plugin holds a configuration snapshot: no field anywhere is of type
-        // PluginConfiguration, and the call sites either fetch the live object at the moment they need it
-        // or take it as a parameter. A save writes the file and then mutates that live object in place,
-        // so the next request reads the new value and there is no path by which it could read the old
-        // one. The one component that reaches into Jellyfin's own state - the login-page branding - is
-        // subscribed to the configuration-changed event rather than read once at startup. There is no
-        // setting on the restart side of the line.
-        //
-        // What the sentence cost is the half that makes this worth pinning: a Jellyfin restart drops every
-        // playing session and every connected client, and the footer asked for one after every save.
+        // #1573. Nothing in this plugin holds a configuration snapshot: no field is of type
+        // PluginConfiguration, a save writes the file and then mutates the live object in place, and the one
+        // component reaching into Jellyfin state is subscribed to the configuration-changed event. So there is
+        // no setting on the restart side of the line, and the footer asked for a restart after every save,
+        // which drops every playing session and every connected client.
         var offenders = new List<string>();
 
         foreach (var file in Directory.EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth", "Web")))
@@ -91,14 +83,8 @@ public partial class ArchitectureConformanceTests
             + string.Join(" | ", offenders));
     }
 
-    /// <summary>
-    /// Whether a line of an HTML file sits inside a markup comment.
-    /// </summary>
-    /// <remarks>
-    /// Counted rather than matched per line, because the reasoning this rule exempts is a paragraph and
-    /// the phrase it quotes is in the middle of it. An odd number of opened-and-not-closed comments before
-    /// the line means it is inside one.
-    /// </remarks>
+    /// <summary>Whether a line of an HTML file sits inside a markup comment.</summary>
+    /// <remarks>Counted rather than matched per line, because the reasoning this rule exempts is a paragraph and the phrase it quotes is in the middle of it; an odd number of opened-and-not-closed comments before the line means it is inside one.</remarks>
     /// <param name="file">The file to read.</param>
     /// <param name="lineNumber">The one-based line to judge.</param>
     /// <returns>True when that line is inside a markup comment.</returns>

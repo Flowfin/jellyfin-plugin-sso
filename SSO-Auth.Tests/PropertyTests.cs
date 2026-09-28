@@ -15,17 +15,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Property-based tests over the pure login-decision helpers. Each pins a security invariant that
-/// must hold for ALL inputs, not just the hand-picked characterization cases. Driven by FsCheck core
-/// from ordinary xUnit v3 facts (no FsCheck.Xunit, so no xunit-version coupling).
-///
-/// The generators deliberately bias toward the meaningful tokens (the configured claim types and
-/// role names) mixed with random noise: purely random strings would essentially never match a
-/// configured role or the "preferred_username"/"sub" claim types, so the interesting branches
-/// (Valid==true, a granted privilege) would almost never be exercised and the properties would pass
-/// vacuously. The bias makes the grant/validity paths actually fire.
-/// </summary>
+/// <summary>Property-based tests over the pure login-decision helpers, each pinning a security invariant that has to hold for all inputs rather than for the hand-picked characterization cases.</summary>
+/// <remarks>
+/// Driven by FsCheck core from ordinary xUnit v3 facts, so there is no xunit-version coupling. The generators
+/// bias toward the meaningful tokens mixed with random noise, because purely random strings would almost
+/// never match a configured role or claim type and the interesting branches would pass vacuously.
+/// </remarks>
 public class PropertyTests
 {
     private static readonly string[] KnownClaimTypes = { "preferred_username", "sub", "email", "role", "groups" };

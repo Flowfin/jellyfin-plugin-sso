@@ -25,17 +25,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Direct unit tests of <see cref="SamlLoginService"/>, the SAML flow extracted off the controller
-/// (#160, #318 step 13), the mirror of <see cref="OidcLoginServiceTests"/>. The end-to-end
-/// challenge/callback/authenticate/link behaviour is still exercised through the thin controller endpoints
-/// in <see cref="SSOControllerSamlPostTests"/>, <see cref="SSOControllerSamlAuthTests"/> and
-/// <see cref="SSOControllerLinkTests"/> (each endpoint is now a one-line delegation, so a passing controller
-/// test is a passing service test); these add coverage that targets the service in isolation - the
-/// fail-closed guard branches that reject before any collaborator is touched, and the process-wide-state test
-/// hook that moved with the flow. Uses the non-parallel <c>SSOController</c> collection because it sets the
-/// static <see cref="SSOPlugin.Instance"/>.
-/// </summary>
+/// <summary>Direct unit tests of <see cref="SamlLoginService"/>, the SAML flow extracted off the controller (#160, #318), the mirror of <see cref="OidcLoginServiceTests"/>.</summary>
+/// <remarks>
+/// The end-to-end behaviour is still exercised through the thin controller endpoints, each of which is a
+/// one-line delegation; these add the fail-closed guard branches that reject before any collaborator is
+/// touched, and the process-wide-state hook that moved with the flow. In the non-parallel
+/// <c>SSOController</c> collection, because it sets the static <see cref="SSOPlugin.Instance"/>.
+/// </remarks>
 [Collection("SSOController")]
 public class SamlLoginServiceTests
 {

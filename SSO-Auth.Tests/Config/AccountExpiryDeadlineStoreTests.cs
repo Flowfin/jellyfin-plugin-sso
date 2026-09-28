@@ -24,20 +24,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The persisted half of between-logins expiry enforcement (#1145): where the deadline comes from, that it
-/// survives a restart and a config-page save, and that it never outlives the link it keys off.
-/// <para>
-/// The store is the reason the sweep can work at all. Held in memory it would be lost on every restart, and
-/// a time-limited account would quietly become an unlimited one after the first server bounce - a failure
-/// with no error message anywhere.
-/// </para>
-/// <para>
-/// It is also a WRITE surface worth guarding. A forged PAST instant for a guessed subject is a remote
-/// disable of that account, so the map is withheld from JSON in both directions and the login path is its
-/// only writer; <see cref="Deadlines_AreOmittedFromJson_ButKeptInXml"/> is what refuses the first half.
-/// </para>
-/// </summary>
+/// <summary>The persisted half of between-logins expiry enforcement (#1145): where the deadline comes from, that it survives a restart and a config-page save, and that it never outlives the link it keys off.</summary>
+/// <remarks>
+/// Held in memory the deadline would be lost on every restart, so a time-limited account would quietly become
+/// an unlimited one with no error anywhere. It is also a write surface: a forged past instant for a guessed
+/// subject is a remote disable, so the map is withheld from JSON in both directions and the login path is its
+/// only writer, which <see cref="Deadlines_AreOmittedFromJson_ButKeptInXml"/> refuses the first half of.
+/// </remarks>
 public class AccountExpiryDeadlineStoreTests
 {
     private static readonly Guid User = Guid.Parse("11111111-1111-1111-1111-111111111111");

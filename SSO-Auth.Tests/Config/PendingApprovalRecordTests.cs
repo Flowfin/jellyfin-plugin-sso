@@ -26,28 +26,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The pending-approval record (#1529): that it says what this plugin DID rather than what it can guess,
-/// that it cannot outlive the link that gives it meaning, and that it cannot follow a key onto an account
-/// it was never written about.
-/// <para>
-/// The whole reason the record exists is that a disabled account is a Jellyfin PERMISSION and the permission
-/// does not say who set it. Three accounts wear the same flag - one provisioned inert by this plugin seconds
-/// ago, one disabled by an administrator as a sanction, one disabled long ago and forgotten - and a surface
-/// offering to approve "the disabled accounts" would offer to undo the second. So the tests below assert the
-/// NEGATIVE cases as hard as the positive one: a provisioning that was not inert leaves nothing behind, and
-/// the race loser that abandons its account leaves nothing either.
-/// </para>
-/// <para>
-/// The second property is the bound, and it has two halves because the key is bounded by the link map while
-/// the ACCOUNT behind that key is not. Every route that removes a link is asserted to remove the record;
-/// every route that WRITES one over an existing key is asserted to clear it, because a link whose target was
-/// deleted counts as absent and the next login for that subject writes the key at another account. The last
-/// test is the backstop under both: a record naming an account the link no longer points at is reported as
-/// no record at all, so a write path that forgets is a tidiness defect and not an offer to enable somebody
-/// else's account. Each is driven through the route rather than read off the code.
-/// </para>
-/// </summary>
+/// <summary>The pending-approval record (#1529): that it says what this plugin did rather than what it can guess, that it cannot outlive the link that gives it meaning, and that it cannot follow a key onto an account it was never written about.</summary>
+/// <remarks>
+/// A disabled account is a Jellyfin permission and the permission does not say who set it, so a surface
+/// offering to approve the disabled accounts would offer to undo an administrator sanction; the negative
+/// cases are asserted as hard as the positive one. The bound has two halves, because the key is bounded by the
+/// link map while the account behind it is not: every route that removes a link removes the record, every
+/// route that writes over an existing key clears it, and a record naming an account the link no longer points
+/// at is reported as no record at all.
+/// </remarks>
 public class PendingApprovalRecordTests
 {
     private static readonly Guid User = Guid.Parse("33333333-3333-3333-3333-333333333333");

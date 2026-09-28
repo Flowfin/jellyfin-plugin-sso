@@ -9,24 +9,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the elevated write doors that reach a provider WITHOUT going through the config-page
-/// save (#1415), via <see cref="SsoControllerHarness"/>. The freeze #1102 landed sits in
-/// <c>ProviderConfigStore.Save</c>, which only the settings page writes through; these five routes persist
-/// through <c>MutateConfiguration</c> or through <c>ConfigImport</c> and so walked straight past it.
-/// </summary>
+/// <summary>In-process tests of the elevated write doors that reach a provider without going through the config-page save (#1415).</summary>
 /// <remarks>
-/// <para>
-/// What is pinned here is one property per door, in both directions. A declaratively managed provider is
-/// refused and nothing is written; a provider no source named still adds and deletes exactly as it did
-/// before, which is the half that would otherwise be broken in silence for every installation that mounts
-/// no document at all.
-/// </para>
-/// <para>
-/// The refusal has to name the SOURCE. Without it an administrator is told the change was refused and given
-/// nowhere to make it instead, and the two sources - a mounted file and the environment - are edited in
-/// different places on different machines.
-/// </para>
+/// The freeze of #1102 sits in <c>ProviderConfigStore.Save</c>, which only the settings page writes through,
+/// while these five routes persist through <c>MutateConfiguration</c> or <c>ConfigImport</c> and so walked
+/// past it. One property per door, in both directions: a managed provider is refused and nothing is written,
+/// and a provider no source named still adds and deletes as before, which is the half that would otherwise
+/// break in silence for every installation that mounts no document. The refusal names the source, because
+/// the two sources are edited in different places on different machines.
 /// </remarks>
 [Collection("SSOController")]
 public class SSOControllerManagedWriteDoorTests

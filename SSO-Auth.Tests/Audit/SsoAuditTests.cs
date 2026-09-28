@@ -10,18 +10,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="SsoAudit"/> - the structured security audit-log entries (#928 U1). Every
-/// method is pinned on three properties: the level it fires at, the "[SSO Audit]" prefix plus its
-/// key fields, and the two inline sanitizers on EVERY foreign caller-supplied string so an identity-
-/// provider- or admin-supplied value can neither SPLIT an entry (the line-ending strip) nor forge a
-/// second one inside the line it lands in (the bracket substitution, #1555). A filesystem path this
-/// server composed for itself is not a foreign value and deliberately carries only the first, because
-/// the exact text is the actionable content of the line it appears in. The sensitive-data posture
-/// is structural - the signatures accept no secret, token, NameID or SessionIndex - and the fixed-
-/// code discipline (reason codes are enum names/constants, never request-derived text) is asserted
-/// where a code parameter exists.
-/// </summary>
+/// <summary>Tests for <see cref="SsoAudit"/>, the structured security audit-log entries (#928 U1).</summary>
+/// <remarks>
+/// Every method is pinned on the level it fires at, the prefix and key fields, and the two inline sanitizers
+/// on every foreign string, so a provider- or admin-supplied value can neither split an entry nor forge a
+/// second one inside the line it lands in (#1555). A path this server composed for itself carries only the
+/// strip, because the exact text is the actionable content. The sensitive-data posture is structural: the
+/// signatures accept no secret, token, NameID or SessionIndex.
+/// </remarks>
 public class SsoAuditTests
 {
     [Fact]

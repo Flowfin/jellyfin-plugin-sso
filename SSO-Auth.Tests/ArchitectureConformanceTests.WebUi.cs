@@ -39,19 +39,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void ProviderFormFieldIds_MatchOidConfigProperties()
     {
-        // The provider settings form's save contract (#365), locked in as a fitness function. config.js
-        // saveProvider persists each marked input as current_config[element.id] = value, so every input
-        // bearing a persisting behavior-marker class MUST have an id equal to a real OidConfig property -
-        // otherwise it renders but silently never saves, because the server drops JSON members that are not
-        // OidConfig properties. The five marker classes mirror config.js listArgumentsByType
-        // (sso-text/sso-line-list/sso-toggle) plus the two populate-helper widgets (sso-folder-list =
-        // EnabledFolders, sso-role-map = FolderRoleMapping). The provider-name input is deliberately
-        // unmarked - its value is the OidConfigs dictionary key, not a property - so it is not scanned.
-        // Matching is token-exact (so sso-role-map does not swallow sso-role-mapping-container), and the
-        // scan is scoped to #sso-new-oidc-provider so a future SAML form (whose fields map to SamlConfig)
-        // would not be checked against OidConfig. The forward check (every marked id is a real property) is
-        // paired below with a reverse pin (every security-critical property is still a marked field), so
-        // neither a mistyped id nor a dropped marker class can silently break a security setting's save.
+        // The provider settings form save contract (#365): saveProvider persists each marked input as
+        // current_config[element.id], so every input bearing a persisting marker class needs an id equal to a
+        // real OidConfig property, or it renders and never saves. The five marker classes mirror the config.js
+        // argument types plus the two populate-helper widgets, the provider-name input is deliberately unmarked
+        // because its value is the dictionary key, matching is token-exact, and the scan is scoped to the OIDC
+        // form so a future SAML form is not checked against OidConfig. The reverse pin is below.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
 
         var form = OidcProviderFormMarkup(
@@ -128,19 +121,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void ProviderForm_RendersEveryPersistingFieldId()
     {
-        // The full save-contract roster, pinned after the #365 provider-workspace redesign reordered and
-        // regrouped the form into native accordion sections. ProviderFormFieldIds_MatchOidConfigProperties
-        // guards the FORWARD direction (no stray marked id) and a reverse pin for the security-critical
-        // SUBSET; this test is the exhaustive reverse pin: every persisting field must still render as a
-        // marked input with its exact id, so a field silently dropped or unmarked during a future re-layout -
-        // which would stop it persisting - fails here rather than shipping as silent data loss. The
-        // provider-name KEY input (OidProviderName) is deliberately unmarked (it supplies the OidConfigs
-        // dictionary key, not an OidConfig property) and is asserted present separately.
-        //
-        // The roster is compared as a SET IN BOTH DIRECTIONS (#934). A subset assertion silently tolerated a
-        // newly added field that nobody listed here - which is exactly how DisableAvatarFromPictureClaim
-        // (#723) and RoleClaimIsObjectMap escaped it - so a new form field now fails this test until it is
-        // rostered, instead of shipping outside the guard.
+        // The exhaustive reverse pin of the save-contract roster, after the #365 redesign regrouped the form:
+        // every persisting field still renders as a marked input with its exact id, so a field dropped or
+        // unmarked in a re-layout fails here rather than shipping as silent data loss. The provider-name key
+        // input is deliberately unmarked and asserted present separately. The roster is compared as a set in
+        // both directions (#934), because a subset assertion tolerated newly added fields nobody listed.
         var markerClasses = new[] { "sso-text", "sso-line-list", "sso-toggle", "sso-folder-list", "sso-role-map" };
         var form = OidcProviderFormMarkup(
             WebAssets.Markup());

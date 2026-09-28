@@ -13,18 +13,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The token-header <c>kid</c> allowlist (#1167, part of #1029). A <c>kid</c> outside the RFC 3986
-/// unreserved set, or over the length cap, is refused before any signing key is looked up - on BOTH JWT
-/// paths, from one predicate in <see cref="OidcSignatureKeys"/>, so the id_token and the back-channel
-/// <c>logout_token</c> postures cannot drift apart.
-/// <para>
-/// This is defence in depth rather than a live fix: today the value only ever reaches an ordinal compare
-/// against the in-memory <c>KeyId</c> values converted from the discovery JWKS, so there is no sink to
-/// exploit. The tests that matter most are therefore the COMPATIBILITY ones - a constraint nobody needs
-/// yet, set too tight, buys a real IdP lockout for a hypothetical attack.
-/// </para>
-/// </summary>
+/// <summary>The token-header <c>kid</c> allowlist (#1167, part of #1029): a value outside the unreserved set or over the length cap is refused before any signing key is looked up, on both JWT paths, from one predicate.</summary>
+/// <remarks>
+/// This is defence in depth rather than a live fix, because today the value only ever reaches an ordinal
+/// compare against the in-memory key ids converted from the discovery JWKS, so there is no sink to exploit.
+/// The tests that matter most are therefore the compatibility ones: a constraint nobody needs yet, set too
+/// tight, buys a real provider lockout for a hypothetical attack.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class OidcSignatureKeysKidTests : IDisposable
 {

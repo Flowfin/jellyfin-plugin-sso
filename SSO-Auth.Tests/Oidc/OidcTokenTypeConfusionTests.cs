@@ -14,23 +14,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// RFC 7519 §4.1.9 on both token paths (#1317): a JWT whose header declares one of the media types this
-/// plugin can attribute to another endpoint is refused there, so the token families are separated by what
-/// they say they are and not only by the shape of their payloads.
-/// <para>
-/// Both directions were accepted before this rule existed, measured on the shipped validators: a genuine
-/// <c>logout+jwt</c> validated on the id_token path, and a <c>logout_token</c> whose header said
-/// <c>at+jwt</c> validated on the logout path. That is the reason the rows below exist in both directions
-/// rather than only in the one the payload rules already cover.
-/// </para>
-/// <para>
-/// Every token here is GENUINELY SIGNED by the key the JWKS advertises and is otherwise valid, and each
-/// rejection is paired with the same token minus the header. Without that pairing a rejection proves
-/// nothing about <c>typ</c>: a fixture the validator would refuse anyway passes for a reason it does not
-/// name.
-/// </para>
-/// </summary>
+/// <summary>RFC 7519 4.1.9 on both token paths (#1317): a JWT whose header declares a media type this plugin attributes to another endpoint is refused there, so the families are separated by what they say they are.</summary>
+/// <remarks>
+/// Both directions were accepted before this rule existed, measured on the shipped validators, which is why
+/// the rows exist in both directions rather than only in the one the payload rules cover. Every token is
+/// genuinely signed by the key the JWKS advertises and is otherwise valid, and each rejection is paired with
+/// the same token minus the header, because otherwise a fixture the validator would refuse anyway passes for
+/// a reason it does not name.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class OidcTokenTypeConfusionTests : IDisposable
 {

@@ -13,29 +13,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins what a red <see cref="SSOControllerAuthorizationTests"/> run is able to say about itself.
-///
-/// <para>
-/// #1444 recorded one run in which all five request-driving authorization tests went red at once and the
-/// evidence was gone by the time anybody read it. Which of the two remaining readings applies - one endpoint
-/// stalled, or the host answered nothing - is decided by how many of the ~25 endpoints in each loop produced
-/// a status, and a walk that throws at the first transport failure never asks the other 24. These units drive
-/// the walk against a scripted transport, so that answer does not depend on catching the occurrence again.
-/// </para>
-///
-/// <para>
-/// The transport is scripted rather than a real host on purpose: a request that produces no status is the
-/// subject, and there is no way to make a live loopback server reliably not answer.
-/// </para>
-///
-/// <para>
-/// They also pin the repair that issue asks for: a red result from those five tests should mean the endpoints
-/// lost their attributes and nothing else, so a request the host pipeline never took is retried within a
-/// budget rather than reddening a guard it never reached, while one the pipeline took and did not finish stays
-/// red at the first occurrence.
-/// </para>
-/// </summary>
+/// <summary>Pins what a red <see cref="SSOControllerAuthorizationTests"/> run is able to say about itself (#1444).</summary>
+/// <remarks>
+/// One run took all five request-driving authorization tests red at once and the evidence was gone by the
+/// time anybody read it; which reading applies is decided by how many of the endpoints in each loop produced
+/// a status, and a walk that throws at the first transport failure never asks the rest. The transport is
+/// scripted rather than a real host, because a request that produces no status is the subject and no live
+/// loopback server reliably fails to answer. They also pin the repair: a request the pipeline never took is
+/// retried within a budget, while one it took and did not finish stays red at the first occurrence.
+/// </remarks>
 public sealed class AuthorizationProbeTests
 {
     private static readonly Func<int, bool> ExpectUnauthorized = status => status == (int)HttpStatusCode.Unauthorized;

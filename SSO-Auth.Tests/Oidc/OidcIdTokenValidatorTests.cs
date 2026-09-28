@@ -410,17 +410,12 @@ public sealed class OidcIdTokenValidatorTests : IDisposable
     [Fact]
     public async Task EncryptedIdToken_IsRejected_AndYieldsNoPrincipal()
     {
-        // #1174. A JWE is five segments where a JWS is three, and the battery already refuses five
-        // segments of garbage - what it never established is what happens to a WELL-FORMED one, signed by
-        // the trusted key and then encrypted to a key this plugin does not hold. That is the shape a
-        // provider actually emits when an operator turns response encryption on at the IdP, and the
-        // handler's behaviour against it is the library's rather than this plugin's, so a library change
-        // to it would otherwise pass unseen.
-        //
-        // Non-vacuous by construction, and measured rather than asserted: remove the two encryption lines
-        // below and the same descriptor validates - it is Descriptor(), which
-        // ValidRs256Token_Succeeds_WithRawClaimsAndAlgorithm proves is accepted. So the rejection is
-        // bought by the encryption and by nothing else in the fixture.
+        // #1174. A JWE is five segments where a JWS is three, and the battery already refuses five segments of
+        // garbage; what it never established is what happens to a well-formed one, signed by the trusted key
+        // and encrypted to a key this plugin does not hold, which is what a provider emits when an operator
+        // turns response encryption on. The behaviour against it is the library own rather than this plugin,
+        // so a library change would otherwise pass unseen. Non-vacuous by construction and measured: remove
+        // the two encryption lines and the same descriptor validates.
         using var contentKey = RSA.Create(2048);
         var descriptor = Descriptor();
         descriptor.EncryptingCredentials = new EncryptingCredentials(

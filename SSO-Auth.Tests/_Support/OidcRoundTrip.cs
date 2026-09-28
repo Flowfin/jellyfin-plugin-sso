@@ -17,28 +17,19 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The one home for the scaffolding that drives a real OpenID login through the controller - challenge,
-/// callback, redeem - against the in-test provider <see cref="OidcTokenFixture"/> serves. It had two homes
-/// until #1351: <c>OidcRoundTripTests</c> kept it privately and <c>OidcIdTokenIsNeverACredentialTests</c>
-/// repeated it, and a copy that drifts fails quietly, because both copies keep passing while one of them is
-/// driving a flow the plugin no longer has.
-///
-/// It is scaffolding and not a fixture: it holds no state, asserts only what a caller needs true before its
-/// own assertions can mean anything (the challenge really redirected, and really minted a state and a
-/// binding), and returns the values that pass between the legs. Every claim a test makes stays in the test.
-/// </summary>
+/// <summary>The one home for the scaffolding that drives a real OpenID login through the controller: challenge, callback and redeem against <see cref="OidcTokenFixture"/>.</summary>
+/// <remarks>
+/// It had two homes until #1351, and a copy that drifts fails quietly, because both copies keep passing while one drives a flow the plugin no longer has. It is
+/// scaffolding rather than a fixture: it holds no state, asserts only what a caller needs true before its own assertions can mean anything, and returns the values
+/// that pass between the legs.
+/// </remarks>
 internal static class OidcRoundTrip
 {
-    /// <summary>
-    /// Builds a controller harness with one enabled provider <c>kc</c> pointed at the fixture's authority.
-    /// Pushed authorization is off so the challenge is a plain redirect, profile loading is off so the
-    /// id_token claims are the whole identity, and the authorization/link toggles are off so the redeem
-    /// takes the first-time-provision path.
-    /// </summary>
+    /// <summary>Builds a controller harness with one enabled provider <c>kc</c> pointed at the fixture authority.</summary>
+    /// <remarks>Pushed authorization and profile loading are off, so the challenge is a plain redirect and the id_token claims are the whole identity; the authorization and link toggles are off, so the redeem takes the first-time-provision path.</remarks>
     /// <param name="fixture">The in-test identity provider the harness points at.</param>
-    /// <param name="responder">The stub HTTP responder serving that provider's endpoints.</param>
-    /// <param name="provider">Applied to the provider's own configuration before it is stored.</param>
+    /// <param name="responder">The stub HTTP responder serving the endpoints of that provider.</param>
+    /// <param name="provider">Applied to the configuration of the provider before it is stored.</param>
     /// <param name="plugin">Applied to the whole plugin configuration, for options that are not per-provider.</param>
     /// <returns>The harness, with the provider configured.</returns>
     internal static SsoControllerHarness BuildHarness(
@@ -70,16 +61,12 @@ internal static class OidcRoundTrip
             httpResponder: responder);
     }
 
-    /// <summary>
-    /// Serves the fixture's discovery, JWKS and token endpoints; any other URL 404s, so a regression that
-    /// reaches an unexpected endpoint is caught rather than absorbed. The token endpoint returns the
-    /// supplied id_token.
-    /// </summary>
+    /// <summary>Serves the fixture discovery, JWKS and token endpoints; any other URL answers 404, so a regression that reaches an unexpected endpoint is caught rather than absorbed.</summary>
     /// <param name="fixture">The in-test identity provider whose endpoints are served.</param>
     /// <param name="request">The outbound request the stub handler intercepted.</param>
     /// <param name="idToken">The id_token the token endpoint returns.</param>
     /// <param name="advertisePar">Whether the discovery document advertises pushed authorization.</param>
-    /// <param name="served">When given, every body served is appended to it, so a search can be shown to work against a body that really carries the token.</param>
+    /// <param name="served">When given, every body served is appended to it.</param>
     /// <returns>The response for that URL.</returns>
     internal static HttpResponseMessage ServeIdp(
         OidcTokenFixture fixture,

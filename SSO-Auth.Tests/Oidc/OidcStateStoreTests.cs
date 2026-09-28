@@ -14,23 +14,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="OidcStateStore"/> - the consolidated in-flight OpenID authorize-state store
-/// (#318, #341). Every behavior is pinned through the public surface (Seed + TryAdd / PeekCurrent /
-/// Promote / TryRedeem / PruneExpired), where the idiom now lives. The store holds a closed sum
-/// <see cref="AuthorizeSession"/>: a <see cref="AuthorizeSession.Pending"/> registered at the challenge,
-/// atomically swapped for a <see cref="AuthorizeSession.Ready"/> at the callback once the role gate
-/// passes - so "the login is valid" is which variant the entry is, never a mutable flag, and the swap is
-/// torn-read-free (#341). Carries forward the invariants pinned by the predecessor tests: provider-bound
-/// peek (#289), the single-use atomic claim (#138/#133 - the upstream replay fix), the clock-anomaly
-/// expiry, the cap that refuses new states instead of evicting in-flight ones (#246), and the concurrency
-/// regression that motivated the ConcurrentDictionary (adds racing the prune sweep threw on a plain
-/// Dictionary). Since #326 every peek/redeem also carries the browser-binding gate: the presented binding
-/// id (the callback's cookie value) must match the id recorded on the state, so a state started in one
-/// browser cannot be completed in another (forced-login / session-fixation defense). The pre-#326
-/// semantics tests pass a matching <see cref="Binding"/> so the binding gate is transparent to them; the
-/// dedicated mismatch/absent tests below prove the gate itself.
-/// </summary>
+/// <summary>Tests for <see cref="OidcStateStore"/>, the consolidated in-flight OpenID authorize-state store (#318, #341), pinned through its public surface.</summary>
+/// <remarks>
+/// The store holds a closed sum: a pending entry registered at the challenge, atomically swapped for a ready
+/// one at the callback once the role gate passes, so the login being valid is which variant the entry is
+/// rather than a mutable flag, and the swap is torn-read-free. It carries forward the provider-bound peek
+/// (#289), the single-use atomic claim (#138, #133), the clock-anomaly expiry, the cap that refuses new
+/// states instead of evicting in-flight ones (#246), and the concurrency regression behind the concurrent
+/// dictionary. Since #326 every peek and redeem carries the browser-binding gate, which the pre-#326
+/// semantics rows pass transparently while the dedicated rows prove it.
+/// </remarks>
 public class OidcStateStoreTests
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(1);

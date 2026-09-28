@@ -11,25 +11,15 @@ using Newtonsoft.Json;
 
 namespace Jellyfin.Plugin.SSO_Auth.Fuzz;
 
-/// <summary>
-/// Differential driver for the repeated-member walk (#1188). It generates discovery-shaped documents and
-/// asks two independently written readers the same question - does any object scope name a member twice -
-/// then reports every case where they answer differently.
-///
-/// Why a second reader rather than a table of expected verdicts. A fixture table only ever covers the
-/// documents somebody thought of, and the walk's whole job is to hold on documents nobody thought of. The
-/// reference here is Newtonsoft's <see cref="JsonTextReader"/>: a different parser family from the
-/// <c>Utf8JsonReader</c> the walk is built on, already in this project's dependency graph, and the reader
-/// whose measured behaviour - it drops one occurrence at parse time - is half of why the walk exists. Two
-/// tokenizers written by different people agreeing about a document is evidence about the document;
-/// one tokenizer agreeing with a list of expectations is evidence about the list.
-///
-/// It is NOT coverage-guided and does not need libFuzzer, so it runs anywhere the harness builds - which is
-/// what makes it re-runnable on my Windows box rather than only in the Linux weekly job.
-///
-/// Triage rule, inherited from the harness README and not softened here: a divergence is a FINDING. It is
-/// reported, with the document that produced it, and it is filed - never patched away inside this driver.
-/// </summary>
+/// <summary>Differential driver for the repeated-member walk (#1188): it generates discovery-shaped documents, asks two independently written readers whether any object scope names a member twice, and reports every disagreement.</summary>
+/// <remarks>
+/// A second reader rather than a table of expected verdicts, because a fixture table only covers the
+/// documents somebody thought of while the job of the walk is to hold on documents nobody thought of. The
+/// reference is a different parser family already in the dependency graph, and it is the reader whose
+/// measured behaviour is half of why the walk exists. It is not coverage-guided and needs no libFuzzer, so it
+/// runs anywhere the harness builds. A divergence is a finding: it is reported with the document that
+/// produced it and filed, never patched away inside this driver.
+/// </remarks>
 internal static class DiscoveryDifferential
 {
     // Deliberately tiny, so a four-member object collides often. A large name pool would make the generator

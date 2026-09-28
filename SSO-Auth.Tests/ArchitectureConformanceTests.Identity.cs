@@ -39,27 +39,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void VerifiedIdentity_IsConstructedOnlyByProtocolValidators()
     {
-        // Locked in by #473: VerifiedIdentity is the keystone the session-minting path is keyed on, and it
-        // is unforgeable - its constructor is PRIVATE, so the only way to obtain one is a named factory that
-        // stands for "this protocol's validation has completed". Two properties are pinned:
-        //
-        // 1. Reflection: NO declared instance constructor is reachable from outside the type - none is
-        //    public, internal, or protected-internal. A sealed record's own compiler-generated copy
-        //    constructor is emitted PRIVATE (protected only for unsealed records), so it too is excluded by
-        //    this filter; the accessibility test is written to also exclude a plain `protected` ctor, which
-        //    is unreachable on a sealed type anyway (no derived type could invoke it). The C# compiler
-        //    guarantees such a constructor cannot be invoked outside the declaring type, so this alone
-        //    proves `new VerifiedIdentity(...)` can appear only inside VerifiedIdentity.cs (the two
-        //    factories) - no third construction path can compile. (An empty `with { }` on an existing
-        //    instance clones a valid identity verbatim; every property is get-only, so it can neither
-        //    mutate nor forge one.) A future `public`/`internal` ctor added to the type would reopen that
-        //    hole and fail HERE.
-        // 2. Source scan: each factory is INVOKED only from its protocol's validator. FromValidatedOidc
-        //    belongs to the OpenID redeem path - built inside AuthorizeSession.Ready, which the store hands
-        //    out only through the one-time atomic redeem - and FromValidatedSaml only at the SAML
-        //    session-minting endpoint after full response validation. A call from anywhere else (a link
-        //    endpoint, a new controller action) would mean an identity minted from something other than a
-        //    completed validation, so it fails the scan.
+        // VerifiedIdentity is the keystone the session-minting path is keyed on and is unforgeable, because its
+        // constructors are all private and the only way to obtain one is a named factory standing for a
+        // completed validation (#473). Two properties are pinned: no declared instance constructor is reachable
+        // from outside the type, so no third construction path can compile; and each factory is invoked only
+        // from its own protocol validator, so an identity cannot be minted from anything else.
         var ctors = typeof(VerifiedIdentity)
             .GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
         Assert.True(ctors.Length > 0, "VerifiedIdentity must declare an instance constructor to pin (it was removed or the type was renamed).");
@@ -257,21 +241,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_NeverTouchesProviderLinkMaps()
     {
-        // Locked in by the link/unlink admin-surface extraction (#372) and completed by #383: the two
-        // legitimate homes for provider-CanonicalLinks access are CanonicalLinkService (the login/admin
-        // link workflow, under the config lock) and ServerManagedFields.Preserve (the #157 re-injection
-        // the config tier owns) - and the controller's two former inline re-injection statements now route
-        // through that shared Preserve, so a CONTROLLER has ZERO direct CanonicalLinks access. This is a
-        // call-level property, so it is a source scan rather than a reflection rule (the one exception to
-        // the "call-level invariants stay with CodeQL" note in the class summary).
-        //
-        // Sentinel against a vacuous pass (#388): a zero-occurrence scan only means something while its
-        // target token still names a link map. A property rename (CanonicalLinks -> anything) would make
-        // the scan match nothing and pass for the wrong reason, so pin each property by reflection - a
-        // rename fails HERE and forces a conscious update of the roster (and the scanned token with it).
-        // BOTH server-managed link maps are guarded: the account-link map (ProviderConfigBase.CanonicalLinks,
-        // #157) and its per-link issuer binding (OidConfig.CanonicalLinkIssuers, #186). Both are owned by
-        // CanonicalLinkService and ServerManagedFields.Preserve; a controller must touch neither directly.
+        // The two legitimate homes for provider CanonicalLinks access are CanonicalLinkService and
+        // ServerManagedFields.Preserve, so a controller has zero direct access (#372, #383). Each property is
+        // pinned by reflection as a sentinel, because a rename would make the zero-occurrence scan match
+        // nothing and pass for the wrong reason (#388); both the link map and its issuer binding are guarded.
         var linkMapProperties = new[]
         {
             (Declaring: typeof(ProviderConfigBase), Name: "CanonicalLinks"),
@@ -302,17 +275,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_NeverTouchesRawSocketsOrDns()
     {
-        // Locked in by the AvatarService extraction (#375): the raw-socket/DNS surface lives only in the
-        // avatar tier (AvatarService, AvatarUrlValidator) and SsoRateLimiter - the controller orchestrates
-        // flows over injected collaborators and never opens a network primitive itself. Same source scan as
-        // the link-map rule above, over every controller source file (#388). Marker choice: any
-        // Socket/NetworkStream use needs the System.Net.Sockets namespace in the file (using directive,
-        // alias, or full qualification), so that one marker subsumes those type names; "NetworkStream" is
-        // the belt-and-braces type-name catch on top; "SocketsHttpHandler" lives in System.Net.Http, which
-        // the controller legitimately imports, so the namespace marker cannot cover it and it gets its own;
-        // "Dns." catches System.Net.Dns call sites (which need no Sockets using) and "System.Net.Dns" the
-        // static-import form. Bare "Socket"/"Dns" are deliberately NOT markers - they would false-positive
-        // on prose in comments.
+        // The raw socket and DNS surface lives only in the avatar tier and SsoRateLimiter, so the controller
+        // never opens a network primitive itself (#375, #388). The markers are chosen so the Sockets namespace
+        // subsumes the type names, with SocketsHttpHandler and the two Dns spellings named separately; bare
+        // Socket and Dns are deliberately not markers, because they would match prose in comments.
         var markers = new[] { "System.Net.Sockets", "SocketsHttpHandler", "NetworkStream", "Dns.", "System.Net.Dns" };
         var socketLines = ControllerSourceFiles()
             .SelectMany(path => File.ReadAllLines(path)
@@ -325,18 +291,10 @@ public partial class ArchitectureConformanceTests
             socketLines.Count == 0,
             "A controller must not touch the raw socket/DNS surface (System.Net.Sockets, Socket, NetworkStream, Dns); outbound network primitives belong to AvatarService/AvatarUrlValidator and SsoRateLimiter. Found: " + string.Join(" | ", socketLines));
 
-        // Sentinel against a vacuous pass (#444): unlike the link-map rule above, these markers are BCL
-        // identifiers, not a token this codebase owns, so there is no single property to pin by
-        // reflection. Instead pin the marker SET against reality: the raw socket/DNS surface's one
-        // legitimate home is AvatarService/AvatarUrlValidator/SsoRateLimiter (#375), so at least one
-        // marker must still match a real line there today. If a refactor ever changed how that tier
-        // references sockets/DNS (a wrapping abstraction, a different BCL spelling) so that NONE of the
-        // markers matched it any more, the zero-occurrence scan above would keep "passing" for the wrong
-        // reason - this is the assertion that would actually catch it. Deliberately "at least one", not
-        // "every" marker: "System.Net.Dns" is a defensive marker for the fully-qualified/static-import
-        // spelling, which this codebase does not use anywhere today (Dns.GetHostAddressesAsync resolves
-        // through the "using System.Net;" form instead, caught by the "Dns." marker) - that marker having
-        // no live match is expected, not a liveness failure.
+        // Sentinel against a vacuous pass (#444): these markers are BCL identifiers rather than a token this
+        // codebase owns, so the marker set is pinned against the one legitimate home of the surface, and at
+        // least one marker has to match a real line there. At least one rather than every, because the
+        // fully-qualified Dns spelling is defensive and matches nothing here today.
         var homeTypes = new[] { typeof(AvatarService), typeof(AvatarUrlValidator), typeof(SsoRateLimiter) };
         var homeFiles = SourceFilesDeclaring(homeTypes);
         Assert.True(

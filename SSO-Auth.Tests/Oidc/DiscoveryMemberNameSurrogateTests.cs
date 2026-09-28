@@ -8,21 +8,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Both discovery flag readers state a total contract - <see cref="PkceDiscovery.SupportsS256(string?)"/>
-/// answers <c>false</c> on anything unexpected, <see cref="OidcResponseIssuer"/>'s flag fails tolerant - and
-/// neither said it throws. Both did (#1340), on a document naming a member with an unpaired surrogate escape:
+/// <summary>Both discovery flag readers state a total contract and neither said it throws; both did (#1340), on a document naming a member with an unpaired surrogate escape.</summary>
+/// <remarks>
 /// <c>JsonElement.TryGetProperty</c> unescapes every candidate whose raw name is longer than the name being
-/// looked for, and a lone high surrogate has no completion, so the decoder raises
-/// <c>InvalidOperationException</c> out of the lookup.
-///
-/// The padding is what selected which reader fell over, which is why every case here is built from the
-/// reader's OWN property-name length rather than from one hand-written document. Measured on the unfixed
-/// readers: the throw begins at 27 filler characters for <c>code_challenge_methods_supported</c> (32 bytes)
-/// and at 41 for <c>authorization_response_iss_parameter_supported</c> (46 bytes) - the first padding at
-/// which the six-byte escape makes the raw name longer than the name being matched. A repair to one reader
-/// that leaves the other therefore reddens the other reader's sweep here rather than passing.
-/// </summary>
+/// looked for, and a lone high surrogate has no completion, so the decoder raises out of the lookup. The
+/// padding selects which reader falls over, so every case is built from the own property-name length of the
+/// reader rather than from one hand-written document, and a repair to one reader that leaves the other
+/// reddens the sweep of the other rather than passing.
+/// </remarks>
 public class DiscoveryMemberNameSurrogateTests
 {
     private const string PkceName = "code_challenge_methods_supported";

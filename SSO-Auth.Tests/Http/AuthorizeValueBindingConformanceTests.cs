@@ -24,28 +24,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The browser-bound authorize value reaches one decision wherever it arrives (#1161). The value is the
-/// unguessable per-flow token this server minted and handed to a browser: the OpenID authorize
-/// <c>state</c>, and the one-time login-outcome token the SAML assertion-consumer leg renders. It arrives
-/// on three media - a query string, a JSON body property, and the cookie half of the pair - and the
-/// decision it must reach is <see cref="AuthorizeStateBinding"/>: the caller presents the binding cookie
-/// the challenge set, or the value is refused.
-/// <para>
-/// The route set is DERIVED from <see cref="EntryPointInventory"/> rather than listed, because the route
-/// somebody forgot to add to a list is the route that skipped the check. A new entry point taking a
-/// <c>state</c> parameter or an <see cref="AuthResponse"/> body is in the derived class and fails
-/// <see cref="EveryAuthorizeValueEntryPoint_IsClassifiedAndProven"/> until it is classified here.
-/// </para>
-/// <para>
-/// The check is NOT uniform across the class, and pretending otherwise would weaken the rule into one
-/// that passes on a build with a binding check removed. Four legs present a binding cookie; the SAML half
-/// of the link route presents none, because the value it carries in <c>AuthResponse.Data</c> is a signed
-/// assertion rather than a browser-minted token, so there is nothing bound to a cookie and its one-time-use
-/// control is the replay cache instead. That asymmetry is declared per leg below, with its reason, so a
-/// later reader does not re-derive the question and a fifth leg cannot inherit the exemption silently.
-/// </para>
-/// </summary>
+/// <summary>The browser-bound authorize value reaches one decision wherever it arrives (#1161): the caller presents the binding cookie the challenge set, or the value is refused.</summary>
+/// <remarks>
+/// The value is the unguessable per-flow token this server minted, and it arrives on a query string, a JSON
+/// body property and the cookie half of the pair. The route set is derived from
+/// <see cref="EntryPointInventory"/> rather than listed, because the route somebody forgot to add is the one
+/// that skipped the check. The check is not uniform: the SAML half of the link route presents no cookie,
+/// because it carries a signed assertion rather than a browser-minted token and its one-time control is the
+/// replay cache, and that asymmetry is declared per leg so a fifth leg cannot inherit it silently.
+/// </remarks>
 [Collection("SSOController")]
 public class AuthorizeValueBindingConformanceTests
 {

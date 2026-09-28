@@ -7,31 +7,11 @@ using System.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The plugin's served admin assets, read from the tree, for the conformance rules that pin the settings
-/// surface against the server (#1527).
-/// </summary>
+/// <summary>The admin assets this plugin serves, read from the tree, for the conformance rules that pin the settings surface against the server (#1527).</summary>
 /// <remarks>
-/// <para>
-/// One page and one script became five pages and six scripts, and every rule that read the two by name
-/// would otherwise have to choose a page - which is the wrong question for almost all of them. What those
-/// rules assert is that a field, a marker class or a call EXISTS on the settings surface, and the surface
-/// is now the five pages together. So the markup here is the five pages concatenated and the script is the
-/// shared core.
-/// </para>
-/// <para>
-/// CONCATENATION IS NOT A WEAKENING, AND THE REASON IS THAT SOMETHING ELSE ANSWERS THE OTHER HALF. A
-/// concatenated read cannot tell a control on the right page from the same control on the wrong one; that
-/// question is <c>tools/ui-mock-fields.js</c>'s, which reconciles every one of the 123 controls against
-/// the tab <c>docs/ui/mock/FIELDS.md</c> names for it and refuses a control on no page, on two pages, or
-/// on a page the table does not name. Splitting the question that way keeps each rule asking one thing:
-/// the rules below ask whether the surface still carries a field, and the tool asks where it is.
-/// </para>
-/// <para>
-/// The pages are joined with a newline so a construct cannot be formed across a file boundary out of two
-/// halves that are each harmless - a regex spanning the join would otherwise match text no browser ever
-/// sees.
-/// </para>
+/// The markup is the five settings pages concatenated and the script is the shared core, because what those rules assert is that a field, a marker class or a call
+/// exists on the surface rather than on one page. Where a control belongs is the question <c>tools/ui-mock-fields.js</c> answers against <c>docs/ui/mock/FIELDS.md</c>.
+/// The pages are joined with a newline, so no construct can be formed across a file boundary out of two halves that are each harmless.
 /// </remarks>
 internal static class WebAssets
 {

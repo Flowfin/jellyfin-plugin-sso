@@ -11,33 +11,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// What the repeated-member walk and the role path's own reader each make of the same claim value (#1053).
-/// The role claim decides privileges, so what an <c>Unreadable</c> verdict should MEAN there cannot be
-/// settled without knowing what refusing on it would cost, and that cost is exactly the set of grammars the
-/// walk cannot read and the reader can. This table is that measurement, taken rather than remembered: the
-/// issue carried an assertion of six such grammars from an earlier round and named none of them.
-/// <para>
-/// The table outlived the question it was taken for. #1324 put the walk in front of the reader on this path,
-/// so the outcome column now records what each grammar produces WITH that screen rather than without it, and
-/// the divergence it measured is closed. It is kept, and kept in this shape, because the two-column form is
-/// what makes a reopening visible: a row that drifts back to a verdict of <c>Unreadable</c> beside an outcome
-/// that resolved is the fail-open shape, whatever the code that produced it looks like.
-/// </para>
-/// <para>
-/// Each row feeds one claim value to <see cref="StrictJson.Inspect(string?, out string?)"/> and to
-/// <see cref="OidcRoleExtractor.ExtractRoles"/> along the same two-segment path, and pins both answers. The
-/// rows are the input classes the walk's own contract calls <c>Unreadable</c> - no body, malformed, past the
-/// depth cap, an unpaired surrogate in a member name spelled raw and spelled as an escape, and a document
-/// carrying no object - plus the controls that make the table readable: a clean document, the boundary below
-/// the depth cap, a leading BOM, and the repeat itself.
-/// </para>
-/// <para>
-/// A null claim value is deliberately absent. <c>Claim.Value</c> is never null, so the row would pin the
-/// behaviour of an input the caller cannot produce; fed one, the reader raises out of Newtonsoft rather than
-/// refusing, which is worth knowing and is not worth a permanent row.
-/// </para>
-/// </summary>
+/// <summary>What the repeated-member walk and the own reader of the role path each make of the same claim value (#1053).</summary>
+/// <remarks>
+/// The role claim decides privileges, so what an unreadable verdict should mean there cannot be settled
+/// without knowing what refusing on it would cost, which is exactly the set of grammars the walk cannot read
+/// and the reader can; this table is that measurement, taken rather than remembered. #1324 put the walk in
+/// front of the reader, so the outcome column now records what each grammar produces with that screen, and the
+/// two-column form is kept because it makes a reopening visible. Each row feeds one value to both and pins
+/// both answers, alongside the controls that make the table readable. A null claim value is deliberately
+/// absent, because the caller cannot produce one.
+/// </remarks>
 public class UnreadableRoleClaimPostureTests
 {
     // The role-claim path every row is read along: segment 0 names the claim, segment 1 is the terminal key

@@ -29,25 +29,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the OpenID redirect callback's token-exchange path (<c>OidPost</c>) via
-/// <see cref="SsoControllerHarness"/> and <see cref="OidcTokenFixture"/>, which serves discovery, a JWKS,
-/// and a token endpoint returning a real signed id_token, so the actual code exchange and id_token
-/// validation run. A valid callback renders the auth page; an authorization-response issuer that does not
-/// match the id_token issuer is refused (RFC 9207 mix-up check, #125). The guard branches (unknown
-/// provider, missing/invalid/expired state, disabled, rate-limit) are covered in
-/// <see cref="SSOControllerEndpointTests"/> / <see cref="SSOControllerAdminTests"/>.
-///
-/// Two of the tests characterize the callback end-to-end against the OAuth 2.0 Security BCP update
-/// (draft-ietf-oauth-security-topics-update, rev -03 dated 2026-07-06) threat classes that apply to
-/// this RP (#176):
-/// Cross-toolkit OAuth Account Takeover (COAT) - a state minted in one named provider's context cannot
-/// complete against another configured provider's callback - and cross-user session fixation - a state
-/// token observed by a party in a different browser cannot complete the flow. The store-level mechanisms
-/// these rely on are pinned in <see cref="OidcStateStoreTests"/> (provider-scoped peek/redeem, the
-/// browser-binding gate, and the one-time atomic claim); the mint-path one-time-consume is pinned in
-/// <see cref="SSOControllerOidAuthTests"/>.
-/// </summary>
+/// <summary>In-process tests of the token-exchange path of the OpenID redirect callback, through a fixture that serves discovery, a JWKS and a real signed id_token, so the code exchange and the id_token validation run.</summary>
+/// <remarks>
+/// A valid callback renders the auth page, and an authorization-response issuer that does not match the
+/// id_token issuer is refused (RFC 9207, #125); the guard branches are covered in the endpoint and admin
+/// suites. Two rows characterize the callback against the OAuth 2.0 Security BCP update threat classes that
+/// apply to this relying party (#176), cross-toolkit account takeover and cross-user session fixation; the
+/// store-level mechanisms they rely on are pinned in <see cref="OidcStateStoreTests"/>.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerOidPostTests
 {

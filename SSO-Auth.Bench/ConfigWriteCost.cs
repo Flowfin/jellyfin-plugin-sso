@@ -9,30 +9,15 @@ using Jellyfin.Plugin.SSO_Auth.Tests;
 
 namespace Jellyfin.Plugin.SSO_Auth.Bench;
 
-/// <summary>
-/// What the undo behind a configuration write costs, against the write it is paid on (#1532). Since #1521
-/// every write takes a persisted-form snapshot of the whole configuration before the mutation, so a persist
-/// that throws can be rolled back out of the running server. It is paid inside the process-wide
-/// configuration lock, on top of the serialization the write itself does, and it is paid by writes on the
-/// LOGIN path - the canonical link a first login writes, the hourly last-login stamp, the single-logout
-/// session capture - not only by an administrator saving a form.
-/// </summary>
+/// <summary>What the undo behind a configuration write costs, against the write it is paid on (#1532).</summary>
 /// <remarks>
-/// Two stages per size, on one fixture, in one run:
-/// <list type="bullet">
-/// <item><c>snapshot</c> - <c>PluginConfiguration.ToPersistedForm()</c>, which is exactly what
-/// <c>ProviderConfigStore.Snapshot</c> calls and the whole of the undo's cost.</item>
-/// <item><c>write</c> - the production path, <c>SSOPlugin.MutateConfiguration</c>, snapshot included.</item>
-/// </list>
-/// THE NO-SNAPSHOT BASELINE IS THE DIFFERENCE, AND THAT IS A READING OF THE SOURCE RATHER THAN AN
-/// ESTIMATE. <c>ProviderConfigStore.Mutate</c> calls <c>Snapshot</c> once, at the top, and nothing else in
-/// that method depends on the result except the rollback on the failure path. So removing the undo removes
-/// exactly the first row from the second, and no third measurement would say more than that subtraction
-/// does. There is deliberately no switch in production that turns the undo off for a benchmark to read.
-/// <para>
-/// The persist behind the write row is the real one - the plugin's own, through a mocked serializer - so
-/// the host's write to <c>SSO-Auth.xml</c> is outside every figure and each of them is a floor.
-/// </para>
+/// Since #1521 every write takes a persisted-form snapshot before the mutation, so a persist that throws can
+/// be rolled back out of the running server; it is paid inside the process-wide configuration lock and by
+/// writes on the login path, not only by an administrator saving a form. Two stages per size on one fixture:
+/// the snapshot alone, and the production write with it included. The no-snapshot baseline is the difference,
+/// which is a reading of the source rather than an estimate, because nothing else in that method depends on
+/// the snapshot except the rollback. The persist behind the write row goes through a mocked serializer, so
+/// every figure is a floor.
 /// </remarks>
 internal static class ConfigWriteCost
 {

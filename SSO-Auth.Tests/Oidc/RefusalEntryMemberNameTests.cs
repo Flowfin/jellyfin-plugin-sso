@@ -17,30 +17,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins what a provider-authored member name may do to the refusal entry <see cref="RepeatedMemberScreen"/>
-/// writes (#1195).
-///
-/// The name is the one value in that entry the provider chooses, and it is put there deliberately: it is what
-/// identifies the defect to report, and nothing relaxes the refusal, so an entry without it leaves an operator
-/// with a broken login and no lead. Putting it there is what creates the exposure these rows bound.
-///
-/// <c>ReplaceLineEndings</c>, which is all the entry beside it gets, is not enough for this value. It passes a
-/// raw vertical tab and a raw NUL straight through - a console sink advances a line on the first, a C-string
-/// consumer truncates its record on the second - and it does not touch a right-to-left override, which
-/// reorders the rest of the entry as it is displayed rather than inserting anything into it. So three
-/// character classes come off the name, and each row below names the mutation it kills.
-///
-/// The fourth class #1195 names, the unpaired surrogate, is answered by measurement rather than by an arm:
-/// <see cref="AnUnpairedSurrogate_NeverBecomesARepeatedMemberName"/> shows a provider cannot get one into this
-/// value at all, and <see cref="TheBoundNeverCutsThroughAnAstralPair"/> covers the one thing that could
-/// manufacture one, which is the plugin's own truncation.
-///
-/// Every row asserts the REFUSAL and not merely the entry. A screen that logged the name and then handed the
-/// document on would write an identical entry, so each read also checks that the library was given the
-/// screen's constant reason instead of the document, and that the JWKS the refused document named was never
-/// fetched.
-/// </summary>
+/// <summary>Pins what a provider-authored member name may do to the refusal entry <see cref="RepeatedMemberScreen"/> writes (#1195).</summary>
+/// <remarks>
+/// The name is the one value in that entry the provider chooses and it is put there deliberately, because it
+/// identifies the defect to report, so putting it there creates the exposure these rows bound.
+/// <c>ReplaceLineEndings</c> is not enough for it: a raw vertical tab, a raw NUL and a right-to-left override
+/// all pass through, so three character classes come off the name and each row names the mutation it kills.
+/// The unpaired surrogate is answered by measurement rather than by an arm. Every row asserts the refusal and
+/// not merely the entry, because a screen that logged the name and handed the document on would write an
+/// identical entry.
+/// </remarks>
 public class RefusalEntryMemberNameTests
 {
     private const string Authority = "https://idp-name.example.com";

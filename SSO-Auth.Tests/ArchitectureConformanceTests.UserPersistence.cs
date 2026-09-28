@@ -27,19 +27,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void EveryLoginDoorFieldIsSavedInTheMethodThatWritesIt()
     {
-        // #1440 was not a missing write. Both writes were there and neither was durable: the create arm
-        // mutated the object CreateUserAsync returned, and the save that followed was in a different method
-        // (SessionMinter), on a different instance re-resolved by id. Every unit test asserted on the object
-        // it held, where the values were always present, so the whole suite was blind to it for the life of
-        // the defect. The shape is "write here, hope somebody else saves", and this rule refuses it at the
-        // one place it can be seen without running anything: the method.
-        //
-        // What it cannot see, stated so nobody reads more into a green run than is there. It does not check
-        // that the save comes after the write in EXECUTION order, only in source order, and it does not
-        // follow the object into a helper that saves on the writer's behalf - a helper taking the user and
-        // saving it would be refused here even though it is correct, which is a false refusal this rule
-        // accepts in exchange for having no way to be quietly wrong. The per-site proof that each save is
-        // load-bearing is the tests, not this.
+        // #1440 was not a missing write: both writes were there and neither was durable, because the create arm
+        // mutated the returned object while the save sat in another method on another instance. Every unit test
+        // asserted on the object it held, so the suite was blind for the life of the defect. The shape is write
+        // here and hope somebody else saves, refused at the one place it is visible without running anything.
+        // It reads source order rather than execution order and does not follow the object into a helper, so a
+        // correct helper is refused here, which is the false refusal it accepts for having no quiet failure.
         var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
         var write = new Regex(@"^\s*(?<obj>[A-Za-z_][A-Za-z0-9_]*)\.(?<field>" + string.Join("|", DoorFields) + @")\s*=\s*[^=]", RegexOptions.None, TimeSpan.FromSeconds(5));
         var offenders = new List<string>();

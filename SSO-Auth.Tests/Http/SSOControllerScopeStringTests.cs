@@ -9,18 +9,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins <see cref="OidcLoginService.BuildScopeString"/> - the shared OpenID scope-string builder used by
-/// both the challenge and the callback client. Guards #368: a provider stored without scopes leaves
-/// <see cref="OidConfig.OidScopes"/> null, which previously threw an unhandled 500 on the anonymous
-/// challenge (<c>OidScopes.Prepend</c> on null) and null-padded the callback scope string
-/// (<c>new string[2]</c> → trailing separators). The builder normalizes null to empty so both sides
-/// emit the same clean, base-prefixed string.
-/// And #1612: the base is a UNION with what is configured, not a prefix in front of it. The cases below
-/// that carry <c>openid</c> or <c>profile</c> in the configuration are the ordinary ones - it is what every
-/// provider template here and the wiki tell an administrator to enter - and until #1612 they were the only
-/// shape this file did not cover, which is how every login on every installation came to ask twice.
-/// </summary>
+/// <summary>Pins <see cref="OidcLoginService.BuildScopeString"/>, the shared OpenID scope-string builder both the challenge and the callback client use.</summary>
+/// <remarks>
+/// A provider stored without scopes leaves <see cref="OidConfig.OidScopes"/> null, which threw an unhandled
+/// 500 on the anonymous challenge and null-padded the callback scope string (#368); the builder normalizes
+/// null to empty so both sides emit the same string. The base is a union with what is configured rather than
+/// a prefix in front of it (#1612): the rows carrying openid or profile in the configuration are the ordinary
+/// ones, and until #1612 they were the shape this file did not cover.
+/// </remarks>
 public class SSOControllerScopeStringTests
 {
     [Fact]

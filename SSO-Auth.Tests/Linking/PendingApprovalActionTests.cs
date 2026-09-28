@@ -27,22 +27,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The approve action (#1529): what it may act on, what it does, and what it refuses.
-/// <para>
-/// It exists because the Jellyfin disabled flag does not say who set it. The action therefore acts on this
-/// plugin's own RECORD of having provisioned an account inert and never on the flag, and the test that
-/// carries the whole feature is the negative one: an account an administrator disabled deliberately has no
-/// record, so this route cannot see it, cannot list it and cannot enable it. Delete the record check and
-/// that row goes red while every positive one stays green.
-/// </para>
-/// <para>
-/// The second property is that approving GRANTS NOTHING BUT THE ENABLE. The provisioning policy decided the
-/// account's permissions when it created it; an approve that also granted would be a second provisioning
-/// policy that nobody configured, in a button. The third is the state re-read: a record says what was true
-/// at provisioning, and each way it can have become false since has its own arm here.
-/// </para>
-/// </summary>
+/// <summary>The approve action (#1529): what it may act on, what it does, and what it refuses.</summary>
+/// <remarks>
+/// The Jellyfin disabled flag does not say who set it, so the action acts on the record this plugin wrote of
+/// having provisioned an account inert and never on the flag; the negative row carries the feature, because
+/// an account an administrator disabled has no record and this route cannot see, list or enable it.
+/// Approving grants nothing but the enable, since a grant would be a second provisioning policy nobody
+/// configured, and each way the recorded state can have become false since has its own arm.
+/// </remarks>
 public class PendingApprovalActionTests
 {
     private static readonly Guid Pending = Guid.Parse("11111111-1111-1111-1111-111111111111");

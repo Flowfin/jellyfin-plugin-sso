@@ -14,61 +14,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// What refuses an algorithm substitution on the LOGIN path, asked of the login path itself (#1004). A
-/// forged <c>alg</c> header is the oldest JWT attack there is, and the plugin holds it in two different
-/// ways on its two token paths, which is why proving it on one does not prove it on the other.
-/// <para>
-/// On the back-channel <c>logout_token</c> path <see cref="OidcSignatureKeys.TokenHasAllowedAlgorithm"/>
-/// judges <c>alg</c> BEFORE the handler runs (#1164), and <c>OidcLogoutTokenValidatorTests</c> pins that
-/// gate's verdict on these same shapes. The id_token path is deliberately excluded from that gate, because
-/// <c>OidcClient</c> depends on the <c>invalid_signature</c> string the handler produces to refresh the
-/// JWKS and retry across a signing-key rotation. So on the path an unauthenticated visitor actually drives,
-/// the answer comes from inside the handler and from nothing the plugin wrote, and nothing asked it. Every
-/// rejection row here runs through <see cref="OidcIdTokenValidator"/> rather than through a basis
-/// reassembled in the test.
-/// </para>
-/// <para>
-/// EVERY REJECTION ROW IS PAIRED WITH A CONTROL, for the reason #1052 was split out of this issue: a
-/// fixture the verifier never understood is refused for being malformed, and the row goes green while the
-/// property it names does not hold. Two kinds of control appear below.
-/// <see cref="TheUntamperedToken_Authenticates"/> and
-/// <see cref="TheSpellingIsTheOnlyDefect_TheCorrectlySpelledTwinAuthenticates"/> are differential: the same
-/// bytes with the one deliberate defect removed MUST log in, so a refusal above cannot be coming from a
-/// claim, a time bound, the <c>kid</c> screen or a segment that will not decode. The remaining three
-/// install into the SHIPPED basis from <see cref="OidcSignatureKeys.BuildValidationParameters"/> the exact
-/// behaviour a row says is absent, and ask what happens.
-/// </para>
-/// <para>
-/// WHICH CONTROL ANSWERS WAS MEASURED RATHER THAN ASSUMED, and it is not the one the shapes suggest. For
-/// <c>alg: none</c> and for a stripped signature the answer is <see cref="TokenValidationParameters.RequireSignedTokens"/>
-/// ALONE: admitting <c>none</c> to <see cref="OidcSignatureKeys.AllowedSignatureAlgorithms"/> leaves both
-/// refused (<see cref="TheAlgNoneToken_StaysRefused_WhenNoneIsAdmittedToTheAllowlist"/>), and dropping the
-/// signed-token requirement alone lets the forgery through
-/// (<see cref="TheAlgNoneToken_Authenticates_OnceSignedTokensAreNoLongerRequired"/>). An empty signature is
-/// never carried as far as the algorithm, so the allowlist never speaks for these shapes and a reader who
-/// credited it would be crediting the wrong control.
-/// </para>
-/// <para>
-/// The case-folded spelling is the same correction one step over. The allowlist comparison is Ordinal, but
-/// it is not what refuses <c>rs256</c>: with that spelling admitted to the allowlist the token is STILL
-/// refused (<see cref="TheCaseFoldedSpelling_StaysRefused_WhenAdmittedToTheAllowlist"/>), as
-/// <c>IDX10511</c>, because the algorithm name is also what resolves a signature provider for the key and
-/// no provider answers to a lower-case spelling. That row is the falsifiable part: the day a library
-/// version folds case there, it goes red and the plugin's own Ordinal list becomes the only thing standing.
-/// </para>
-/// <para>
-/// PROVEN UNEVENLY, and the rows do not hide which way. Only two families can be reddened by weakening
-/// the SHIPPED code: setting <c>RequireSignedTokens</c> to <c>false</c> in
-/// <see cref="OidcSignatureKeys.BuildValidationParameters"/> turns the four <c>alg: none</c> rows and the
-/// stripped-signature row red together and moves nothing else. The other two rest on the basis-level
-/// positive controls instead, because the production change that would redden them is the vulnerability
-/// itself: for the case-folded family a verifier that folds the algorithm name, for HS256 a converter that
-/// builds a symmetric key out of an RSA public key. Each control installs exactly that behaviour into the
-/// shipped basis and requires the forgery to be ACCEPTED, which is the same statement made from the other
-/// side rather than a weaker one.
-/// </para>
-/// </summary>
+/// <summary>What refuses an algorithm substitution on the login path, asked of the login path itself (#1004).</summary>
+/// <remarks>
+/// The back-channel path judges <c>alg</c> before the handler runs (#1164), while the id_token path is
+/// deliberately excluded from that gate, because the client depends on the handler own failure string to
+/// refresh the JWKS across a key rotation, so on the path an unauthenticated visitor drives the answer comes
+/// from inside the handler and nothing asked it. Every rejection is paired with a control (#1052), and which
+/// control answers was measured: for <c>alg: none</c> and a stripped signature it is
+/// <see cref="TokenValidationParameters.RequireSignedTokens"/> alone, and for the case-folded spelling it is
+/// the signature-provider resolution rather than the ordinal allowlist.
+/// </remarks>
 public sealed class OidcIdTokenAlgorithmSubstitutionTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";

@@ -39,60 +39,14 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void MutableKeyedState_LivesOnlyInsideStoreLikeTypes()
     {
-        // Locked in by the OidcStateStore consolidation (#318): a raw dictionary holding runtime state
-        // outside a *Store/*Cache/*Limiter type is how the pre-consolidation controller accumulated its
-        // scattered cap/lifetime/sweep conventions. The former SSOController.DiscoveryFactsCache moved into a
-        // *Cache type in #449 and was then removed entirely in #450 (discovery is now read once per challenge
-        // and fed to the login, with nothing cached), so no discovery-facts dictionary remains to exempt.
-        // Two documented exemptions remain, both persisted account-link config state:
-        // - ProviderConfigBase._canonicalLinks: the persisted account-link map - serialized plugin
-        //   configuration mutated only under the config lock, so a runtime store type would be the
-        //   wrong home; it is config state, not in-flight state.
-        // - OidConfig._canonicalLinkIssuers: the per-link issuer binding (#186), the exact parallel of
-        //   _canonicalLinks - serialized config mutated only under the config lock, same rationale.
-        // - PluginConfiguration._logoutSessions: the persisted Single Logout session map (#727) - serialized
-        //   config mutated only under the config lock via SessionLogoutStore, so it is config state, not
-        //   in-flight state; the store type (SessionLogoutStore) holds the bounding logic, not the field.
-        // - ProviderConfigBase._canonicalLinkDeadlines: the persisted per-link account-expiry instants
-        //   (#1145), the exact parallel of _canonicalLinks and bounded BY it - an entry is only ever written
-        //   beside a live link and is removed with that link, so the link map is its ceiling and no separate
-        //   cap or sweep convention is owed. Serialized config mutated only under the config lock.
-        // - ProviderConfigBase._canonicalLinkLastLogins: the persisted per-link last-SSO-login instants
-        //   (#1120), bounded by the link map in exactly the same way - one entry per live link, overwritten
-        //   rather than appended by a repeat login, removed with the link on every erasure route. It is the
-        //   ONE shape this rule has to keep out: a per-login event log would need a cap and a sweep, and the
-        //   reason this needs neither is the bound, so the exemption is granted to the bounded design and not
-        //   to the subject matter.
-        // - ProviderConfigBase._canonicalLinkPendingApprovals: the persisted per-link pending-approval
-        //   records (#1529), bounded by the link map exactly as the two above are - written only beside a
-        //   link this plugin's own create arm wrote, removed with the link on every route that removes one,
-        //   and cleared by every route that writes the same key for any other reason. The bound is what is
-        //   exempted here and not the subject: this map decides whether an account is OFFERED FOR APPROVAL,
-        //   so an entry that outlived its link would be an offer to enable an account with no SSO route
-        //   left. Its value names the account it was written about, so the bound holds over the ACCOUNT and
-        //   not merely over the key, which a subject whose account was deleted does not keep.
-        // - PluginConfiguration._provisionedPasswords: the persisted per-account record of which stored
-        //   passwords this plugin minted (#1733). Serialized config mutated only under the config lock, like
-        //   the maps above, and bounded by the ACCOUNT rather than by a link: one entry per Jellyfin account
-        //   this plugin sealed, overwritten rather than appended when the same account is sealed again, and
-        //   removed on the host's own account-deletion event. The bound is what is exempted and not the
-        //   subject - a map growing an entry per SEAL rather than per account would need a cap and a sweep,
-        //   and the reason this needs neither is that the key is the account. It is keyed on the account
-        //   rather than on a link precisely because a password is a fact about the account: an unlink does
-        //   not change what password it holds, so riding on the link map would forget the record while the
-        //   seal itself stayed.
-        // - DeclarativeManagedProviders._profiles: the provisioning-profile-name-to-source map (#1102), the
-        //   same immutable shape as the two below and exempt for the same reason, on the object a managed
-        //   provider provisions THROUGH rather than on the provider.
-        // - DeclarativeManagedProviders._oid / ._saml: the provider-name-to-source map (#1415). Exempt for a
-        //   different reason from the four above, and it is the reason rather than the subject that is
-        //   exempted. The type is IMMUTABLE - both fields are assigned once in a private constructor and
-        //   never written again, and Including() builds a whole new instance - so there is no mutable keyed
-        //   state here for a cap, a lifetime or a sweep to bound. Its population is the set of providers a
-        //   declarative document names, which the configuration already holds and already bounds, and the
-        //   whole instance is discarded at process exit because it is re-derived on every start. These two
-        //   fields were HashSets until a refusal had to say WHICH source owns a provider, so what changed is
-        //   the value beside each name, not where the state lives or how long it lives.
+        // A raw dictionary holding runtime state outside a store, cache or limiter type is how the
+        // pre-consolidation controller accumulated its scattered cap and sweep conventions (#318). The
+        // exemptions below are all serialized configuration mutated only under the config lock, and each is
+        // granted to a bound rather than to a subject: the account-link map and its issuer binding, the
+        // logout-session map whose bounding logic lives in SessionLogoutStore, the three per-link maps bounded
+        // by the link map itself, the provisioned-password map bounded by the account, and the declarative
+        // managed-provider maps, which are immutable and re-derived on every start. A map growing an entry per
+        // event rather than per key would need a cap and a sweep and is the shape this keeps out.
         var storeLike = new[] { "Store", "Cache", "Limiter" };
         var exemptions = new[] { "ProviderConfigBase._canonicalLinks", "OidConfig._canonicalLinkIssuers", "PluginConfiguration._logoutSessions", "PluginConfiguration._provisionedPasswords", "ProviderConfigBase._canonicalLinkDeadlines", "ProviderConfigBase._canonicalLinkLastLogins", "ProviderConfigBase._canonicalLinkPendingApprovals", "DeclarativeManagedProviders._oid", "DeclarativeManagedProviders._saml", "DeclarativeManagedProviders._profiles" };
 

@@ -6,19 +6,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="OidcChallengeRefusal.Classify"/> - which cause the closing sentence of the
-/// refused-challenge log line may assert (#1763). The line carried one closing sentence for every
-/// refusal, naming the redirect URI, and a reporter who had already confirmed that URI against the
-/// provider was told to check it again for a refusal that was about the client secret (#1762).
-/// <para>
-/// Every row below is a value the identity library can produce at this call, with one exception that is
-/// named where it sits. That is not a detail: the library hands on ONE field, and what is in it depends
-/// on the status. A 400 yields the provider's own <c>error</c> member; any other unsuccessful status
-/// yields the HTTP reason phrase; a request that never arrived yields the exception message. Rows
-/// invented outside those three shapes would certify behaviour no caller can reach.
-/// </para>
-/// </summary>
+/// <summary>Tests for <see cref="OidcChallengeRefusal.Classify"/>, which cause the closing sentence of the refused-challenge log line may assert (#1763).</summary>
+/// <remarks>
+/// The line carried one closing sentence for every refusal, naming the redirect URI, so a reporter who had
+/// already confirmed that URI was told to check it again for a refusal about the client secret (#1762). Every
+/// row is a value the identity library can produce at this call, with one exception named where it sits: the
+/// library hands on one field, whose content depends on the status, so rows invented outside those three
+/// shapes would certify behaviour no caller can reach.
+/// </remarks>
 public class OidcChallengeRefusalTests
 {
     [Fact]

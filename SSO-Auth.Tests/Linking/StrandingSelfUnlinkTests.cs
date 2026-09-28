@@ -12,25 +12,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// A holder may not strand their own account (#1720). On a server where the account's authentication
-/// provider is this plugin's, Jellyfin refuses its password, so the links ARE the only way in - and the
-/// self-service Delete removed the last one with no warning and no fallback, leaving the owner unable to
-/// sign in by any means and recoverable only by an administrator. The removal now asks, inside the
-/// transaction that removes, whether this is the last link on an account with no password door.
-/// <para>
-/// AN ADMINISTRATOR IS EXEMPT ONLY FOR SOMEBODY ELSE'S LINK (#1732, decided 2026-09-14). The page acts on
-/// the caller's own account, so an administrator who opens it strands themselves exactly as a user does -
-/// and where they are the last administrator who can sign in, the recovery the user's refusal points at is
-/// them and the way back is editing the configuration file on disk. The exemption is therefore a pair of
-/// facts: the caller is not the holder, or somebody else can still get in.
-/// </para>
-/// </summary>
+/// <summary>A holder may not strand their own account (#1720): the removal asks, inside the transaction that removes, whether this is the last link on an account with no password door.</summary>
 /// <remarks>
-/// EVERY REFUSAL ARM IS PAIRED WITH THE CASE THAT MUST STILL GO THROUGH. A guard on a destructive action
-/// is as wrong when it refuses too much as when it refuses too little: this one sits on the only control a
-/// user has for unlinking themselves, and a version that refused every self-unlink would take that control
-/// away from every account on every server, most of which accept a password perfectly well.
+/// Where the authentication provider of the account is this plugin, Jellyfin refuses its password, so the
+/// links are the only way in, and the self-service Delete removed the last one with no warning. An
+/// administrator is exempt only for somebody else link (#1732): the page acts on the own account of the
+/// caller, so the exemption is a pair of facts, that the caller is not the holder or that somebody else can
+/// still get in. Every refusal arm is paired with the case that must still go through, because a version
+/// refusing every self-unlink would take that control from every account on every server.
 /// </remarks>
 public class StrandingSelfUnlinkTests
 {

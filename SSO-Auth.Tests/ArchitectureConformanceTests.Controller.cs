@@ -39,17 +39,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_DelegatesLoginCompletionToTheFlowService()
     {
-        // Locked in by the login-completion extraction (#160, #318 step 11): the one shared completion tail -
-        // resolve/adopt the link, build the SessionParameters, mint the session under the revocation gate,
-        // audit, map to a LoginOutcome - moved wholesale into LoginCompletionService. The controller's two
-        // callbacks now hand a VerifiedIdentity to that service and return its result, so a CONTROLLER neither
-        // builds SessionParameters nor mints a session itself. Call-level property, so it is a source scan
-        // like the other controller rules above.
-        //
-        // The scanned tokens are derived from the moved types via nameof, so a rename of SessionParameters or
-        // SessionMinter.MintAsync fails to COMPILE this rule (the strongest pin) rather than passing
-        // vacuously. Constructing the minter to inject it (new SessionMinter(...)) is wiring, not the tail, so
-        // it is deliberately not a scanned token - only building the parameters and minting are.
+        // The shared completion tail moved wholesale into LoginCompletionService (#160, #318), so a controller
+        // neither builds SessionParameters nor mints a session. The scanned tokens are nameof-derived, so a
+        // rename fails to compile this rule rather than passing vacuously; constructing the minter is wiring
+        // rather than the tail and is deliberately not a scanned token.
         var paramsToken = "new " + nameof(SessionParameters);
         var mintToken = nameof(SessionMinter.MintAsync) + "(";
 
@@ -77,19 +70,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_DelegatesOidcFlowToTheFlowService()
     {
-        // Locked in by the OpenID flow extraction (#160, #318 step 12): the OpenID challenge and redirect
-        // callback bodies, together with the OpenID-specific process-wide state (the in-flight authorize
-        // store) and the discovery read, moved into OidcLoginService. The controller's OpenID endpoints now
-        // apply the shared rate-limit gate and hand the request to that service, so a CONTROLLER neither
-        // holds the OIDC authorize store / discovery read nor drives the OidcClient challenge/callback
-        // protocol itself. Call-level property, so it is a source scan like the other controller rules above.
-        //
-        // The store and reader tokens are nameof-derived, so a rename of either type fails to COMPILE this
-        // rule rather than passing vacuously; the two protocol tokens are the OidcClient methods the
-        // challenge (PrepareLoginAsync) and callback (ProcessResponseAsync) drive. The shared per-client rate limiter
-        // is deliberately NOT a marker - it fronts BOTH protocols, so rather than living on either flow
-        // service it lives in the shared SsoRateLimitGate (#160), pinned off the controller by
-        // Controller_HoldsNoMutableStaticState.
+        // The OpenID challenge and callback bodies, the in-flight authorize store and the discovery read moved
+        // into OidcLoginService (#160, #318), so a controller drives neither. The store and reader tokens are
+        // nameof-derived; the shared per-client rate limiter is deliberately not a marker, because it fronts
+        // both protocols from SsoRateLimitGate and is pinned off the controller by the static-state rule.
         var storeToken = nameof(OidcStateStore);
         var readerToken = nameof(OidcDiscoveryReader);
         var markers = new[] { storeToken, readerToken, "PrepareLoginAsync", "ProcessResponseAsync" };
@@ -118,23 +102,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_DelegatesSamlFlowToTheFlowService()
     {
-        // Locked in by the SAML flow extraction (#160, #318 step 13), the mirror of the OpenID rule above:
-        // the SAML challenge, assertion-consumer callback, session-minting authenticate and manual-link
-        // bodies, together with the SAML-specific process-wide state (the replay cache and the
-        // outstanding-AuthnRequest cache), moved into SamlLoginService. The controller's SAML endpoints now
-        // apply the shared rate-limit gate and hand the request to that service, so a CONTROLLER neither
-        // holds those SAML caches nor drives the SAML challenge/validation protocol itself. Call-level
-        // property, so it is a source scan like the other controller rules above.
-        //
-        // The request-cache token is nameof-derived, so a rename of that type fails to COMPILE this rule
-        // rather than passing vacuously; the two protocol tokens are the outgoing-request builder
-        // (SamlAuthnRequest, which the challenge constructs and signs) and the response validator
-        // (ValidateSaml). The shared per-client rate limiter is deliberately NOT a marker - it fronts BOTH
-        // protocols, so it lives in the shared SsoRateLimitGate (#160), pinned off the controller by
-        // Controller_HoldsNoMutableStaticState, exactly as in the OpenID rule. The replay cache was a SAML
-        // marker until #962 moved it to the shared RateLimit module (protocol-neutral ReplayCache, used by
-        // both the SAML replay path and the OIDC back-channel-logout jti check), so it is no longer a
-        // SAML-ownership marker.
+        // The mirror of the OpenID rule above: the SAML challenge, callback, authenticate and manual-link
+        // bodies and the outstanding-AuthnRequest cache moved into SamlLoginService (#160, #318). The
+        // request-cache token is nameof-derived; the rate limiter is shared and pinned off the controller by
+        // the static-state rule, and the replay cache stopped being a SAML marker when #962 made it shared.
         var requestToken = nameof(SamlRequestCache);
         var markers = new[] { requestToken, "SamlAuthnRequest", "ValidateSaml" };
 
@@ -309,21 +280,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void Controller_HoldsNoMutableStaticState()
     {
-        // Locked in by the rate-limit-gate extraction (#160, #318): after the OpenID (#500), SAML (#501) and
-        // rate-limit (#160) moves, the controller is a stateless request dispatcher - every process-wide
-        // store, cache and limiter lives in a flow service or the Shared tier. So a controller holds NO
-        // mutable process-wide state as a static field. The former SsoRateLimiter static (the last such on
-        // SSOController) moved into SsoRateLimitGate; a new cache/limiter/counter/dictionary dropped back
-        // onto ANY controller - the exact regression this rule guards - fails HERE.
-        //
-        // "Mutable state" is what is forbidden, not every static: a compile-time constant (a const, which is
-        // IsLiteral) and an immutable static readonly VALUE (e.g. SSOViewsController's version-derived asset
-        // ETag, an EntityTagHeaderValue computed once at load) are fine - they never accumulate runtime
-        // state. So a static field is an offender only when it is genuinely mutable: a WRITABLE static (not
-        // readonly, so it can be reassigned at runtime), OR a static readonly reference to a state CONTAINER
-        // - a *Store/*Cache/*Limiter type, or a raw dictionary - which is readonly-by-reference but mutates
-        // internally (exactly the shape SsoRateLimiter had on the controller). Compiler-generated backing
-        // fields ('<'-named) are excluded, the same exclusion the other reflection rules use.
+        // After the OpenID, SAML and rate-limit moves the controller is a stateless dispatcher, so it holds no
+        // mutable process-wide state in a static field (#160, #318). Mutable is what is forbidden rather than
+        // every static: a const and an immutable static readonly value are fine, and an offender is a writable
+        // static or a static readonly store, cache, limiter or raw dictionary that mutates internally.
         var stateSuffixes = new[] { "Store", "Cache", "Limiter" };
         bool IsStateContainer(Type t) =>
             IsDictionaryLike(t)
@@ -398,17 +358,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void ProviderMode_IsThreadedTyped_NotAsARawStringToken()
     {
-        // Locked in by #369: the route's {mode} token is parsed ONCE at the controller boundary into the
-        // ProviderMode enum, and the typed value is threaded inward - so no linking-tier method re-accepts
-        // the raw string to re-parse or re-compare it (the two former divergent dispatches, a
-        // culture-sensitive ToLower() switch and an invariant-lowercase one, that had to agree). Pin it
-        // structurally on the two types the token flows through:
-        //
-        // 1. CanonicalLinkService - the linking workflow: NO method (public or private) may take a parameter
-        //    named "mode" typed as string; it must be the ProviderMode enum. A revert to a string mode
-        //    parameter (reopening the re-parse-inward hole) fails HERE.
-        // 2. VerifiedIdentity.LinkMode - the identity the login path carries: must expose the protocol as the
-        //    typed ProviderMode, not a "oid"/"saml" string the mint path would have to re-compare.
+        // The route {mode} token is parsed once at the controller boundary into ProviderMode and the typed
+        // value is threaded inward, so the two former divergent string dispatches cannot come back (#369).
+        // Pinned on the two types the token flows through: no CanonicalLinkService method takes a string
+        // parameter named mode, and VerifiedIdentity.LinkMode exposes the protocol as the enum.
         const BindingFlags anyMethod = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
         var methods = typeof(CanonicalLinkService).GetMethods(anyMethod);
 

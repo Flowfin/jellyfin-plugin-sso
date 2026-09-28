@@ -15,17 +15,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Unit tests for the <see cref="VerifiedIdentity"/> keystone (#473): both protocols must funnel their
-/// validated result into the identical shape the shared mint path consumes, and the type must be
-/// unforgeable - obtainable only through the two validation factories. The behavioral proof that a raw or
-/// unvalidated response cannot reach the mint lives in the controller suites (an invalid SAML signature or
-/// an unredeemed OpenID state is rejected before any provisioning: e.g.
-/// <c>SamlAuth_SignedByAnotherCertificate_Returns400</c>, <c>OidAuth</c>'s invalid-state rejections); the
-/// structural proof that no third construction path can even compile lives in
-/// <c>ArchitectureConformanceTests.VerifiedIdentity_IsConstructedOnlyByProtocolValidators</c>. These tests
-/// pin the field mapping each factory performs so the two protocols stay in lock-step.
-/// </summary>
+/// <summary>Unit tests for the <see cref="VerifiedIdentity"/> keystone (#473): both protocols funnel their validated result into the identical shape the shared mint path consumes, and the type is obtainable only through the two validation factories.</summary>
+/// <remarks>
+/// The behavioural proof that a raw or unvalidated response cannot reach the mint lives in the controller
+/// suites, and the structural proof that no third construction path compiles lives in the conformance rule.
+/// These pin the field mapping each factory performs, so the two protocols stay in lock-step.
+/// </remarks>
 public class VerifiedIdentityTests
 {
     [Fact]

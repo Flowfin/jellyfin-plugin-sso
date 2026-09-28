@@ -11,19 +11,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Proves the elevation guard on the SSO admin surface is genuinely ENFORCED, not merely present. The
-/// production <see cref="Jellyfin.Plugin.SSO_Auth.Api.SSOController"/> is hosted in a real in-process Kestrel
-/// server (see <see cref="SsoAuthorizationServerFixture"/>); requests travel through the same ASP.NET Core
-/// routing + authentication + authorization middleware that runs inside Jellyfin. A non-elevated caller is
-/// rejected before the action body executes, on EVERY <c>[Authorize(RequiresElevation)]</c> endpoint,
-/// enumerated from the live routing table rather than a hand-maintained list.
-///
-/// This complements the reflection checks (which assert the attribute is on the method) by exercising the
-/// enforcement path end to end: a stray <c>[AllowAnonymous]</c>, a wrong/absent policy name, a controller-level
-/// override, or a new unguarded admin endpoint would all fail here where a reflection check on the old set
-/// would pass.
-/// </summary>
+/// <summary>Proves the elevation guard on the SSO admin surface is enforced rather than merely present.</summary>
+/// <remarks>
+/// The production controller is hosted in a real in-process Kestrel server, so requests travel through the
+/// same routing, authentication and authorization middleware that runs inside Jellyfin, and a non-elevated
+/// caller is rejected before the action body on every elevated endpoint, enumerated from the live routing
+/// table rather than a hand-maintained list. A stray <c>[AllowAnonymous]</c>, a wrong policy name, a
+/// controller-level override or a new unguarded admin endpoint fails here where a reflection check passes.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthorizationServerFixture>
 {
@@ -80,47 +75,24 @@ public sealed class SSOControllerAuthorizationTests : IClassFixture<SsoAuthoriza
         "Metrics",
     };
 
-    // The endpoints guarded by a bare [Authorize] (any authenticated caller, no elevation) - the canonical
-    // link management surface, plus the SP-initiated SAML logout (#727) and the logout-ticket mint (#1768),
-    // where a user acts on THEMSELVES (every action is scoped to the caller's own user id), so they are
-    // deliberately non-elevated.
-    //
-    // OidLogout LEFT THIS LIST IN #1768 AND DID NOT BECOME AN UNGUARDED ROUTE, which is the one line in
-    // this file a reviewer should stop at. That route has to be reachable by a top-level NAVIGATION, so it
-    // can accept a one-time ticket in place of a session header, and [Authorize] refuses a request the
-    // ticket would have authorised before the method ever runs. So the attribute came off and the method
-    // took the decision itself, refusing in every case the attribute refused: no ticket and no session is
-    // 401, and a ticket that is unknown, expired, already spent or minted for another provider is 401 too.
-    // What holds that is SSOControllerLogoutTicketTests, one row per refusal, with a positive control for
-    // the session-bearing form beside them - because a list this route has left cannot say anything about
-    // it, and a reader of this comment should be sent to the rows rather than to the sentence.
-    //
-    // THAT SENTENCE PRESENTED TWO PROPERTIES AS ONE UNTIL #1793, AND THE DIFFERENCE IS THE ACCOUNT. The
-    // attribute refused on the caller's ACCOUNT STATE; the ticket arm refused on the TICKET'S freshness,
-    // provider and one use, and made no check of the account the ticket named, so a ticket minted in the
-    // second before an administrator disabled the account stayed spendable for the rest of its minute. The
-    // ticket arm now reads the account again at the redeem, on the same two conditions the session-bearing
-    // arm reads - it exists and it is not disabled - so the two arms refuse the same set on the account and
-    // differ only in how the caller is named. What neither arm reads is whether the session token was
-    // revoked after the mint; the route says what that reaches and it is bounded by the ticket's minute.
+    // The endpoints guarded by a bare [Authorize], where a user acts on themselves: the canonical link
+    // surface, the SP-initiated SAML logout (#727) and the logout-ticket mint (#1768). OidLogout left this
+    // list in #1768 and did not become an unguarded route: it has to be reachable by a top-level navigation
+    // carrying a one-time ticket, which [Authorize] would refuse before the method runs, so the method takes
+    // the decision itself and refuses every case the attribute refused. SSOControllerLogoutTicketTests holds
+    // that, one row per refusal. Since #1793 the ticket arm reads the account again at the redeem on the same
+    // two conditions the session-bearing arm reads, so the two differ only in how the caller is named.
     private static readonly string[] ExpectedAuthenticatedActions =
     {
         "AddCanonicalLink", "DeleteCanonicalLink", "GetSamlLinksByUser", "GetOidLinksByUser", "OidLogoutTicket", "SamlSpLogout",
     };
 
-    // The actions on THIS controller that carry no authorization attribute at all. Every login-path endpoint
-    // is here by design - a challenge, a callback and a metadata read are reached before anybody is signed in -
-    // and so, since #1768, is the RP-initiated OpenID logout, which has to be reachable by a top-level
-    // navigation carrying a one-time ticket instead of a session header.
-    //
-    // THIS ROSTER EXISTS BECAUSE ITS ABSENCE WAS THE GAP. EndpointCatalog skipped an endpoint with no
-    // AuthorizeAttribute, so such a route landed in neither bucket above and the two rules over them said
-    // nothing about it. Taking [Authorize] off an action therefore did not move it between rosters, it
-    // removed it from the only suite that exercises authorization through real ASP.NET routing - silently,
-    // and at exactly the moment the decision most deserved a reader. Every neighbouring decision in this
-    // repository carries a roster with a completeness rule (RateLimitExemptRoutes, ProviderNameExemptRoutes);
-    // "this route is deliberately anonymous" was the one that did not, so the next removal failed nothing.
-    // It does now.
+    // The actions on this controller that carry no authorization attribute at all: every login-path endpoint,
+    // reached before anybody is signed in, and since #1768 the RP-initiated OpenID logout. The roster exists
+    // because its absence was the gap: EndpointCatalog skipped an endpoint with no AuthorizeAttribute, so
+    // taking the attribute off an action removed it from the only suite that exercises authorization through
+    // real routing, silently and at the moment the decision most deserved a reader. Every neighbouring
+    // decision here carries a roster with a completeness rule, and this was the one that did not.
     private static readonly string[] ExpectedAnonymousActions =
     {
         // The login path, reached before anybody is signed in: a challenge, the identity provider's callback,

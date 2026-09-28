@@ -16,17 +16,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for the secret-reference form of the declarative provider document (#1096): a secret is named by
-/// the environment variable or the file that holds it, never written into the document, and every way of
-/// failing to resolve one refuses the whole load.
-/// </summary>
+/// <summary>Tests for the secret-reference form of the declarative provider document (#1096): a secret is named by the environment variable or the file that holds it, never written into the document, and every way of failing to resolve one refuses the whole load.</summary>
 /// <remarks>
-/// The tests are driven through <see cref="DeclarativeProviderConfig.Apply(ProviderConfigStore, string, System.Func{string, bool}, System.Func{string, string}, ILogger, System.Func{string, string}, System.Func{string, string}, System.Func{string, string})"/>
-/// rather than against the resolver alone, because what has to hold is a property of the LOAD: a document
-/// this pass refuses must leave the stored configuration byte-identical, and a resolver returning false
-/// proves that only if the loader acts on it. The environment and the filesystem are supplied as delegates,
-/// so no test reads a real variable or a real file and one test cannot leak a secret into another.
+/// They are driven through the loader rather than against the resolver alone, because what has to hold is a
+/// property of the load: a document this pass refuses leaves the stored configuration byte-identical, which a
+/// resolver returning false proves only if the loader acts on it. The environment and the filesystem are
+/// supplied as delegates, so no test reads a real variable or file and one test cannot leak a secret into
+/// another.
 /// </remarks>
 public class DeclarativeSecretReferenceTests
 {

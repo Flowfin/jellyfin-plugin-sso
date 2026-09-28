@@ -15,20 +15,14 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Plugin.SSO_Auth.Bench;
 
-/// <summary>
-/// One caller driving the real OpenID login legs in-process: <c>OidChallenge</c> on the start route, then
-/// <c>OidCallback</c> on the redirect route, carrying the state token and the browser-binding cookie the
-/// challenge minted. Discovery, JWKS and the token endpoint are served from
-/// <see cref="OidcTokenFixture"/> through the harness's stub HTTP handler, so what is timed is the
-/// plugin's own work and never a network round-trip.
-///
-/// Each instance owns its own harness, so a concurrent run is N callers with N contexts rather than one
-/// context mutated from N threads. What they cannot own separately is
-/// <see cref="SSOPlugin.Instance"/> - the harness constructor swaps that process-wide static, which is
-/// why the test project confines harness-based classes to a non-parallel collection. The bench works
-/// inside that constraint by constructing every caller before any of them runs and giving them
-/// byte-identical provider configuration, so whichever instance won the swap describes them all.
-/// </summary>
+/// <summary>One caller driving the real OpenID login legs in process, carrying the state token and the browser-binding cookie the challenge minted.</summary>
+/// <remarks>
+/// Discovery, the JWKS and the token endpoint are served from <see cref="OidcTokenFixture"/> through the
+/// stub handler of the harness, so what is timed is the own work of the plugin and never a network round
+/// trip. Each instance owns its harness, so a concurrent run is N callers with N contexts; what they cannot
+/// own separately is <see cref="SSOPlugin.Instance"/>, which the harness constructor swaps, so the bench
+/// constructs every caller before any runs and gives them byte-identical provider configuration.
+/// </remarks>
 internal sealed class LoginRoundTrip
 {
     private const string Provider = "bench";

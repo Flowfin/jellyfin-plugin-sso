@@ -32,41 +32,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Role-selected provisioning profiles (#1106): which named profile (#1105) a brand-new account is created
-/// from is decided from the roles the identity provider already sent for that login, by an ordered map on
-/// the provider.
-/// <para>
-/// The resolution order is the thing under test and it is stated once, here: the FIRST row whose roles the
-/// login holds wins, else the provider's own default profile, else the provider's inline template, else no
-/// policy at all. Order matters because two profiles are two permission sets rather than two points on a
-/// scale - there is no "most restrictive" to reduce to the way #1146 reduces durations to the shortest - so
-/// the administrator states the precedence by ordering the rows, and
-/// <see cref="ALoginMatchingTwoRows_TakesTheEarlierRow"/> is what would go red if that stopped being true.
-/// </para>
-/// <para>
-/// The security-relevant half is that a row whose profile no longer resolves writes NO policy and never
-/// falls back. That is stricter than it looks: a row exists to send one group somewhere NARROWER than the
-/// provider default, so a fallback would hand exactly those accounts the wider policy the administrator had
-/// moved them off - silently, at account creation, with nothing but a log line to say so. The save path
-/// refuses a dangling row, and
-/// <see cref="ARowNamingAMissingProfile_WritesNoPolicy_AndNeverFallsBackToTheProviderDefault"/> covers the
-/// configuration file edited by hand around it.
-/// </para>
-/// <para>
-/// Writing no policy and writing no policy VISIBLY are different outcomes, and only the second one is
-/// recoverable. An account created from a dangling row carries Jellyfin's bare new-user defaults, which is
-/// byte-identical to one created by a provider that configured nothing, so
-/// <see cref="ARowNamingAMissingProfile_SaysSoInTheLog"/> pins the one line that separates the two - and
-/// <see cref="AProfileThatResolves_ProvisionsWithNoWarningAtAll"/> is what would go red if that line started
-/// firing on every provisioning, which is how a real warning gets trained out of an operator.
-/// </para>
-/// <para>
-/// The compatibility half is <see cref="AProviderWithNoRows_ProvisionsExactlyAsItDidBefore"/> and
-/// <see cref="AConfigWrittenBeforeRoleRowsExisted_LoadsAndProvisionsUnchanged"/>: an empty map is the whole
-/// of "off", so every installation that configured none provisions byte-identically to before this existed.
-/// </para>
-/// </summary>
+/// <summary>Role-selected provisioning profiles (#1106): which named profile (#1105) a brand-new account is created from is decided from the roles the identity provider already sent, by an ordered map on the provider.</summary>
+/// <remarks>
+/// The resolution order is the subject and is stated once: the first row whose roles the login holds wins,
+/// else the default profile, else the inline template, else no policy. Order matters because two profiles are
+/// two permission sets rather than two points on a scale. A row whose profile no longer resolves writes no
+/// policy and never falls back, because a row exists to send one group somewhere narrower, and it says so in
+/// the log, which is the only thing separating that account from one a provider configured nothing for. An
+/// empty map is the whole of off, so an installation that configured none provisions byte-identically.
+/// </remarks>
 public class ProvisioningProfileRoleSelectionTests
 {
     private static readonly Guid Created = Guid.Parse("66666666-6666-6666-6666-666666666666");

@@ -21,20 +21,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the logout-ticket mint and of the ticket-bearing form of the RP-initiated OpenID
-/// logout (#1768), through <see cref="SsoControllerHarness"/>.
-/// <para>
-/// WHAT THE TICKET IS FOR, because every row below is a property of that. The logout route has to send the
-/// browser on to the identity provider, so it is reached by a top-level navigation, and a navigation carries
-/// no Authorization header. The only form that worked before was the caller's own access token in the query
-/// string - a long-lived credential in a URL that lands in history, in a referrer and in every proxy log on
-/// the way. A ticket replaces it with something bound to one user, one session and one provider, good for a
-/// minute and for one use. So the rows are: the mint hands back something that is not the access token, the
-/// route accepts it once and no more, and every way of presenting a ticket that is not this caller's own is
-/// refused rather than degraded into a logout of somebody.
-/// </para>
-/// </summary>
+/// <summary>In-process tests of the logout-ticket mint and of the ticket-bearing form of the RP-initiated OpenID logout (#1768), through <see cref="SsoControllerHarness"/>.</summary>
+/// <remarks>
+/// The logout route sends the browser on to the identity provider, so it is reached by a top-level navigation
+/// that carries no Authorization header, and the only form that worked before was the access token of the
+/// caller in the query string, which lands in history, in a referrer and in every proxy log. A ticket is
+/// bound to one user, one session and one provider, good for a minute and for one use, so the rows are: the
+/// mint hands back something that is not the access token, the route accepts it once, and every other way of
+/// presenting one is refused rather than degraded into a logout of somebody.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerLogoutTicketTests
 {

@@ -15,20 +15,14 @@ using SharpFuzz;
 
 namespace Jellyfin.Plugin.SSO_Auth.Fuzz;
 
-/// <summary>
-/// Coverage-guided fuzz driver (#402) for the plugin's untrusted-input parse entry points - the
-/// functions that turn attacker-controlled bytes from the unauthenticated callback endpoints into
-/// objects, BEFORE any signature or claim is trusted. One target is selected per run via the
-/// <c>SSO_FUZZ_TARGET</c> environment variable so libFuzzer's single-input contract is honoured while
-/// the same executable covers every surface.
-///
-/// The property under test is uniform across targets: on ANY input the entry point must terminate with
-/// a fail-closed result (false / null / a rejection) OR one of the exceptions it explicitly maps - it
-/// must never leak an unmapped exception (which on the real callback path becomes an HTTP 500 / DoS)
-/// and must never hang. A "crash" libFuzzer records here is therefore a real finding: an exception type
-/// the fail-closed filters do not catch. Each finding is triaged as its own security issue, per #174 -
-/// never patched silently in-harness.
-/// </summary>
+/// <summary>Coverage-guided fuzz driver (#402) for the untrusted-input parse entry points, the functions that turn attacker-controlled bytes from the unauthenticated callback endpoints into objects before any signature or claim is trusted.</summary>
+/// <remarks>
+/// One target is selected per run through the <c>SSO_FUZZ_TARGET</c> variable, so the single-input contract
+/// of libFuzzer is honoured while one executable covers every surface. The property is uniform: on any input
+/// the entry point terminates with a fail-closed result or one of the exceptions it explicitly maps, and it
+/// never leaks an unmapped exception or hangs. A crash recorded here is a real finding and is triaged as its
+/// own security issue (#174), never patched silently in-harness.
+/// </remarks>
 internal static class Program
 {
     // A single, valid, self-signed IdP certificate reused across the SAML iterations: TryParse loads it
@@ -213,20 +207,13 @@ internal static class Program
         }
     }
 
-    // OpenID role claim: the value of the claim the role-claim path names, which reaches the plugin from
-    // the id_token or the UserInfo response and is provider-authored. OidcRoleExtractor.ExtractRoles parses
-    // it as JSON and walks it, so it is a byte-level parse surface like the readers above, and today no
-    // target feeds it.
-    //
-    // The path is FIXED so a seed and the driver cannot drift apart: every seed in corpus/roles is the value
-    // of a `resource_access` claim under the path resource_access.jellyfin.roles, which is Keycloak's shape.
-    // Both terminal shapes are driven from the one input span, because the shape is a per-provider setting
-    // (RoleClaimIsObjectMap, #934) rather than a property of the bytes: the same document is a valid input
-    // to either, and the mutator should reach both arms without needing two corpora.
-    //
-    // Only the harness's uniform property is asserted, by not catching: the call must terminate with a
-    // fail-closed result or an exception the extractor maps. WHICH roles come back from an unreadable or
-    // repeated-key claim is #1053's decision to make, and nothing here encodes an answer to it.
+    // OpenID role claim: the value of the claim the role-claim path names, which reaches the plugin from the
+    // id_token or the UserInfo response and is provider-authored, parsed as JSON and walked, so it is a
+    // byte-level parse surface like the readers above. The path is fixed so a seed and the driver cannot
+    // drift apart, and both terminal shapes are driven from the one input span, because the shape is a
+    // per-provider setting (#934) rather than a property of the bytes. Only the uniform property of the
+    // harness is asserted, by not catching; which roles come back from an unreadable claim is the decision of
+    // #1053 and nothing here encodes an answer to it.
     private static void FuzzOidcRoles(ReadOnlySpan<byte> data)
     {
         var claimValue = Encoding.UTF8.GetString(data);

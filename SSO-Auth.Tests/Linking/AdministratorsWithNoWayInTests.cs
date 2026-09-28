@@ -12,18 +12,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The safety net under the per-provider bulk unlink (#1519). The gate refuses a run that would leave an
-/// administrator with no way to sign in, and it judges accounts resolved before the removal took the
-/// configuration lock; an account can lose a way in inside that window without any link moving, and no
-/// link-table comparison can see it. So the same question is asked once more afterwards, and what it names
-/// reaches the operator as an Error line rather than as a locked-out administrator at their next sign-in.
-/// <para>
-/// A unit, because the branch it reports on is by construction unreachable through the endpoint on a
-/// server nothing else is writing to: the gate has already refused every account this could name. What
-/// makes it fire is a concurrent change, which is exactly what a test cannot stage through one HTTP call.
-/// </para>
-/// </summary>
+/// <summary>The safety net under the per-provider bulk unlink (#1519): the same question the gate asked is asked once more after the removal, and what it names reaches the operator as an Error line rather than as a locked-out administrator.</summary>
+/// <remarks>
+/// The gate judges accounts resolved before the removal took the configuration lock, and an account can lose
+/// a way in inside that window without any link moving, which no link-table comparison can see. A unit,
+/// because the branch is unreachable through the endpoint on a server nothing else is writing to: what makes
+/// it fire is a concurrent change, which a test cannot stage through one HTTP call.
+/// </remarks>
 public class AdministratorsWithNoWayInTests
 {
     private static readonly Guid RootId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");

@@ -19,24 +19,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The duplicate-key posture behind the screened discovery seam (#1186, unit 2 of #1005's ladder).
-///
-/// Two tests that only make sense together. A document naming a member twice is read by parsers that were
-/// never promised to agree about it - RFC 8259 §4 leaves the handling unspecified - and the rows below are
-/// what this dependency set actually does with one. Since #1054 the plugin's own fact read
-/// (<see cref="DiscoveryJson"/>) is System.Text.Json, the family the screen tokenizes with, so the pair the
-/// table used to be about - a Newtonsoft read behind a System.Text.Json screen - is no longer on this path.
-/// It is still measured, because the identity library's typed read and the plugin's role-claim read are both
-/// downstream of documents like this one, and a bump that flipped a row would move a decision nobody would
-/// see move. <see cref="ParserDuplicateKeyPosture_IsPinned"/> is that measurement, executed rather than
-/// quoted, so it fails here instead of in production;
-/// <see cref="EveryReaderOfTheDiscoveryDocument_ReachesTheSameDecision"/> is the property that measurement
-/// makes load-bearing - the document is refused at the transport, before either reader observes a value,
-/// so the two can never be made to differ.
-///
-/// Separating them would leave a guard on one side and the evidence that it guards anything on the other.
-/// </summary>
+/// <summary>The duplicate-key posture behind the screened discovery seam (#1186, unit 2 of the #1005 ladder): two tests that only make sense together.</summary>
+/// <remarks>
+/// RFC 8259 leaves a repeated member unspecified, and the rows are what this dependency set does with one.
+/// Since #1054 the own fact read of the plugin is System.Text.Json, the family the screen tokenizes with, so
+/// the mixed pair is off this path; it is still measured, because the typed read of the identity library and
+/// the role-claim read are downstream and a bump that flipped a row would move a decision nobody would see
+/// move. The property that measurement makes load-bearing is that the document is refused at the transport,
+/// before either reader observes a value.
+/// </remarks>
 public class DuplicateJsonKeyPostureTests
 {
     private const string Authority = "https://idp-posture.example.com";

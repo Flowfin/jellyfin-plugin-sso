@@ -129,15 +129,11 @@ public class LocalizationCatalogTests
     /*
      * Turns the named entities this markup uses into the characters a browser would show.
      *
-     * The catalogs hold TEXT, because the applier writes through createTextNode and a catalog row saying
-     * `&mdash;` would put those eight characters on the screen. The markup holds ENTITIES, because that is
-     * how an em dash has always been written here. So the two are only comparable once one side is
-     * decoded, and decoding the markup is the side that does not change what ships.
-     *
-     * `&amp;` is decoded LAST and that order is the whole correctness of this: decoding it first would
-     * turn `&amp;lt;` into `&lt;` and then into `<`, inventing markup out of text that said the opposite.
-     * The table is the five entities these templates actually use rather than a general decoder, because a
-     * general one is a dependency and a wrong general one is worse than none.
+     * The catalogs hold text, because the applier writes through createTextNode; the markup holds entities,
+     * so the two are only comparable once the markup side is decoded. `&amp;` is decoded last, because
+     * decoding it first would turn `&amp;lt;` into `<` and invent markup out of text that said the opposite.
+     * The table is the five entities these templates use rather than a general decoder, because a wrong
+     * general one is worse than none.
      */
     private static string DecodeEntities(string text) => text
         .Replace("&lt;", "<", System.StringComparison.Ordinal)
@@ -149,20 +145,11 @@ public class LocalizationCatalogTests
     /*
      * Reads a parts element the way `applyParts` in i18n.js sees it, and reports what it found.
      *
-     * The assembled string is what the catalog value has to equal: every direct child element becomes
-     * `{n}` in document order, and the text between them is kept with its whitespace collapsed. The whole
-     * result is trimmed, because the markup's own indentation before the first child and after the last is
-     * not part of the sentence.
-     *
-     * `unreachable` names a direct child that holds BOTH markup of its own AND text. Such a child is not
-     * wrong for the APPLIER - it moves whole nodes and never looks inside one - but its text cannot be
-     * translated by anything: a text marker on it is refused by the rule below this one, because that
-     * marker assigns textContent and would delete the markup, and a parts marker on it would have to be
-     * placed by someone who can see it from outside, which is the position this rule exists to prevent.
-     *
-     * A child holding markup and NO text is fine and is deliberately allowed: the self-service page puts
-     * an icon in the middle of a sentence, and an icon is two nested spans with nothing to read. A slot a
-     * translator cannot see inside is only a problem when there is something inside to see.
+     * Every direct child element becomes `{n}` in document order, the text between them is kept with its
+     * whitespace collapsed, and the result is trimmed. `unreachable` names a direct child holding both markup
+     * and text: the applier moves whole nodes, but nothing can translate that text, because a text marker on
+     * it would delete the markup and a parts marker would have to be placed from outside. A child holding
+     * markup and no text is allowed on purpose, since an icon has nothing to read.
      */
     private static (string Assembled, int Slots, List<string> Unreachable) AssembleParts(string content, int contentStart, string outerTag)
     {
@@ -411,21 +398,13 @@ public class LocalizationCatalogTests
     [Fact]
     public void PartsBuiltInEnglish_MatchesTheCatalogAndNamesEveryChild()
     {
-        // A parts marker localizes a sentence that HOLDS markup, which the text marker above cannot: it
-        // assigns textContent and would delete the `<code>` sample out of the middle of a sentence about
-        // recovering from a lockout. So the catalog value carries `{0}`, `{1}` for the children and the
-        // applier writes only the text between them (#1529).
-        //
-        // Three things have to hold, and all three are the same failure seen from different sides. The
-        // assembled English must equal the catalog value, for the reason the text-marker rule states: the
-        // markup's own English is the offline rendering and a drift means two readers see two sentences.
-        // Every child must be named exactly once, because a value naming fewer leaves a `<code>` out of
-        // the translated sentence and a value naming more asks for a node that does not exist - in both
-        // cases applyParts refuses and the whole sentence silently stays English. And no child may hold
-        // markup AND text at once, because nothing could then translate that text: a text marker on it is
-        // refused for deleting the markup, and a parts marker on it cannot be placed from outside. Markup
-        // with no text is fine and is allowed on purpose - the self-service page puts an icon in the middle
-        // of a sentence, and an icon is nested spans with nothing to read.
+        // A parts marker localizes a sentence that holds markup, which the text marker cannot, because that
+        // one assigns textContent and would delete the sample out of the middle of the sentence; the catalog
+        // value carries the placeholders and the applier writes only the text between them (#1529). Three
+        // things hold, all one failure from different sides: the assembled English equals the catalog value,
+        // every child is named exactly once, since naming fewer or more makes applyParts refuse and leaves
+        // the sentence silently English, and no child holds markup and text at once. Markup with no text is
+        // allowed, because an icon has nothing to read.
         var english = ReadCatalog(EnglishResource);
         var problems = new List<string>();
 
@@ -649,27 +628,13 @@ public class LocalizationCatalogTests
     public void ATranslationNamesALabelByItsOwnTranslatedName()
     {
         /*
-         * A help text that tells the reader to press a button must call that button what the button
-         * calls itself (#1529). Eight rows told a German reader to use "Verbindung testen" while the
-         * button said "Verbindung pruefen", two sent them to a picker under a name it no longer had, and
-         * a preset note quoted a checkbox by the wrong word. Every one of those passed every check this
-         * file had: the key sets matched, no value was blank, no English value was duplicated. What no
-         * rule asked was whether the catalogue AGREES WITH ITSELF.
-         *
-         * THE REFERENCE IS FOUND IN THE ENGLISH, which is what makes this checkable at all. If one
-         * English value contains another whole English value, the second is a label the first names -
-         * and then the translation of the first has to contain the translation of the second. The
-         * German is free to move it, inflect around it or quote it; it is not free to invent a second
-         * name for the same control.
-         *
-         * TWO BOUNDS KEEP IT FROM CRYING WOLF, and both are about telling a REFERENCE from a
-         * coincidence. A label under twelve characters is too short to be named on purpose - "Save"
-         * appears inside prose that is not about the Save button. And the naming text must be at least
-         * three times the length of the label, because two titles that share a word are not a reference:
-         * "Export / Import Configuration" contains "Import Configuration" and neither names the other.
-         *
-         * WHAT IS LEFT OVER IS A LIST, because a sentence can legitimately contain a label's words
-         * without naming the label. Each entry says which pair and why.
+         * A help text that tells the reader to press a button calls that button what the button calls itself
+         * (#1529). Eight rows named a control one way while the control named itself another, and every one
+         * passed every check this file had, because no rule asked whether the catalogue agrees with itself.
+         * The reference is found in the English: where one English value contains another whole one, the
+         * second is a label the first names, so the translation of the first has to contain the translation
+         * of the second. Two bounds keep it from crying wolf, a minimum label length and a naming text at
+         * least three times that length, and what is left over is a list saying which pair and why.
          */
         var english = ReadCatalog(EnglishResource);
         var problems = new List<string>();

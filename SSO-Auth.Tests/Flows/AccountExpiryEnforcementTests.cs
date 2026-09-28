@@ -28,29 +28,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Login-time enforcement of a provider's account-expiry deadline (#1144): an identity whose expiry instant
-/// has passed gets no session, its linked account is disabled and its live tokens are revoked. Both halves
-/// matter and they fail differently. Refusing the mint alone leaves a token issued before the deadline
-/// working until it expires on its own, which is "time-limited" in name only; revoking alone leaves the
-/// account able to log straight back in.
-/// <para>
-/// THE GUARD IS THE POINT OF THIS FILE, and it is a mass-lockout defence (T-D1) rather than a courtesy.
-/// An identity provider that starts emitting a past instant, or a claim mapped to the wrong attribute,
-/// hits every account at once. An administrator is therefore exempt from the whole gate and not merely from
-/// the disable: <see cref="ExpiredDeadline_OnAnAdministrator_LeavesItEnabled_AndLogsIn"/> requires the
-/// administrator to LOG IN, because an admin who is left enabled but refused cannot reach the settings page
-/// that would repair the configuration. Deleting the exemption in
-/// <c>LoginCompletionService.EnforceAccountExpiryAsync</c> turns that row red.
-/// </para>
-/// <para>
-/// The claim being CONFIGURED is what arms the gate, and a configured claim that produced no readable
-/// instant is the case both careless answers get wrong. Treating it as unlimited hands a transient identity
-/// provider change the same outcome as an account with no deadline; treating it as expired hands that same
-/// transient change the same outcome as a real expiry, and disables accounts over it. This refuses the one
-/// login and touches nothing, which is the only answer that stays reversible.
-/// </para>
-/// </summary>
+/// <summary>Login-time enforcement of a provider account-expiry deadline (#1144): an identity whose expiry instant has passed gets no session, its linked account is disabled and its live tokens are revoked.</summary>
+/// <remarks>
+/// Both halves fail differently: refusing the mint alone leaves an earlier token working, and revoking alone
+/// leaves the account able to log straight back in. The guard is a mass-lockout defence (T-D1), because a
+/// provider that starts emitting a past instant hits every account at once, so an administrator is exempt
+/// from the whole gate and has to log in, which
+/// <see cref="ExpiredDeadline_OnAnAdministrator_LeavesItEnabled_AndLogsIn"/> requires. A configured claim
+/// that produced no readable instant refuses the one login and touches nothing, which is the only answer
+/// that stays reversible.
+/// </remarks>
 public class AccountExpiryEnforcementTests
 {
     private const string ExpiryClaim = "access_expires";

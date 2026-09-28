@@ -12,23 +12,14 @@ using NSubstitute;
 
 namespace Jellyfin.Plugin.SSO_Auth.Bench;
 
-/// <summary>
-/// What one account-link import costs at a realistic migration size (#1522). Nothing bounds how many
-/// entries a document may carry except the one-mebibyte request-size limit, and a minimal entry is small,
-/// so a single body holds on the order of ten thousand of them. The writes and the configuration persist
-/// run inside the process-wide configuration lock - the lock every login waits on - so the number that
-/// matters to an operator planning a migration is how long that lock is held, and nothing said what it was.
-/// </summary>
+/// <summary>What one account-link import costs at a realistic migration size (#1522).</summary>
 /// <remarks>
-/// It measures the endpoint, in process, through the same harness the login benchmark uses, so what is
-/// timed is the real <c>ImportLinks</c> and not a re-implementation of it.
-/// <para>
-/// TWO BOUNDS, PRINTED ON EVERY RUN RATHER THAN LEFT FOR A READER TO INFER. The harness persists through a
-/// mocked <c>IXmlSerializer</c>, so the host's own write to <c>SSO-Auth.xml</c> is not in these numbers and
-/// every figure is a FLOOR. And the username resolution is deliberately outside the lock in
-/// <c>ImportLinks</c>, so the harness resolves from a dictionary rather than a user database: the
-/// per-username cost a real server pays there is real, and it is not lock-held time.
-/// </para>
+/// Nothing bounds how many entries a document may carry except the request-size limit, and a minimal entry
+/// is small, so one body holds on the order of ten thousand; the writes and the persist run inside the lock
+/// every login waits on, and nothing said how long it is held. It measures the endpoint in process through
+/// the same harness the login benchmark uses. Two bounds are printed on every run: the harness persists
+/// through a mocked serializer, so every figure is a floor, and the username resolution is deliberately
+/// outside the lock, so its real per-username cost is real and is not lock-held time.
 /// </remarks>
 internal static class LinkImportCost
 {

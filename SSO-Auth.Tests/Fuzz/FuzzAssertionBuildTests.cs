@@ -9,31 +9,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Holds the parse-surface assertions to exactly one build: the weekly fuzz job (#1081).
-/// <para>
-/// The post-conditions #1082 put on the SAML and OpenID parsers are <c>Debug.Assert</c>, which the
-/// compiler removes from any build that does not define <c>DEBUG</c>. That removal is what makes them
-/// acceptable on an authentication path, and it is also what makes them useless to a fuzzer unless one
-/// build asks for them back. <c>ParseSurfaceAssertions_NeverReachTheShippedBuild</c> refuses the constant
-/// in <c>Directory.Build.props</c> and <c>SSO-Auth.csproj</c>, so the fuzz job passes it on the command
-/// line instead - and a constant on a command line is exactly the kind of thing that gets dropped in an
-/// unrelated edit to a workflow nobody rereads on a green week.
-/// </para>
-/// <para>
-/// Both directions are the rule. Dropping the constant from the fuzz job leaves the weekly run driving a
-/// surface that asserts nothing while every artefact still says it does; adding it to any other workflow
-/// puts an abort-on-failure check into a build that can be published, where a fault the login path is
-/// meant to reject becomes a process abort instead.
-/// </para>
-/// <para>
-/// WHAT THIS DOES NOT DO. It reads workflow text, so it judges what the repository asks for and never
-/// what a runner did with it: a job whose build step is skipped, or whose SDK ignores the property, looks
-/// identical here. The evidence that the constant reaches the assembly is the differential recorded on
-/// #1081, and the evidence that a failing assertion lands as a libFuzzer reproducer is the dispatch run
-/// linked there. This rule keeps the configuration those two measurements were taken against.
-/// </para>
-/// </summary>
+/// <summary>Holds the parse-surface assertions to exactly one build, the weekly fuzz job (#1081).</summary>
+/// <remarks>
+/// The post-conditions of #1082 are <c>Debug.Assert</c>, which the compiler removes from any build that does
+/// not define <c>DEBUG</c>: that removal is what makes them acceptable on an authentication path and what
+/// makes them useless to a fuzzer unless one build asks for them back, so the fuzz job passes the constant on
+/// the command line. Both directions are the rule, because dropping it leaves the weekly run asserting
+/// nothing and adding it elsewhere puts an abort-on-failure check into a publishable build. It reads workflow
+/// text, so it judges what the repository asks for rather than what a runner did with it.
+/// </remarks>
 public class FuzzAssertionBuildTests
 {
     // The workflow that is allowed to compile the assertions in. Named rather than discovered: the claim is

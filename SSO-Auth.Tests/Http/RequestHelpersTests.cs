@@ -16,17 +16,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Fail-closed matrix for <see cref="RequestHelpers.AssertCanUpdateUser"/>, the admin-or-self guard the
-/// canonical-link endpoints run before mutating a user's record. The helper returns
-/// <c>(target == caller || caller.IsAdministrator) &amp;&amp; caller.EnableUserPreferenceAccess</c>, so the
-/// authorization contract has three independent terms and each row below pins one of them: self is allowed
-/// without admin, an administrator may act on another user, a plain caller may not, the preference-access
-/// term gates every path (even self, even admin), and a request with no authenticated user faults closed
-/// via an explicit deny rather than returning an allow. The deny rows assert <c>false</c>, so loosening the
-/// helper to default-allow makes them fail. These tests drive the helper directly through a substituted
-/// <see cref="IAuthorizationContext"/>; they touch no process-wide state and so need no test collection.
-/// </summary>
+/// <summary>Fail-closed matrix for <see cref="RequestHelpers.AssertCanUpdateUser"/>, the admin-or-self guard the canonical-link endpoints run before mutating a user record.</summary>
+/// <remarks>
+/// The authorization contract has three independent terms and each row pins one: self without admin, an
+/// administrator on another user, a plain caller refused, the preference-access term gating every path, and a
+/// request with no authenticated user failing closed through an explicit deny. The deny rows assert false, so
+/// loosening the helper to default-allow makes them fail. They drive the helper through a substituted
+/// <see cref="IAuthorizationContext"/> and touch no process-wide state.
+/// </remarks>
 public class RequestHelpersTests
 {
     private static readonly Guid Caller = Guid.Parse("11111111-1111-1111-1111-111111111111");

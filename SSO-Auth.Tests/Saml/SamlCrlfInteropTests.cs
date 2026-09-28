@@ -7,43 +7,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Interop regression tests pinning that a conformantly-signed, PRETTY-PRINTED SAML response - real
-/// inter-element line breaks and indentation on the wire, the shape production IdP signing stacks emit
-/// - still validates through <see cref="SamlResponse"/> (#120). Follow-up to the P2#9 XML hardening,
-/// which moved the parser from <c>XmlDocument.LoadXml</c> to an <see cref="System.Xml.XmlReader"/>
-/// (<see cref="System.Xml.DtdProcessing.Prohibit"/>): the reader normalizes CR/CRLF line endings to LF
-/// per XML 1.0 §2.11 before building the DOM. The rest of the SAML suite exercises only COMPACT
-/// single-line fixtures, so nothing pins that real-world CRLF/indentation interop survives; a
-/// regression to a non-normalizing parser would break it while passing every existing test.
-///
-/// The whitespace between elements is signature-covered - <c>PreserveWhitespace</c> keeps it and
-/// exclusive C14N includes it - so this shape is what actually exercises line-ending handling. The
-/// three cases together make the pin non-vacuous and guard the load-bearing correctness point the
-/// issue calls out (the <c>OuterXml</c>-escaping pitfall):
-///
-/// <list type="bullet">
-///   <item><see cref="IsValid_WireWithRawCrlfBetweenElements_NormalizesAndValidates"/> - RAW CRLF bytes
-///     (0x0D 0x0A) on the wire, encoded directly, validate against a signature computed over the LF
-///     form: the core interop property.</item>
-///   <item><see cref="IsValid_InterElementWhitespaceAltered_FailsClosed"/> - altering the whitespace
-///     CONTENT (an extra space the IdP never signed) is a digest mismatch and is rejected. This proves
-///     the whitespace is genuinely signature-covered, so the case above passes because of line-ending
-///     NORMALIZATION (CRLF ≡ LF), not because the parser ignores whitespace.</item>
-///   <item><see cref="IsValid_LineEndingCrAsCharacterReference_StillValidates"/> - the same line ending
-///     written as a <c>&amp;#xD;</c> character reference (what serializing a CR-bearing DOM via
-///     <c>OuterXml</c> emits) is exempt from §2.11 normalization, yet .NET's C14N in
-///     <see cref="System.Security.Cryptography.Xml.SignedXml"/> normalizes line-ending CR as well, so
-///     this form ALSO validates. A "CRLF" test built via <c>OuterXml</c> would therefore go green while
-///     shipping <c>&amp;#xD;</c> instead of raw CRLF - passing for the wrong reason. Pinning this is why
-///     the positive test encodes raw wire bytes and asserts the wire carries CR, not <c>&amp;#xD;</c>.
-///     No security impact: only the line-ending REPRESENTATION is normalized; the content stays
-///     covered (previous case).</item>
-/// </list>
-///
-/// All three drive the real signature-validation path in <see cref="SamlResponse"/> against a genuinely
-/// signed fixture (<see cref="SamlTestFactory.CreateIndented"/>), never a mock of the crypto.
-/// </summary>
+/// <summary>Interop regression tests pinning that a conformantly signed, pretty-printed SAML response, the shape production signing stacks emit, still validates through <see cref="SamlResponse"/> (#120).</summary>
+/// <remarks>
+/// The hardened reader normalizes line endings to LF per XML 1.0 before building the DOM, and the rest of the
+/// suite uses compact single-line fixtures, so a regression to a non-normalizing parser would break interop
+/// while passing every existing test. Three cases make the pin non-vacuous: raw CRLF on the wire validates
+/// against a signature computed over the LF form, altering the whitespace content is a digest mismatch, which
+/// proves the whitespace is signature-covered, and the same ending written as a character reference also
+/// validates, which is why the positive case encodes raw wire bytes and asserts the wire carries them.
+/// </remarks>
 public class SamlCrlfInteropTests
 {
     [Fact]

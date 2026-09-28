@@ -16,25 +16,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The migration half of #1440: an SSO-linked Jellyfin account that carries no stored password accepts the
-/// EMPTY password on the ordinary login form, so it is reachable by anybody on the network without the
-/// identity provider. The boot-time sweep gives every such account an unguessable password.
-/// <para>
-/// THE POPULATION IS REAL AND THE CREATE ARM DOES NOT REACH IT. Every plugin release up to and including
-/// v3.4.0.2 created the account and wrote no password; v3.5.0.0 was the first to mint one. Accounts from
-/// before that are still on upgraded servers, and a fix at the point of creation only ever runs for accounts
-/// that do not exist yet. Deleting the write in <see cref="PasswordlessLinkedAccountSweep.SweepAsync"/>
-/// reddens most of this file.
-/// </para>
-/// <para>
-/// THE TWO FAIL-SAFES are <see cref="AnAccountThatAlreadyHasAPassword_IsLeftExactlyAsItWas"/> and
-/// <see cref="TheSweep_NeverRepointsAnAccountsLoginProvider"/>. Between them they are what stops a repair
-/// that runs unattended at every boot from becoming the thing that decides how somebody else's users log in:
-/// it may close an empty-password door and it may do nothing else. Removing the emptiness test, or adding a
-/// provider-id write, turns exactly those rows red.
-/// </para>
-/// </summary>
+/// <summary>The migration half of #1440: an SSO-linked account carrying no stored password accepts the empty password on the ordinary login form, so the boot-time sweep gives every such account an unguessable one.</summary>
+/// <remarks>
+/// The population is real and the create arm does not reach it, because a fix at the point of creation only
+/// runs for accounts that do not exist yet while the affected ones are on upgraded servers. The two
+/// fail-safes are <see cref="AnAccountThatAlreadyHasAPassword_IsLeftExactlyAsItWas"/> and
+/// <see cref="TheSweep_NeverRepointsAnAccountsLoginProvider"/>: a repair that runs unattended at every boot
+/// may close an empty-password door and may do nothing else.
+/// </remarks>
 public class PasswordlessLinkedAccountSweepTests
 {
     private static readonly Guid Linked = Guid.Parse("11111111-1111-1111-1111-111111111111");
