@@ -13,24 +13,14 @@ using System.Xml;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// Parses and validates an inbound IdP-initiated SAML 2.0 <c>LogoutRequest</c> (#727, SLO-3b) - the
-/// unauthenticated, session-destructive surface. It deliberately MIRRORS the signed-XML hardening of
-/// <see cref="SamlResponse"/> (DTD-prohibited size-bounded parse, exactly-one enveloped signature whose
-/// single reference covers the signed root, the RSA/ECDSA-SHA-256-or-stronger algorithm allowlist, the
-/// candidate-certificate trial across the validity window) but against a different document: the signed
-/// element is the <c>samlp:LogoutRequest</c> root itself (there is no assertion, no bearer confirmation,
-/// no audience). It is a FOCUSED validator that reuses the shared primitives
-/// (<see cref="SamlSignatureAlgorithms"/>, <see cref="SamlCertificate"/>, <see cref="SamlAssertionTime"/>)
-/// rather than re-implementing the algorithm lists or certificate strength policy - a separate type from
-/// <see cref="SamlResponse"/> so hardening the logout path cannot regress the heavily-tested login path.
-/// </summary>
+/// <summary>Parses and validates an inbound identity-provider-initiated SAML LogoutRequest (#727), which is the unauthenticated, session-destructive surface.</summary>
 /// <remarks>
-/// Fail-closed throughout: an unsigned, wrong-key, wrapped, weak-algorithm, malformed or DTD-bearing
-/// request fails <see cref="IsValid"/> (or never parses). One-time-use (replay) and the feature gate live
-/// in the orchestrating <see cref="SamlLogoutValidator"/> and the controller endpoint; this type is the
-/// pure parse-plus-signature step and exposes only the validated NameID, the SessionIndex list, and the
-/// request ID once <see cref="IsValid"/> has returned true.
+/// It mirrors the signed-XML hardening of <see cref="SamlResponse"/> against a different document, where the
+/// signed element is the request root and there is no assertion, no bearer confirmation and no audience, and
+/// it reuses the shared primitives rather than re-implementing the algorithm lists or the certificate policy.
+/// A separate type, so hardening the logout path cannot regress the login path. Fail-closed throughout: an
+/// unsigned, wrong-key, wrapped, weak-algorithm, malformed or DTD-bearing request never validates, and
+/// one-time use and the feature gate live in <see cref="SamlLogoutValidator"/> and the endpoint.
 /// </remarks>
 internal sealed class SamlLogoutRequest : IDisposable
 {
@@ -53,18 +43,13 @@ internal sealed class SamlLogoutRequest : IDisposable
         _xmlNameSpaceManager = GetNamespaceManager();
     }
 
-    /// <summary>
-    /// Tries to parse an untrusted, Base64-encoded <c>LogoutRequest</c> against the provider's primary
-    /// signing certificate OR an optional secondary certificate (the verification-key overlap window, #491),
-    /// returning <see langword="false"/> (rather than throwing) on the malformed-input the parse raises -
-    /// a non-base64 body, malformed XML, a prohibited DOCTYPE, or an unloadable configured certificate. The
-    /// caller rejects a false the same fail-closed way it rejects a failed signature (a uniform 400).
-    /// </summary>
-    /// <param name="certificateStr">The identity provider's primary signing certificate as a Base64 string.</param>
-    /// <param name="secondaryCertificateStr">The optional secondary certificate (Base64), or blank for none.</param>
-    /// <param name="requestString">The untrusted <c>SAMLRequest</c> (Base64).</param>
-    /// <param name="logoutRequest">The parsed request on success; otherwise <see langword="null"/>.</param>
-    /// <returns><see langword="true"/> if the request parsed; otherwise <see langword="false"/>.</returns>
+    /// <summary>Tries to parse an untrusted, Base64-encoded LogoutRequest against the primary signing certificate or an optional secondary one, the verification-key overlap window (#491).</summary>
+    /// <remarks>It returns false rather than throwing on the malformed input the parse raises, and the caller rejects that the same fail-closed way it rejects a failed signature, with a uniform 400.</remarks>
+    /// <param name="certificateStr">The primary signing certificate of the identity provider, as a Base64 string.</param>
+    /// <param name="secondaryCertificateStr">The optional secondary certificate, or blank for none.</param>
+    /// <param name="requestString">The untrusted Base64 SAMLRequest.</param>
+    /// <param name="logoutRequest">The parsed request on success; otherwise null.</param>
+    /// <returns>True if the request parsed; otherwise false.</returns>
     internal static bool TryParse(string certificateStr, string? secondaryCertificateStr, string? requestString, [NotNullWhen(true)] out SamlLogoutRequest? logoutRequest)
     {
         logoutRequest = null;

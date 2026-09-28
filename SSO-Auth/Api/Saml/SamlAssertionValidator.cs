@@ -13,28 +13,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// The single home for inbound SAML assertion validation (#496, #318): parse plus signature, time-bound,
-/// audience, recipient and algorithm-allowlist validation, the one-time replay consume, and the non-empty
-/// NameID guard - the whole <c>IsSamlResponseValid</c>/<c>ValidateSaml</c>/replay path that used to be
-/// spread across <see cref="Flows.SamlLoginService"/>. Consolidating it here makes the "a
-/// <see cref="VerifiedIdentity"/> is produced ONLY after complete validation" invariant local and testable:
-/// the sole SAML call to <see cref="VerifiedIdentity.FromValidatedSaml"/> lives in
-/// <see cref="TryProduceVerifiedIdentity"/>, downstream of every gate here, and is pinned there by
-/// <c>ArchitectureConformanceTests.VerifiedIdentity_IsConstructedOnlyByProtocolValidators</c>.
-/// </summary>
+/// <summary>The single home for inbound SAML assertion validation (#496, #318): parse, signature, time bounds, audience, recipient, the algorithm allowlist, the one-time replay consume and the non-empty NameID guard.</summary>
 /// <remarks>
-/// This validator owns the assertion-validation concerns only; the flow service keeps the concerns that are
-/// not assertion validation and must stay where the request context lives:
-/// <list type="bullet">
-/// <item>the login allow-list (<see cref="SamlLoginPolicy"/>), a policy gate enforced at BOTH the
-/// assertion-consumer page and the session-minting endpoint;</item>
-/// <item>the InResponseTo correlation and browser binding (the outstanding-request cache), which is
-/// session-fixation correlation against a request this server issued, not assertion validation.</item>
-/// </list>
-/// The one-time replay cache is a <c>static readonly</c> field so it is process-wide exactly as it was on
-/// the flow service - a fresh per-request flow service (and so a fresh validator) must not lose the consumed
-/// assertion ids between the two-step post-then-authenticate legs.
+/// Consolidating them here makes the invariant that a <see cref="VerifiedIdentity"/> is produced only after
+/// complete validation local and testable, because the sole SAML call to
+/// <see cref="VerifiedIdentity.FromValidatedSaml"/> sits in <see cref="TryProduceVerifiedIdentity"/>,
+/// downstream of every gate. The login allow-list and the InResponseTo correlation stay with the flow
+/// service, where the request context lives. The replay cache is <c>static readonly</c> so it survives
+/// between the post and authenticate legs:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#saml-response-validation-fail-closed"/>.
 /// </remarks>
 internal sealed class SamlAssertionValidator
 {
@@ -106,16 +93,10 @@ internal sealed class SamlAssertionValidator
         return expiresAtUtc;
     }
 
-    /// <summary>
-    /// Parses the untrusted response and runs the response-level validation shared by every SAML leg:
-    /// signature, time bounds and audience (<see cref="ValidateSaml"/>) plus the opt-in recipient binding.
-    /// On failure it logs the declared signature algorithm and the weak-algorithm remediation hint so an
-    /// operator can tell a rejected SHA-1 signature (the expected post-upgrade lockout of a legacy IdP) apart
-    /// from a bad certificate, an expired assertion, or an audience mismatch, all of which otherwise surface
-    /// as the same opaque error.
-    /// </summary>
-    /// <param name="config">The provider configuration (signing certificate, audience, recipient opt-in).</param>
-    /// <param name="provider">The provider that is calling back (for the expected assertion-consumer URLs).</param>
+    /// <summary>Parses the untrusted response and runs the response-level validation shared by every SAML leg: signature, time bounds, audience and the opt-in recipient binding.</summary>
+    /// <remarks>A failure logs the declared signature algorithm and the weak-algorithm hint, so a rejected SHA-1 signature is distinguishable from a bad certificate, an expired assertion or an audience mismatch.</remarks>
+    /// <param name="config">The provider configuration: signing certificate, audience, recipient opt-in.</param>
+    /// <param name="provider">The provider that is calling back, for the expected assertion-consumer URLs.</param>
     /// <param name="requestBaseUrl">The resolved assertion-consumer base URL the Recipient is bound to.</param>
     /// <param name="rawResponse">The untrusted, Base64-encoded SAMLResponse.</param>
     /// <param name="samlResponse">The parsed, validated response on success; otherwise null.</param>
@@ -181,19 +162,12 @@ internal sealed class SamlAssertionValidator
         return consumed;
     }
 
-    /// <summary>
-    /// Completes the SAML session-minting validation on a response that already passed
-    /// <see cref="TryValidate"/>, the login allow-list, and the InResponseTo correlation: it enforces the
-    /// one-time replay consume and the non-empty NameID guard, then - and only then - produces the verified
-    /// identity through <see cref="VerifiedIdentity.FromValidatedSaml"/>. This is the sole SAML construction
-    /// site of a <see cref="VerifiedIdentity"/>, so the "produced only after complete validation" invariant
-    /// is local here.
-    /// </summary>
+    /// <summary>Completes the session-minting validation on a response that already passed <see cref="TryValidate"/>, the allow-list and the correlation, by enforcing the one-time replay consume and the non-empty NameID guard before producing the verified identity.</summary>
+    /// <remarks>This is the sole SAML construction site of a <see cref="VerifiedIdentity"/>, so the invariant that one is produced only after complete validation is local here.</remarks>
     /// <param name="config">The provider configuration the privileges are derived against.</param>
     /// <param name="provider">The provider that verified the login.</param>
     /// <param name="samlResponse">The validated, allow-listed, correlated response.</param>
-    /// <param name="assertionRoles">The assertion's role values, already evaluated once by the flow service for
-    /// the login allow-list; reused here for the privilege derivation instead of re-reading the assertion (#479).</param>
+    /// <param name="assertionRoles">The role values the flow service already evaluated for the allow-list, reused here rather than re-read (#479).</param>
     /// <param name="identity">The verified identity on success; otherwise null.</param>
     /// <param name="rejection">The fail-closed outcome on failure; otherwise null.</param>
     /// <returns>True with <paramref name="identity"/> set on success; false with <paramref name="rejection"/> set.</returns>

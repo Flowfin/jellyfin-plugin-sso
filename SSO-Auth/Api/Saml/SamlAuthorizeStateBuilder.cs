@@ -60,18 +60,16 @@ internal static class SamlAuthorizeStateBuilder
         return new SamlAuthorizeState(privileges.Admin, privileges.EnableLiveTv, privileges.EnableLiveTvManagement, privileges.Folders, permissionGrants, maxParentalRatingScore, guestAccessDuration, provisioningProfile, syncPlayAccess);
     }
 
-    /// <summary>
-    /// The authorize-state privileges derived from a SAML login.
-    /// </summary>
+    /// <summary>The authorize-state privileges derived from a SAML login.</summary>
     /// <param name="Admin">Whether the login grants administrator rights.</param>
     /// <param name="EnableLiveTv">Whether the login grants Live TV access.</param>
     /// <param name="EnableLiveTvManagement">Whether the login grants Live TV management.</param>
-    /// <param name="Folders">The enabled folders (statically enabled plus role-granted).</param>
-    /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
-    /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
-    /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
-    /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
-    /// <param name="SyncPlayAccess">The SyncPlay access level the login's roles resolved (#827); null when the feature is off or no mapping matched (leave the existing level untouched).</param>
+    /// <param name="Folders">The enabled folders, statically enabled plus role-granted.</param>
+    /// <param name="PermissionGrants">The generic role-to-permission grants (#164); null, treated as empty, when the feature is off.</param>
+    /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null leaves the existing ceiling untouched.</param>
+    /// <param name="GuestAccessDuration">The fixed access duration the roles resolved (#1146), read only on the arm that provisions a new account; null when none matched.</param>
+    /// <param name="ProvisioningProfile">The profile name the roles selected (#1106), read only on the arm that provisions a new account; null leaves the provider default resolution to decide.</param>
+    /// <param name="SyncPlayAccess">The SyncPlay access level the roles resolved (#827); null leaves the existing level untouched.</param>
     internal readonly record struct SamlAuthorizeState(
         bool Admin,
         bool EnableLiveTv,

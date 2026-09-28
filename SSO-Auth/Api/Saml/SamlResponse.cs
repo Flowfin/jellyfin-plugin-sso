@@ -86,17 +86,12 @@ internal sealed class SamlResponse : IDisposable
     /// </summary>
     public string Xml => _xmlDoc.OuterXml;
 
-    /// <summary>
-    /// Disposes the loaded identity-provider signing certificate(s) (#674). Each
-    /// <see cref="X509Certificate2"/> wraps an unmanaged key handle, and one <see cref="SamlResponse"/> is
-    /// constructed per inbound assertion-consumer callback, so without this every request leaked a handle.
-    /// The certificates are the only unmanaged resource this type owns: <see cref="XmlDocument"/> holds only
-    /// managed state (it is not itself IDisposable) and the parse-time <see cref="System.Xml.XmlReader"/> /
-    /// <see cref="StringReader"/> are already disposed inside <see cref="ParseResponseXml"/>. Disposal must
-    /// therefore happen only AFTER the response is fully consumed (signature validation and every claim
-    /// read), because <see cref="VerifiesAgainstCandidateCertificate"/> uses these certificates - the owning
-    /// callers scope it to the point where the assertion has been read in full.
-    /// </summary>
+    /// <summary>Disposes the loaded signing certificates of the identity provider (#674), which are the only unmanaged resource this type owns.</summary>
+    /// <remarks>
+    /// Each certificate wraps an unmanaged key handle and one instance is constructed per inbound callback, so
+    /// without this every request leaked one. Disposal has to happen only after the response is fully
+    /// consumed, because the signature check uses these certificates, and the owning callers scope it there.
+    /// </remarks>
     public void Dispose()
     {
         foreach (var certificate in _certificates)
