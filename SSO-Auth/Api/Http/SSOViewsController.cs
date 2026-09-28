@@ -68,18 +68,8 @@ public class SSOViewsController : ControllerBase
         return File(stream, MimeTypes.GetMimeType(view.EmbeddedResourcePath), lastModified: null, entityTag: PluginAssetVersion.ETag);
     }
 
-    /// <summary>
-    /// Gets the plugin's user-interface strings (#913) resolved into the culture requested by the caller's
-    /// Accept-Language header. The client-rendered pages (the linking page, the admin config page) fetch
-    /// this once and apply the strings to their DOM, so the server owns the culture fallback and the pages
-    /// carry only keys. Anonymous and non-sensitive: it returns first-party UI labels only - no user data,
-    /// no configuration, no secrets.
-    ///
-    /// It serves the WHOLE catalog, including the admin configuration page's own labels, even though that
-    /// page is itself only served to authenticated admins. That is deliberate: splitting the payload by
-    /// audience would buy nothing (the labels are fixed strings shipped in a public GPL repo and readable in
-    /// any release artifact) while adding an authorization branch to a purely presentational endpoint.
-    /// </summary>
+    /// <summary>Gets the plugin's user-interface strings (#913) resolved into the culture requested by the caller's Accept-Language header, so the server owns the culture fallback and the pages carry only keys; anonymous and non-sensitive.</summary>
+    /// <remarks>It serves the whole catalog, including the admin page's own labels, because the labels are fixed strings shipped in a public repository and splitting the payload by audience would add an authorization branch to a presentational endpoint for nothing.</remarks>
     /// <returns>Every UI string key resolved to a concrete value in the request's culture.</returns>
     [HttpGet("i18n")]
     [AllowAnonymous]

@@ -64,17 +64,10 @@ public class SSOController : ControllerBase
     // refusal wordings. It names the two accepted tokens and never echoes the supplied one.
     private const string UnknownModeMessage = "The mode segment must be 'oid' or 'saml'.";
 
-    // The refusal body served on every SSO sign-in route while the stored configuration could not be read
-    // (#1543). It is a distinct sentence from the no-matching-provider one on purpose: a default
-    // configuration holds no provider, so the flows would answer that a provider is unknown, and an
-    // operator reading it would go looking for a deleted provider instead of a damaged file. It names no
-    // path - the log carries the copy - so an anonymous caller learns only that SSO is down here.
-    // IT POINTS AT NO LIST, because none is written. It used to end "the server log says which accounts
-    // have one", and no line in SsoAudit says that or could: the two lines this incident writes name a
-    // CATEGORY - the only certain way in is the break-glass administrator - and enumerate no account, and
-    // this plugin's refusal surfaces are deliberately non-enumerating everywhere else. So the sentence
-    // sent a locked-out operator to the log hunting a roster nothing produces, and it is gone rather than
-    // answered by adding one.
+    // The refusal body served on every SSO sign-in route while the stored configuration could not be read (#1543),
+    // a distinct sentence from the no-matching-provider one so an operator looks for a damaged file rather than a
+    // deleted provider. It names no path and points at no list, because the audit lines name a category and
+    // enumerate no account.
     private const string ServingDefaultsMessage = "Single sign-on is unavailable: its configuration could not be read. See the server log; an administrator with a password can sign in and restore it.";
 
     // The refusal body a logout-ticket mint answers with when the ticket store is at capacity (#1768). It
@@ -136,9 +129,7 @@ public class SSOController : ControllerBase
     // mutable process-wide static moved off the controller into the Shared tier, so the controller now holds
     // no mutable static state. The RateLimitCheck wrapper below supplies the request-scoped inputs.
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SSOController"/> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="SSOController"/> class.</summary>
     /// <param name="logger">Instance of the <see cref="ILogger{SSOController}"/> interface.</param>
     /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
     /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
@@ -241,61 +232,26 @@ public class SSOController : ControllerBase
         return BrowserErrorPage.Wrap(await _oidc.ChallengeAsync(provider, isLinking, Request, Response).ConfigureAwait(false), Request, Response);
     }
 
-    /// <summary>
-    /// Mints a one-time ticket a browser may spend at <see cref="OidLogout"/> in place of a session (#1768).
-    /// <para>
-    /// The logout route is a top-level NAVIGATION, because it has to send the browser on to the identity
-    /// provider, and a navigation carries no Authorization header. Before this endpoint the only way a client
-    /// could reach that route was to put the caller's own access token in the query string, which is a
-    /// long-lived credential in a URL that lands in browser history, in a referrer and in every proxy log on
-    /// the way. A ticket is the short-lived stand-in: it is bound to this caller's user and the named
-    /// provider, it carries this caller's own session token so the redeem ends exactly the session it was
-    /// minted from, it is worthless after a minute, and it is accepted exactly once. WHAT THE SESSION
-    /// BINDING COVERS IS THE LOCAL SIGN-OUT (#1794): the end-session hint the redeem sends is chosen per
-    /// user, newest capture first, and the paragraph at that selection in <see cref="OidLogout"/> says what
-    /// it reaches.
-    /// </para>
-    /// <para>
-    /// A POST rather than a GET because it MAKES something. That also means no browser navigation or prefetch
-    /// can reach it by accident, so a ticket exists only where a client asked for one. The provider name is
-    /// carried through unexamined: a ticket for a name no provider has is spendable only at the same name, and
-    /// the logout route already answers a name it cannot act on with the local-only sign-out. Validating the
-    /// name here would add a second place the provider set is consulted without changing any outcome.
-    /// </para>
-    /// </summary>
+    /// <summary>Mints a one-time ticket a browser may spend at <see cref="OidLogout"/> in place of a session (#1768), because the logout route is a top-level navigation that carries no Authorization header.</summary>
+    /// <remarks>
+    /// A ticket is the short-lived stand-in for the access token a client used to put in the query string: bound
+    /// to this caller's user and the named provider, carrying this caller's own session token, worthless after a
+    /// minute and accepted once; what the binding covers is the local sign-out (#1794). A POST because it makes
+    /// something, so no navigation or prefetch reaches it by accident. The provider name is carried through
+    /// unexamined, because the logout route already answers a name it cannot act on with the local-only sign-out.
+    /// </remarks>
     /// <param name="provider">The OpenID provider the ticket may be spent at, and at no other.</param>
     /// <returns>The ticket token; 429 when the caller's address is over the Logout budget, 503 when a capacity bound refused it and a retry may clear it, 401 or 400 when this request could never have been issued one.</returns>
     [Authorize]
     [HttpPost("OID/logout-ticket/{provider}")]
     public async Task<ActionResult> OidLogoutTicket(string provider)
     {
-        // RATE-LIMITED, ON THE CLASS OF THE ROUTE IT SERVES, AND THIS PARAGRAPH SAID DELIBERATELY NOT (#1796).
-        // The reason it gave was the self-logout's: a security action must always be able to complete for the
-        // caller. A mint is not a sign-out. It ends nothing, and a refused mint leaves nothing live, so the
-        // reason that keeps the session-bearing logout unthrottled does not reach here. What did bound this
-        // endpoint was the store's per-account sub-cap, which is an OCCUPANCY bound and not a rate: past its
-        // share an account may keep asking and each ask is still served, so the sub-cap protects the store and
-        // never this endpoint's cost. The decision on #1796 puts a rate bound in front of that, in the Logout
-        // class, so a client in a loop is answered 429 before it has filled its own share with tickets nobody
-        // redeems and locked its own sign-out for the rest of the minute. The occupancy bound stays the hard
-        // limit behind it. The gate sits after the authorization check, as the link surface's does, so it is
-        // charged only by a request that would otherwise reach the store; a request the attribute refuses
-        // costs nothing and writes nothing already.
-        //
-        // WHAT THE BOUND IS NOT. The limiter is off unless EnableRateLimit is set, which a stock install does
-        // not set, and it keys on a public peer only, so behind an unresolved reverse proxy it makes no
-        // bucket. On the shipped default, then, nothing but the occupancy bound stands here, and the
-        // arithmetic of that bound is recorded beside this route's entry on the throttled roster in
-        // ArchitectureConformanceTests.RateLimit and re-derived from the constants by a row there. The class
-        // is shared with the inbound logout surfaces and not with the credential-less refusal arms of the
-        // logout route below, which #1792 moved onto a class of their own so that a flood of guesses from one
-        // address spends nothing of this budget for the people behind it.
-        //
-        // BEHIND THE SINGLE LOGOUT SWITCH, like the surfaces it exists for. With the feature off the logout
-        // route captures nothing and degrades to the local sign-out, so a ticket minted there could never do
-        // anything - and minting one anyway would add an always-on authenticated surface, holding a live
-        // session token in memory, to every server that never turned the feature on. The server page documents
-        // the switch as gating the logout surfaces; this is one of them.
+        // Rate-limited on the Logout class (#1796): a mint is not a sign-out, so the reason that keeps the
+        // session-bearing logout unthrottled does not reach here, and the store's per-account sub-cap is an
+        // occupancy bound that never protected this endpoint's cost. The gate sits after the authorization check,
+        // so a refused request costs nothing; the limiter is off on a stock install, so on the shipped default only
+        // the occupancy bound stands. Behind the Single Logout switch, because a ticket minted with the feature off
+        // could never do anything and would add an always-on authenticated surface holding a live session token.
         if (!SSOPlugin.Instance.ReadConfiguration(configuration => configuration.EnableSingleLogout))
         {
             return NotFound();
@@ -328,19 +284,10 @@ public class SSOController : ControllerBase
             return Ok(new LogoutTicketResponse(ticket));
         }
 
-        // ONE STATUS PER CLASS OF ANSWER (#1796), because 503 stood for four causes and only one of them
-        // clears by waiting. 503 means the caller should come back, and a caller whose access token is empty
-        // has an empty access token on the retry as well: the endpoint was telling the one client that could
-        // never succeed to keep asking, at an endpoint that carried no rate bound then and carries one that is
-        // off on a stock install now, so each ask costs a configuration read and a store sweep there. The
-        // capacity bound keeps 503 and keeps the body that says the local
-        // sign-out still works, because that is the answer a waiting caller can act on.
-        //
-        // The two permanent shapes get the statuses they already have elsewhere on this endpoint: a caller
-        // this request cannot bind a ticket to is a 401, which is what the gate above answers for the
-        // neighbouring shapes, and a request naming no provider is a 400. Neither carries a body, so neither
-        // says more about the server than the status does. The unassigned-outcome arm lands in the 401 with
-        // them rather than in the retryable answer, which is the direction that fails closed.
+        // One status per class of answer (#1796): 503 means come back later and only the capacity bound clears by
+        // waiting, so it keeps 503 and the body saying the local sign-out still works; a caller this request cannot
+        // bind a ticket to is a 401 and a request naming no provider a 400, neither with a body. The
+        // unassigned-outcome arm lands in the 401 rather than the retryable answer, which fails closed.
         return outcome switch
         {
             MintOutcome.AtCapacity => StatusCode(StatusCodes.Status503ServiceUnavailable, LogoutTicketUnavailableMessage),
@@ -349,54 +296,13 @@ public class SSOController : ControllerBase
         };
     }
 
-    /// <summary>
-    /// RP-initiated OpenID logout (#727, SLO-2). Ends the CALLER's local Jellyfin session, then - when the
-    /// caller has a captured OpenID session for this provider (Single Logout enabled) - redirects the browser
-    /// to the identity provider's <c>end_session_endpoint</c> with the stored <c>id_token_hint</c>, so the IdP
-    /// session is terminated too. Fail-safe: a missing/unsafe endpoint or a disabled feature degrades to a
-    /// local-only logout (the browser returns to this server). Every action is scoped strictly to ONE user id
-    /// - a user can only log THEMSELVES out.
-    /// <para>
-    /// TWO WAYS TO SAY WHO IS CALLING, AND NEITHER OF THEM IS OPTIONAL (#1768). With no <c>ticket</c> the route
-    /// is the authenticated self-logout it has always been: the request carries a session and the framework's
-    /// own authentication resolves it. With a <c>ticket</c> the caller is a top-level navigation that cannot
-    /// carry a header, and the ticket - minted a minute ago by an authenticated call from the same user, bound
-    /// to that user and to this provider and carrying that user's own session token - is what names them. A
-    /// request carrying neither is refused,
-    /// and so is one carrying a ticket that is unknown, expired, already spent, or minted for another provider.
-    /// </para>
-    /// <para>
-    /// WHAT REPLACING <c>[Authorize]</c> DOES AND DOES NOT ESTABLISH. The attribute is gone from the method
-    /// because the ticket path could never satisfy it - it refuses a request before the method runs - and
-    /// <see cref="IsAuthenticatedCaller"/> is what stands in its place. That helper reads the resolved user and
-    /// the account's disabled flag rather than only testing the user id for
-    /// <see cref="Guid.Empty"/>, because the id test alone admitted a disabled account's still-live token,
-    /// which Jellyfin's default policy refuses. It is NOT CLAIMED here that the two are equivalent: the host
-    /// policy is not in this project's package graph and the test fixture substitutes its own scheme, so
-    /// nothing in this repository can compare them, and a claim of equivalence would be a claim no reading of
-    /// this tree supports. What is established is the set of refusals held by
-    /// <c>SSOControllerLogoutTicketTests</c>, one row per case, with a positive control beside them. The
-    /// residual is stated rather than closed: a condition the host policy enforces that this helper does not
-    /// read would be admitted here - <c>IsAuthenticated</c> is the known one, declined at the helper with its
-    /// reason - and the action that would reach is a sign-out of the caller's own session.
-    /// </para>
-    /// <para>
-    /// WHETHER THE HOST THROWS FOR A TOKEN THAT RESOLVES TO NOTHING IS READ, NOT REASONED ABOUT (#1792).
-    /// At tag <c>v12.0</c> of jellyfin/jellyfin, commit <c>6c073e19</c>, the file
-    /// <c>Jellyfin.Server.Implementations/Security/AuthorizationContext.cs</c> holds no <c>throw</c>
-    /// statement at all. <c>GetAuthorizationInfoFromDictionary</c> builds the <c>AuthorizationInfo</c> with
-    /// <c>IsAuthenticated</c> false and returns it as soon as it holds no token; when it does hold one, it
-    /// looks the token up as a device and then as an API key, sets <c>User</c> only from a matched device,
-    /// and returns the object with <c>User</c> null when neither matched. So a present token that resolves
-    /// to nothing, which is what an expired <c>api_key</c> produces, arrives here as an authorization with
-    /// the token kept and no user, which <see cref="IsAuthenticatedCaller"/> refuses on the credential-less
-    /// arm, throttled and audited like every other refusal there. What the reading does not cover is a
-    /// failure that is not about the token: the lookup opens a database context and a host whose database
-    /// is unavailable surfaces that fault, which nothing here catches. The reading is of the host's source
-    /// at the pinned version and not of this project's package graph, which still does not hold that
-    /// assembly, so a host that changes the file changes this paragraph and not the code it describes.
-    /// </para>
-    /// </summary>
+    /// <summary>RP-initiated OpenID logout (#727): ends the caller's local Jellyfin session, then, when the caller has a captured OpenID session for this provider and Single Logout is on, redirects the browser to the provider's <c>end_session_endpoint</c> with the stored <c>id_token_hint</c>; anything missing degrades to a local-only logout.</summary>
+    /// <remarks>
+    /// Two ways to say who is calling (#1768): with no <c>ticket</c> the route is the authenticated self-logout, and
+    /// with one the caller is a top-level navigation named by a ticket minted a minute ago by the same user for this
+    /// provider. <c>[Authorize]</c> is gone because the ticket path could never satisfy it; <see cref="IsAuthenticatedCaller"/>
+    /// stands in its place without a claim of equivalence, and a token resolving to no user is refused on the credential-less arm (#1792).
+    /// </remarks>
     /// <param name="provider">The OpenID provider to end the session at.</param>
     /// <param name="ticket">A one-time ticket from <see cref="OidLogoutTicket"/>, for a caller that cannot send a session header. Absent for the authenticated form.</param>
     /// <returns>A redirect to the IdP end-session URL, or to this server for a local-only logout.</returns>
@@ -416,39 +322,12 @@ public class SSOController : ControllerBase
             var redeemed = _logoutTickets.Redeem(ticket, provider, DateTime.UtcNow, singleLogoutEnabled);
             if (redeemed is null)
             {
-                // Unknown, expired, already spent, or minted for a different provider. Refused rather than
-                // silently degraded to a local-only logout: a caller that supplied a ticket is asking to act
-                // as somebody, and answering a redirect to a request that named nobody would make this route
-                // do work for an unauthenticated caller. One uniform refusal for all four, so a guesser
-                // learns nothing about which it was, and one audited reason code so an operator can see a
-                // flood of them, because every other logout refusal beside it is audited.
-                //
-                // THIS IS NOT THE ONLY ROUTE HERE REACHABLE WITH NO CREDENTIAL THAT ENDS A SESSION, AND THIS
-                // COMMENT SAID IT WAS. The inbound back-channel OpenID logout and the inbound SAML
-                // LogoutRequest carry no authorization attribute either and both end sessions; they
-                // authenticate by signature rather than by header, which is a different thing from carrying
-                // a credential. The sentence was the stated reason for this event, for this route's move
-                // onto the throttled roster and for the placement below, so a reader acting on it was acting
-                // on something checkable and false. What is actually particular to this route is the
-                // placement, and the paragraph under it is where that is argued.
-                //
-                // THE THROTTLE SITS ON THE FAILURE RATHER THAN IN FRONT OF THE ROUTE, AND IN FRONT OF THE
-                // AUDIT RATHER THAN BEHIND IT. Both halves are load-bearing and both were wrong in an
-                // earlier draft. A ticket-bearing request is anonymously reachable, so a guessing flood must
-                // cost something; but the limiter keys on the client ADDRESS, so a throttle at the HEAD of
-                // the route is spent by any request carrying any ticket string, and everybody behind one
-                // public address shares that bucket - and with the default window equal to the ticket
-                // lifetime a caller refused there cannot retry, because their ticket has expired by the time
-                // the window reopens. Charging only the failures leaves a legitimate sign-out never
-                // throttled. And the audit goes AFTER the gate, because a per-refusal log line in front of
-                // it amplifies the very flood the limiter blunts into unbounded log volume - which is this
-                // repository's own stated hazard at SsoRateLimiter, and what every neighbouring anonymous
-                // logout surface avoids by gating first.
-                //
-                // ON A CLASS OF THEIR OWN, on the decision of #1792. Both credential-less arms of this route
-                // charge LogoutRefusal rather than Logout, so a flood of guesses from one public address
-                // spends nothing of the budget the inbound SAML LogoutRequest and the ticket mint draw on
-                // for the people behind that same address; the reason is written at the constant.
+                // Unknown, expired, spent or minted for another provider: refused rather than degraded to a local-only
+                // logout, because a caller that supplied a ticket asked to act as somebody, with one uniform refusal
+                // and one audited reason code. The throttle sits on the failure rather than in front of the route,
+                // so a legitimate sign-out is never throttled by a guessing flood sharing its address, and in front
+                // of the audit, so the flood cannot amplify into log volume; both credential-less arms charge
+                // LogoutRefusal rather than Logout (#1792), so guesses spend nothing of the people behind that address.
                 if (RateLimitCheck(SsoRateLimitClass.LogoutRefusal) is { } throttledTicket)
                 {
                     return throttledTicket;
@@ -465,25 +344,11 @@ public class SSOController : ControllerBase
                 return Unauthorized();
             }
 
-            // THE ACCOUNT BEHIND THE TICKET IS DECIDED HERE, AND NOT ONLY THE TICKET (#1793). The redeem
-            // compares the token, the provider and the lifetime, which is the whole of what a ticket can say;
-            // the attribute this arm replaced refused on the CALLER'S ACCOUNT STATE, and a ticket minted in
-            // the second before an administrator disabled the account stayed spendable for the rest of its
-            // minute. So the account is read again at the moment it is acted on, by the same two conditions
-            // IsAuthenticatedCaller reads on the other arm - it exists, and it is not disabled - and the two
-            // arms refuse the same set on the account, differing only in how the caller is named. Read after
-            // the ticket is spent, so a refused account's ticket is gone rather than retried; throttled and
-            // audited like the other refusals on this arm, under its own fixed code, so an operator can tell
-            // a refused account from a guess.
-            //
-            // WHAT IS DELIBERATELY NOT READ: whether the session token the ticket carries was revoked after
-            // the mint. Nothing in this tree reads a token's standing without a host lookup this project's
-            // package graph cannot verify. What a revoked token reaches here is a Logout call on a token the
-            // host has already ended, plus the redirect: where the revocation came through the back-channel
-            // logout, that route removed the capture and the redirect is local; where an administrator
-            // revoked the tokens, the capture stands and the account's own id_token is handed to whoever
-            // presents the ticket, for the rest of its minute. That is the residual, and it is stated rather
-            // than closed.
+            // The account behind the ticket is decided here and not only the ticket (#1793): a ticket minted the
+            // second before an administrator disabled the account stayed spendable, so the account is read again by
+            // the same two conditions IsAuthenticatedCaller reads, after the ticket is spent, throttled and audited
+            // under its own code. Not read: whether the session token the ticket carries was revoked after the
+            // mint, which nothing in this tree can verify without a host lookup; that residual is stated rather than closed.
             if (_userManager.GetUserById(redeemed.UserId) is not { } account || account.HasPermission(PermissionKind.IsDisabled))
             {
                 if (RateLimitCheck(SsoRateLimitClass.Logout) is { } throttledAccount)
@@ -504,21 +369,10 @@ public class SSOController : ControllerBase
             var auth = await _authContext.GetAuthorizationInfo(HttpContext.Request).ConfigureAwait(false);
             if (!IsAuthenticatedCaller(auth))
             {
-                // What [Authorize] used to answer, made explicit because the attribute had to go for the
-                // ticket path to exist at all. Audited for the same reason the ticket refusal above is: this
-                // route is reachable without a credential now, and a refusal nobody can see is a refusal
-                // nobody can count - and throttled first, for the same reason, because THIS is the arm a
-                // caller reaches with no credential and no ticket at all. The attribute used to refuse such
-                // a request before the method ran, at no cost and writing nothing; without a gate here the
-                // replacement would answer it by writing a warning line, at request rate, for anybody.
-                // THE THROTTLE CANNOT LEAVE A SESSION LIVE, AND THE REASON WRITTEN HERE WAS THE WRONG ONE.
-                // It said a caller holding a valid session never reaches this arm. They do, and they are the
-                // caller this feature exists for: a top-level navigation cannot present the session it holds,
-                // so a signed-in user arriving here from a bookmark or an older client lands on this arm
-                // every time. What makes the throttle safe is that the refusal is unconditional - this arm
-                // ends nothing under any budget - not that a session-bearing caller is absent from it. The
-                // cost of being wrong here is that such a caller is answered 429 rather than 401 and cannot
-                // tell a throttled deployment from a broken one.
+                // What [Authorize] used to answer, audited because this route is reachable without a credential now
+                // and throttled first, because this is the arm a caller reaches with nothing at all. A signed-in user
+                // arriving from a bookmark lands here too, since a navigation cannot present its session; the throttle
+                // is safe because this arm ends nothing under any budget, at the cost of a 429 rather than a 401.
                 if (RateLimitCheck(SsoRateLimitClass.LogoutRefusal) is { } throttledAnonymous)
                 {
                     return throttledAnonymous;
@@ -535,23 +389,11 @@ public class SSOController : ControllerBase
             sessionToken = auth.Token;
         }
 
-        // The caller's most recent captured OpenID session for this provider (an id_token distinguishes an
-        // OpenID capture from a SAML one). Scoped to the caller's own user id, read under the config lock.
-        // Best-effort with multiple concurrent sessions: "most recent" may differ from the exact session the
-        // local Logout below ends, but both belong to the caller and the id_token_hint is a valid token for
-        // the same subject at the same issuer, so RP-initiated logout is still correct - a within-user,
-        // best-effort SLO, never a cross-user effect (FindByUser is user-id-scoped and empty for Guid.Empty).
-        //
-        // THE TICKET ARM IS INSIDE THAT HEDGE AND NOT OUTSIDE IT (#1794). The ticket binds the local revoke -
-        // it carries the minting session's token - and binds nothing about this selection: the entries are
-        // keyed by a Jellyfin session id the ticket never captured, because the authorization the mint reads
-        // carries a device id and no session id, so nothing here can correlate a token with a key. With a
-        // browser and a television captured for one provider, a ticket minted in the browser ends the browser
-        // locally, sends the television's id_token as the hint, and removes the television's capture, leaving
-        // that session signed in with its Single Logout state gone. The texts that describe the ticket say
-        // which half they cover, and SSOControllerLogoutTicketTests pins this selection so a change to it
-        // rewrites those texts in the same change. Selecting by device instead would need a device id on
-        // every captured entry, which the login capture does not record today.
+        // The caller's most recent captured OpenID session for this provider, scoped to their own user id and read
+        // under the config lock; with several sessions the hint may belong to a sibling session of the same
+        // subject, a within-user best effort. The ticket arm is inside that hedge (#1794): it binds the local
+        // revoke and nothing about this selection, because the entries are keyed by a session id the ticket never
+        // captured, and the logout-ticket suite pins the selection so a change rewrites the texts that describe it.
         var match = SSOPlugin.Instance.ReadConfiguration(configuration =>
             SessionLogoutStore.FindByUser(configuration, userId)
                 .FirstOrDefault(pair =>
@@ -603,17 +445,10 @@ public class SSOController : ControllerBase
             }
         }
 
-        // THE COMPLETION IS AUDITED ON THE TICKET ARM, AND ONLY THERE (#1795). That arm ends a session for a
-        // request whose only credential was a bearer string in a query parameter, and until this line its
-        // success wrote nothing while both refusals did - so an operator asking who ended a session had, for
-        // the ticket form, nothing to correlate, and a flood of spent tickets read as silence beside a flood
-        // of guesses. The session-bearing arm is the authenticated self-logout it has always been, attributed
-        // to its principal by the framework, and is left as it was. Written after the local sign-out has
-        // completed and after the redirect has been decided, so the outcome code says what actually happened;
-        // a Logout call that throws writes no line and surfaces as the 500 it always did. Nothing here is the
-        // ticket, the session token or the user: the provider is route input and carries both sanitizers at
-        // the emitter, and the outcome is a fixed code. The mint records no issuance, for the reason written
-        // at OidLogoutTicket.
+        // The completion is audited on the ticket arm only (#1795), because that arm ends a session for a request
+        // whose only credential was a bearer string in a query parameter and its refusals were already audited;
+        // written after the sign-out and the redirect decision, so the outcome code says what happened, and it
+        // carries the provider and a fixed code, never the ticket, the token or the user.
         if (viaTicket)
         {
             SsoAudit.OpenIdTicketLogoutCompleted(_logger, provider, endSessionUrl is null ? "local_only" : "end_session_redirect");
@@ -627,16 +462,8 @@ public class SSOController : ControllerBase
         return endSessionUrl is null ? LocalRedirect("~/") : Redirect(endSessionUrl);
     }
 
-    /// <summary>
-    /// Inbound OpenID Connect back-channel logout (#962, OIDC Back-Channel Logout 1.0). The identity provider
-    /// POSTs a signed <c>logout_token</c> here to propagate an IdP-side session termination into Jellyfin.
-    /// The endpoint is ANONYMOUS - the token's signature is the only authenticator - so it is fail-closed at
-    /// every step: a disabled feature, an unknown/disabled provider, and a provider without the per-provider
-    /// opt-in all collapse to the SAME uniform response WITHOUT parsing the token, and the validated (sub, sid)
-    /// revokes only the matched user's OpenID sessions for THIS provider (never cross-provider, never a SAML
-    /// capture, never another user). Rate-limited on the Logout class. Every rejection audits a fixed reason
-    /// code and discloses no subject identifier.
-    /// </summary>
+    /// <summary>Inbound OpenID Connect back-channel logout (#962): the identity provider POSTs a signed <c>logout_token</c> to propagate an IdP-side session termination into Jellyfin.</summary>
+    /// <remarks>The endpoint is anonymous and the signature is the only authenticator, so a disabled feature, an unknown or disabled provider and a provider without the opt-in collapse to the same uniform response without parsing the token; the validated (sub, sid) revokes only the matched user's OpenID sessions for this provider, and every rejection audits a fixed reason code.</remarks>
     /// <param name="provider">The OpenID provider the logout_token arrived for.</param>
     /// <param name="logoutToken">The <c>logout_token</c> form field (model-bound; a non-form POST binds null and is rejected).</param>
     /// <returns>200 when a validated token revoked at least one session, else a uniform 400 with no cause detail.</returns>
@@ -767,17 +594,8 @@ public class SSOController : ControllerBase
         return Ok();
     }
 
-    /// <summary>
-    /// SP-initiated outbound SAML Single Logout (#727, SLO-3c). Ends the CALLER's local Jellyfin session, then
-    /// - when Single Logout is enabled, the provider has a configured SLO endpoint, a signing key loads, and the
-    /// caller has a captured SAML session with a NameID - redirects the browser to the identity provider's
-    /// Single-Logout endpoint with a SIGNED <c>LogoutRequest</c>, so the IdP session is terminated too.
-    /// Fail-safe: a missing SLO endpoint, a missing/unloadable signing key, or no captured session degrades to a
-    /// local-only logout (a host-independent redirect back to this server) - none of those must ever break the
-    /// local logout or 500. Authenticated, rate-limited, and every action is scoped strictly to the caller's own
-    /// user id - a user can only log THEMSELVES out, and the LogoutRequest can only ever carry the caller's own
-    /// NameID.
-    /// </summary>
+    /// <summary>SP-initiated outbound SAML Single Logout (#727): ends the caller's local Jellyfin session, then, when Single Logout is on and the provider has an SLO endpoint, a signing key and a captured session with a NameID, redirects the browser there with a signed <c>LogoutRequest</c>.</summary>
+    /// <remarks>Anything missing degrades to a local-only logout and never a 500; authenticated, rate-limited, and scoped to the caller's own user id, so the request can only ever carry the caller's own NameID.</remarks>
     /// <param name="provider">The SAML provider to end the session at.</param>
     /// <returns>A redirect to the IdP SLO URL, or to this server for a local-only logout.</returns>
     [Authorize]
@@ -1073,23 +891,8 @@ public class SSOController : ControllerBase
             CultureInfo.InvariantCulture,
             $"The provisioning profile '{profile}' is defined by the declarative source {source}. Edit that source and restart the server; a change made here would be undone at the next start.");
 
-    /// <summary>
-    /// Refuses an elevated single-provider write against a provider a declarative source decided (#1415), and
-    /// audits the refusal so an operator reading the log sees why nothing changed.
-    /// </summary>
-    /// <remarks>
-    /// REFUSE rather than the config-page save's ignore-and-keep, and the difference is what the caller asked
-    /// for. A settings-page save posts the WHOLE configuration, so a managed provider inside it is almost
-    /// always an untouched form field riding along with an unrelated edit, and refusing the save would block
-    /// that edit; the freeze there keeps the stored value and lets the rest through. These four doors carry a
-    /// single-provider intent and nothing else, so there is no unrelated work to protect: honouring the call
-    /// while doing nothing would report success for a change that did not happen.
-    /// <para>
-    /// Runs BEFORE the body validators on the Add doors, because a managed provider's posted body is never
-    /// applied and its shape therefore decides nothing. That also keeps the door from answering a body
-    /// complaint an administrator would then fix, only to meet this refusal on the next attempt.
-    /// </para>
-    /// </remarks>
+    /// <summary>Refuses an elevated single-provider write against a provider a declarative source decided (#1415), and audits the refusal so an operator sees why nothing changed.</summary>
+    /// <remarks>Refuse rather than the config-page save's ignore-and-keep, because these doors carry a single-provider intent with no unrelated edit to protect, and honouring the call while doing nothing would report success for a change that did not happen; it runs before the body validators, because a managed provider's posted body is never applied.</remarks>
     /// <param name="door">The route being refused, for the audit line.</param>
     /// <param name="protocol">The protocol label, <c>OpenID</c> or <c>SAML</c>.</param>
     /// <param name="provider">The provider the caller named.</param>
@@ -1216,22 +1019,10 @@ public class SSOController : ControllerBase
     [HttpGet("OID/GetNames")]
     public ActionResult OidProviderNames()
     {
-        // Only enabled providers are offered (#344): this endpoint drives the self-service linking page,
-        // and a disabled provider cannot complete a link (the link leg fail-closes on Enabled, #343), so
-        // offering it would render an add button that only ever fails. The filter is UX honesty, not the
-        // gate - the server-side rejection stays the real defense in depth.
-        // Materialize under the lock (#157/F-10): returning a live view lets the JSON formatter enumerate
-        // it outside the lock, tearing against a concurrent provider add/remove.
-        //
-        // No [Authorize] here - deliberate, not an oversight (#540). SSOViewsController, which serves the
-        // self-service linking page (linking.html/linking.js, the sole caller of this endpoint), carries no
-        // [Authorize] of its own either, so the same provider-name list this endpoint returns is already
-        // rendered into that page's visible DOM for an anonymous visitor. Gating GetNames would add no
-        // confidentiality (the list is public via the page regardless) while breaking that page's render for
-        // any caller who has not first authenticated - including the isLinking=false leg, which is how a
-        // brand-new (not-yet-Jellyfin-authenticated) user discovers which providers they can sign in with.
-        // Provider names are configuration, not secrets; the identity-provider connection itself (client
-        // secret, signing keys) stays behind the elevation-gated OID/Get and SAML/Get.
+        // Only enabled providers are offered (#344), because a disabled one cannot complete a link; the server-side
+        // rejection stays the real gate. Materialized under the lock (#157) so the formatter never enumerates a live
+        // view. No [Authorize] on purpose (#540): the linking page that calls this carries none either and renders
+        // the same names to an anonymous visitor, so gating it would break that page's render for nobody's gain.
         return Ok(SSOPlugin.Instance.ReadConfiguration(c => EnabledProviderNames(c.OidConfigs)));
     }
 
@@ -1300,19 +1091,8 @@ public class SSOController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Returns the exact OpenID <c>redirect_uri</c> a stored provider's login sends, so the admin config page
-    /// can show it for verbatim registration at the identity provider instead of composing a second copy of
-    /// it in JavaScript (#1303). The flow service composes it, over the same builder and the same canonical
-    /// base the challenge uses, so there is one producer of these bytes.
-    /// </summary>
-    /// <remarks>
-    /// Elevation-gated like the other admin endpoints: the value is not a secret, but it reveals a
-    /// provider's configured base-URL override, and only an administrator has any use for it. Read-only -
-    /// it starts no flow, writes nothing, and makes no outbound request, so it takes no rate-limit class.
-    /// An unknown provider is the same 404 the other per-provider admin reads return; the page turns that
-    /// into "save the provider first" rather than showing a value for a provider that does not exist.
-    /// </remarks>
+    /// <summary>Returns the exact OpenID <c>redirect_uri</c> a stored provider's login sends, so the admin page can show it for verbatim registration rather than composing a second copy in JavaScript (#1303).</summary>
+    /// <remarks>Elevation-gated like the other admin endpoints, because the value reveals a provider's base-URL override; read-only and without outbound request, so it takes no rate-limit class, and an unknown provider is the same 404 the other per-provider reads return.</remarks>
     /// <param name="provider">The stored OpenID provider whose redirect_uri to compose.</param>
     /// <returns>The redirect_uri, or 404 when the provider is not configured.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -1371,18 +1151,10 @@ public class SSOController : ControllerBase
             () => HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// This is the callback for the SAML flow. This creates a webpage to complete auth.
-    /// </summary>
+    /// <summary>The callback for the SAML flow, which creates a webpage to complete auth.</summary>
     /// <param name="provider">The provider that is calling back.</param>
-    /// <param name="relayState">
-    ///    RelayState given in the original saml request. If it is equal to "linking",
-    ///    We consider this to be a linking request.
-    /// </param>
-    /// <param name="formSamlResponse">
-    ///    The SAMLResponse form field, model-bound so a non-form POST binds null (and is rejected)
-    ///    instead of making Request.Form throw an unhandled 500 (#206).
-    /// </param>
+    /// <param name="relayState">The RelayState given in the original SAML request; equal to "linking", it is a linking request.</param>
+    /// <param name="formSamlResponse">The SAMLResponse form field, model-bound so a non-form POST binds null and is rejected instead of throwing an unhandled 500 (#206).</param>
     /// <returns>A webpage that will complete the client-side flow.</returns>
     [HttpPost("SAML/p/{provider}")]
     [HttpPost("SAML/post/{provider}")]
@@ -1453,20 +1225,11 @@ public class SSOController : ControllerBase
         return _saml.Metadata(provider);
     }
 
-    /// <summary>
-    /// Inbound IdP-initiated SAML Single Logout (#727, SLO-3b): accepts a signed <c>LogoutRequest</c> and
-    /// revokes the linked Jellyfin sessions. This is the UNAUTHENTICATED, session-destructive surface - its
-    /// only trust anchor is the request's XML signature against the provider's configured certificate(s), so
-    /// it mirrors the login-side hardening (enveloped-signature + wrapping defense, weak-algorithm rejection,
-    /// DTD-prohibited parse, replay one-time-use). POST-binding only (the <c>SAMLRequest</c> form field,
-    /// Base64). Single Logout is opt-in and off by default: while it is off the whole surface rejects WITHOUT
-    /// parsing. Every rejection - feature off, unknown provider, bad signature, replay, unknown subject - is
-    /// the SAME uniform 400 with a fixed body, so the causes cannot be told apart (no oracle); only a
-    /// validly-signed request that resolves at least one session returns 200.
-    /// </summary>
+    /// <summary>Inbound IdP-initiated SAML Single Logout (#727): accepts a signed <c>LogoutRequest</c> over the POST binding and revokes the linked Jellyfin sessions.</summary>
+    /// <remarks>The unauthenticated, session-destructive surface, whose only trust anchor is the XML signature against the provider's configured certificates, so it mirrors the login-side hardening; while Single Logout is off the whole surface rejects without parsing, and every rejection is the same uniform 400, so the causes cannot be told apart.</remarks>
     /// <param name="provider">The SAML provider the LogoutRequest arrived for.</param>
     /// <param name="samlRequest">The <c>SAMLRequest</c> form field (model-bound, so a non-form POST binds null and is rejected).</param>
-    /// <param name="relayState">The optional <c>RelayState</c> form field, echoed on the signed <c>LogoutResponse</c> (#727, SLO-3c) when within the 80-byte SAML binding cap.</param>
+    /// <param name="relayState">The optional <c>RelayState</c> form field, echoed on the signed <c>LogoutResponse</c> when within the 80-byte SAML binding cap.</param>
     /// <returns>A signed <c>LogoutResponse</c> redirect (302) when a validated request revoked at least one session and the provider is configured to sign it, a bare 200 when it cannot be signed, or a uniform 400 otherwise.</returns>
     [HttpPost("SAML/Logout/{provider}")]
     public async Task<ActionResult> SamlLogout(string provider, [FromForm(Name = "SAMLRequest")] string? samlRequest = null, [FromForm(Name = "RelayState")] string? relayState = null)
@@ -1773,17 +1536,8 @@ public class SSOController : ControllerBase
         return Ok(ProviderConnectionTester.TestSaml(config));
     }
 
-    /// <summary>
-    /// Parses SAML identity-provider metadata into the provider-configuration values an administrator would
-    /// otherwise hand-copy - the SSO endpoint and the signing certificate(s) - from EITHER a server-fetched
-    /// URL or pasted XML (#735). Requires administrator privileges and is deliberately elevation-gated: the
-    /// server fetches an admin-supplied URL, so - like <see cref="OidTest"/> - an unauthenticated caller must
-    /// not be able to drive it as an SSRF probe (the fetch also routes through the SSRF-hardened outbound
-    /// client, which refuses a private/loopback address). The metadata XML is parsed with fail-closed
-    /// hardening (no DTD/XXE, size-bounded). It RETURNS the parsed values for the admin to review and save; it
-    /// applies nothing itself, and returns the IdP entityID for reference only (it is NOT the SP SamlClientId).
-    /// The request body is size-capped and the endpoint is throttled after the elevation guard.
-    /// </summary>
+    /// <summary>Parses SAML identity-provider metadata, from a server-fetched URL or pasted XML, into the SSO endpoint and signing certificates an administrator would otherwise hand-copy (#735), returning them for review and applying nothing.</summary>
+    /// <remarks>Elevation-gated because the server fetches an admin-supplied URL, through the SSRF-hardened client that refuses a private address; the XML is parsed with no DTD and a size bound, the body is size-capped, and the endpoint is throttled after the elevation guard.</remarks>
     /// <param name="request">Exactly one of a metadata URL or pasted metadata XML.</param>
     /// <returns>The parsed import values, or 400 when the input or metadata is invalid.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -1860,16 +1614,8 @@ public class SSOController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Publishes the permission names an administrator may map (#1484), so the config page can offer them
-    /// instead of letting one be typed and meet a save-time refusal. Requires administrator privileges, like
-    /// the other config endpoints. Read-only - it changes nothing, and it reads no configuration at all.
-    /// </summary>
-    /// <remarks>
-    /// The answer is derived by <see cref="MappablePermissions"/> from the same classification the save-time
-    /// validator refuses by, so the vocabulary and the refusal cannot disagree. The alternative - a list written into the page - drifts silently in three directions the
-    /// moment Jellyfin adds a permission, removes one, or this plugin excludes one more.
-    /// </remarks>
+    /// <summary>Publishes the permission names an administrator may map (#1484), so the config page can offer them instead of letting one be typed and meet a save-time refusal; elevation-gated and read-only.</summary>
+    /// <remarks>Derived by <see cref="MappablePermissions"/> from the same classification the save-time validator refuses by, so the vocabulary and the refusal cannot disagree when Jellyfin adds or removes a permission.</remarks>
     /// <returns>The mappable permission names.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Config/Permissions")]
@@ -1881,20 +1627,8 @@ public class SSOController : ControllerBase
         return Ok(MappablePermissions.Build());
     }
 
-    /// <summary>
-    /// Answers, for every configured OpenID and SAML provider at once, whether a login against it would get
-    /// past the configuration and why not (#1084) - the aggregate "Configuration check" the redesigned
-    /// settings page dropped. Requires administrator privileges, like the other config endpoints. Read-only:
-    /// it evaluates the configuration already in memory and writes nothing, so running it leaves every
-    /// provider's stored values byte-identical.
-    /// </summary>
-    /// <remarks>
-    /// ADVISORY, and it makes no outbound request. Whether an identity provider ANSWERS is what the
-    /// per-provider Test routes are for; probing them all from here would spend one shared throttle budget
-    /// (both pass <see cref="SsoRateLimitClass.Test"/>) and the 429s that followed would name working
-    /// providers as broken. So the report says what it checked and leaves reachability to the consumer to
-    /// disclose as unchecked.
-    /// </remarks>
+    /// <summary>Answers, for every configured provider at once, whether a login against it would get past the configuration and why not (#1084); elevation-gated and read-only.</summary>
+    /// <remarks>Advisory and without outbound request: whether an identity provider answers is what the per-provider Test routes are for, and probing them all from here would spend the shared <see cref="SsoRateLimitClass.Test"/> budget and name working providers as broken.</remarks>
     /// <returns>One row per configured provider; an empty list where none is configured.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Config/Check")]
@@ -1908,25 +1642,8 @@ public class SSOController : ControllerBase
         return Ok(SSOPlugin.Instance.ReadConfiguration(configuration => ProviderCheck.Build(configuration, unreadable)));
     }
 
-    /// <summary>
-    /// Publishes the auth-path counters as Prometheus text exposition (#1139), so an operator can alert on a
-    /// rate of failed logins, provisioning or provider-fetch errors instead of grepping the Jellyfin log.
-    /// Requires administrator privileges. Read-only - it changes nothing.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// NOT ANONYMOUS, and that is the reason it sits on this controller beside the other operator surfaces
-    /// rather than on a conventional unauthenticated <c>/metrics</c>. The exposition names which providers a
-    /// server has and how often logins against them fail, which is reconnaissance: a caller who cannot log in
-    /// could read the provider inventory and watch their own attempts land. A scraper is given a token like
-    /// any other Jellyfin API client.
-    /// </para>
-    /// <para>
-    /// No counter carries a username, a subject or a claim value. Every label is either a configured provider
-    /// name or a member of a closed vocabulary, which <see cref="SsoMetrics"/> holds by its signatures and
-    /// <c>SsoMetricsStore</c> backstops with a series cap.
-    /// </para>
-    /// </remarks>
+    /// <summary>Publishes the auth-path counters as Prometheus text exposition (#1139), so an operator can alert on failed logins, provisioning or provider-fetch errors; elevation-gated and read-only.</summary>
+    /// <remarks>Not anonymous, because the exposition names which providers a server has and how often logins fail, which is reconnaissance; a scraper is given a token like any other client. No counter carries a username, a subject or a claim value, which <see cref="SsoMetrics"/> holds by its signatures and a series cap backstops.</remarks>
     /// <returns>The exposition text.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Metrics")]
@@ -1938,18 +1655,8 @@ public class SSOController : ControllerBase
         StatusCode = StatusCodes.Status200OK,
     };
 
-    /// <summary>
-    /// Exports the account-link table as a portable, username-keyed document (#1126). Requires
-    /// administrator privileges. Read-only - it changes nothing.
-    /// </summary>
-    /// <remarks>
-    /// A separate download from <c>Config/Export</c> on purpose. That document is defined as carrying no
-    /// link map, and this one carries identity data - usernames paired with identity-provider subject
-    /// identifiers - so an administrator asks for it explicitly instead of receiving it as a side effect of
-    /// exporting provider settings. Keying on the username rather than the Jellyfin user id is what makes
-    /// the snapshot survive the user-database rebuild that invalidates every id the links are stored
-    /// against; a link whose id no longer resolves to an account is dropped rather than exported dangling.
-    /// </remarks>
+    /// <summary>Exports the account-link table as a portable, username-keyed document (#1126); elevation-gated and read-only.</summary>
+    /// <remarks>A separate download from <c>Config/Export</c>, because this one carries identity data an administrator asks for explicitly; keyed on the username so the snapshot survives the user-database rebuild that invalidates every id, and a link whose id no longer resolves is dropped rather than exported dangling.</remarks>
     /// <returns>The link export document.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Config/Links/Export")]
@@ -1963,18 +1670,8 @@ public class SSOController : ControllerBase
             live => LinkExport.Build(live, userId => _userManager.GetUserById(userId)?.Username)));
     }
 
-    /// <summary>
-    /// Lists every Jellyfin account that holds an SSO link, with the provider and canonical name behind
-    /// each link (#1119). Requires administrator privileges. Read-only - it changes nothing.
-    /// </summary>
-    /// <remarks>
-    /// The per-user listings (<c>saml/links/{jellyfinUserId}</c>, <c>oid/links/{jellyfinUserId}</c>) answer
-    /// only for an id the caller already has, so finding out WHICH accounts are linked meant walking the
-    /// whole Jellyfin user list one request at a time. This answers that question in one read. Unlike the
-    /// portable export it reports a link whose user id resolves to no account rather than dropping it: an
-    /// orphaned link is left behind by a deleted account and is the thing an administrator opens this to
-    /// find, and it is invisible from every other surface.
-    /// </remarks>
+    /// <summary>Lists every Jellyfin account that holds an SSO link, with the provider and canonical name behind each (#1119); elevation-gated and read-only.</summary>
+    /// <remarks>The per-user listings answer only for an id the caller already has; this answers which accounts are linked in one read, and unlike the portable export it reports an orphaned link left by a deleted account, which is invisible from every other surface.</remarks>
     /// <returns>The linked-account roster.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Links/Roster")]
@@ -1995,20 +1692,8 @@ public class SSOController : ControllerBase
                     : null)));
     }
 
-    /// <summary>
-    /// Exports the SSO linkages held for ONE Jellyfin account, across both protocols, as the same document
-    /// shape <c>Config/Links/Export</c> produces (#1091). Requires administrator privileges. Read-only - it
-    /// changes nothing.
-    /// </summary>
-    /// <remarks>
-    /// The per-subject counterpart to the whole-table export, and the reason it is a separate route rather
-    /// than a filter on the existing one: an operator answering a data-subject access request must be able
-    /// to produce that subject's linkages WITHOUT handling every other account's, which the whole-table
-    /// document would force them to do and then redact by hand. The two protocol-specific listings
-    /// (<c>saml/links/{jellyfinUserId}</c>, <c>oid/links/{jellyfinUserId}</c>) answer for one protocol each
-    /// and are unthrottled; this answers for both at once and is throttled, because it is the surface an
-    /// authenticated administrator is most likely to drive in a loop over the whole user list.
-    /// </remarks>
+    /// <summary>Exports the SSO linkages held for one Jellyfin account, across both protocols, in the shape <c>Config/Links/Export</c> produces (#1091); elevation-gated and read-only.</summary>
+    /// <remarks>A separate route so an operator answering a data-subject access request can produce that subject's linkages without handling every other account's; throttled, unlike the per-protocol listings, because it is the surface most likely to be driven in a loop over the whole user list.</remarks>
     /// <param name="jellyfinUserId">The Jellyfin user id to export the linkages of.</param>
     /// <returns>The link export document for that account, or 404 when no such account exists.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -2037,15 +1722,8 @@ public class SSOController : ControllerBase
             live => LinkExport.Build(live, userId => userId == jellyfinUserId ? username : null)));
     }
 
-    /// <summary>
-    /// Imports a configuration export document into this instance (#161). Requires administrator privileges.
-    /// The import is a fail-closed MERGE: the document is validated through the same ProviderConfigValidator
-    /// the config-page save uses, and only if the whole document is valid is it merged - atomically, through
-    /// MutateConfiguration - reusing ServerManagedFields.Preserve so a redacted (blank) secret keeps this
-    /// instance's stored secret and the server-managed links/issuers are never wiped. A provider new to this
-    /// instance arrives with a blank secret and fails its login closed until an administrator re-enters it.
-    /// The request body is size-capped so an oversized document is rejected before it is parsed.
-    /// </summary>
+    /// <summary>Imports a configuration export document into this instance (#161) as a fail-closed merge: validated whole through the same validator the config-page save uses, then merged atomically with the stored secrets and server-managed links preserved.</summary>
+    /// <remarks>A provider new to this instance arrives with a blank secret and fails its login closed until an administrator re-enters it; the request body is size-capped so an oversized document is rejected before it is parsed.</remarks>
     /// <param name="document">The export document to import.</param>
     /// <returns>No content on success, or 400 when the document is missing, unsupported, or invalid.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -2159,28 +1837,13 @@ public class SSOController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>
-    /// Restores an account-link backup (<c>Config/Links/Export</c>) onto this instance (#1129), rebinding
-    /// every link to the user id this server holds for that username today. Requires administrator
-    /// privileges. The counterpart to the export, and the half that completes a server migration: a
-    /// rebuilt user database issues new ids, so the stored links point at ids that no longer resolve and
-    /// only a username-keyed document can be restored against it.
-    /// </summary>
+    /// <summary>Restores an account-link backup onto this instance (#1129), rebinding every link to the user id this server holds for that username today, the half that completes a server migration after a rebuilt user database issued new ids.</summary>
     /// <remarks>
-    /// Fail-closed and atomic. The whole document is validated before a single link is written, and the
-    /// mutation runs inside <c>MutateConfiguration</c>, which persists nothing when the lambda throws and
-    /// rolls the change back out of the live configuration when the WRITE throws (#1521), so a rebuilt
-    /// server either gets its complete link table back or goes back to what it had stored. A
-    /// half-applied link table is the worst outcome available here, because it looks restored and is
-    /// not. The rollback reaches the running server and not the file: the write is the plugin base
-    /// class's and is not atomic, which is #1532.
-    /// <para>
-    /// The refusal that matters is the repoint: a canonical name this instance already links to a
-    /// DIFFERENT account is rejected rather than overwritten, so a crafted backup file cannot remap an
-    /// identity-provider subject onto an administrator's account. The import also never creates a Jellyfin
-    /// account, never creates a provider and never invents a user id, so it cannot bring a new principal
-    /// into existence - it only rebinds what both sides already hold.
-    /// </para>
+    /// Fail-closed and atomic: the whole document is validated before a link is written, and the mutation rolls
+    /// back on a write failure (#1521), so a rebuilt server gets its complete table back or keeps what it had; the
+    /// file itself is not written atomically (#1532). A canonical name already linked to a different account is
+    /// rejected rather than overwritten, so a crafted backup cannot remap a subject onto an administrator, and the
+    /// import never creates an account, a provider or a user id.
     /// </remarks>
     /// <param name="document">The link export document to restore.</param>
     /// <returns>What the import restored, or 400 when the document is unsupported or carries an entry this instance cannot restore.</returns>
@@ -2360,65 +2023,12 @@ public class SSOController : ControllerBase
             return NotFound();
         }
 
-        // WHETHER THE CALLER IS REVOKING THEIR OWN ACCOUNT, AND WHETHER ANYBODY WOULD BE LEFT (#1741). This
-        // route is the other way an administrator strands their own server: it removes every link the
-        // account holds, repoints it and ends its sessions in one call, and until this guard it asked
-        // nothing about who the caller was beyond elevation. The self-service unlink refuses exactly that
-        // press where no other administrator holds a way in (#1732), and an administrator meeting that
-        // refusal has an obvious next move on the settings page - Revoke on their own row - so the same
-        // reading is taken here, over the same facts, before anything is removed: the caller IS the
-        // account, read from the resolved caller and never from the route value; the account accepts no
-        // password, read from its authentication provider as the self-service route reads it; the account
-        // holds a link on an enabled provider, so the revoke TAKES a way in; and no OTHER enabled
-        // administrator holds such a link, measured with `AdministratorsWithNoWayIn`.
-        //
-        // THE LINK FACT IS WHAT KEEPS THE RULE FROM STANDING BETWEEN A STRANDED ADMINISTRATOR AND THE WAY
-        // BACK. An account whose links all sit on switched-off providers, or that holds none, cannot sign
-        // in through them as they stand, and the repoint here is the one call that puts an administrator
-        // already left on this plugin's provider id back onto a door; refusing that press would close the
-        // route out. The self-service refusal reads the same fact about the link in front of it, and the
-        // purge's guard refuses only where it would TAKE a way in. WHAT THAT READING COSTS IS WRITTEN AT
-        // THE SELF-SERVICE GUARD AND IS THE SAME HERE: a link on a switched-off provider is a way in again
-        // the moment the provider is switched back on, so an administrator alone on this plugin's provider
-        // id who switches their only provider off and then revokes their own row lands on a password that
-        // may be a minted one, with their session ended, and this rule does not stop them. It is one
-        // toggle away from the lockout the rule names, it is the reading #1732 decided for the sibling
-        // route, and it is stated rather than claimed away.
-        // It is read here in its own transaction and the removal runs in another, so a link added or a
-        // provider switched on between the two is judged on the older answer; the cost of that window is
-        // one allowed removal, the same bound the roster reading below carries, and it is named rather
-        // than claimed away.
-        //
-        // AN API KEY IS NOT THE HOLDER. The host admits one through the elevation policy with no user behind
-        // it, and `CallerIsTheHolder` answers false for it rather than treating it as unresolved, because
-        // an API key has no account to strand and reading it as the holder of every account it revoked
-        // refused the documented automation path on any server whose administrators sign in by password.
-        //
-        // THE SURVEY AND THE REMOVAL ARE TWO TRANSACTIONS, and the bound is the one the self-service route
-        // records at its own guard: two administrators revoking themselves at the same moment each see the
-        // other and both pass. The user records are the host's and are not under the configuration lock,
-        // so the survey cannot be re-derived inside the removal the way the purge re-derives its link
-        // table; the cost of that window is one allowed removal, and it is named rather than claimed away.
-        //
-        // THE DOOR IS READ FROM THE ACCOUNT AS IT STANDS, the way the self-service route reads it: an
-        // account that routes to the built-in password provider has a door this revoke does not touch, so
-        // it is not refused here any more than it is there. What the repoint LANDS on is not counted as a
-        // way in, because where the body names the built-in password provider the stored hash behind it
-        // may be one this plugin minted - a credential somebody holds or a seal nobody can open, in the
-        // same bytes.
-        //
-        // THE POPULATION THIS PARAGRAPH SAID NEITHER ROUTE REACHED IS REACHED NOW (#1733), and it is
-        // reached here without a line of its own. An account already on the password provider behind a
-        // password this plugin minted read as having a door on both routes, because nothing recorded which
-        // stored hashes the plugin wrote; the record exists, and the reading of it is inside
-        // CallerHasNoPasswordDoor, so this route gets it by handing the same delegate the self-service
-        // route hands. What is left unreached is that record's own residual: an account sealed by a plugin
-        // version that kept no record still reads as holding a password of its own.
-        //
-        // The survey is asked only where the three cheap facts already hold, so an administrator revoking
-        // somebody else's links - the act this route exists for - pays nothing for a rule that is inert on
-        // that press. A caller the host cannot resolve at all is treated as the holder, which is the
-        // direction that costs a call rather than the server.
+        // Whether the caller is revoking their own account and whether anybody would be left (#1741): this route
+        // removes every link, repoints the account and ends its sessions in one call, so it takes the self-service
+        // unlink's reading (#1732) over the same facts before anything is removed: the caller is the account, it
+        // accepts no password, the revoke takes a way in, and no other enabled administrator holds a link that can
+        // sign them in. An API key is not the holder; the survey and the removal are two transactions, so the window
+        // costs one allowed removal, and a link on a switched-off provider is a way in again once it is switched on.
         var callerIsTheHolder = await RequestHelpers.CallerIsTheHolder(_authContext, HttpContext.Request, user.Id).ConfigureAwait(false);
         if (callerIsTheHolder
             && await RequestHelpers.CallerHasNoPasswordDoor(_authContext, HttpContext.Request, _canonicalLinks.HoldsOnlyAProvisionedPassword).ConfigureAwait(false)
@@ -2488,18 +2098,8 @@ public class SSOController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Reports whether one Jellyfin account is SSO-managed (#1136), so a provisioning tool can decide in a
-    /// single call whether to offer a password field, a reset link, or neither. Requires administrator
-    /// privileges. Read-only - it changes nothing.
-    /// </summary>
-    /// <remarks>
-    /// The two facts are reported SEPARATELY because they genuinely differ, and collapsing them is the
-    /// inference this endpoint exists to remove. An account can hold a canonical link while its
-    /// <c>AuthenticationProviderId</c> still routes password attempts to core's default provider, and an
-    /// account can carry the SSO stamp with no link left on it (unregistered, or provisioned and never
-    /// linked). Only the first of the two decides whether a password can be used.
-    /// </remarks>
+    /// <summary>Reports whether one Jellyfin account is SSO-managed (#1136), so a provisioning tool can decide in one call whether to offer a password field, a reset link, or neither; elevation-gated and read-only.</summary>
+    /// <remarks>The two facts are reported separately because they differ: an account can hold a canonical link while its <c>AuthenticationProviderId</c> still routes password attempts to core, and can carry the SSO stamp with no link left on it; only the first decides whether a password can be used.</remarks>
     /// <param name="jellyfinUserId">The Jellyfin user to report on.</param>
     /// <returns>The account's SSO posture, or 404 when no such user exists.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -2536,24 +2136,8 @@ public class SSOController : ControllerBase
         _canonicalLinks.LinksByUser(ProviderMode.Oid, jellyfinUserId).Any(entry => entry.Value.Any())
         || _canonicalLinks.LinksByUser(ProviderMode.Saml, jellyfinUserId).Any(entry => entry.Value.Any());
 
-    /// <summary>
-    /// Pre-provisions a canonical link from an identity-provider subject to an existing Jellyfin account
-    /// (#1133), with no identity-provider response in the request, so an invite-born account created by a
-    /// provisioning tool is already SSO-linked before its first login. Requires administrator privileges.
-    /// </summary>
-    /// <remarks>
-    /// The self-service link write (<c>{mode}/Link/{provider}/{jellyfinUserId}</c>) redeems a live
-    /// authorize state or a signed assertion, so it structurally requires the linked human to complete a
-    /// flow at the identity provider; a tool holding only an administrator credential cannot drive it. This
-    /// route is that write without the round trip, and it differs in exactly one behaviour: a subject
-    /// already linked to a DIFFERENT account is refused with 409 and the stored link is left as it was.
-    /// Repeating the same mapping succeeds, so a retry after a lost response is safe.
-    /// <para>
-    /// The link is written unstamped by the OpenID issuer binding (#186), like every other administrator
-    /// link: no id_token was redeemed here, so there is no issuer to bind to, and the binding is taken on
-    /// the identity's first real login instead.
-    /// </para>
-    /// </remarks>
+    /// <summary>Pre-provisions a canonical link from an identity-provider subject to an existing Jellyfin account (#1133), with no identity-provider response in the request, so an invite-born account is SSO-linked before its first login; elevation-gated.</summary>
+    /// <remarks>The self-service link write redeems a live authorize state or a signed assertion, so a tool holding only an administrator credential cannot drive it; this is that write without the round trip, differing in one behaviour: a subject already linked to a different account is refused with 409. Repeating the same mapping succeeds, and the link is written unstamped by the issuer binding (#186), taken on the first real login.</remarks>
     /// <param name="mode">The mode of the function; SAML or OID.</param>
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="jellyfinUserId">The existing Jellyfin account the identity is linked to.</param>
@@ -2600,21 +2184,8 @@ public class SSOController : ControllerBase
         return FlowResponses.MapCanonicalLinkWrite(result);
     }
 
-    /// <summary>
-    /// Approves an account this plugin provisioned disabled and awaiting an administrator (#1529): enables
-    /// that one account and changes nothing else. Requires administrator privileges.
-    /// </summary>
-    /// <remarks>
-    /// It acts only on this plugin's own RECORD of having provisioned the account inert, never on the
-    /// account's disabled flag. The flag is a Jellyfin permission and does not say who set it or why, so a
-    /// page that read it would offer to undo an administrator's sanction from a page about SSO. An identity
-    /// this plugin did not provision inert is a 404 here, whatever state its account is in.
-    /// <para>
-    /// The canonical name travels in the BODY rather than in the route, like the pre-provision write beside
-    /// it: an OpenID subject or a SAML NameID may contain a slash, and a route segment would refuse exactly
-    /// those identities.
-    /// </para>
-    /// </remarks>
+    /// <summary>Approves an account this plugin provisioned disabled and awaiting an administrator (#1529): enables that one account and changes nothing else; elevation-gated.</summary>
+    /// <remarks>It acts only on this plugin's own record of having provisioned the account inert, never on the disabled flag, which does not say who set it or why; an identity this plugin did not provision inert is a 404. The canonical name travels in the body, because a subject or NameID may contain a slash.</remarks>
     /// <param name="mode">The mode of the function; SAML or OID.</param>
     /// <param name="provider">The provider the account was provisioned from.</param>
     /// <param name="canonicalName">The provider-side identity key: the OpenID stable subject claim, or the SAML NameID.</param>
@@ -2698,15 +2269,8 @@ public class SSOController : ControllerBase
         return Ok();
     }
 
-    /// <summary>
-    /// Sets or changes the designated break-glass administrator (#165) - the account SSO-only mode never
-    /// repoints. Requires administrator privileges. Fail-closed: the target must be an existing, enabled
-    /// administrator that still has a password (the exemption can never point at a non-admin, so it cannot
-    /// grant admin - T-E1); an unqualified target is refused and nothing changes. To change the designation
-    /// while the mode is on, disable it first (every other admin has already been repointed off the password
-    /// provider, so no other account can satisfy the "usable password" guard), then re-designate and re-enable.
-    /// Audited.
-    /// </summary>
+    /// <summary>Sets or changes the designated break-glass administrator (#165), the account SSO-only mode never repoints; elevation-gated and audited.</summary>
+    /// <remarks>Fail-closed: the target must be an existing, enabled administrator that still has a password, so the exemption can never point at a non-admin and cannot grant admin; to change the designation while the mode is on, disable it first, because every other admin has already been repointed off the password provider.</remarks>
     /// <param name="username">The administrator account to designate as the break-glass admin.</param>
     /// <returns>Ok on success, or 400 with the refusal reason when the target does not qualify.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -2816,25 +2380,11 @@ public class SSOController : ControllerBase
         // here so the check sits in the same transaction as the removal it gates.
         var callerIsAdministrator = await RequestHelpers.IsAdministrator(_authContext, HttpContext.Request).ConfigureAwait(false);
 
-        // WHETHER THE CALLER'S ACCOUNT HAS A PASSWORD DOOR AT ALL (#1720), for the holder's own last-link
-        // removal. Read at the boundary beside the administrator fact and from the same resolved account,
-        // because the link service holds no user manager and must not grow one to answer a question about
-        // a Jellyfin user. The stamp test is the one the SSO-only feature, the login-path re-assertion and
-        // the managed-status report already use, so this refusal and the report an administrator reads
-        // cannot disagree about what the STAMP means.
-        //
-        // THEY AGREE ABOUT THE PASSWORD AGAIN SINCE #1746, and they disagreed for the length of #1733. This
-        // rule discounts a password this plugin minted, and between the two changes the SSO-only activation
-        // guard still counted any non-empty stored password as a way in - so on a server whose provider
-        // DefaultProvider names the built-in password provider, an SSO-provisioned account read here as
-        // having no door and there as having one. #1746 took that reading into the guard, in the direction
-        // that refuses more rather than fewer: SsoOnlyLoginService now asks the same question, so a
-        // break-glass administrator whose only password is a minted one no longer proves a recovery door.
-        //
-        // The second arm (#1733) is handed in as a reading of the link store rather than reached for inside
-        // the helper: the helper's subject is the request, the minted-password record belongs to the link
-        // service, and keeping the two apart is what lets this boundary be tested with either answer. The
-        // delegate is invoked last, so an account that already failed the provider-id test never pays it.
+        // Whether the caller's account has a password door at all (#1720), for the holder's own last-link removal,
+        // read at the boundary from the same resolved account because the link service holds no user manager. The
+        // stamp test is the one the SSO-only feature and the managed-status report use, and since #1746 the
+        // activation guard discounts a minted password too, so the two agree. The minted-password reading (#1733)
+        // is handed in as a delegate, invoked last, so the boundary can be tested with either answer.
         var passwordLoginDisabled = await RequestHelpers.CallerHasNoPasswordDoor(
             _authContext,
             HttpContext.Request,
@@ -2858,20 +2408,11 @@ public class SSOController : ControllerBase
 
         var removal = _canonicalLinks.TryRemoveLink(parsed, provider, canonicalName, jellyfinUserId, callerIsAdministrator, passwordLoginDisabled, callerIsTheHolder, anotherAdministratorKeepsAWayIn);
 
-        // Terminate the user's already-issued tokens ONLY when this unlink removed their LAST canonical SSO
-        // link (#468) - the terminal "can no longer SSO in at all" state that matches the hard-lockdown
-        // posture of Unregister (#440). Removing the links only fails FUTURE logins closed; a token minted
-        // before the unlink stays valid until it expires, so a security-motivated unlink of a compromised
-        // identity must also kill live sessions. A user who unlinks a SECONDARY provider while still holding
-        // another link keeps a working SSO identity, so revoking there would be a self-inflicted mass-logout
-        // with no security gain - the availability-preserving choice is to revoke only at the last link
-        // (UserRetainsAnyLink evaluated atomically with the removal). Scoped strictly to this one user id;
-        // null revokes all of their tokens (including the caller's own, when an admin unlinks their own last
-        // link - the durable removal above is why that is safe). Runs AFTER the removal is persisted, so a
-        // revoke that throws leaves the unlink already complete rather than half-done. Per-provider disable
-        // deliberately does NOT revoke: Jellyfin attributes no live session to the originating SSO provider
-        // (RevokeUserTokens is per user id, not per provider), so revoking on disable would be an unscoped
-        // mass-logout of every linked user's password and other-provider sessions too (#468).
+        // Tokens are revoked only when this unlink removed the last canonical link (#468), the state matching
+        // Unregister's hard lockdown, because removing links only fails future logins closed; a user unlinking a
+        // secondary provider keeps a working identity, so revoking there would be a self-inflicted mass-logout.
+        // Scoped to this one user id, after the removal is persisted; per-provider disable deliberately does not
+        // revoke, because Jellyfin attributes no live session to its originating provider.
         if (removal is { Result: CanonicalLinkRemoveResult.Removed, UserRetainsAnyLink: false })
         {
             await _sessionManager.RevokeUserTokens(jellyfinUserId, null).ConfigureAwait(false);
@@ -2893,40 +2434,12 @@ public class SSOController : ControllerBase
         };
     }
 
-    // The holder's own last-link removal, refused because it would leave them unable to sign in by any
-    // means (#1720). The message names the three facts the decision asked for - that this is their last
-    // link, that the server allows them no password, and who can help - because a bare 403 on a button
-    // the page offered is read as a broken page, and the next thing a user does about a broken page is
-    // press it again. It names no provider and no subject: the caller is the holder and already knows
-    // which link they picked, and the sentence is about the account rather than about the identity.
-    //
-    // AUDITED AS A REFUSAL, so the operator's log carries the moment a user was stopped from locking
-    // themselves out, the way a blocked bulk unlink and a blocked SSO-only activation already do. The
-    // user id is the same value the line beside it logs on the success path.
-    //
-    // AN ADMINISTRATOR REMOVING THEIR OWN GETS THE OTHER SENTENCE (#1732), because the first one sends the
-    // reader to an administrator and in this case the reader IS the last one. It keeps the opening clause
-    // the page matches on, so a build whose page has not been reloaded still recognises the refusal, and
-    // adds the fact that separates the two, which is both what the caller has to act on and what the page
-    // keys its own sentence off.
-    //
-    // THE SENTENCE NAMES THE ACCOUNT AND NOT THE SERVER SINCE #1733, and the wording moved because the
-    // population did. It read "this server does not accept a password for your account", which is false for
-    // the reader this change added: their account IS on the password provider, and the password behind it is
-    // one this plugin minted and nobody was ever shown. The remedy moved for the same reason - "switch your
-    // account back to password sign-in" is a no-op for that reader, and performed through this plugin's own
-    // Unregister route it repoints without setting a password and completes the stranding. The sentence now
-    // names the state both populations are in and the remedy that ends it for both: a password SET on the
-    // account, and the account routed where that password is read.
-    //
-    // AND IT SAYS WHAT WAS MEASURED RATHER THAN WHAT WAS CONCLUDED, which the review of this change asked
-    // for. The reading behind it counts a link on an enabled provider and never counts a stored password,
-    // for the reason written at `AdministratorsWithNoWayIn`, so on the ordinary two-administrator server -
-    // a legacy owner account with a real password beside an SSO-provisioned administrator - "nobody else
-    // can sign in" is simply false. An operator who believed it might switch SSO-only off or mint an
-    // account for a server that never needed one. The sentence therefore names the SSO link, and it names
-    // the one-call remedy the earlier wording left out: another administrator performs the removal, which
-    // is exempt because they are not the holder.
+    // The holder's own last-link removal, refused because it would leave them unable to sign in (#1720), audited as
+    // a refusal. The message names the three facts the decision asked for and no provider or subject, because a
+    // bare 403 on an offered button reads as a broken page; an administrator removing their own gets the other
+    // sentence (#1732), keeping the opening clause the page matches on. Since #1733 it names the account rather
+    // than the server and the remedy that ends the state for both populations, a password set on the account, and
+    // it says what was measured, a link on an enabled provider, rather than that nobody else can sign in.
     private ObjectResult RefuseStrandingSelfUnlink(Guid jellyfinUserId, bool callerIsTheLastAdministrator)
     {
         SsoAudit.SelfUnlinkRefusedWouldStrand(_logger, jellyfinUserId);
@@ -2936,21 +2449,10 @@ public class SSOController : ControllerBase
         return StatusCode(StatusCodes.Status403Forbidden, sentence);
     }
 
-    // AUDITED AS A REFUSAL, like the self-service refusal above, so the operator's log carries the moment an
-    // administrator was stopped from revoking their own last way in. The sentence says what was measured
-    // rather than what was concluded - no other administrator holds an SSO LINK that can sign them in - for
-    // the reason the sentence above gives, and it names the two remedies that exist: another administrator
-    // performs the revoke, which is not refused because they are not the holder, or another administrator
-    // account is linked first. "Link another provider first" is deliberately NOT offered here, because this
-    // route removes every link the account holds and a second one would go with the first.
-    //
-    // A THIRD REMEDY IS NAMED SINCE #1733, because the population that reaches this refusal grew and neither
-    // of the first two exists for it. On a one-owner server there is no other administrator to ask and no
-    // second administrator account to link, and the owner's account now reaches this refusal where its only
-    // password is one this plugin minted. Setting a real password on an administrator account ends it: the
-    // recorded digest stops matching the moment anything else writes that password, by design, so the door
-    // the refusal is measuring opens. It is named as the dashboard's own act rather than as anything this
-    // plugin does, because this plugin sets no password anybody is shown.
+    // Audited as a refusal, like the self-service refusal above. The sentence says what was measured, no other
+    // administrator holds an SSO link that can sign them in, and names the remedies: another administrator performs
+    // the revoke or is linked first, and since #1733 a real password set on the account, which ends the refusal
+    // because the recorded digest stops matching; linking another provider is not offered, because this route removes every link.
     private ObjectResult RefuseStrandingUnregister(Guid jellyfinUserId)
     {
         SsoAudit.UnregisterRefusedWouldStrandServer(_logger, jellyfinUserId);
@@ -2959,25 +2461,11 @@ public class SSOController : ControllerBase
             "This would remove every SSO link that can sign you in, and no other administrator on this server holds an SSO link that can sign them in either, so it could leave this server with no administrator able to reach it. Ask another administrator to revoke your SSO links for you, link another administrator account to a provider first and then revoke your own, or set a password on an administrator account from the Jellyfin dashboard - a password this server generated for an account is not one anybody can sign in with, so setting one is what gives this server a way back in.");
     }
 
-    // Whether an administrator OTHER than this one can still sign in (#1732, and the administrator revoke
-    // since #1741), measured with the same
-    // reading the per-provider bulk unlink's mass-lockout guard takes - a link on an enabled provider, and
-    // a stored password never counted, for the reason written at `AdministratorsWithNoWayIn`. The
-    // subtraction is what makes it one question rather than two: the set is every other enabled
-    // administrator, and the answer names those with nothing, so anybody left over is somebody who can
-    // undo this.
-    //
-    // A SERVER THAT CANNOT BE SURVEYED ANSWERS NO. `AllUsers` binds whichever accessor the loaded Jellyfin
-    // exposes and throws where it exposes neither, and reading that as an empty roster would turn the one
-    // build this plugin cannot survey into the one build where the guard is off. Refusing a removal costs a
-    // call; the other direction costs the server.
-    //
-    // CAUGHT BROADLY BECAUSE THE THROW ARRIVES WRAPPED, and a narrower catch was the review's finding on
-    // this method. The accessor is reached through `MethodInfo.Invoke` / `PropertyInfo.GetValue`, which
-    // surface anything the host's own user store raises as `TargetInvocationException` - so a catch naming
-    // only the accessor-missing exception left a transient host failure escaping as a 500 while this
-    // comment claimed the answer was no. The sweep in `TryEnableAsync` catches the same surface the same
-    // way and for the same reason.
+    // Whether an administrator other than this one can still sign in (#1732, #1741), measured as the bulk unlink's
+    // guard measures it: a link on an enabled provider, never a stored password, and the subtraction makes it one
+    // question. A server that cannot be surveyed answers no, because reading a missing accessor as an empty roster
+    // would switch the guard off on the one build it cannot survey; the throw arrives wrapped in
+    // TargetInvocationException, so the catch is broad, as the sweep in TryEnableAsync catches the same surface.
     private bool AnotherAdministratorKeepsAWayIn(Guid caller)
     {
         try
@@ -2994,30 +2482,11 @@ public class SSOController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Removes every canonical link one provider holds. Requires administrator privileges.
-    /// </summary>
+    /// <summary>Removes every canonical link one provider holds, the way back from a link import that restored the wrong document (#1519); elevation-gated.</summary>
     /// <remarks>
-    /// THE WAY BACK FROM A LINK IMPORT THAT RESTORED THE WRONG DOCUMENT (#1519). The import merges - it adds
-    /// and overwrites and never removes - so re-importing the right file after the wrong one does not undo
-    /// it: the correct document is refused whole by the repoint guard, and one leftover entry blocks every
-    /// other link in it. An unlink of everything one provider holds is the smallest true way back. It is not
-    /// a replace mode on the import, which would be a second destructive path with the same blast radius as
-    /// the mistake it answers, and it undoes nothing else: no Jellyfin account, no permission and no
-    /// password is touched, so an operator who runs this by mistake has removed links and nothing else.
-    /// <para>
-    /// It is also the first primitive here that can take every account on a server off SSO in one call, so
-    /// the confirmation is the SERVER's rather than a dialog's. The caller sends the count it was shown, and
-    /// four preconditions decide the run beside the elevation this route already requires: the provider must
-    /// be known, the count must equal what the table holds when the removal takes the lock, the table must
-    /// not have moved while the accounts were being judged, and the run must not leave an administrator
-    /// account with no way to sign in. A browser dialog protects nobody who calls the API.
-    /// </para>
-    /// <para>
-    /// The accounts whose LAST canonical link this removes are signed out, and only those - exactly the
-    /// scope the single unlink revokes at (#468). An account that keeps a link on another provider still has
-    /// a working SSO identity, so revoking it would be an unscoped mass-logout with no security gain.
-    /// </para>
+    /// The import merges and never removes, so this is the smallest true way back, touching no account, permission
+    /// or password. It can take every account off SSO in one call, so the caller sends the count it was shown, and
+    /// the run refuses an unknown provider, a count that differs at the lock, a table that moved, or an administrator left with no way in; only accounts whose last link this removes are signed out (#468).
     /// </remarks>
     /// <param name="mode">The mode of the function; SAML or OID.</param>
     /// <param name="provider">The provider whose links are all removed.</param>
@@ -3135,22 +2604,11 @@ public class SSOController : ControllerBase
 
         SsoAudit.ProviderLinksPurged(_logger, actor, protocol, provider, outcome.RemovedLinks, outcome.RevokedUserIds.Count, signedOut);
 
-        // The gate refuses a run that would strand an administrator, and it judges accounts read before the
-        // removal took the lock. An account can lose its password door in that window without any link
-        // moving - an ordinary SSO login on a provider whose DefaultProvider is the SSO provider id repoints
-        // it off the password provider - and no link-table comparison can see that. So the same question is
-        // asked once more against what is true now. It cannot undo the removal; it turns a silent lockout
-        // into a line an operator can act on, which is the difference between a bad night and a rebuild.
-        // EVERY account the guard judged, not the subset this run signed out. The two sets are not the
-        // same: an account keeping a link on a DISABLED provider is not signed out - the revoke scope is
-        // the any-link reading (#468) - and is exactly the account this net exists for, because a disabled
-        // provider is where a way in stops being one. Feeding it the revoked subset would leave the case
-        // the guard was rewritten for as the one case the net cannot see.
-        // And only where the run actually TOOK something. On a provider that was already switched off,
-        // its links were not a way in before the run either, so an administrator with none afterwards had
-        // none before - reporting that as a lockout this run caused would be a false alarm, printed on
-        // exactly the disable-then-clean-up workflow the route exists for, in a line whose whole value is
-        // that it means a real race happened.
+        // The gate judged accounts read before the removal took the lock, and an account can lose its password door
+        // in that window without any link moving, so the same question is asked once more against what is true
+        // now; it cannot undo the removal, but it turns a silent lockout into a line an operator can act on. Every
+        // account the guard judged, because one keeping a link on a disabled provider is not signed out (#468) yet
+        // is exactly the case this net exists for, and only where the run took something, so the disable-then-clean-up workflow raises no false alarm.
         var doorless = outcome.TargetWasEnabled
             ? _canonicalLinks.AdministratorsWithNoWayIn(doors)
             : Array.Empty<string>();
@@ -3220,53 +2678,26 @@ public class SSOController : ControllerBase
         return copy;
     }
 
-    /// <summary>
-    /// Validate a saml link request and create the link if it is valid.
-    /// </summary>
+    /// <summary>Validates a SAML link request and creates the link if it is valid; the redeem lives on the flow service and the controller keeps the caller-authz guard (#160).</summary>
     /// <param name="provider">The provider to authenticate against.</param>
-    /// <param name="jellyfinUserId">
-    ///   The ID of the account to be linked to the provider.
-    ///   Must be performed by this user, or an admin.
-    /// </param>
+    /// <param name="jellyfinUserId">The ID of the account to be linked to the provider; must be performed by this user, or an admin.</param>
     /// <param name="response">The data passed to the client to ensure it is the right one.</param>
     /// <returns>JSON for the client to populate information with.</returns>
-    // The SAML manual-link redeem (validate the signed response, consume its one-time-use assertion id,
-    // create the link on the NameID) lives on the flow service; the controller keeps the caller-authz
-    // guard (AddCanonicalLink) and hands the request in (#160). The former [Consumes]/[Produces] on this
-    // private helper were inert (AddCanonicalLink owns the content negotiation, #393).
     private ActionResult SamlLink(string provider, Guid jellyfinUserId, AuthResponse response) =>
         _saml.Link(provider, jellyfinUserId, response, Request);
 
-    /// <summary>
-    /// Validate an OIDC link request and create the link if it is valid.
-    /// </summary>
+    /// <summary>Validates an OIDC link request and creates the link if it is valid; the redeem lives on the flow service and the controller keeps the caller-authz guard and hands the binding cookie in (#160).</summary>
     /// <param name="provider">The provider to authenticate against.</param>
-    /// <param name="jellyfinUserId">
-    ///   The ID of the account to be linked to the provider.
-    ///   Must be performed by this user, or an admin.
-    /// </param>
+    /// <param name="jellyfinUserId">The ID of the account to be linked to the provider; must be performed by this user, or an admin.</param>
     /// <param name="response">The data passed to the client to ensure it is the right one.</param>
     /// <returns>JSON for the client to populate information with.</returns>
-    // The OID link redeem (which consumes the flow service's authorize state) lives on the flow service;
-    // the controller keeps the caller-authz guard (AddCanonicalLink) and hands the binding cookie in. Both
-    // flow services now map the write result through the shared FlowResponses home (#160). The former
-    // [Consumes]/[Produces] were inert on this private helper (#393).
     private ActionResult OidLink(string provider, Guid jellyfinUserId, AuthResponse response) =>
         _oidc.Link(provider, jellyfinUserId, response, Request.Cookies[AuthorizeStateBinding.CookieName]);
 
-    // Parse the {mode} route token once, at the HTTP boundary (#369): every link endpoint routes its raw
-    // route string through here, so the protocol is validated in exactly one place and the typed
-    // ProviderMode is threaded inward - no inner layer re-parses or re-compares the string. Fail closed: an
-    // unknown token refuses, never defaulting to a protocol.
-    //
-    // The refusal is a mapped 400 rather than a throw (#1399). Fail-closed is unchanged; what changed is who
-    // decides the wire behaviour. A throw left the status and the body to the host's exception middleware,
-    // making this the one input on this surface whose answer is not decided in this repository, while every
-    // neighbouring refusal renders a chosen status with a chosen body (400 empty key, 400 unknown provider,
-    // 404 unknown user id, 409 subject linked elsewhere). A route token typed wrong in a provisioning tool's
-    // configuration is the ordinary way this input arrives, so an integrator needs a status they can depend
-    // on. The body names the two accepted tokens and never echoes the supplied one, which would reflect
-    // caller-controlled text into the response.
+    // The {mode} route token is parsed once at the HTTP boundary (#369), so the protocol is validated in one place
+    // and the typed ProviderMode is threaded inward; an unknown token refuses rather than defaulting. A mapped 400
+    // rather than a throw (#1399), so the status an integrator depends on is decided here rather than by the host's
+    // exception middleware, and the body names the two accepted tokens without echoing the supplied one.
     private static BadRequestObjectResult? RefuseUnknownMode(string mode, out ProviderMode parsed) =>
         ProviderModeParser.TryParse(mode, out parsed) ? null : new BadRequestObjectResult(UnknownModeMessage);
 
@@ -3320,42 +2751,12 @@ public class SSOController : ControllerBase
         SsoAudit.OpenIdLogoutRefused(_logger, provider, reasonCode);
     }
 
-    // What the bare [Authorize] attribute used to answer, spelled out because the attribute had to come off
-    // OidLogout for the ticket path to exist (#1768). THIS BLOCK STOOD INSIDE THE COMMENT ABOVE until it was
-    // moved here, which left the wrapper undocumented and opened this paragraph mid-sentence about the rate
-    // limiter - a helper a reviewer of that change is sent to, describing a different helper. Two readings:
-    //
-    //   * A resolved User. Every caller of this helper goes on to act on a user, and a token that resolved
-    //     to none names nobody. This SUBSUMES the user-id test the route used to make, rather than sitting
-    //     beside it: the host derives the id FROM the user - `UserId => User?.Id ?? Guid.Empty`, read off
-    //     the decompiled MediaBrowser.Controller.Net.AuthorizationInfo - so once a User has matched, an
-    //     empty id would mean a user entity with an empty Id, which is not a state that exists. A second
-    //     condition testing for it would be dead weight presented as an independent reading.
-    //   * IsDisabled, the condition Jellyfin's default policy enforces that a user-id test misses: a
-    //     disabled account's token keeps a non-empty user id until it is revoked, so testing the id alone
-    //     admitted a caller the attribute refused. It is read off the resolved user rather than looked up
-    //     again, so this makes no second query and cannot disagree with the id beside it.
-    //
-    // WHAT REQUIRING A USER ALREADY DOES TO THE api_key FORM, because the paragraph below used to argue for
-    // that form without noticing. A Jellyfin SERVER api key names no user: the decompiled AuthorizationInfo
-    // carries IsApiKey and User as independent members and derives UserId from User alone, so such a caller
-    // reaches this helper with User null and is refused here. What survives of the documented fallback is
-    // the other spelling - a user's own access token presented as the api_key query parameter - which
-    // resolves a User and passes. That narrowing is deliberate and fail-closed, and it is stated in
-    // SECURITY.md and the CHANGELOG rather than left for an integrator to discover.
-    //
-    // WHAT IS DELIBERATELY NOT READ, AND WHY. AuthorizationInfo exposes IsAuthenticated, the host's own
-    // answer about the token, and requiring it here would be strictly more fail-closed. It is not required,
-    // and the reason is narrower than it was: what IsAuthenticated reads for an api_key request is a fact
-    // about the host this tree cannot observe - Jellyfin.Api is not in this project's package graph and the
-    // test fixture substitutes its own authentication scheme - so requiring it would rest a refusal on an
-    // unmeasurable value. THE REGRESSION THE OLD SENTENCE NAMED CANNOT OCCUR: it said requiring the flag
-    // might break the api_key fallback, and the User requirement one line down already refuses the shape it
-    // was worried about. What the decline actually admits is a host state where User is populated while the
-    // token is not authenticated, with nothing here standing over it.
-    //
-    // So this is NOT asserted to be the whole of the host's policy - the residual is stated at OidLogout -
-    // and it is the part a reading of this tree can establish.
+    // What the bare [Authorize] attribute used to answer, spelled out because it had to come off OidLogout for the
+    // ticket path to exist (#1768): a resolved User, which subsumes the user-id test because the host derives the
+    // id from the user, and IsDisabled, the condition the default policy enforces that an id test misses. A server
+    // API key names no user and is refused here, a deliberate narrowing stated in SECURITY.md; IsAuthenticated is
+    // deliberately not required, because what it reads for an api_key request is a host fact this tree cannot
+    // observe, and the residual is stated at OidLogout rather than claimed as the whole of the host's policy.
     private static bool IsAuthenticatedCaller(AuthorizationInfo auth) =>
         auth is { User: { } user } && !user.HasPermission(PermissionKind.IsDisabled);
 
