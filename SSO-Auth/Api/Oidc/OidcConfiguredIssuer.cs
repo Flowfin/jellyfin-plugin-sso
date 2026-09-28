@@ -8,37 +8,14 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Answers whether an issuer offered from OUTSIDE a login - today only by the account-link import (#1518) -
-/// is one the provider as configured could actually issue, so a binding is never stored that no login could
-/// ever satisfy.
-/// </summary>
+/// <summary>Answers whether an issuer offered from outside a login, today only by the account-link import (#1518), is one the provider as configured could issue, so a binding is never stored that no login could satisfy.</summary>
 /// <remarks>
-/// <para>
-/// The stored binding is the id_token's <c>iss</c>. Two library rules chain into what a provider is
-/// configured to issue, and this type runs the SAME two rather than a second copy of them: the id_token is
-/// validated with <c>ValidIssuer</c> set to the discovery document's issuer
-/// (<c>OidcSignatureKeys.BuildValidationParameters</c>), and the discovery document's issuer is itself
-/// validated against the configured authority by <c>DiscoveryPolicy.AuthorityValidationStrategy</c>, which
-/// is where the trailing-slash tolerance lives. So the issuer a login can ever stamp is one that is
-/// authority-valid against <see cref="OidConfig.OidEndpoint"/>, and an entry offering any other value binds
-/// a link whose every future login is refused for a mismatch.
-/// </para>
-/// <para>
-/// Under <c>DoNotValidateIssuerName</c> the answer is YES for every value, and that is an entailment rather
-/// than a relaxation. The toggle sets <c>ValidateIssuer</c> to false in the id_token parameters
-/// (<c>OidcSignatureKeys.BuildValidationParameters</c>), so a login on that provider accepts a JWKS-signed
-/// token carrying ANY <c>iss</c> and can therefore stamp any issuer at all. A check asking whether a login
-/// could stamp this value has exactly one honest answer there, and it is not a hole this type is choosing
-/// to leave open.
-/// </para>
-/// <para>
-/// WHAT THAT DOES NOT MAKE SAFE, and the operator documentation says it in the same breath: the binding
-/// comparison itself is unconditional. <c>CanonicalLinkService.ClassifyIssuer</c> never reads the toggle, so
-/// a stored issuer that a later id_token does not match refuses that link forever on such a provider too.
-/// Turning the toggle on to get past this refusal converts a loud one into a silent permanent lockout AND
-/// switches issuer validation off on the login path, which is why no page here offers it as a way through.
-/// </para>
+/// It runs the same two library rules a login runs rather than a copy of them: the id_token issuer is validated
+/// against the discovery issuer, and the discovery issuer against the configured authority, where the
+/// trailing-slash tolerance lives. Under <c>DoNotValidateIssuerName</c> the answer is yes for every value, because
+/// a login on that provider accepts any <c>iss</c> and can stamp any issuer; the binding comparison itself stays
+/// unconditional, so the toggle is no way past a stored mismatch and no page offers it as one:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#identity-binding-anti-account-takeover"/>.
 /// </remarks>
 internal static class OidcConfiguredIssuer
 {

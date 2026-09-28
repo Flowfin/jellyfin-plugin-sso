@@ -13,18 +13,13 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Validates an inbound OpenID Connect back-channel <c>logout_token</c> (OIDC Back-Channel Logout 1.0
-/// §2.4 - §2.6, #962). The endpoint that calls this is ANONYMOUS - the token's signature is the only
-/// authenticator - so every §2.6 rule is fail-closed and each maps to a fixed reason code (never
-/// request-derived text, so a rejection leaves an audit trail without a subject-identifier oracle,
-/// mirroring the SAML inbound-logout validator). Signature/JWKS/algorithm verification goes through the
-/// SAME <see cref="OidcSignatureKeys"/> basis the id_token validator uses - there is no second, laxer
-/// verification path, and this class derives that basis from the provider's options itself rather than
-/// accepting one, so no caller holds the object between its construction and the verification (#1176). On
-/// success it yields the (sub, sid) pair the revocation lookup keys on; the validator itself revokes
-/// nothing.
-/// </summary>
+/// <summary>Validates an inbound OpenID Connect back-channel <c>logout_token</c> (Back-Channel Logout 1.0 §2.4 to §2.6, #962) and yields the (sub, sid) pair the revocation lookup keys on; it revokes nothing.</summary>
+/// <remarks>
+/// The endpoint is anonymous and the signature is the only authenticator, so every rule is fail-closed and each
+/// maps to a fixed reason code rather than request-derived text, leaving an audit trail without a
+/// subject-identifier oracle. Verification goes through the same <see cref="OidcSignatureKeys"/> basis the id_token
+/// validator uses, derived from the provider's options here so no caller holds the object before the verification (#1176).
+/// </remarks>
 internal sealed class OidcLogoutTokenValidator
 {
     // The logout event the events claim MUST contain (§2.4). A member-presence check, not equality on the
@@ -180,20 +175,10 @@ internal sealed class OidcLogoutTokenValidator
         }
     }
 
-    // The fixed code for a handler refusal, chosen from the exception TYPE and never from its message: an
-    // IdentityModel message can embed claim values, and this trail must stay free of anything derived from
-    // the token's subject. Every arm is a const, so no request byte can reach the audit line.
-    //
-    // Which exception each shape actually produces was measured against this basis rather than inferred from
-    // the type names, and the measurement is why several shapes share one arm: alg: none, a case-variant
-    // alg, an HS256 token keyed with the advertised public key, a stripped signature and a foreign key
-    // signing under a trusted kid all arrive as SecurityTokenInvalidSignatureException. The first three are
-    // separated ahead of the handler by the algorithm gate above; the last two are not separable here, and
-    // calling both signature_invalid is the honest answer rather than a guess.
-    //
-    // Anything unmapped keeps the old collapsed code, which is the fail-closed default: a library version
-    // introducing a new exception type reports a refusal this plugin has not classified, rather than
-    // reporting one it has.
+    // The code is chosen from the exception type and never from its message, which can embed claim values, and every
+    // arm is a const so no request byte reaches the audit line. Several shapes share one arm because they were
+    // measured to arrive as one exception type; anything unmapped keeps the collapsed code, so a new library
+    // exception reports a refusal this plugin has not classified rather than one it has.
     private static string ReasonFor(Exception? exception) => exception switch
     {
         SecurityTokenMalformedException => RejectReason.Malformed,
@@ -209,19 +194,10 @@ internal sealed class OidcLogoutTokenValidator
         _ => RejectReason.Invalid,
     };
 
-    // The events claim is a JSON object; presence of the back-channel-logout member is what makes this a
-    // logout_token. Read it as a JsonElement and require the member - a claim that is absent, not an object,
-    // or an object without the member is rejected. Any parse failure is a fail-closed "not a logout_token".
-    //
-    // The member is looked up through the walk that cannot throw rather than through
-    // JsonElement.TryGetProperty, which is what the sentence above claimed and did not do (#1349). That
-    // method unescapes any candidate member name long enough to still match after unescaping, and an
-    // unpaired surrogate escape has no completion, so the decoder raised InvalidOperationException out of
-    // this method - past ValidateAsync, which has no catch, and past the endpoint, which does not cover this
-    // line. The refusal that was owed took the uniform 400 and the audited reason code with it. Skipping the
-    // undecodable name rather than abandoning the claim is the same load-bearing half #1340 settled for the
-    // discovery readers: a name that does not decode cannot equal this ASCII event URI, so nothing that
-    // could have matched is lost, and a token carrying the real member beside one is still recognised.
+    // The events claim is a JSON object and presence of the back-channel-logout member is what makes this a
+    // logout_token; an absent, non-object or memberless claim and any parse failure are a fail-closed refusal. The
+    // member is read through the walk that cannot throw (#1349), so an undecodable name beside the real one is
+    // skipped rather than abandoning the claim past a method with no catch.
     private static bool HasBackChannelLogoutEvent(JsonWebToken token)
     {
         if (!token.TryGetPayloadValue<JsonElement>("events", out var events))

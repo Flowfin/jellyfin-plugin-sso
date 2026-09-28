@@ -3,20 +3,12 @@
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Composes the OIDC redirect_uri this service provider hands to identity providers. The string is
-/// validated byte-for-byte on the other side (RFC 6749 section 4.1.3 redirect_uri equality), so every
-/// method concatenates exactly what the previously scattered call sites produced: lowercase "/sso/", the
-/// "OID" segment, the route-spelling variant, and the route-decoded provider name appended raw - never
-/// re-encoded, since encoding would change the bytes identity providers already have registered.
-/// (Split out of the kernel SsoUrlBuilder in #790 so the OIDC half lives in the Oidc module.)
-/// </summary>
+/// <summary>Composes the OIDC redirect_uri this service provider hands to identity providers, byte for byte what the call sites produced before (#790).</summary>
 /// <remarks>
-/// This type only EMITS a redirect_uri; it never compares one, and it is not where a redirect-URI
-/// variant would be refused. That comparison is the authorization server's, and the two places this
-/// plugin compares a URL it published against one arriving from outside are
-/// <see cref="OidcLogout.IsAllowedPostLogoutRedirect"/> and
-/// <see cref="Saml.SamlRecipientValidator.IsBound"/> (#1180).
+/// The string is compared for equality on the other side (RFC 6749 section 4.1.3), so the route-decoded provider
+/// name is appended raw and never re-encoded. This type only emits a redirect_uri and never compares one; the two
+/// places this plugin compares a published URL against an arriving one are <see cref="OidcLogout.IsAllowedPostLogoutRedirect"/>
+/// and <see cref="Saml.SamlRecipientValidator.IsBound"/> (#1180).
 /// </remarks>
 internal static class OidcRedirectUriBuilder
 {

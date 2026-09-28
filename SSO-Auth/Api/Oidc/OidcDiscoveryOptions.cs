@@ -8,17 +8,12 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Builds the <see cref="OidcClientOptions"/> Authority and discovery policy - <c>RequireHttps</c>,
-/// <c>ValidateIssuerName</c>, <c>ValidateEndpoints</c>, and the additional base address for providers whose
-/// endpoints sit off the authority - from a provider config, in ONE place. Both the login path
-/// (<see cref="Flows.OidcLoginService"/>, which layers the client credentials, redirect URI, scope and the
-/// id_token validator on top) and the admin Test-connection probe (<c>ProviderConnectionTester</c>,
-/// which reads discovery only) build their options here, so the test fetch runs under the EXACT same
-/// SSRF/TLS posture as the real login discovery (#163) - a later change to the login's discovery policy
-/// cannot silently leave the probe on a weaker one. The client secret is deliberately NOT set here:
-/// discovery and JWKS need no credential, so the probe never even reveals the at-rest secret.
-/// </summary>
+/// <summary>Builds the <see cref="OidcClientOptions"/> authority and discovery policy from a provider config in one place, so the login path and the admin Test-connection probe fetch discovery under the same SSRF and TLS posture (#163).</summary>
+/// <remarks>
+/// <see cref="Flows.OidcLoginService"/> layers the client credentials, redirect URI, scope and the id_token
+/// validator on top; the probe reads discovery only. The client secret is not set here, because discovery and
+/// JWKS need no credential, so the probe never reveals the at-rest secret.
+/// </remarks>
 internal static class OidcDiscoveryOptions
 {
     /// <summary>

@@ -20,17 +20,11 @@ internal static class MaxAgePolicy
     /// <summary>Symmetric clock-skew tolerance, matching the SAML/id_token lifetime checks.</summary>
     internal static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// Whether an id_token's <paramref name="authTimeUnixSeconds"/> satisfies a configured <paramref name="maxAgeSeconds"/>.
-    /// </summary>
-    /// <param name="authTimeUnixSeconds">The id_token's <c>auth_time</c> (Unix seconds), or null when absent/malformed.</param>
+    /// <summary>Whether an id_token's <paramref name="authTimeUnixSeconds"/> satisfies a configured <paramref name="maxAgeSeconds"/>.</summary>
+    /// <param name="authTimeUnixSeconds">The id_token <c>auth_time</c> in Unix seconds, or null when absent or malformed.</param>
     /// <param name="maxAgeSeconds">The configured <c>max_age</c> in seconds (non-negative).</param>
     /// <param name="nowUtc">The current UTC instant.</param>
-    /// <returns>
-    /// <see langword="true"/> only when <paramref name="authTimeUnixSeconds"/> is present and the user
-    /// authenticated at most <paramref name="maxAgeSeconds"/> (plus skew) ago; <see langword="false"/> when
-    /// it is absent or too old (fail closed).
-    /// </returns>
+    /// <returns><see langword="true"/> only when the user authenticated at most <paramref name="maxAgeSeconds"/> plus skew ago; <see langword="false"/> when the time is absent or too old (fail closed).</returns>
     internal static bool IsFresh(long? authTimeUnixSeconds, int maxAgeSeconds, DateTimeOffset nowUtc)
     {
         if (authTimeUnixSeconds is not long authTime)

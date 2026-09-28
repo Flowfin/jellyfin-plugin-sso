@@ -6,17 +6,13 @@ using Jellyfin.Plugin.SSO_Auth.Api.Routing;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Derives the r/redirect path segment for rebuilding the callback's redirect URI. The token
-/// request's redirect_uri must match the authorization request's (RFC 6749 section 4.1.3), and the
-/// IdP delivers the callback on exactly the route the authorization request advertised - so the
-/// segment is read off the callback's own path. The previous expression tested for "/start/", a
-/// challenge-route segment that never occurs on callback routes, so the new-path flow sent a
-/// mismatched redirect_uri that spec-enforcing IdPs reject (#98). The route is now read off its
-/// <c>{protocol}/{path-kind}/{provider}</c> suffix through the shared <see cref="RouteSuffix"/> reader -
-/// the same robust form as <see cref="ChallengePath.IsNewPath"/> - so a protocol-like reverse-proxy
-/// prefix cannot decide the spelling (#411, #509).
-/// </summary>
+/// <summary>Derives the r/redirect path segment for rebuilding the callback's redirect URI, read off the callback's own route suffix.</summary>
+/// <remarks>
+/// The token request's redirect_uri must match the authorization request's (RFC 6749 section 4.1.3), and the
+/// provider delivers the callback on exactly the route the request advertised, so the segment is read off the
+/// callback path rather than tested for a challenge-route marker (#98). Reading the <c>{protocol}/{path-kind}/{provider}</c>
+/// suffix through <see cref="RouteSuffix"/> means a protocol-like reverse-proxy prefix cannot decide the spelling (#411, #509).
+/// </remarks>
 internal static class OidcCallbackPath
 {
     /// <summary>

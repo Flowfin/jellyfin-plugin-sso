@@ -9,31 +9,17 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// RFC 9207 authorization-response issuer check (OpenID Connect mix-up defense, #125, hardened in #210).
-/// The library the plugin uses (Duende.IdentityModel.OidcClient 7.1.0) parses the response <c>iss</c>
-/// parameter but never validates it, and strips it from the resulting claims, so the check has to live
-/// here. A present response <c>iss</c> must match the authorization server this callback is bound to -
-/// identified by its discovery issuer (<see cref="Duende.IdentityModel.OidcClient.ProviderInformation.IssuerName"/>,
-/// the value RFC 9207 §2.4 names) OR by the redeemed id_token's own issuer. Both are accepted because a
-/// provider whose issuer legitimately differs from its discovery location (the <c>DoNotValidateIssuerName</c>
-/// escape hatch - templated / multi-tenant setups) emits a response <c>iss</c> equal to the concrete
-/// id_token issuer, not the templated discovery issuer; requiring the discovery issuer alone would lock
-/// that supported configuration out. A response <c>iss</c> that matches neither means the response came
-/// from a different authorization server than the one this callback is bound to - a mix-up - so reject.
-/// </summary>
+/// <summary>The RFC 9207 authorization-response issuer check, the OpenID Connect mix-up defense (#125, #210).</summary>
+/// <remarks>
+/// The library parses the response <c>iss</c> but never validates it, so the check lives here. A present value must
+/// match the discovery issuer or the redeemed id_token's own issuer; both are accepted because a provider under
+/// <c>DoNotValidateIssuerName</c> emits the concrete id_token issuer rather than the templated discovery one:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#openid-authorization-response-issuer-rfc-9207"/>.
+/// </remarks>
 internal static class OidcResponseIssuer
 {
-    /// <summary>
-    /// Decides whether the RFC 9207 check rejects this authorization response. A present
-    /// <paramref name="responseIssuer"/> is accepted only when it ordinally equals the discovery issuer
-    /// (<paramref name="discoveryIssuer"/>) or the id_token issuer; matching neither is a mix-up and is
-    /// rejected, as is a present response issuer while both anchors are unknown. Absence of a response
-    /// issuer is tolerated only when the server did not advertise the parameter (<paramref name="required"/>
-    /// is false), so IdPs that never emit <c>iss</c> keep working; when the server advertises
-    /// <c>authorization_response_iss_parameter_supported</c> (RFC 9207 §2.4) its absence is a downgrade
-    /// and is rejected.
-    /// </summary>
+    /// <summary>Decides whether the RFC 9207 check rejects this authorization response.</summary>
+    /// <remarks>A present <paramref name="responseIssuer"/> is accepted only when it ordinally equals the discovery issuer or the id_token issuer, and is rejected while both anchors are unknown; an absent one is tolerated only when the server did not advertise the parameter, because advertised and absent is a downgrade.</remarks>
     /// <param name="responseIssuer">The <c>iss</c> query parameter from the authorization response, if any.</param>
     /// <param name="discoveryIssuer">The authorization server's discovery issuer identifier, or null when it could not be determined.</param>
     /// <param name="identityToken">The redeemed id_token (already validated upstream), whose issuer is the second accepted anchor.</param>

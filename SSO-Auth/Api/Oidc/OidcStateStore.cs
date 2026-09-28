@@ -95,21 +95,16 @@ internal sealed class OidcStateStore
     /// <summary>Gets the live entry count. Test-only, like Seed/Clear: production code reads _states.Count directly.</summary>
     internal int Count => _states.Count;
 
-    /// <summary>
-    /// Registers a fresh challenge's fully-formed <see cref="AuthorizeSession.Pending"/>, keyed by its
-    /// CSPRNG state token - so the key always equals the token the callback presents. The Pending arrives
-    /// complete (discovery reuse and the RFC 9207 response-iss requirement folded in at construction), so
-    /// registration is a single atomic insert with no post-hoc mutation of a stored entry (#341). At the
-    /// cap a NEW key is refused (that one login fails closed) rather than evicting an in-flight state -
-    /// evicting would drop a user already mid-login (a mass-lockout hazard under a flood). The
-    /// check-then-insert is not serialized (no lock on the anonymous hot path), so concurrent adds can
-    /// transiently overshoot by at most the number of in-flight threads. On refusal,
-    /// <paramref name="shouldWarnCapacity"/> is true for at most one caller per interval; the warning line
-    /// itself stays at the controller so the log-forging inline sanitizer never crosses a helper boundary.
-    /// </summary>
+    /// <summary>Registers a fresh challenge's fully-formed <see cref="AuthorizeSession.Pending"/>, keyed by its CSPRNG state token, as a single atomic insert with no later mutation of a stored entry (#341).</summary>
+    /// <remarks>
+    /// At the cap a new key is refused rather than an in-flight state evicted, which would drop a user mid-login
+    /// under a flood. The check-then-insert is not serialized on the anonymous hot path, so concurrent adds can
+    /// overshoot by the in-flight thread count; the warning line stays at the controller so the log-forging
+    /// sanitizer never crosses a helper boundary: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#openid-authorize-state"/>.
+    /// </remarks>
     /// <param name="pending">The challenge's authorize state; its token keys the entry and its Created drives the throttled warning.</param>
-    /// <param name="shouldWarnCapacity">True when the caller should emit the throttled capacity warning.</param>
-    /// <returns>True if the state was registered; false if refused (per-client sub-cap, global cap, or the key already existed).</returns>
+    /// <param name="shouldWarnCapacity">True when the caller should emit the throttled capacity warning, at most one caller per interval.</param>
+    /// <returns>True if the state was registered; false if refused by the per-client sub-cap, the global cap, or an existing key.</returns>
     internal bool TryAdd(AuthorizeSession.Pending pending, out bool shouldWarnCapacity)
     {
         // Per-client sub-cap (#327): reserve this client's slot BEFORE the global insert so one source
@@ -135,19 +130,12 @@ internal sealed class OidcStateStore
         return true;
     }
 
-    /// <summary>
-    /// The callback's non-consuming check: returns the still-pending state only when it exists, is a
-    /// <see cref="AuthorizeSession.Pending"/> (not yet promoted or already redeemed), was minted for this
-    /// provider, is within its lifetime, and matches the presented browser binding; null otherwise. So a
-    /// state issued for one provider cannot be validated on another's callback, and a state whose callback
-    /// already ran (now a Ready, or gone) is not peeked again. No removal: the token is an unguessable
-    /// CSPRNG value and expiry pruning is handled by the sweep. A peek structurally cannot mint a session -
-    /// only <see cref="Promote"/> produces the redeemable <see cref="AuthorizeSession.Ready"/> (#318, #341).
-    /// </summary>
+    /// <summary>The callback's non-consuming check: returns the still-pending state only when it exists, is still a <see cref="AuthorizeSession.Pending"/>, was minted for this provider, is within its lifetime and matches the presented browser binding.</summary>
+    /// <remarks>A state issued for one provider cannot be validated on another's callback, and a peek structurally cannot mint a session, because only <see cref="Promote"/> produces the redeemable <see cref="AuthorizeSession.Ready"/> (#318, #341); expiry pruning is the sweep's.</remarks>
     /// <param name="token">The state token the callback presented.</param>
-    /// <param name="provider">The provider named in the consuming request's route.</param>
+    /// <param name="provider">The provider named in the route of the consuming request.</param>
     /// <param name="now">The current time.</param>
-    /// <param name="presentedBindingId">The browser-binding id the callback presented (its cookie value) (#326).</param>
+    /// <param name="presentedBindingId">The browser-binding id the callback presented, its cookie value (#326).</param>
     /// <returns>The pending state, or null when unknown, already promoted, expired, provider-mismatched, or binding-mismatched.</returns>
     internal AuthorizeSession.Pending? PeekCurrent(string token, string provider, DateTime now, string? presentedBindingId)
     {
@@ -160,16 +148,8 @@ internal sealed class OidcStateStore
             : null;
     }
 
-    /// <summary>
-    /// Atomically swaps the peeked <see cref="AuthorizeSession.Pending"/> for a
-    /// <see cref="AuthorizeSession.Ready"/> carrying the role-gate result, replacing the in-place field
-    /// copy of the old design (#341). The compare-and-set only succeeds while the stored value is still
-    /// the exact Pending the callback peeked, so a state is promoted at most once (single winner under
-    /// concurrent callbacks) and a redeemer never observes a half-built Ready - it holds either the whole
-    /// Pending (not redeemable) or the whole Ready. Returns false - a no-op - if the entry was already
-    /// promoted, redeemed, or pruned in the gap since the peek; the callback still returns its page and
-    /// the single Ready (if any) is consumed once at redeem.
-    /// </summary>
+    /// <summary>Atomically swaps the peeked <see cref="AuthorizeSession.Pending"/> for a <see cref="AuthorizeSession.Ready"/> carrying the role-gate result (#341).</summary>
+    /// <remarks>The compare-and-set succeeds only while the stored value is still the exact Pending the callback peeked, so a state is promoted at most once under concurrent callbacks and a redeemer never observes a half-built Ready; false is a no-op when the entry already moved on, and the single Ready is consumed once at redeem.</remarks>
     /// <param name="pending">The Pending the callback peeked; the compare-and-set comparand.</param>
     /// <param name="derived">The passed role-gate result to snapshot into the Ready.</param>
     /// <returns>True if this call performed the promotion; false if the entry had already moved on.</returns>
@@ -178,17 +158,12 @@ internal sealed class OidcStateStore
         return _states.TryUpdate(pending.Token, new AuthorizeSession.Ready(pending, derived), pending);
     }
 
-    /// <summary>
-    /// The one-time atomic claim: the store is keyed by the authorize-state token, which is exactly the
-    /// presented response value, so this is an O(1) lookup plus an atomic TryRemove(KeyValuePair) - only
-    /// the request that wins the removal proceeds, so one state mints at most one session even under
-    /// concurrent posts. Redeemable only once it is a <see cref="AuthorizeSession.Ready"/> (the role gate
-    /// passed via <see cref="Promote"/>); a still-pending or already-claimed state returns null (#318, #341).
-    /// </summary>
+    /// <summary>The one-time atomic claim: the store is keyed by the authorize-state token the caller presents, so only the request that wins the removal proceeds and one state mints at most one session.</summary>
+    /// <remarks>Redeemable only once it is a <see cref="AuthorizeSession.Ready"/>, the role gate having passed through <see cref="Promote"/>; a still-pending or already-claimed state returns null (#318, #341).</remarks>
     /// <param name="responseData">The authorization-response value the caller presented.</param>
-    /// <param name="provider">The provider named in the consuming request's route.</param>
+    /// <param name="provider">The provider named in the route of the consuming request.</param>
     /// <param name="now">The current time.</param>
-    /// <param name="presentedBindingId">The browser-binding id the caller presented (its cookie value) (#326).</param>
+    /// <param name="presentedBindingId">The browser-binding id the caller presented, its cookie value (#326).</param>
     /// <returns>The redeemed snapshot, or null when not redeemable, already claimed, or binding-mismatched.</returns>
     internal AuthorizeSession.Ready? TryRedeem(string responseData, string provider, DateTime now, string? presentedBindingId)
     {
