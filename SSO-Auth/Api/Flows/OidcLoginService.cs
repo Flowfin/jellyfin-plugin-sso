@@ -7,10 +7,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Threading;
 using System.Threading.Tasks;
 using Duende.IdentityModel.OidcClient;
-using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Events;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
@@ -24,7 +22,6 @@ using Jellyfin.Plugin.SSO_Auth.Api.Session;
 using Jellyfin.Plugin.SSO_Auth.Api.Shared;
 using Jellyfin.Plugin.SSO_Auth.Config;
 using MediaBrowser.Common.Extensions;
-using MediaBrowser.Controller.Providers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -136,31 +133,9 @@ internal sealed class OidcLoginService
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
         }
 
-        if (!discovery.Available)
+        if (RefuseDiscovery(provider, config, discovery) is { } discoveryRefusal)
         {
-            // Without discovery there is no authoritative source for the PKCE and issuer facts, so no fallback (#450).
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization server's discovery document could not be read.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-            }
-
-            return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login: the authorization server's discovery document could not be read.");
-        }
-
-        // The library never checks that the server advertises PKCE S256, so a downgrade would be silent (#141).
-        if (!discovery.Facts.PkceS256)
-        {
-            if (config.RequirePkce)
-            {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("OpenID login refused for provider {Provider}: RequirePkce is set but the authorization server does not advertise PKCE (S256).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                }
-
-                return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.PkceNotSupported));
-            }
-
-            SsoAudit.PkceNotAdvertised(_logger, provider);
+            return discoveryRefusal;
         }
 
         // Assigned before construction, so the client reuses this metadata at the challenge and the callback (#450, #247).
@@ -172,26 +147,7 @@ internal sealed class OidcLoginService
 
         if (state.IsError)
         {
-            // The library's detail stays out of the browser page and goes to the operator's log (#708).
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                // The closing sentence follows the refusal code, and asserts no cause the field cannot substantiate (#1610, #1763).
-                switch (OidcChallengeRefusal.Classify(state.Error))
-                {
-                    case OidcChallengeCause.RedirectUri:
-                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). The redirect URI sent was {RedirectUri}, which the provider must have registered exactly as written - scheme, host, port and path.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('), redirectUri?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                        break;
-
-                    case OidcChallengeCause.ClientAuthentication:
-                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). That is a refusal of the client rather than of the request: check the client ID and the client secret this provider is configured with, and whether a secret is sent here while the provider holds the client as public, or the reverse. The provider's own description of this refusal is replaced before it reaches this log, so the provider's log for this request is where a cause other than those would show.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                        break;
-
-                    default:
-                        _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). This line does not interpret that answer, because the field it arrives in carries three different things: the provider's own error code, the HTTP reason phrase the answer came back with, or the failure that stopped the request arriving. Read it as whichever of the three it is.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                        break;
-                }
-            }
-
+            LogChallengeRefusal(provider, state, redirectUri);
             return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login.");
         }
 
@@ -255,30 +211,9 @@ internal sealed class OidcLoginService
 
         var result = await oidcClient.ProcessResponseAsync(request.QueryString.Value, pending.OidcState).ConfigureAwait(false);
 
-        if (result.IsError)
+        if (RefuseProcessedResponse(provider, config, result, request.Query["iss"], oidcClient.Options.ProviderInformation?.IssuerName, pending.ResponseIssuerRequired) is { } responseRefusal)
         {
-            // The error fields come from the callback query and are attacker-controllable, so the page gets a fixed message (#708).
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization-response processing failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-            }
-
-            // Counted apart from discovery, because the two are fixed in different places (#1139).
-            SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Token);
-            return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error logging in.");
-        }
-
-        // The RFC 9207 mix-up check the library never makes (#210).
-        // See https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#openid-authorization-response-issuer-rfc-9207
-        if (!config.DoNotValidateResponseIssuer
-            && OidcResponseIssuer.IsRejected(request.Query["iss"], oidcClient.Options.ProviderInformation?.IssuerName, result.IdentityToken, pending.ResponseIssuerRequired))
-        {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("OpenID login denied for provider {Provider}: the authorization-response issuer was absent-but-required or matched neither the discovery issuer nor the id_token issuer (RFC 9207 mix-up check).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-            }
-
-            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.SsoResponseInvalid));
+            return responseRefusal;
         }
 
         // The issuer is read from the raw id_token, because the library filters protocol claims out of the principal (#186); the provider's own endpoints bound the avatar's private tier (#1764).
@@ -312,61 +247,13 @@ internal sealed class OidcLoginService
 
         if (!derived.Valid)
         {
-            // The state stays unpromoted and expires; the line keeps every claim type and only the role claim's and sub's values (#1881).
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning(
-                    "OpenID login denied for provider {Provider}: {Reason}. Claims: {@Claims}. Roles expected (any one of): {@ExpectedClaims}",
-                    provider.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                    string.IsNullOrWhiteSpace(derived.Username) ? "the login resolved no username" : "no role matched the allow-list",
-                    ClaimsForDenialLog(result.User.Claims, config).Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty).Replace('[', '('), Value = o.Value?.ReplaceLineEndings(string.Empty).Replace('[', '(') }),
-                    config.Roles);
-            }
-
-            // Login-time deprovisioning never touches an administrator, and the issuer binding gates it as it gates the mint (#831).
-            if (config.DisableAccountOnRoleDenied
-                && await _canonicalLinks.DisableDeniedAccountAsync(ProviderMode.Oid, provider, derived.Subject, derived.Issuer).ConfigureAwait(false))
-            {
-                SsoAudit.AccountDeprovisioned(_logger, "OpenID", provider);
-            }
-
-            // The host raises its own failed-login event only from the mint, and this arm's two refusals are reported apart (#1142).
-            var remoteEndPoint = request.HttpContext.GetNormalizedRemoteIP().ToString();
-            await (string.IsNullOrWhiteSpace(derived.Username)
-                ? _loginEvents.PublishUnresolvedUsernameDeniedAsync(provider, remoteEndPoint)
-                : _loginEvents.PublishRoleDeniedAsync(provider, remoteEndPoint)).ConfigureAwait(false);
-
-            return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
+            return await DenyAsync(provider, config, derived, result.User.Claims, request).ConfigureAwait(false);
         }
 
-        // The acr comes from the signed id_token, checked before Promote so a login without the required context is never redeemable (#757).
-        if (config.RequireAcr)
+        // Both step-up checks read the signed id_token and run before Promote, so a login without the required context is never redeemable (#757, #961).
+        if (RefuseStepUp(provider, config, result) is { } stepUpRefusal)
         {
-            var acr = OidcIdTokenAcr.Read(result.IdentityToken);
-            if (!AcrPolicy.IsSatisfied(acr, config.AcrValues))
-            {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("OpenID login denied for provider {Provider}: RequireAcr is set but the id_token's acr claim was absent or outside the configured acr_values allow-list.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                }
-
-                return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AcrNotSatisfied));
-            }
-        }
-
-        // A missing auth_time is a provider that ignored max_age and is refused, so an old session cannot satisfy a forced re-authentication (#961).
-        if (config.MaxAge is int maxAge && maxAge >= 0)
-        {
-            var authTime = OidcIdTokenAuthTime.Read(result.IdentityToken);
-            if (!MaxAgePolicy.IsFresh(authTime, maxAge, DateTimeOffset.UtcNow))
-            {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("OpenID login denied for provider {Provider}: max_age is configured but the id_token's auth_time was absent or older than the allowed window (the user authenticated too long ago).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                }
-
-                return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AuthTooOld));
-            }
+            return stepUpRefusal;
         }
 
         // The browser's one-time redeem is the real gate, so the page is returned whether or not this promotion won (#341).
@@ -629,5 +516,150 @@ internal sealed class OidcLoginService
             string.Equals(claim.Type, "sub", StringComparison.Ordinal) || (roleClaimType is not null && string.Equals(claim.Type, roleClaimType, StringComparison.Ordinal))
                 ? claim
                 : new Claim(claim.Type, "<redacted>"));
+    }
+
+    // The denied arm of the callback: the state stays unpromoted and expires. The line keeps every claim type and
+    // only the role claim's and sub's values (#1881); login-time deprovisioning never touches an administrator
+    // (#831); the two refusals are reported apart because the host raises its own event only from the mint (#1142).
+    private async Task<ActionResult> DenyAsync(string provider, OidConfig config, OidcAuthorizeStateBuilder.OidcAuthorizeState derived, IEnumerable<Claim> claims, HttpRequest request)
+    {
+        if (_logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "OpenID login denied for provider {Provider}: {Reason}. Claims: {@Claims}. Roles expected (any one of): {@ExpectedClaims}",
+                provider.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                string.IsNullOrWhiteSpace(derived.Username) ? "the login resolved no username" : "no role matched the allow-list",
+                ClaimsForDenialLog(claims, config).Select(o => new { Type = o.Type?.ReplaceLineEndings(string.Empty).Replace('[', '('), Value = o.Value?.ReplaceLineEndings(string.Empty).Replace('[', '(') }),
+                config.Roles);
+        }
+
+        if (config.DisableAccountOnRoleDenied
+            && await _canonicalLinks.DisableDeniedAccountAsync(ProviderMode.Oid, provider, derived.Subject, derived.Issuer).ConfigureAwait(false))
+        {
+            SsoAudit.AccountDeprovisioned(_logger, "OpenID", provider);
+        }
+
+        var remoteEndPoint = request.HttpContext.GetNormalizedRemoteIP().ToString();
+        await (string.IsNullOrWhiteSpace(derived.Username)
+            ? _loginEvents.PublishUnresolvedUsernameDeniedAsync(provider, remoteEndPoint)
+            : _loginEvents.PublishRoleDeniedAsync(provider, remoteEndPoint)).ConfigureAwait(false);
+
+        return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
+    }
+
+    // The acr allow-list (#757) and the max_age window (#961), both read from the signed id_token; a missing
+    // auth_time is a provider that ignored max_age and is refused.
+    private ActionResult? RefuseStepUp(string provider, OidConfig config, LoginResult result)
+    {
+        if (config.RequireAcr && !AcrPolicy.IsSatisfied(OidcIdTokenAcr.Read(result.IdentityToken), config.AcrValues))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login denied for provider {Provider}: RequireAcr is set but the id_token's acr claim was absent or outside the configured acr_values allow-list.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AcrNotSatisfied));
+        }
+
+        if (config.MaxAge is int maxAge && maxAge >= 0 && !MaxAgePolicy.IsFresh(OidcIdTokenAuthTime.Read(result.IdentityToken), maxAge, DateTimeOffset.UtcNow))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login denied for provider {Provider}: max_age is configured but the id_token's auth_time was absent or older than the allowed window (the user authenticated too long ago).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AuthTooOld));
+        }
+
+        return null;
+    }
+
+    // The library's detail stays out of the browser page and goes to the operator's log (#708). The closing
+    // sentence follows the refusal code and asserts no cause the field cannot substantiate (#1610, #1763).
+    private void LogChallengeRefusal(string provider, AuthorizeState state, string redirectUri)
+    {
+        if (!_logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        switch (OidcChallengeRefusal.Classify(state.Error))
+        {
+            case OidcChallengeCause.RedirectUri:
+                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). The redirect URI sent was {RedirectUri}, which the provider must have registered exactly as written - scheme, host, port and path.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('), redirectUri?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                break;
+
+            case OidcChallengeCause.ClientAuthentication:
+                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). That is a refusal of the client rather than of the request: check the client ID and the client secret this provider is configured with, and whether a secret is sent here while the provider holds the client as public, or the reverse. The provider's own description of this refusal is replaced before it reaches this log, so the provider's log for this request is where a cause other than those would show.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                break;
+
+            default:
+                _logger.LogWarning("OpenID login refused for provider {Provider}: preparing the authorization request failed ({Error} - {ErrorDescription}). This line does not interpret that answer, because the field it arrives in carries three different things: the provider's own error code, the HTTP reason phrase the answer came back with, or the failure that stopped the request arriving. Read it as whichever of the three it is.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), state.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                break;
+        }
+    }
+
+    // The two refusals of a processed authorization response: the library's error, whose fields come from the
+    // callback query and stay out of the page (#708), and the RFC 9207 mix-up check the library never makes (#210).
+    // See https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#openid-authorization-response-issuer-rfc-9207
+    private ActionResult? RefuseProcessedResponse(string provider, OidConfig config, LoginResult result, string? responseIssuer, string? discoveryIssuer, bool responseIssuerRequired)
+    {
+        if (result.IsError)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization-response processing failed ({Error} - {ErrorDescription}).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.Error?.ReplaceLineEndings(string.Empty).Replace('[', '('), result.ErrorDescription?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            // Counted apart from discovery, because the two are fixed in different places (#1139).
+            SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Token);
+            return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error logging in.");
+        }
+
+        if (!config.DoNotValidateResponseIssuer
+            && OidcResponseIssuer.IsRejected(responseIssuer, discoveryIssuer, result.IdentityToken, responseIssuerRequired))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login denied for provider {Provider}: the authorization-response issuer was absent-but-required or matched neither the discovery issuer nor the id_token issuer (RFC 9207 mix-up check).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.SsoResponseInvalid));
+        }
+
+        return null;
+    }
+
+    // Without discovery there is no authoritative source for the PKCE and issuer facts, so no fallback (#450); the
+    // library never checks that the server advertises PKCE S256, so a downgrade would be silent (#141).
+    private ActionResult? RefuseDiscovery(string provider, OidConfig config, OidcDiscoveryResult discovery)
+    {
+        if (!discovery.Available)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login refused for provider {Provider}: the authorization server's discovery document could not be read.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            return FlowResponses.PlainTextError(StatusCodes.Status400BadRequest, "Error preparing login: the authorization server's discovery document could not be read.");
+        }
+
+        if (discovery.Facts.PkceS256)
+        {
+            return null;
+        }
+
+        if (config.RequirePkce)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("OpenID login refused for provider {Provider}: RequirePkce is set but the authorization server does not advertise PKCE (S256).", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+            }
+
+            return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.PkceNotSupported));
+        }
+
+        SsoAudit.PkceNotAdvertised(_logger, provider);
+        return null;
     }
 }

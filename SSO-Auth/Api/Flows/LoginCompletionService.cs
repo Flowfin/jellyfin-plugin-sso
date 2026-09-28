@@ -4,7 +4,6 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
@@ -109,24 +108,7 @@ internal sealed class LoginCompletionService
         var configuredDefaultProvider = config.DefaultProvider?.Trim();
         var enforcement = _ssoOnly.ResolveLoginEnforcement(userId, configuredDefaultProvider);
 
-        var sessionParameters = new SessionParameters
-        {
-            UserId = userId,
-            IsAdmin = identity.Admin,
-            IsBreakGlassAdmin = enforcement.IsBreakGlassAdmin,
-            EnableAuthorization = config.EnableAuthorization,
-            EnableAllFolders = config.EnableAllFolders,
-            EnabledFolders = identity.Folders.ToArray(),
-            ManagedFolders = config.PreserveUnmanagedFolders ? UnmanagedFolderMerge.ManagedBy(config) : null,
-            EnableLiveTv = identity.EnableLiveTv,
-            EnableLiveTvManagement = identity.EnableLiveTvManagement,
-            PermissionGrants = identity.PermissionGrants,
-            MaxParentalRatingScore = identity.MaxParentalRatingScore,
-            SyncPlayAccess = identity.SyncPlayAccess,
-            AuthResponse = response,
-            DefaultProvider = enforcement.DefaultProvider,
-            Avatar = identity.Avatar,
-        };
+        var sessionParameters = SessionParametersFor(identity, response, config, userId, enforcement);
 
         // The minter re-checks the link before any side effect and again last before the mint (#232).
         var authenticationResult = await _sessionMinter.MintAsync(
@@ -240,4 +222,24 @@ internal sealed class LoginCompletionService
     // Null rather than a guessed false when the host returned no user, which is the under-reporting direction (#1554).
     private static bool? GrantedAdmin(AuthenticationResult? authenticationResult)
         => authenticationResult?.User?.Policy?.IsAdministrator;
+
+    // The mint's inputs, from the verified identity and the resolved account rather than from the request.
+    private static SessionParameters SessionParametersFor(VerifiedIdentity identity, AuthResponse response, ProviderConfigBase config, Guid userId, SsoOnlyLoginDecision enforcement) => new SessionParameters
+    {
+        UserId = userId,
+        IsAdmin = identity.Admin,
+        IsBreakGlassAdmin = enforcement.IsBreakGlassAdmin,
+        EnableAuthorization = config.EnableAuthorization,
+        EnableAllFolders = config.EnableAllFolders,
+        EnabledFolders = identity.Folders.ToArray(),
+        ManagedFolders = config.PreserveUnmanagedFolders ? UnmanagedFolderMerge.ManagedBy(config) : null,
+        EnableLiveTv = identity.EnableLiveTv,
+        EnableLiveTvManagement = identity.EnableLiveTvManagement,
+        PermissionGrants = identity.PermissionGrants,
+        MaxParentalRatingScore = identity.MaxParentalRatingScore,
+        SyncPlayAccess = identity.SyncPlayAccess,
+        AuthResponse = response,
+        DefaultProvider = enforcement.DefaultProvider,
+        Avatar = identity.Avatar,
+    };
 }

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
-using Jellyfin.Plugin.SSO_Auth.Api.Authz;
 using Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Library;
@@ -73,68 +72,7 @@ internal sealed class SessionMinter
 
         if (parameters.EnableAuthorization)
         {
-            // Break-glass survivability (#165, Finding H1): while SSO-only mode is on, the designated
-            // recovery admin's OWN SSO login must never demote it. A provider whose claims do not grant
-            // admin would otherwise strip IsAdministrator from the one account guaranteed to keep a
-            // password door, so the guaranteed recovery account becomes useless exactly when the identity
-            // provider is down. Leave its admin state intact; every non-break-glass account (and the whole
-            // userbase when the mode is off) is unaffected. IsDisabled is separately barred from any SSO
-            // role mapping (PermissionRolePolicy), so no login can disable this account either.
-            if (!parameters.IsBreakGlassAdmin)
-            {
-                user.SetPermission(PermissionKind.IsAdministrator, parameters.IsAdmin);
-            }
-
-            user.SetPermission(PermissionKind.EnableAllFolders, parameters.EnableAllFolders);
-            if (!parameters.EnableAllFolders)
-            {
-                // With a managed set supplied (#1846), the account's current list is merged rather than
-                // replaced: a folder the configuration has never named survives the login, a managed one
-                // is granted or revoked exactly as before. Read the current list here and nowhere earlier,
-                // because this is the one point that holds the account whose list is about to change.
-                var folders = parameters.ManagedFolders is { } managed
-                    ? UnmanagedFolderMerge.Apply(user.GetPreference(PreferenceKind.EnabledFolders), managed, parameters.EnabledFolders)
-                    : parameters.EnabledFolders;
-                user.SetPreference(PreferenceKind.EnabledFolders, folders);
-            }
-
-            // Live TV access/management are role-derived grants too, so they must respect the same
-            // EnableAuthorization master switch. Applied unconditionally they let a provider grant (or
-            // silently toggle) Live TV on every login even when the admin turned SSO permission
-            // management off (#215).
-            user.SetPermission(PermissionKind.EnableLiveTvAccess, parameters.EnableLiveTv);
-            user.SetPermission(PermissionKind.EnableLiveTvManagement, parameters.EnableLiveTvManagement);
-
-            // Generic role→permission grants for the full boolean PermissionKind surface (#164): apply each
-            // permission the admin explicitly mapped, authoritatively and default-deny - granted when a
-            // login role matched, revoked otherwise. Empty unless the feature is on, so this touches nothing
-            // for existing deployments. The permissions with dedicated fields above (admin, all-folders,
-            // Live TV) are excluded from this set at config validation, so there is exactly one authoritative
-            // writer per permission and no grant here can silently override an admin/folder/Live TV decision.
-            // Under the same EnableAuthorization master switch as those grants (#215), so turning SSO
-            // permission management off leaves the whole permission surface untouched.
-            foreach (var grant in parameters.PermissionGrants)
-            {
-                user.SetPermission(grant.Kind, grant.Granted);
-            }
-
-            // Parental-rating-score ceiling (#736): applied only when the login resolved one (a role matched a
-            // configured mapping); a null leaves the account's existing MaxParentalRatingScore untouched, so an
-            // unmapped or malformed claim never raises the ceiling. Under the same EnableAuthorization master
-            // switch as the grants above, so turning RBAC off leaves the ceiling untouched too.
-            if (parameters.MaxParentalRatingScore.HasValue)
-            {
-                user.MaxParentalRatingScore = parameters.MaxParentalRatingScore;
-            }
-
-            // SyncPlay access level (#827): applied only when the login resolved one (a role matched a
-            // configured mapping); a null leaves the account's existing SyncPlayAccess untouched, so an
-            // unmapped or malformed claim never widens it. Under the same EnableAuthorization master switch
-            // as the grants above. Not a PermissionKind, so it cannot ride the grant loop.
-            if (parameters.SyncPlayAccess.HasValue)
-            {
-                user.SyncPlayAccess = parameters.SyncPlayAccess.Value;
-            }
+            ApplyAuthorization(user, parameters);
         }
 
         await _avatarService.TrySetAsync(user, parameters.Avatar).ConfigureAwait(false);
@@ -179,5 +117,73 @@ internal sealed class SessionMinter
         }
 
         return await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
+    }
+
+    // The role-derived writes onto the account, all under the EnableAuthorization master switch (#215) so turning
+    // SSO permission management off leaves the whole permission surface untouched.
+    private static void ApplyAuthorization(User user, SessionParameters parameters)
+    {
+        // Break-glass survivability (#165, Finding H1): while SSO-only mode is on, the designated
+        // recovery admin's OWN SSO login must never demote it. A provider whose claims do not grant
+        // admin would otherwise strip IsAdministrator from the one account guaranteed to keep a
+        // password door, so the guaranteed recovery account becomes useless exactly when the identity
+        // provider is down. Leave its admin state intact; every non-break-glass account (and the whole
+        // userbase when the mode is off) is unaffected. IsDisabled is separately barred from any SSO
+        // role mapping (PermissionRolePolicy), so no login can disable this account either.
+        if (!parameters.IsBreakGlassAdmin)
+        {
+            user.SetPermission(PermissionKind.IsAdministrator, parameters.IsAdmin);
+        }
+
+        user.SetPermission(PermissionKind.EnableAllFolders, parameters.EnableAllFolders);
+        if (!parameters.EnableAllFolders)
+        {
+            // With a managed set supplied (#1846), the account's current list is merged rather than
+            // replaced: a folder the configuration has never named survives the login, a managed one
+            // is granted or revoked exactly as before. Read the current list here and nowhere earlier,
+            // because this is the one point that holds the account whose list is about to change.
+            var folders = parameters.ManagedFolders is { } managed
+                ? UnmanagedFolderMerge.Apply(user.GetPreference(PreferenceKind.EnabledFolders), managed, parameters.EnabledFolders)
+                : parameters.EnabledFolders;
+            user.SetPreference(PreferenceKind.EnabledFolders, folders);
+        }
+
+        // Live TV access/management are role-derived grants too, so they must respect the same
+        // EnableAuthorization master switch. Applied unconditionally they let a provider grant (or
+        // silently toggle) Live TV on every login even when the admin turned SSO permission
+        // management off (#215).
+        user.SetPermission(PermissionKind.EnableLiveTvAccess, parameters.EnableLiveTv);
+        user.SetPermission(PermissionKind.EnableLiveTvManagement, parameters.EnableLiveTvManagement);
+
+        // Generic role→permission grants for the full boolean PermissionKind surface (#164): apply each
+        // permission the admin explicitly mapped, authoritatively and default-deny - granted when a
+        // login role matched, revoked otherwise. Empty unless the feature is on, so this touches nothing
+        // for existing deployments. The permissions with dedicated fields above (admin, all-folders,
+        // Live TV) are excluded from this set at config validation, so there is exactly one authoritative
+        // writer per permission and no grant here can silently override an admin/folder/Live TV decision.
+        // Under the same EnableAuthorization master switch as those grants (#215), so turning SSO
+        // permission management off leaves the whole permission surface untouched.
+        foreach (var grant in parameters.PermissionGrants)
+        {
+            user.SetPermission(grant.Kind, grant.Granted);
+        }
+
+        // Parental-rating-score ceiling (#736): applied only when the login resolved one (a role matched a
+        // configured mapping); a null leaves the account's existing MaxParentalRatingScore untouched, so an
+        // unmapped or malformed claim never raises the ceiling. Under the same EnableAuthorization master
+        // switch as the grants above, so turning RBAC off leaves the ceiling untouched too.
+        if (parameters.MaxParentalRatingScore.HasValue)
+        {
+            user.MaxParentalRatingScore = parameters.MaxParentalRatingScore;
+        }
+
+        // SyncPlay access level (#827): applied only when the login resolved one (a role matched a
+        // configured mapping); a null leaves the account's existing SyncPlayAccess untouched, so an
+        // unmapped or malformed claim never widens it. Under the same EnableAuthorization master switch
+        // as the grants above. Not a PermissionKind, so it cannot ride the grant loop.
+        if (parameters.SyncPlayAccess.HasValue)
+        {
+            user.SyncPlayAccess = parameters.SyncPlayAccess.Value;
+        }
     }
 }

@@ -24,7 +24,7 @@ const CONTROLLER = path.join(
   "SSO-Auth",
   "Api",
   "Http",
-  "SSOController.cs",
+  "SSOController.Links.cs",
 );
 
 function read(file) {

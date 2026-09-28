@@ -82,7 +82,7 @@ public class AdoptionRefusalReasonTests
         //
         // A source rule, because the second site is a message template rather than a value: its bytes are
         // in the text and nowhere else, which is the same reason the arms above are contract tests.
-        var source = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Linking", "CanonicalLinkService.cs"));
+        var source = LinkServiceSource();
 
         var lines = source
             .Split('\n')
@@ -123,7 +123,7 @@ public class AdoptionRefusalReasonTests
         // The arms above are a contract on a string, and a string nothing prints is a contract with
         // nobody. This holds the one connection between them: the refusal line's reason placeholder is
         // fed by DescribeAdoptionRefusal, so the phrase tested above is the phrase the operator reads.
-        var source = File.ReadAllText(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Linking", "CanonicalLinkService.cs"));
+        var source = LinkServiceSource();
 
         var lines = source.Split('\n').Select(candidate => candidate.TrimEnd()).ToList();
 
@@ -142,4 +142,13 @@ public class AdoptionRefusalReasonTests
             "The reason placeholder is fed by DescribeAdoptionRefusal, so what the tests above pin is what "
             + "the log line says (#1765). It is not: " + call.Trim());
     }
+
+    // The service is one partial class over several files, so the rules above read all of them.
+    private static string LinkServiceSource() =>
+        string.Join(
+            "\n",
+            Directory
+                .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Linking"), "CanonicalLinkService*.cs")
+                .Order(StringComparer.Ordinal)
+                .Select(File.ReadAllText));
 }

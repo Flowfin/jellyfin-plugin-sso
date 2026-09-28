@@ -5,7 +5,6 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
-using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 using Jellyfin.Plugin.SSO_Auth.Api.Saml;
@@ -115,28 +114,9 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, "the path names no readable file");
         }
 
-        string text;
-        try
+        if (ReadRefusal(read, sourcePath, out var text) is { } readRefusal)
         {
-            text = read(sourcePath);
-        }
-        catch (IOException ex)
-        {
-            return Reject(logger, sourcePath, ex.Message);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Reject(logger, sourcePath, ex.Message);
-        }
-        catch (ArgumentException ex)
-        {
-            // A path the platform will not accept at all, which is what a typo in a mount produces. It
-            // arrives as an argument fault rather than an I/O one, and it is a rejection like any other.
-            return Reject(logger, sourcePath, ex.Message);
-        }
-        catch (NotSupportedException ex)
-        {
-            return Reject(logger, sourcePath, ex.Message);
+            return Reject(logger, sourcePath, readRefusal);
         }
 
         // A member named twice would let the deserializer pick one silently, so it is refused like the discovery read does.
@@ -391,6 +371,22 @@ internal static class DeclarativeProviderConfig
                     SsoAudit.InsecureOptionsEnabled(logger, "SAML", kvp.Key, insecure);
                 }
             }
+        }
+    }
+
+    // A path the platform will not accept at all arrives as an argument fault rather than an I/O one, which is
+    // what a typo in a mount produces, and it is a rejection like any other.
+    private static string? ReadRefusal(Func<string, string> read, string sourcePath, out string text)
+    {
+        text = string.Empty;
+        try
+        {
+            text = read(sourcePath);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return ex.Message;
         }
     }
 

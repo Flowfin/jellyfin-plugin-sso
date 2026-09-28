@@ -105,42 +105,9 @@ internal static class LinkImport
             }
 
             var key = (protocol, entry.Provider!, entry.CanonicalName!);
-            if (claimed.TryGetValue(key, out var alreadyClaimed) && alreadyClaimed != userId)
+            if (BindingRefusal(entry, config, userId, claimed.TryGetValue(key, out var alreadyClaimed) && alreadyClaimed != userId, isAdministrator, issuerVerdicts) is { } refusal)
             {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, "the document maps this identity to two different accounts"));
-                continue;
-            }
-
-            // An identity already linked to somebody else is refused, so a crafted file is no takeover primitive.
-            if (config.CanonicalLinks.TryGetValue(entry.CanonicalName!, out var held) && held != userId)
-            {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already links that identity to a different account; unlink it first"));
-                continue;
-            }
-
-            // A rebuilt target holds no links, so the rule above never fires there; an administrator binding needs a deliberate pre-provision first (#1559).
-            if (isAdministrator(userId) && !config.CanonicalLinks.ContainsKey(entry.CanonicalName!))
-            {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, "that account is an administrator and this instance does not already link that identity to it; pre-provision the link deliberately, then import"));
-                continue;
-            }
-
-            // The same rule for the issuer binding (#186); an entry carrying no issuer overwrites nothing.
-            if (!string.IsNullOrWhiteSpace(entry.Issuer)
-                && config is OidConfig existing
-                && existing.CanonicalLinkIssuers.TryGetValue(entry.CanonicalName!, out var boundTo)
-                && !string.Equals(boundTo, entry.Issuer, StringComparison.Ordinal))
-            {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already binds that link to a different issuer; unlink it first"));
-                continue;
-            }
-
-            // An issuer the provider cannot issue is refused here, because stored it would refuse every later login for that link (#1518).
-            if (!string.IsNullOrWhiteSpace(entry.Issuer)
-                && config is OidConfig oidConfig
-                && IssuerRefusal(issuerVerdicts, oidConfig, entry.Issuer!) is { } unissuable)
-            {
-                refusals.Add(Describe(index, entry.Protocol, entry.Provider, unissuable));
+                refusals.Add(Describe(index, entry.Protocol, entry.Provider, refusal));
                 continue;
             }
 
@@ -159,6 +126,48 @@ internal static class LinkImport
         }
 
         return resolved;
+    }
+
+    // The rules that keep a crafted file from being a takeover primitive: an identity linked to somebody else, an
+    // administrator not already linked (#1559), an issuer already bound (#186) and an issuer the provider cannot issue (#1518).
+    private static string? BindingRefusal(
+        LinkExportEntry entry,
+        ProviderConfigBase config,
+        Guid userId,
+        bool claimedByAnotherAccount,
+        Func<Guid, bool> isAdministrator,
+        Dictionary<(ProviderConfigBase Config, string Issuer), string?> issuerVerdicts)
+    {
+        if (claimedByAnotherAccount)
+        {
+            return "the document maps this identity to two different accounts";
+        }
+
+        if (config.CanonicalLinks.TryGetValue(entry.CanonicalName!, out var held) && held != userId)
+        {
+            return "this instance already links that identity to a different account; unlink it first";
+        }
+
+        // A rebuilt target holds no links, so the rule above never fires there.
+        if (isAdministrator(userId) && !config.CanonicalLinks.ContainsKey(entry.CanonicalName!))
+        {
+            return "that account is an administrator and this instance does not already link that identity to it; pre-provision the link deliberately, then import";
+        }
+
+        // An entry carrying no issuer overwrites nothing.
+        if (string.IsNullOrWhiteSpace(entry.Issuer) || config is not OidConfig oidConfig)
+        {
+            return null;
+        }
+
+        if (oidConfig.CanonicalLinkIssuers.TryGetValue(entry.CanonicalName!, out var boundTo)
+            && !string.Equals(boundTo, entry.Issuer, StringComparison.Ordinal))
+        {
+            return "this instance already binds that link to a different issuer; unlink it first";
+        }
+
+        // Stored, an unissuable issuer would refuse every later login for that link.
+        return IssuerRefusal(issuerVerdicts, oidConfig, entry.Issuer!);
     }
 
     private static string? IssuerRefusal(

@@ -53,39 +53,9 @@ internal sealed class OidcLogoutTokenValidator
             return new Result(false, null, null, RejectReason.Malformed);
         }
 
-        // The header kid is constrained to the shared allowlist BEFORE any signing key is looked up
-        // (#1167), from the same predicate the id_token path calls, so the two postures cannot drift.
-        if (!OidcSignatureKeys.TokenHasAcceptableKeyId(logoutToken))
+        if (HeaderRefusal(logoutToken) is { } headerRefusal)
         {
-            return new Result(false, null, null, RejectReason.UnacceptableKeyId);
-        }
-
-        // RFC 7515 4.1.11, from the same shared predicate the id_token path calls (#1038). The handler
-        // below ignores crit, so without this a genuinely signed token could assert a constraint this
-        // plugin never applied - and this endpoint is anonymous, which is where that matters most.
-        if (!OidcSignatureKeys.TokenHasNoCriticalHeader(logoutToken))
-        {
-            return new Result(false, null, null, RejectReason.CriticalHeader);
-        }
-
-        // RFC 7519 4.1.9, from the same shared table the id_token path screens against (#1317). This
-        // endpoint revokes sessions, so a token minted as an access token or a DPoP proof and replayed here
-        // must be refused for declaring itself something else, not left to the payload rules to catch.
-        if (!OidcSignatureKeys.TokenTypeIsAcceptableForLogoutToken(logoutToken))
-        {
-            return new Result(false, null, null, RejectReason.UnacceptableTokenType);
-        }
-
-        // The algorithm is judged before the handler runs, purely so the refusal can be named. The handler
-        // refuses a disallowed alg on its own - nothing new is rejected here - but it reports alg: none, a
-        // case-variant spelling and an HS256 token keyed with the advertised public key as
-        // SecurityTokenInvalidSignatureException, indistinguishable from an ordinary bad signature, because
-        // ValidAlgorithms is evaluated per key inside signature validation. An operator watching this
-        // endpoint needs those apart: a spread of algorithm refusals is somebody probing, a steady stream of
-        // signature failures is usually a rotated key nobody re-published (#1164).
-        if (!OidcSignatureKeys.TokenHasAllowedAlgorithm(logoutToken))
-        {
-            return new Result(false, null, null, RejectReason.AlgorithmNotAllowed);
+            return new Result(false, null, null, headerRefusal);
         }
 
         // ECDsa instances built from the JWKS are ours to dispose; RSA keys built from RSAParameters are
@@ -119,28 +89,9 @@ internal sealed class OidcLogoutTokenValidator
             // multi-audience token MUST carry azp (a token minted for a different party that merely
             // co-lists this client is refused). ValidateAudience already confirmed this client is AMONG the
             // audiences, from the same options.ClientId compared here.
-            var azp = result.ClaimsIdentity.FindFirst("azp")?.Value;
-            if (azp != null && !string.Equals(azp, options.ClientId, StringComparison.Ordinal))
+            if (PayloadRefusal(token, result.ClaimsIdentity.FindFirst("azp")?.Value, options.ClientId) is { } payloadRefusal)
             {
-                return new Result(false, null, null, RejectReason.AuthorizedPartyMismatch);
-            }
-
-            if (azp == null && token.Audiences.Count() > 1)
-            {
-                return new Result(false, null, null, RejectReason.MultipleAudiencesWithoutAuthorizedParty);
-            }
-
-            // §2.4: a logout_token MUST NOT contain a nonce. Rejecting it here is what refuses an id_token
-            // (which carries nonce) replayed at the back-channel endpoint.
-            if (token.TryGetPayloadValue<string>("nonce", out var nonce) && !string.IsNullOrEmpty(nonce))
-            {
-                return new Result(false, null, null, RejectReason.ProhibitedNonce);
-            }
-
-            // §2.4/§2.6: the events claim MUST be a JSON object containing the back-channel-logout member.
-            if (!HasBackChannelLogoutEvent(token))
-            {
-                return new Result(false, null, null, RejectReason.NotALogoutToken);
+                return new Result(false, null, null, payloadRefusal);
             }
 
             var sub = token.TryGetPayloadValue<string>("sub", out var s) && !string.IsNullOrEmpty(s) ? s : null;
@@ -173,6 +124,52 @@ internal sealed class OidcLogoutTokenValidator
                 key.Dispose();
             }
         }
+    }
+
+    // The header screens that run before any signing key is looked up, each from the predicate the id_token path
+    // calls so the two postures cannot drift: the kid allowlist (#1167), no crit header (#1038, RFC 7515 4.1.11),
+    // the typ table (#1317, RFC 7519 4.1.9), and the algorithm, judged here only so the refusal can be named (#1164).
+    private static string? HeaderRefusal(string logoutToken)
+    {
+        if (!OidcSignatureKeys.TokenHasAcceptableKeyId(logoutToken))
+        {
+            return RejectReason.UnacceptableKeyId;
+        }
+
+        if (!OidcSignatureKeys.TokenHasNoCriticalHeader(logoutToken))
+        {
+            return RejectReason.CriticalHeader;
+        }
+
+        if (!OidcSignatureKeys.TokenTypeIsAcceptableForLogoutToken(logoutToken))
+        {
+            return RejectReason.UnacceptableTokenType;
+        }
+
+        return OidcSignatureKeys.TokenHasAllowedAlgorithm(logoutToken) ? null : RejectReason.AlgorithmNotAllowed;
+    }
+
+    // The payload rules after the signature: the azp restriction the id_token validator applies (OIDC Core
+    // 3.1.3.7 rules 3-5), no nonce and the back-channel-logout events member (Back-Channel Logout 1.0 2.4, 2.6).
+    private static string? PayloadRefusal(JsonWebToken token, string? azp, string clientId)
+    {
+        if (azp != null && !string.Equals(azp, clientId, StringComparison.Ordinal))
+        {
+            return RejectReason.AuthorizedPartyMismatch;
+        }
+
+        if (azp == null && token.Audiences.Count() > 1)
+        {
+            return RejectReason.MultipleAudiencesWithoutAuthorizedParty;
+        }
+
+        // What refuses an id_token, which carries a nonce, replayed at the back-channel endpoint.
+        if (token.TryGetPayloadValue<string>("nonce", out var nonce) && !string.IsNullOrEmpty(nonce))
+        {
+            return RejectReason.ProhibitedNonce;
+        }
+
+        return HasBackChannelLogoutEvent(token) ? null : RejectReason.NotALogoutToken;
     }
 
     // The code is chosen from the exception type and never from its message, which can embed claim values, and every

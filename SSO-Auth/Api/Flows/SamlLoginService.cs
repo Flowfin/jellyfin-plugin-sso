@@ -2,15 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.SSO_Auth.Api;
 using Jellyfin.Plugin.SSO_Auth.Api.Audit;
 using Jellyfin.Plugin.SSO_Auth.Api.Events;
-using Jellyfin.Plugin.SSO_Auth.Api.Identity;
 using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 using Jellyfin.Plugin.SSO_Auth.Api.Logout;
@@ -137,26 +135,7 @@ internal sealed class SamlLoginService
 
         if (!SamlLoginPolicy.IsLoginAllowed(assertionRoles, config.Roles))
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning(
-                    "SAML user: {UserId} has insufficient roles: {@Roles}. Expected any one of: {@ExpectedRoles}",
-                    samlResponse.GetNameID()?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                    assertionRoles.Select(r => r?.ReplaceLineEndings(string.Empty).Replace('[', '(')),
-                    config.Roles);
-            }
-
-            // Login-time deprovisioning never touches an administrator (#831).
-            if (config.DisableAccountOnRoleDenied
-                && await _canonicalLinks.DisableDeniedAccountAsync(ProviderMode.Saml, provider, samlResponse.GetNameID()).ConfigureAwait(false))
-            {
-                SsoAudit.AccountDeprovisioned(_logger, "SAML", provider);
-            }
-
-            // The host raises its own failed-login event only from the mint, which this path never reaches (#1142).
-            await _loginEvents.PublishRoleDeniedAsync(provider, request.HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
-
-            return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
+            return await DenyRoleAsync(provider, config, samlResponse, assertionRoles, request).ConfigureAwait(false);
         }
 
         // Linking keeps the assertion-embedded page, and the link redeem consumes the assertion on its own leg (#251, #614).
@@ -173,64 +152,7 @@ internal sealed class SamlLoginService
                     culture: culture));
         }
 
-        // The slot is reserved before the one-time replay consume, so a capacity refusal leaves the assertion retryable (#251, #539).
-        var clientKey = SsoRateLimiter.NormalizeClientKey(request.HttpContext.Connection.RemoteIpAddress);
-        _outcomes.PruneExpired(DateTime.UtcNow);
-        if (!_outcomes.TryReserve(clientKey, DateTime.UtcNow, out var shouldWarnCapacity))
-        {
-            if (shouldWarnCapacity)
-            {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("SAML login outcome refused for provider {Provider}: the per-client sub-cap or the outcome store is at capacity (warning throttled); the assertion was not consumed, so the login can be retried.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
-                }
-            }
-
-            return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; please retry.");
-        }
-
-        // The finally releases the reservation unless a committed outcome took it over, so a slot can never leak.
-        bool committed = false;
-        try
-        {
-            if (!_validator.TryProduceVerifiedIdentity(config, provider, samlResponse, assertionRoles, out var identity, out var rejection))
-            {
-                return LoginStatusMapper.ToActionResult(rejection);
-            }
-
-            var outcome = new SamlLoginOutcome(
-                SamlOutcomeStore.NewToken(),
-                provider,
-                identity,
-                samlResponse.GetInResponseTo() ?? string.Empty,
-                samlResponse.GetSessionIndex(),
-                clientKey,
-                DateTime.UtcNow);
-            if (!_outcomes.CommitReserved(outcome))
-            {
-                // A token collision, which fails closed rather than rendering a token that could never redeem.
-                return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; please retry.");
-            }
-
-            // The committed outcome owns the slot now, and the page renders the token before the finally runs.
-            committed = true;
-            return FlowResponses.AuthPage(response, nonce =>
-                WebResponse.Generator(
-                    data: outcome.Token,
-                    provider: provider,
-                    baseUrl: requestBase,
-                    mode: "SAML",
-                    nonce: nonce,
-                    isLinking: false,
-                    culture: culture));
-        }
-        finally
-        {
-            if (!committed)
-            {
-                _outcomes.ReleaseReservation(clientKey);
-            }
-        }
+        return StoreOutcomeAndRenderPage(provider, config, samlResponse, assertionRoles, requestBase, culture, request, response);
     }
 
     /// <summary>Initiates the SAML login flow: builds the AuthnRequest, binds it to the initiating browser, and redirects to the identity provider.</summary>
@@ -546,4 +468,93 @@ internal sealed class SamlLoginService
 
     private static string GetRequestBase(HttpRequest request, string schemeOverride, int? portOverride, string baseUrlOverride) =>
         CanonicalBaseUrl.Resolve(baseUrlOverride, request.Scheme, request.Host.Host, request.Host.Port, request.PathBase, schemeOverride, portOverride);
+
+    // The role-denied arm: the line keeps the NameID and the roles seen; login-time deprovisioning never touches an
+    // administrator (#831); the host raises its own failed-login event only from the mint, which this path never reaches (#1142).
+    private async Task<ActionResult> DenyRoleAsync(string provider, SamlConfig config, SamlResponse samlResponse, List<string> assertionRoles, HttpRequest request)
+    {
+        if (_logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "SAML user: {UserId} has insufficient roles: {@Roles}. Expected any one of: {@ExpectedRoles}",
+                samlResponse.GetNameID()?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                assertionRoles.Select(r => r?.ReplaceLineEndings(string.Empty).Replace('[', '(')),
+                config.Roles);
+        }
+
+        if (config.DisableAccountOnRoleDenied
+            && await _canonicalLinks.DisableDeniedAccountAsync(ProviderMode.Saml, provider, samlResponse.GetNameID()).ConfigureAwait(false))
+        {
+            SsoAudit.AccountDeprovisioned(_logger, "SAML", provider);
+        }
+
+        await _loginEvents.PublishRoleDeniedAsync(provider, request.HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
+
+        return LoginStatusMapper.ToActionResult(new LoginOutcome.Denied());
+    }
+
+    // The login leg after the gate: a slot is reserved before the one-time replay consume, so a capacity refusal
+    // leaves the assertion retryable (#251, #539), and the finally releases the reservation unless a committed
+    // outcome took it over, so a slot can never leak.
+    private ActionResult StoreOutcomeAndRenderPage(string provider, SamlConfig config, SamlResponse samlResponse, List<string> assertionRoles, string requestBase, string? culture, HttpRequest request, HttpResponse response)
+    {
+        // The slot is reserved before the one-time replay consume, so a capacity refusal leaves the assertion retryable (#251, #539).
+        var clientKey = SsoRateLimiter.NormalizeClientKey(request.HttpContext.Connection.RemoteIpAddress);
+        _outcomes.PruneExpired(DateTime.UtcNow);
+        if (!_outcomes.TryReserve(clientKey, DateTime.UtcNow, out var shouldWarnCapacity))
+        {
+            if (shouldWarnCapacity)
+            {
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning("SAML login outcome refused for provider {Provider}: the per-client sub-cap or the outcome store is at capacity (warning throttled); the assertion was not consumed, so the login can be retried.", provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
+                }
+            }
+
+            return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; please retry.");
+        }
+
+        // The finally releases the reservation unless a committed outcome took it over, so a slot can never leak.
+        bool committed = false;
+        try
+        {
+            if (!_validator.TryProduceVerifiedIdentity(config, provider, samlResponse, assertionRoles, out var identity, out var rejection))
+            {
+                return LoginStatusMapper.ToActionResult(rejection);
+            }
+
+            var outcome = new SamlLoginOutcome(
+                SamlOutcomeStore.NewToken(),
+                provider,
+                identity,
+                samlResponse.GetInResponseTo() ?? string.Empty,
+                samlResponse.GetSessionIndex(),
+                clientKey,
+                DateTime.UtcNow);
+            if (!_outcomes.CommitReserved(outcome))
+            {
+                // A token collision, which fails closed rather than rendering a token that could never redeem.
+                return FlowResponses.PlainTextError(StatusCodes.Status500InternalServerError, "Could not start login; please retry.");
+            }
+
+            // The committed outcome owns the slot now, and the page renders the token before the finally runs.
+            committed = true;
+            return FlowResponses.AuthPage(response, nonce =>
+                WebResponse.Generator(
+                    data: outcome.Token,
+                    provider: provider,
+                    baseUrl: requestBase,
+                    mode: "SAML",
+                    nonce: nonce,
+                    isLinking: false,
+                    culture: culture));
+        }
+        finally
+        {
+            if (!committed)
+            {
+                _outcomes.ReleaseReservation(clientKey);
+            }
+        }
+    }
 }
