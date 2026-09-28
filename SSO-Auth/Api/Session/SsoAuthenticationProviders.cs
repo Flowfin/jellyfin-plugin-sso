@@ -6,39 +6,17 @@ using Jellyfin.Plugin.SSO_Auth.Api.Linking;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 
-/// <summary>
-/// The two <c>User.AuthenticationProviderId</c> values the SSO-only login feature (#165) moves accounts
-/// between, named once so the enforcement sweep, the break-glass guard, and the login-path re-assertion
-/// all agree on them.
-/// </summary>
+/// <summary>The two provider ids the SSO-only login feature moves accounts between, named once so the sweep, the guard and the login path agree (#165).</summary>
 /// <remarks>
-/// Jellyfin has no server-wide "disable password login" switch (see SSO-ONLY-LOGIN-DESIGN.md §2); the only
-/// lever is the per-user provider id. Setting it to <see cref="SsoProviderId"/> - a value that is NOT a
-/// registered <c>IAuthenticationProvider</c> - makes Jellyfin route that account's password attempts to its
-/// <c>InvalidAuthenticationProvider</c>, which rejects every password. This is the exact same pinned value
-/// (<see cref="SsoManagedProviderId"/>) that <see cref="CanonicalLinkService"/> stamps on the accounts it
-/// creates, so the stamp and this detector can never disagree. Restoring
-/// <see cref="DefaultPasswordProviderId"/> re-opens native password login, exactly as the Unregister revoke
-/// path does. Neither value is a secret; both are stable, documented Jellyfin identifiers.
+/// A provider id that resolves to no registered provider makes Jellyfin reject every password for that account. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/SSO-Only-Login-Design"/>.
 /// </remarks>
 internal static class SsoAuthenticationProviders
 {
-    /// <summary>
-    /// Jellyfin's built-in password provider - the account routing that native (username + password) login
-    /// uses. Restoring it is the reversible off-switch (SSO-ONLY-LOGIN-DESIGN.md §3 option B); it never
-    /// touches the stored password hash. This is the same full type name the config page documents as the
-    /// common "Set default Provider" value.
-    /// </summary>
+    /// <summary>Jellyfin's built-in password provider; restoring it is the reversible off-switch and never touches a password hash.</summary>
     internal const string DefaultPasswordProviderId = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
 
-    /// <summary>
-    /// Gets the provider id that disables native password login for an account: a value that resolves to no
-    /// registered password provider (so core substitutes its <c>InvalidAuthenticationProvider</c>). It is the
-    /// pinned <see cref="SsoManagedProviderId.Value"/> - the exact string <see cref="CanonicalLinkService"/>
-    /// stamps on created accounts - so the stamp and this detector are guaranteed identical. Pinned to a
-    /// fixed literal (rather than derived from the controller's runtime type name) precisely so a future move
-    /// of that type never orphans the already-persisted accounts that carry this literal (#837).
-    /// </summary>
+    /// <summary>Gets the provider id that disables password login: the pinned literal the link service stamps on created accounts, so a type move never orphans them (#837).</summary>
     internal static string SsoProviderId => SsoManagedProviderId.Value;
 
     /// <summary>Whether the given provider id is the plugin's SSO (password-disabling) provider.</summary>
