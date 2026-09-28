@@ -7,91 +7,30 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Audit;
 
-/// <summary>
-/// Emits consistent, structured audit-log entries for security-relevant SSO events that exist today:
-/// successful logins, adoption of a pre-existing account, and provider configuration changes. Every
-/// entry shares the "[SSO Audit]" prefix so operators can filter the trail, and only non-sensitive
-/// fields are logged (never secrets or certificates). Identity-provider- and admin-supplied values
-/// are stripped of line endings AND have their opening square bracket replaced by a round one,
-/// inline before logging, so they can neither split an entry nor forge a second one inside the line
-/// they land on. The two halves answer two different attacks and the second is #1555: stripping the
-/// line endings stops a foreign value from producing a second PHYSICAL line, and nothing stopped it
-/// from producing a second plausible RECORD on the same line, which an unanchored search or a SIEM
-/// substring rule reports as a login that never happened. One character carries that repair, because
-/// the prefix every entry is filtered on can only begin with an opening square bracket, so a value
-/// that holds none can reproduce that prefix nowhere in the sentence it sits in.
-/// NOT AN ESCAPE AND NOT A DELETION, and both were tried before this. A backslash written in front
-/// of the bracket leaves the marker whole as a SUBSTRING, so every unanchored search this is about
-/// still matches it. Deleting the character closes that, and it makes two DIFFERENT values print
-/// the same - which matters at one place in this file, the comparison in
-/// <see cref="LoginSucceeded"/>, where a presented name differing from the account name only in a
-/// bracket would then be silently reported as no difference at all, an audit disclosure an identity
-/// provider could switch off by choosing the character. Substituting keeps every value distinct
-/// from every other, so no comparison here can be made to go quiet; the cost is that a value
-/// legitimately carrying an opening bracket prints a round one instead.
-/// WHAT IS DELIBERATELY NOT SUBSTITUTED is a filesystem path this server composed for itself - the
-/// configuration file, the copy beside it, the marker, and the mounted declarative source. Those are
-/// host-owned and reachable by no untrusted party, and the EXACT text is the actionable content of
-/// the line: the unreadable-configuration lines tell an operator which file to move out of the way,
-/// and a data directory whose name carries a bracket would be named as a path that does not exist,
-/// in the one line written for a total lockout. They keep the line-ending strip and nothing more.
-/// THE SAME PAIR IS CARRIED BY EVERY OTHER LOG LINE THE PLUGIN WRITES (#1557). The property was this
-/// emitter's alone until then: ordinary plugin lines elsewhere carried identity-provider values under
-/// the line-ending strip alone, so the marker text was still plantable through them and an unanchored
-/// search over the whole file was not sound. Every logging call in the plugin now carries both, and the
-/// conformance rule that reads this file reads all of them. What the pair still does not reach is a
-/// value logged with no sanitizer at all, which is CodeQL's question rather than this one.
-/// Each call is guarded by <see cref="ILogger.IsEnabled(LogLevel)"/> so the inline sanitizers are
-/// not evaluated when the level is disabled (net10 CA1873, #566); both stay spelled out at the
-/// logging call, never handed down from a helper, so CodeQL's log-forging taint tracking still
-/// sees them inline.
-/// </summary>
+/// <summary>Writes the "[SSO Audit]" lines for the security events of this plugin: logins, adoptions, provisioning, configuration and logout.</summary>
+/// <remarks>
+/// A foreign value loses its line endings and its "[" becomes "(" at every call, spelled out inline so CodeQL's log-forging
+/// tracking sees it (#1555, #1557); a path this server composed keeps only the line-ending strip. Every call is guarded by
+/// <see cref="ILogger.IsEnabled(LogLevel)"/> (CA1873, #566). What a line may name and why the bracket is substituted:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#audit-trail"/>.
+/// </remarks>
 internal static class SsoAudit
 {
-    /// <summary>
-    /// The most characters of a route-chosen provider name a logout line prints (#1792). Long enough for
-    /// any name an administrator would configure, and a fixed ceiling on what a caller with no credential
-    /// can put into one line.
-    /// </summary>
+    /// <summary>The most characters of a route-chosen provider name a logout line prints (#1792); the rest is cut and marked.</summary>
     internal const int MaxLoggedProviderChars = 128;
 
     /// <summary>Marks a provider name a logout line cut, so a truncated name is not read as the whole one.</summary>
     internal const string ProviderCutMark = "[truncated]";
 
-    /// <summary>
-    /// Records a successful login (a session was issued). The name this line carries is the JELLYFIN
-    /// ACCOUNT's, because that is the one an operator has to line this line up against: the host publishes
-    /// its own <c>AuthenticationSuccess</c> event for the same mint and names the resolved account in it
-    /// (#1551). The provider-presented name can differ from the account's for more than one reason - an
-    /// existing link resolves an account under whatever name it already carries and
-    /// <c>SyncUsernameFromProvider</c> is off by default; a created account was provisioned under the
-    /// host's own name allowlist, which drops characters the provider's name may carry; a requested rename
-    /// can have been declined - so the presented name is carried too, and only where the two differ.
-    /// THE PRIVILEGE FIELD IS THE SAME KIND OF VALUE FOR THE SAME REASON (#1554): <c>admin=</c> reports what
-    /// the MINT GRANTED, and the role mapping's own verdict is named beside it only where the two disagree.
-    /// </summary>
+    /// <summary>Records a successful login under the Jellyfin account's name, so the line matches the host's own AuthenticationSuccess event (#1551).</summary>
+    /// <remarks>The presented name and the mapped privilege are printed only where they differ from the account's name and the granted privilege (#1554).</remarks>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="username">The Jellyfin account the session was issued for.</param>
-    /// <param name="grantedAdmin">
-    /// Whether the minted session's account HOLDS administrator rights, read from the host's own
-    /// authentication result after the permission write. Reporting the mapping here instead failed in both
-    /// directions, and the second is what settled #1554: <c>admin=True</c> for a session the mint never made
-    /// an administrator is a false alarm, while the break-glass administrator - which the minter is forbidden
-    /// to demote - signing in where no role maps to admin printed <c>admin=False</c> for a session that held
-    /// administrator rights, and under-reporting real administrator access is the failure an audit trail is
-    /// bought to prevent. Null where there was no result to read; see the shape note in the body.
-    /// </param>
-    /// <param name="mappedAdmin">
-    /// Whether a role this login carried is on the configured <c>AdminRoles</c> allow-list. Evidence about
-    /// the provider read through this server's own mapping rather than a state this server reached, so it is
-    /// named in the line only where it disagrees with <paramref name="grantedAdmin"/>.
-    /// </param>
-    /// <param name="presentedUsername">
-    /// The username the identity provider presented on this login. Named in the line only where it differs
-    /// from <paramref name="username"/>; null suppresses the comparison entirely.
-    /// </param>
+    /// <param name="grantedAdmin">Whether the minted session holds administrator rights, read from the host's own result; null when there was no result to read.</param>
+    /// <param name="mappedAdmin">Whether a role this login carried is on the provider's <c>AdminRoles</c> list.</param>
+    /// <param name="presentedUsername">The username the identity provider presented; null suppresses the comparison.</param>
     internal static void LoginSucceeded(ILogger logger, string protocol, string provider, string username, bool? grantedAdmin, bool mappedAdmin, string? presentedUsername = null)
     {
         if (!logger.IsEnabled(LogLevel.Information))
@@ -99,18 +38,7 @@ internal static class SsoAudit
             return;
         }
 
-        // The outcome is rendered through ONE field whose absent state is a word of its own. True and False
-        // are byte-for-byte what this field has always printed, so nothing keyed on the RENDERED line moves;
-        // carrying the absent case as a third optional clause instead would have doubled the templates below
-        // from four to eight for a state that says less than the word does.
-        //
-        // WHAT DOES MOVE IS THE STRUCTURED FIELD, and it is stated rather than left to be discovered. A JSON
-        // or Serilog sink received {IsAdmin} as a Boolean and now receives a String, so an operator rule
-        // written as IsAdmin == true stops matching - silently, in the same under-reporting direction this
-        // change exists to close. It is disclosed in the changelog for that reason. The alternative keeps the
-        // Boolean by giving the absent state two templates of its own, which is six for a state that
-        // Jellyfin's own AuthenticateDirect cannot produce (see GrantedAdmin in LoginCompletionService), and
-        // the shape was decided on #1554 before the first template was written.
+        // "unknown" is a third value of the one field, so the four templates below stay four (#1554).
         var granted = grantedAdmin switch
         {
             true => "True",
@@ -118,49 +46,17 @@ internal static class SsoAudit
             _ => "unknown",
         };
 
-        // The mapped value is named only where it does not agree with the outcome, so the common line stays
-        // short and a divergence is the thing that catches the eye. A lifted comparison, DELIBERATELY: an
-        // absent outcome agrees with nothing, so a line that could not read the granted state still names
-        // the mapping rather than carrying no privilege information at all - which would be less than this
-        // line carried before the outcome replaced the mapping in it.
-        //
-        // AND IT IS NAMED AS A MAPPING RATHER THAN AS AN ASSERTION. mappedAdmin is not a claim the provider
-        // made: RolePrivilegeMapper.Evaluate sets it when a role the login carried is on the ADMIN-CONFIGURED
-        // AdminRoles allow-list, which is empty by default - so on a default install it is false however
-        // loudly the provider asserts otherwise, because nothing here ever asked. A clause reading "the
-        // provider asserted admin=False" would put a denial in the provider's mouth on every administrator's
-        // login, which is the kind of sentence this file refuses to write elsewhere.
+        // The mapping is named only where it disagrees; an absent outcome disagrees with everything, so that line still names it.
         var mappingDisagrees = grantedAdmin != mappedAdmin;
 
-        // Two independent optional clauses, so four whole templates rather than a composed sentence. The
-        // constant is not decoration: it is what keeps the structured field names stable for a log reader,
-        // and it is what the log-forging rules are written against, so every foreign value below is still
-        // sanitized inline at its own logging call.
+        // Compared as printed, ordinally: both names carry the same sanitizers, and the rename path compares them the same way (#1555).
         var namesDiffer = presentedUsername is not null
             && !string.Equals(
                 presentedUsername.ReplaceLineEndings(string.Empty).Replace('[', '('),
                 username?.ReplaceLineEndings(string.Empty).Replace('[', '('),
                 StringComparison.Ordinal);
 
-        // The decision is taken on the values AS THEY WILL BE PRINTED, never on the raw ones. Both names are
-        // stripped of line endings on the way into the line, so a provider presenting "alice\r\n" against the
-        // account "alice" compares unequal raw and prints two identical names - a line asserting a difference
-        // its own evidence denies, which an identity provider can produce at will. The sanitizer is still
-        // spelled out inline at each logging call below rather than being passed down from here, because
-        // CodeQL's cs/log-forging taint tracking does not follow them across an assignment.
-        //
-        // AND THIS IS WHY THE BRACKET IS SUBSTITUTED RATHER THAN DELETED (#1555). Comparing printed values
-        // means any two values the sanitizers render alike are reported as no difference at all. Deleting
-        // the bracket does exactly that to a presented name that differs from the account name only in one,
-        // and that pair is not contrived: the bracket is one of the characters the host allowlist drops when
-        // it provisions an account, which is the second of the three reasons this clause exists. A provider
-        // could then switch the disclosure off by choosing the character. Substituting keeps every value
-        // distinct from every other, so nothing an identity provider sends can make this comparison quiet.
-        //
-        // ORDINAL, DELIBERATELY, though the host resolves a username case-insensitively. The rename this
-        // clause reports the absence of decides on the same basis - CanonicalLinkService compares the
-        // account name against the sanitized presented name with StringComparison.Ordinal - so a case-folding
-        // comparison here would stay silent about a difference the rename path would act on.
+        // Four whole templates keep the structured field names stable for log readers and for the log-forging rules.
         if (namesDiffer && mappingDisagrees)
         {
             logger.LogInformation(
@@ -206,14 +102,9 @@ internal static class SsoAudit
             granted);
     }
 
-    /// <summary>
-    /// Records that an account this login had just created was deleted again because the login could not be
-    /// completed (#1533). Warning rather than Information: the lines the provisioning already emitted - the
-    /// created-account metric, the pending-approval audit, the legacy-orphan warning - all describe an
-    /// account that no longer exists, and this is what makes that stretch of the log readable.
-    /// </summary>
+    /// <summary>Records that an account this login created was deleted again because the login could not be completed (#1533); Warning, so the provisioning lines above it read as undone.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="username">The Jellyfin username the account had been created under.</param>
     internal static void ProvisionedAccountRolledBack(ILogger logger, string protocol, string provider, string username)
@@ -230,14 +121,10 @@ internal static class SsoAudit
             username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records that the rollback above could not delete the account (#1533), so a half-provisioned one
-    /// survives. Error, and it names what an administrator has to do: this account carries no link and no
-    /// usable password, and it blocks that identity from being provisioned again under the same name.
-    /// </summary>
+    /// <summary>Records that the rollback could not delete the account (#1533): it holds no link and no usable password, and it blocks that identity's name until deleted by hand.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="username">The Jellyfin username the account was created under.</param>
-    /// <param name="error">What the delete threw. No credential material is recorded.</param>
+    /// <param name="error">What the delete threw; no credential material is recorded.</param>
     internal static void ProvisionedAccountRollbackFailed(ILogger logger, string username, Exception error)
     {
         if (logger is null || !logger.IsEnabled(LogLevel.Error))
@@ -251,12 +138,9 @@ internal static class SsoAudit
             username?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records a new SSO identity being provisioned as a disabled account pending administrator approval
-    /// (#737, ProvisionNewUsersDisabled). No session was issued; an administrator must enable the account.
-    /// </summary>
+    /// <summary>Records a new SSO identity provisioned as a disabled account awaiting administrator approval (#737); no session was issued.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="username">The Jellyfin username the disabled account was created under.</param>
     internal static void ProvisionedPendingApproval(ILogger logger, string protocol, string provider, string username)
@@ -292,16 +176,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records a linked account being renamed to follow its identity provider (#1138). The rename changes
-    /// the name an administrator sees in the Jellyfin dashboard and nothing else, so the trail has to say
-    /// which name became which - without it, an account an operator is looking for has silently become a
-    /// different row in the user list with no record of why. Both names are identity-provider-influenced,
-    /// so both carry the two inline sanitizers at the call, like every other foreign name this file logs:
-    /// the line-ending strip and the bracket substitution that keeps the record marker unforgeable (#1555).
-    /// </summary>
+    /// <summary>Records a linked account being renamed to follow its identity provider (#1138), naming both names.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="previousName">The name the account held before the rename.</param>
     /// <param name="newName">The sanitized name it now holds.</param>
@@ -320,14 +197,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an existing account being disabled by login-time deprovisioning (#831): its SSO login was
-    /// denied by the role allow-list and the provider opts into disabling on denial. Only non-sensitive
-    /// fields are logged - the protocol and provider name, never the subject/username (T-I1) - so an
-    /// offboarding (or a mass-disable incident from a misconfigured allow-list) leaves an operator trail.
-    /// </summary>
+    /// <summary>Records an account disabled by login-time deprovisioning (#831): the role allow-list denied the login and the provider opts into disabling; no subject or username is named (T-I1).</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     internal static void AccountDeprovisioned(ILogger logger, string protocol, string provider)
     {
@@ -342,16 +214,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an existing account being disabled because its access deadline has passed (#1144): the
-    /// provider configures an account-expiry claim and the login carried an instant at or before now. Fired
-    /// once, at the transition, never on the later refused logins of an account already disabled by it. Only
-    /// non-sensitive fields are logged - the protocol and provider name, never the subject/username or the
-    /// deadline itself (T-I1) - so an offboarding, or a mass-expiry incident from an identity provider that
-    /// starts emitting a past instant, leaves an operator trail.
-    /// </summary>
+    /// <summary>Records an account disabled because the access deadline a login carried has passed (#1144); fired once, at the transition; neither subject nor deadline is named (T-I1).</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     internal static void AccountExpired(ILogger logger, string protocol, string provider)
     {
@@ -366,16 +231,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an account being disabled by the between-logins expiry sweep (#1145): its persisted deadline
-    /// passed with no login attempt in between, so nothing on the login path was ever going to notice. Fired
-    /// once, at the transition, never on later ticks that find the account already disabled. Carries the same
-    /// non-sensitive fields as the login-time line - the protocol and provider name, never the subject or the
-    /// deadline (T-I1) - and is worded distinctly from it because the two answer different operator questions:
-    /// this one says access ended on the clock while the user was away.
-    /// </summary>
+    /// <summary>Records an account disabled by the between-logins expiry sweep (#1145); fired once, at the transition, and worded apart from the login-time line.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider name.</param>
     internal static void AccountExpiredBySweep(ILogger logger, string protocol, string provider)
     {
@@ -390,18 +248,8 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records the boot-time sweep sealing SSO-linked accounts that carried no stored password (#1440).
-    /// A Jellyfin account created without one accepts the EMPTY password on the ordinary login form, so
-    /// an account this plugin provisioned was reachable without it on every build before the create arm's
-    /// password write was made durable. THE LINE NAMES NO VERSION RANGE, and #1454 is why: that write
-    /// existed for years and reached no database, so the population is a STATE - a linked account holding
-    /// no password - rather than a span of releases, and a message naming one told an operator with newer
-    /// accounts to stop looking. Fired once per boot and only when the sweep actually sealed something, so a
-    /// server that has none stays silent. Carries a COUNT and nothing else - no username, no account id and
-    /// no provider (T-I1): an account already reachable by anybody is the last thing to name in a log an
-    /// operator may paste into a bug report.
-    /// </summary>
+    /// <summary>Records the boot-time sweep giving SSO-linked accounts that had no stored password an unguessable one (#1440); a count and nothing else (T-I1).</summary>
+    /// <remarks>The line names no version range: the population is a state, not a span of releases (#1454).</remarks>
     /// <param name="logger">The logger.</param>
     /// <param name="sealedAccounts">How many accounts the sweep gave a password to.</param>
     internal static void PasswordlessAccountsSealed(ILogger logger, int sealedAccounts)
@@ -450,14 +298,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records that a subscriber to the plugin's <c>ConfigurationChanged</c> event threw (#1521). The write
-    /// it is being told about is already on disk and already live, so the failure is contained here rather
-    /// than unwound: letting it out would reach the store's rollback and revert a durable change. Warning
-    /// rather than Error: whoever subscribed did not get its update, and nothing this plugin owns is wrong.
-    /// </summary>
+    /// <summary>Records that a ConfigurationChanged subscriber threw after a completed save (#1521); the save stands, so the failure is contained here at Warning.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="error">What the subscriber threw. No configuration content is recorded.</param>
+    /// <param name="error">What the subscriber threw; no configuration content is recorded.</param>
     internal static void ConfigurationChangedSubscriberFailed(ILogger logger, Exception error)
     {
         if (logger is null || !logger.IsEnabled(LogLevel.Warning))
@@ -470,15 +313,9 @@ internal static class SsoAudit
             error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records that a configuration write went ahead without an undo, because the state it would have
-    /// restored could not be serialized (#1521). The write itself is NOT refused: refusing it would make a
-    /// configuration that once reached this state permanently unwritable, including the delete that would
-    /// repair it. Warning, because the all-or-nothing property the import endpoints promise does not hold
-    /// for this one write and an operator reading a later 500 deserves to find this line above it.
-    /// </summary>
+    /// <summary>Records a configuration write going ahead without an undo because the previous state could not be serialized (#1521); refusing the write would make the configuration permanently unwritable.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="error">What refused the serialization. No configuration content is recorded.</param>
+    /// <param name="error">What refused the serialization; no configuration content is recorded.</param>
     internal static void ConfigurationRollbackUnavailable(ILogger logger, Exception error)
     {
         if (logger is null || !logger.IsEnabled(LogLevel.Warning))
@@ -491,14 +328,9 @@ internal static class SsoAudit
             error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records that a configuration write failed AND the undo for it failed too (#1521), so the running
-    /// server is left carrying a change the file does not have. Error rather than Warning: this is the state
-    /// the rollback exists to prevent, the exception the caller sees names the write rather than this, and a
-    /// restart is what puts the server back on the file.
-    /// </summary>
+    /// <summary>Records a configuration write that failed and whose undo failed too (#1521): the running server carries a change the file lacks until a restart.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="error">What the restore threw. No configuration content is recorded.</param>
+    /// <param name="error">What the restore threw; no configuration content is recorded.</param>
     internal static void ConfigurationRollbackFailed(ILogger logger, Exception error)
     {
         if (logger is null || !logger.IsEnabled(LogLevel.Error))
@@ -511,15 +343,10 @@ internal static class SsoAudit
             error?.Message?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records a config-page save whose changes to a declaratively managed provider were ignored (#1102). The
-    /// provider is decided by the mounted document or the environment, so the stored value was kept and the
-    /// posted one discarded. Warning rather than Information: an administrator has just made an edit the
-    /// server did not take, and the settings page is where they would otherwise wait for it to hold.
-    /// </summary>
+    /// <summary>Records a settings-page save whose change to a declaratively managed provider was ignored and the stored value kept (#1102).</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
-    /// <param name="provider">The provider name. No field value is recorded - the point is which provider, not what was posted.</param>
+    /// <param name="protocol">OpenID or SAML.</param>
+    /// <param name="provider">The provider name; no field value is recorded.</param>
     internal static void DeclarativeWriteIgnored(ILogger logger, string protocol, string provider)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -533,14 +360,9 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records a configuration save whose write to a declaratively defined provisioning profile was ignored
-    /// (#1102). The profile is what a managed provider provisions a new account THROUGH, so a save that
-    /// redefines one changes what that provider grants without naming it - which is why this line exists
-    /// separately from <see cref="DeclarativeWriteIgnored"/> rather than borrowing its wording.
-    /// </summary>
+    /// <summary>Records a save whose write to a declaratively defined provisioning profile was ignored and the stored value kept (#1102).</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="profile">The profile name. No field value is recorded - the point is which profile, not what was posted.</param>
+    /// <param name="profile">The profile name; no field value is recorded.</param>
     internal static void DeclarativeProfileWriteIgnored(ILogger logger, string profile)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -553,18 +375,12 @@ internal static class SsoAudit
             profile?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an elevated write door refusing to alter or delete a declaratively managed provider (#1415).
-    /// The config-page save IGNORES such a write and keeps the stored value (see
-    /// <see cref="DeclarativeWriteIgnored"/>); these doors carry a single-provider intent that cannot be
-    /// half-honoured, so they refuse instead and nothing is written. Warning for the same reason: an
-    /// administrator has just asked for a change the server did not make.
-    /// </summary>
+    /// <summary>Records an elevated single-provider door refusing to alter or delete a declaratively managed provider (#1415); unlike the settings page it cannot half-honour the request, so nothing is written.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="door">The route that was refused, e.g. <c>OID/Del</c>.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
-    /// <param name="provider">The provider name. No field value is recorded - the point is which provider, not what was posted.</param>
-    /// <param name="source">What names the source that owns the provider, so the line says where the change belongs.</param>
+    /// <param name="door">The route that was refused, such as <c>OID/Del</c>.</param>
+    /// <param name="protocol">OpenID or SAML.</param>
+    /// <param name="provider">The provider name; no field value is recorded.</param>
+    /// <param name="source">The declarative source that owns the provider.</param>
     internal static void DeclarativeWriteRefused(ILogger logger, string door, string protocol, string provider, string source)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -580,16 +396,11 @@ internal static class SsoAudit
             source?.ReplaceLineEndings(string.Empty));
     }
 
-    /// <summary>
-    /// Records a whole-document write door refusing because the document redefines a declaratively defined
-    /// provisioning profile (#1102). Refuse rather than ignore, for the reason
-    /// <see cref="DeclarativeWriteRefused"/> gives: an import is all-or-nothing on every other rejection,
-    /// and dropping part of a document silently is the worse failure.
-    /// </summary>
+    /// <summary>Records a whole-document write refused because the document redefines a declaratively defined profile (#1102); an import is all-or-nothing.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="door">The route that was refused, e.g. <c>Config/Import</c>.</param>
-    /// <param name="profile">The profile name. No field value is recorded.</param>
-    /// <param name="source">What names the source that defined the profile, so the line says where the change belongs.</param>
+    /// <param name="door">The route that was refused, such as <c>Config/Import</c>.</param>
+    /// <param name="profile">The profile name; no field value is recorded.</param>
+    /// <param name="source">The declarative source that defined the profile.</param>
     internal static void DeclarativeProfileWriteRefused(ILogger logger, string door, string profile, string source)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -629,19 +440,8 @@ internal static class SsoAudit
             oidProviders,
             samlProviders);
 
-    /// <summary>
-    /// Records an administrator restoring an account-link backup (#1129). Every restored link is a grant
-    /// of future login capability made on an administrator credential alone and with no identity-provider
-    /// round trip, in bulk, so it is warned rather than informed for the same reason the single
-    /// pre-provision write below is: it is the line an operator looks for when an account turns out to
-    /// sign in as somebody it should not.
-    /// </summary>
-    /// <remarks>
-    /// The canonical subjects are deliberately not fields here, exactly as they are not on the single
-    /// write below (T-I1). The per-provider counts are what tell an operator whether the restore matched
-    /// the backup they applied, and a subject is the one value in that document that identifies a real
-    /// person at the identity provider.
-    /// </remarks>
+    /// <summary>Records an administrator restoring an account-link backup (#1129): a bulk grant of future login with no identity-provider round trip, so it is warned.</summary>
+    /// <remarks>Per-provider counts and no subjects (T-I1).</remarks>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator who applied the backup.</param>
     /// <param name="totalLinks">How many links the import restored in total.</param>
@@ -660,21 +460,11 @@ internal static class SsoAudit
             perProvider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an administrator pre-provisioning a canonical link with no identity-provider round trip
-    /// (#1133). A grant of future login capability made on an administrator credential alone, so it is
-    /// warned rather than informed: it is the line an operator looks for when an account turns out to sign
-    /// in as somebody it should not.
-    /// </summary>
-    /// <remarks>
-    /// The canonical subject is deliberately NOT a field here. The audit trail already carries no raw
-    /// subject value (T-I1), the provider and the target account are what identify the grant for an
-    /// operator, and the subject would be the one member of the request that is an identifier for a real
-    /// person at the identity provider.
-    /// </remarks>
+    /// <summary>Records an administrator pre-provisioning a canonical link with no identity-provider round trip (#1133): a grant of future login, so it is warned.</summary>
+    /// <remarks>The subject is not a field (T-I1); provider and account identify the grant.</remarks>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator who made the link.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider the link was written on.</param>
     /// <param name="jellyfinUserId">The Jellyfin account the identity was linked to.</param>
     internal static void LinkPreprovisioned(ILogger logger, string actor, string protocol, string provider, Guid jellyfinUserId)
@@ -692,20 +482,10 @@ internal static class SsoAudit
             jellyfinUserId);
     }
 
-    /// <summary>
-    /// Records an administrator approving an account this plugin provisioned inert (#1529): the account was
-    /// enabled and can sign in from now on. A grant of access, so it is warned rather than informed, and it
-    /// is the counterpart of the line the provisioning itself wrote - an operator reading the trail should
-    /// find the same account inert at one instant and admitted at another, with a name against the second.
-    /// </summary>
-    /// <remarks>
-    /// The canonical subject is deliberately not a field, for the reason the pre-provision line states
-    /// (T-I1): the account and the provider identify the grant, and the subject is the one member of the
-    /// request that identifies a real person at the identity provider.
-    /// </remarks>
+    /// <summary>Records an administrator enabling an account this plugin provisioned inert (#1529): a grant of access, so it is warned; no subject is named (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator who approved the account.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider the account was provisioned from.</param>
     /// <param name="jellyfinUserId">The Jellyfin account that was enabled.</param>
     internal static void AccountApproved(ILogger logger, string actor, string protocol, string provider, Guid jellyfinUserId)
@@ -723,17 +503,7 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records the links of a deleted Jellyfin account being removed with it (#1649), on the host's own
-    /// deletion event. Warned rather than informed, because it is the line that replaces the roster's orphan
-    /// row: an operator who used to find a dead link on the Accounts page finds this instead.
-    /// </summary>
-    /// <remarks>
-    /// The providers are named and the subject is not (T-I1): protocol and provider say where the account
-    /// was linked, the id says which account, and the subject is the one value that names a person at the
-    /// identity provider. The account's username is not carried either; the account is gone, and the id is
-    /// what every other line about it used.
-    /// </remarks>
+    /// <summary>Records the links of a deleted Jellyfin account being removed with it (#1649), naming the providers and the account id and no subject (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="jellyfinUserId">The deleted account.</param>
     /// <param name="removed">How many links were removed.</param>
@@ -752,24 +522,14 @@ internal static class SsoAudit
             string.Join(", ", providers ?? Array.Empty<string>()).ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records an administrator removing every canonical link one provider holds (#1519). One line for the
-    /// act, at Warning, because a bulk removal of a thousand links must not reach an operator as a thousand
-    /// indistinguishable per-user lines with no statement of what was done - the per-account detail is
-    /// written at Information beneath it by the caller, for the accounts whose last link this took.
-    /// </summary>
-    /// <remarks>
-    /// The actor is named because this is an action taken on other people's accounts, and the counts are
-    /// what tell an operator whether the run matched the provider they meant. No canonical subject and no
-    /// account name is a field here (T-I1): the removal is identified by the provider it emptied.
-    /// </remarks>
+    /// <summary>Records an administrator removing every link one provider holds (#1519): one line for the act with the actor and the counts, no subject or account name (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator who ran the unlink.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider whose link table was emptied.</param>
     /// <param name="removedLinks">How many links were removed.</param>
     /// <param name="unlinkedAccounts">How many accounts were left holding no SSO link at all.</param>
-    /// <param name="signedOut">How many of those the token revocation actually reached.</param>
+    /// <param name="signedOut">How many of those the token revocation reached.</param>
     internal static void ProviderLinksPurged(ILogger logger, string actor, string protocol, string provider, int removedLinks, int unlinkedAccounts, int signedOut)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -777,9 +537,7 @@ internal static class SsoAudit
             return;
         }
 
-        // The two counts are separate on purpose. Collapsing them would report the accounts left without
-        // an SSO link as the accounts signed out, and a revoke that threw would then be invisible: the
-        // line would understate what happened by exactly the accounts still holding a live session.
+        // Two counts on purpose: a revoke that threw would otherwise hide inside the unlinked count.
         logger.LogWarning(
             "[SSO Audit] Every canonical link on {Protocol} '{Provider}' removed by {Actor}: {RemovedLinks} link(s) gone, {UnlinkedAccounts} account(s) left with no SSO link, {SignedOut} of them signed out. No Jellyfin account, permission or password was changed.",
             protocol,
@@ -790,20 +548,9 @@ internal static class SsoAudit
             signedOut);
     }
 
-    /// <summary>
-    /// Records that a bulk unlink left an administrator account with no way to sign in after all (#1519).
-    /// The gate refuses that outcome, so this line means the gate was right when it ran and the world
-    /// moved underneath it: an account can lose its password door between being judged and the removal
-    /// committing, without any link moving, which no link-table comparison can see.
-    /// </summary>
-    /// <remarks>
-    /// Error, and it names the accounts, because it is the one line that turns a silent lockout into a
-    /// repair somebody can make: give one of them a usable password, or re-link it. The caller is an
-    /// elevated administrator and the log is the operator's own, so naming them discloses nothing the
-    /// account roster does not.
-    /// </remarks>
+    /// <summary>Records that a bulk unlink left an administrator with no way to sign in after all (#1519): the guard was right when it ran and a password door closed in between; Error, naming the accounts so somebody can repair it.</summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider whose links were removed.</param>
     /// <param name="administrators">The rendered list of administrator accounts now without a way in.</param>
     internal static void ProviderLinksPurgeStrandedAdministrator(ILogger logger, string protocol, string provider, string administrators)
@@ -813,24 +560,11 @@ internal static class SsoAudit
             provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
             administrators?.ReplaceLineEndings(string.Empty).Replace('[', '('));
 
-    /// <summary>
-    /// Records a holder's own last-link removal being REFUSED because it would leave the account with no
-    /// way to sign in (#1720), so the operator's log carries the moment somebody was stopped from locking
-    /// themselves out.
-    /// </summary>
-    /// <remarks>
-    /// Information rather than Warning: nothing is wrong with the server and nothing was changed. It is
-    /// the counterpart of the line the success path writes when a last link IS removed, and an operator
-    /// reading a user's "I cannot get in" report wants both in the same place. The user id is the only
-    /// value on it - no provider, no subject, no username - because the account is what the refusal is
-    /// about and the id is what the roster resolves.
-    /// </remarks>
+    /// <summary>Records a holder's own last-link removal being refused because it would leave the account with no way in (#1720); Information, nothing changed, the account id only.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="jellyfinUserId">The account whose own last link was kept.</param>
     internal static void SelfUnlinkRefusedWouldStrand(ILogger logger, Guid jellyfinUserId)
     {
-        // Guarded like every other line in this file, which the class comment states once: the guard is
-        // what keeps an argument from being evaluated for a level nobody is listening to.
         if (!logger.IsEnabled(LogLevel.Information))
         {
             return;
@@ -841,17 +575,7 @@ internal static class SsoAudit
             jellyfinUserId);
     }
 
-    /// <summary>
-    /// Records an administrator's revoke of their OWN SSO links being REFUSED because no other administrator
-    /// holds an SSO link that can sign them in (#1741), so the operator's log carries the moment somebody was
-    /// stopped from leaving the server with no administrator able to reach it.
-    /// </summary>
-    /// <remarks>
-    /// Information rather than Warning, for the reason <see cref="SelfUnlinkRefusedWouldStrand"/> gives:
-    /// nothing is wrong with the server and nothing was changed. It is the counterpart of the line the
-    /// revoke writes when it goes through, and the user id is the only value on it because the account is
-    /// what the refusal is about.
-    /// </remarks>
+    /// <summary>Records an administrator's revoke of their own links being refused because no other administrator holds a link that can sign them in (#1741); Information, nothing changed.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="jellyfinUserId">The administrator account whose links were kept.</param>
     internal static void UnregisterRefusedWouldStrandServer(ILogger logger, Guid jellyfinUserId)
@@ -866,16 +590,12 @@ internal static class SsoAudit
             jellyfinUserId);
     }
 
-    /// <summary>
-    /// Records a per-provider bulk unlink being REFUSED (#1519), so a blocked mass-lockout leaves a trail
-    /// (T-R1) exactly as a blocked SSO-only activation does. The reason is a fixed verdict CODE, never
-    /// caller input and never the account names the refusal itself carries (T-I1).
-    /// </summary>
+    /// <summary>Records a per-provider bulk unlink being refused (#1519, T-R1) with a fixed verdict code, never caller input (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator whose unlink was refused.</param>
-    /// <param name="protocol">The protocol (OpenID or SAML).</param>
+    /// <param name="protocol">OpenID or SAML.</param>
     /// <param name="provider">The provider named in the request.</param>
-    /// <param name="reasonCode">The refusal verdict name (a fixed enum member, not user input).</param>
+    /// <param name="reasonCode">The refusal verdict name, a fixed enum member.</param>
     internal static void ProviderLinksPurgeRefused(ILogger logger, string actor, string protocol, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -927,14 +647,10 @@ internal static class SsoAudit
             restoredCount);
     }
 
-    /// <summary>
-    /// Records an SSO-only activation (or designation) being REFUSED by the fail-closed guard (#165), so a
-    /// blocked lockout attempt leaves a trail (T-R1). The reason is a fixed verdict CODE, never a username or
-    /// roster (T-I1).
-    /// </summary>
+    /// <summary>Records an SSO-only activation or designation refused by the fail-closed guard (#165, T-R1) with a fixed verdict code (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="actor">The elevated administrator whose activation was refused.</param>
-    /// <param name="reasonCode">The guard verdict name (a fixed enum member, not user input).</param>
+    /// <param name="reasonCode">The guard verdict name, a fixed enum member.</param>
     internal static void SsoOnlyLoginActivationRefused(ILogger logger, string actor, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -965,12 +681,7 @@ internal static class SsoAudit
             breakGlassAdmin?.ReplaceLineEndings(string.Empty).Replace('[', '('));
     }
 
-    /// <summary>
-    /// Records a validated inbound SAML <c>LogoutRequest</c> that terminated sessions (#727, SLO-3b). Only
-    /// non-sensitive fields are logged: the provider name and the count of Jellyfin users whose tokens were
-    /// revoked - never the raw NameID or SessionIndex, which are subject identifiers (T-I1). The provider is
-    /// route input, so its line endings are stripped inline before logging (log-forging defense).
-    /// </summary>
+    /// <summary>Records a validated inbound SAML LogoutRequest that revoked sessions (#727): the provider and a count, never the NameID or SessionIndex (T-I1).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The SAML provider the request arrived for.</param>
     /// <param name="usersRevoked">How many distinct Jellyfin users had their tokens revoked.</param>
@@ -987,16 +698,10 @@ internal static class SsoAudit
             usersRevoked);
     }
 
-    /// <summary>
-    /// Records an inbound SAML <c>LogoutRequest</c> being rejected fail-closed (#727, SLO-3b). The reason is a
-    /// FIXED code (unsigned/malformed/replay/no-matching-session, a constant, never request-derived text), so
-    /// a blocked forged logout leaves a trail (T-R1) without disclosing subject identifiers or which branch
-    /// rejected it to the caller (the caller sees only a uniform 400). The provider is route input, stripped
-    /// of line endings inline before logging.
-    /// </summary>
+    /// <summary>Records an inbound SAML LogoutRequest rejected fail-closed (#727, T-R1) with a fixed reason code; the caller sees one uniform 400.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The SAML provider the request arrived for.</param>
-    /// <param name="reasonCode">The fixed rejection reason code (not request-derived).</param>
+    /// <param name="reasonCode">The fixed rejection reason code.</param>
     internal static void LogoutRejected(ILogger logger, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -1010,17 +715,10 @@ internal static class SsoAudit
             reasonCode);
     }
 
-    /// <summary>
-    /// Records an inbound OpenID <c>logout_token</c> being rejected fail-closed (#962). Separate from
-    /// <see cref="LogoutRejected"/>, which is worded for the SAML <c>LogoutRequest</c> sites it is shared by:
-    /// an operator filtering their log for OpenID logout failures used to find every one of them filed under
-    /// "SAML" (#1184). This is the benign class - a forged, replayed or malformed token is the system working,
-    /// and nothing was supposed to be terminated. The reason is a FIXED code, never token-derived, and the
-    /// caller still answers the one uniform 400, so nothing here becomes a branch oracle.
-    /// </summary>
+    /// <summary>Records an inbound OpenID logout_token rejected fail-closed (#962) with a fixed reason code; its own line, so a filter for OpenID logout failures finds it (#1184).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider the token arrived for.</param>
-    /// <param name="reasonCode">The fixed rejection reason code (not token-derived).</param>
+    /// <param name="reasonCode">The fixed rejection reason code.</param>
     internal static void BackChannelLogoutRejected(ILogger logger, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -1034,29 +732,10 @@ internal static class SsoAudit
             reasonCode);
     }
 
-    /// <summary>
-    /// Records an RP-initiated OpenID logout REFUSING a caller (#1768). Separate from
-    /// <see cref="LogoutRejected"/> for exactly the reason <see cref="BackChannelLogoutRejected"/> is: that
-    /// one is worded for the SAML <c>LogoutRequest</c> sites it is shared by, and an operator filtering
-    /// their log for OpenID logout failures used to find every one of them filed under "SAML" (#1184).
-    /// These are the two refusals on the RP-initiated route after it stopped carrying <c>[Authorize]</c> - an
-    /// unusable ticket and a caller naming nobody - so a flood of them is the thing an operator most needs
-    /// to find under the protocol it belongs to. THIS SENTENCE CALLED IT THE ONE ROUTE REACHABLE WITH NO
-    /// CREDENTIAL THAT ENDS A SESSION, AND IT IS NOT: the inbound back-channel OpenID logout and the inbound
-    /// SAML <c>LogoutRequest</c> carry no attribute either and both end sessions, authenticating by
-    /// signature rather than by header. The event is still owed for the reason above, which is about the
-    /// protocol a refusal is filed under rather than about how many routes share the property. The reason is a FIXED code, never request-derived, and the
-    /// caller still receives the one uniform 401, so nothing here becomes a branch oracle.
-    /// THE PROVIDER IS BOUNDED IN LENGTH HERE, AND IT WAS NOT (#1792). It is a route segment a caller
-    /// with no credential chooses, and the two sanitizers strip and substitute without shortening, so one
-    /// request could push a request line's worth of chosen text into the log. The first
-    /// <see cref="MaxLoggedProviderChars"/> characters are kept and a cut is marked, the way the discovery
-    /// reader marks a provider error it cut, so a truncated name is not read as the whole one. The bound is
-    /// on the LINE and not on the answer: a caller learns nothing from it.
-    /// </summary>
+    /// <summary>Records the RP-initiated OpenID logout refusing a caller (#1768) with a fixed reason code; the provider is route input and is cut at <see cref="MaxLoggedProviderChars"/> (#1792).</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider named in the route.</param>
-    /// <param name="reasonCode">The fixed refusal reason code (not request-derived).</param>
+    /// <param name="reasonCode">The fixed refusal reason code.</param>
     internal static void OpenIdLogoutRefused(ILogger logger, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -1070,14 +749,7 @@ internal static class SsoAudit
             reasonCode);
     }
 
-    /// <summary>
-    /// Records that credential-less refusals on the RP-initiated OpenID logout went unrecorded because the
-    /// budget on their lines was spent (#1792). A refusal there is reachable by anybody, the limiter in
-    /// front of it is off on a stock install and keys on a public peer only, so a per-refusal line was
-    /// unbounded exactly where the route is most exposed. The budget keeps the first few lines of an
-    /// interval and this is the one line that stands for the rest, written when the budget reopens; it
-    /// carries a count and nothing a caller wrote.
-    /// </summary>
+    /// <summary>Records how many credential-less refusals of the RP-initiated logout went unrecorded while their line budget was spent (#1792); a count and nothing a caller wrote.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="count">How many refusals went unrecorded since the budget last reopened.</param>
     internal static void OpenIdLogoutRefusalsNotRecorded(ILogger logger, long count)
@@ -1092,33 +764,18 @@ internal static class SsoAudit
             count);
     }
 
-    // The first MaxLoggedProviderChars of a provider name, unsanitized: the two sanitizers stay inline at the
-    // logging call, where CodeQL's taint tracking and the conformance rule over this file both read them.
+    // Cut unsanitized; the sanitizers stay inline at the logging call for CodeQL and the conformance rule.
     private static string? BoundedForLog(string? provider) =>
         provider is { Length: > MaxLoggedProviderChars } ? provider[..MaxLoggedProviderChars] : provider;
 
-    // The cut mark, appended AFTER the sanitizers so its own bracket is not substituted away; it is this
-    // plugin's text and not the caller's, which is the same reason the discovery reader's mark is kept whole.
+    // Appended after the sanitizers: it is this plugin's text, so its bracket stays.
     private static string CutMarkFor(string? provider) =>
         provider is { Length: > MaxLoggedProviderChars } ? ProviderCutMark : string.Empty;
 
-    /// <summary>
-    /// Records a ticket-borne RP-initiated OpenID logout that COMPLETED (#1795): the one-time ticket was
-    /// redeemed and the Jellyfin session it was minted from has been ended. <see cref="OpenIdLogoutRefused"/>
-    /// was the only event that route wrote, which was defensible while <c>[Authorize]</c> attributed every
-    /// request reaching the method to an authenticated principal, and stopped being so when the ticket path
-    /// made the route reachable with a bearer string in a query parameter. The two inbound logout routes that
-    /// share that property both record their success, so this is the line that brings the ticket form level
-    /// with them - and it is what lets an operator tell a flood of spent tickets from a flood of guesses: a
-    /// spent ticket writes this line and a guess writes the refusal. The outcome is a FIXED code saying
-    /// whether the browser was sent on to the provider's end-session endpoint or returned to this server,
-    /// never request-derived text. The provider is route input and carries both inline sanitizers. No account
-    /// is named, like every logout event beside it, and neither the ticket nor the session token is accepted
-    /// by the signature at all.
-    /// </summary>
+    /// <summary>Records a ticket-borne RP-initiated OpenID logout that completed (#1795): the ticket was redeemed and the session it was minted from ended; a fixed outcome code says where the browser went, and no account is named.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider named in the route.</param>
-    /// <param name="outcomeCode">The fixed outcome code: where the browser was sent after the local sign-out (not request-derived).</param>
+    /// <param name="outcomeCode">The fixed outcome code: where the browser was sent after the local sign-out.</param>
     internal static void OpenIdTicketLogoutCompleted(ILogger logger, string provider, string outcomeCode)
     {
         if (!logger.IsEnabled(LogLevel.Information))
@@ -1132,18 +789,10 @@ internal static class SsoAudit
             outcomeCode);
     }
 
-    /// <summary>
-    /// Records a back-channel logout the plugin could NOT perform (#1184) - the inverse of
-    /// <see cref="BackChannelLogoutRejected"/> and the reason the two are separate events. Here the identity
-    /// provider ordered a termination and the plugin declined it, so an authenticated session is still running
-    /// after the IdP signed the user out. That is the entry an operator alerts on, and it is reachable
-    /// deliberately: an attacker who can disrupt the server-to-IdP path can produce it. Recorded at
-    /// <see cref="LogLevel.Error"/> so it separates from the rejection noise by severity as well as by text.
-    /// The wire response is unchanged - the same uniform 400 - so the distinction stays in the audit trail.
-    /// </summary>
+    /// <summary>Records a back-channel logout the plugin could not perform (#1184): the provider ordered a termination and a session may still run; Error, so it separates from the rejections.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider the termination was ordered for.</param>
-    /// <param name="reasonCode">The fixed reason code (not token-derived).</param>
+    /// <param name="reasonCode">The fixed reason code.</param>
     internal static void BackChannelLogoutNotPerformed(ILogger logger, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Error))
@@ -1157,21 +806,10 @@ internal static class SsoAudit
             reasonCode);
     }
 
-    /// <summary>
-    /// Records an OpenID role claim the walk REFUSED, with the reason it refused it (#1149). Before this
-    /// existed a broken role-claim path and a provider that legitimately sent no roles looked identical from
-    /// outside: both produced an empty role set and no entry, and under a configured <c>Roles</c> allow-list
-    /// both produced a denied login the operator could not explain.
-    /// <para>
-    /// The reason is a FIXED code taken from the walk's own outcome, never claim-derived text. The claim
-    /// VALUE never appears: a role claim carries group memberships, distinguished names and sometimes
-    /// e-mail addresses, so the provider name and the reason code are the whole permitted payload. The
-    /// provider is stripped of line endings inline at the call, like every other entry here.
-    /// </para>
-    /// </summary>
+    /// <summary>Records an OpenID role claim the walk refused (#1149) with a fixed reason code; the claim value never appears, because it carries memberships and addresses.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="provider">The OpenID provider whose claim was refused.</param>
-    /// <param name="reasonCode">The fixed refusal reason from the walk (not claim-derived).</param>
+    /// <param name="reasonCode">The fixed refusal reason from the walk.</param>
     internal static void RoleClaimRefused(ILogger logger, string provider, string reasonCode)
     {
         if (!logger.IsEnabled(LogLevel.Warning))
@@ -1197,10 +835,7 @@ internal static class SsoAudit
             return;
         }
 
-        // Shared by OpenID (#140) and SAML (#672), so the wording stays protocol-neutral: each named option
-        // switches off a protection that is on by default (OpenID transport/issuer/endpoint binding, SAML
-        // audience binding). Naming the exact options is what the audit trail needs; the per-option detail
-        // lives in each toggle's config doc.
+        // Shared by OpenID (#140) and SAML (#672); the option names are configuration keys.
         logger.LogWarning(
             "[SSO Audit] {Protocol} provider '{Provider}' saved with security checks disabled: {Options}. Each switches off a default-on protection on the login path (such as transport, issuer/audience, or endpoint binding); keep them only if the provider genuinely requires it.",
             protocol,
@@ -1208,18 +843,7 @@ internal static class SsoAudit
             string.Join(", ", options));
     }
 
-    /// <summary>
-    /// Records that the stored configuration could not be read at start, so defaults are being served and
-    /// SSO is refusing (#1543). Error rather than Warning: every provider, every canonical link and every
-    /// at-rest secret envelope is unreachable from this moment, and the host is about to overwrite the file
-    /// that holds them with those defaults.
-    /// </summary>
-    /// <remarks>
-    /// The preserved copy is named because it is the only artefact a repair can work on, and an operator
-    /// who is told the configuration is gone but not where the old one went has been told half of it. A
-    /// copy that could not be written is stated as such rather than elided, which is the disclosure staying
-    /// negative.
-    /// </remarks>
+    /// <summary>Records that the stored configuration could not be read at start (#1543): defaults are served and SSO refuses until a configuration arrives; Error, naming the preserved copy or its absence.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="configurationFilePath">The configuration file that failed to read back.</param>
     /// <param name="preservedCopyPath">Where the damaged file was copied, or <see langword="null"/> when the copy failed.</param>
@@ -1244,32 +868,17 @@ internal static class SsoAudit
             preservedCopyPath?.ReplaceLineEndings(string.Empty));
     }
 
-    /// <summary>
-    /// Records that the damaged configuration could not be copied aside (#1543). Its own line rather than a
-    /// clause in the one above, because the two failures are different sizes: the configuration being
-    /// unreadable is recoverable from a backup, and the evidence being gone is not.
-    /// </summary>
+    /// <summary>Records that the damaged configuration could not be copied aside (#1543); its own line, because lost evidence is a different failure from an unreadable file.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="preservedCopyPath">The copy that was attempted.</param>
     /// <param name="error">Why the copy failed.</param>
     internal static void UnreadableConfigurationNotPreserved(ILogger logger, string preservedCopyPath, Exception error)
         => logger.LogError(
             error,
-            // IT SAYS WHAT FAILED AND NOT WHAT REMAINS. It used to end "no copy of it will remain", which
-            // was true while a failed copy was the whole answer - and stopped being true once a boot that
-            // cannot write one may still fall back to a copy an earlier boot took. The line that follows
-            // this one states what remains, in both directions, and it is the only line in a position to
-            // know; two Error lines contradicting each other during an outage is worse than one saying
-            // less.
             "[SSO Audit] The unreadable configuration could not be copied to {PreservedCopy}. The line after this one says what copy, if any, remains.",
             preservedCopyPath?.ReplaceLineEndings(string.Empty));
 
-    /// <summary>
-    /// Records that the readability check could not read the stored configuration at all - the file was
-    /// locked or the volume errored - so it decided nothing (#1543). Warning rather than Error: the
-    /// configuration may well be fine and the host's own read a moment later may succeed. What it costs
-    /// is the check, not the server.
-    /// </summary>
+    /// <summary>Records that the readability check could not open the configuration and decided nothing (#1543); Warning, because the host's own read may still succeed.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="configurationFilePath">The configuration file that could not be read.</param>
     /// <param name="error">Why it could not be read.</param>
@@ -1279,25 +888,17 @@ internal static class SsoAudit
             "[SSO Audit] {ConfigurationFile} could not be opened for the startup readability check, so it was not judged. If the server can read it, nothing is wrong; if it cannot, it will serve default settings without this warning saying so.",
             configurationFilePath?.ReplaceLineEndings(string.Empty));
 
-    /// <summary>
-    /// Records that a previous start found the configuration unreadable and nobody has supplied one since
-    /// (#1543). The file reads back now - the server replaced it with a default - and that is exactly why
-    /// the marker is believed over it.
-    /// </summary>
+    /// <summary>Records that an earlier start found the configuration unreadable and none has been supplied since (#1543); the marker is believed over the file the host rewrote.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="configurationFilePath">The configuration file now holding defaults.</param>
-    /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when the marker records no copy or the copy it records is no longer there.</param>
+    /// <param name="preservedCopyPath">Where the damaged file was kept, or <see langword="null"/> when no copy is recorded or the recorded one is gone.</param>
     internal static void UnreadableConfigurationStillUnrepaired(ILogger logger, string configurationFilePath, string? preservedCopyPath)
         => logger.LogError(
             "[SSO Audit] {ConfigurationFile} was unreadable at an earlier start and no configuration has been supplied since, so this server is still serving default settings and still refusing every SSO sign-in. The copy kept for this incident: {PreservedCopy}. Save or import a configuration holding at least one provider to clear this; if no administrator can sign in at all, move the unreadable configuration file out of the way, delete the marker file beside it - the configuration file plus .unreadable, with no timestamp - and restart. Do not delete the copy named above, nor any other timestamped copy beside the configuration file: the one named is this incident's, and an earlier one may hold more than it does.",
             configurationFilePath?.ReplaceLineEndings(string.Empty),
             preservedCopyPath?.ReplaceLineEndings(string.Empty) ?? "none recorded, or the recorded one is no longer beside the configuration");
 
-    /// <summary>
-    /// Records that the configuration came back on disk while the marker still stood (#1543) - somebody
-    /// restored the backup over the file, or copied one in - so the refusal ends without anything having
-    /// been written through this plugin.
-    /// </summary>
+    /// <summary>Records the configuration coming back on disk while the marker stood (#1543), which ends the refusal.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="configurationFilePath">The configuration file that now holds providers again.</param>
     internal static void UnreadableConfigurationRepairedOnDisk(ILogger logger, string configurationFilePath)
@@ -1305,11 +906,7 @@ internal static class SsoAudit
             "[SSO Audit] {ConfigurationFile} holds a configuration again, so this server stops serving defaults and accepts SSO sign-in. The preserved copy of the unreadable file is left where it is.",
             configurationFilePath?.ReplaceLineEndings(string.Empty));
 
-    /// <summary>
-    /// Records that the marker keeping the state across a restart could not be written (#1543). It costs
-    /// the state its survival across a restart and nothing else, which is why it is reported rather than
-    /// thrown out of a plugin constructor.
-    /// </summary>
+    /// <summary>Records that the marker keeping the refusal across a restart could not be written (#1543); reported rather than thrown, because it costs only the restart.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="markerPath">The marker that could not be written.</param>
     /// <param name="error">Why it could not be written.</param>
@@ -1319,10 +916,7 @@ internal static class SsoAudit
             "[SSO Audit] The marker {MarkerPath} could not be written. This server is serving default settings and refusing SSO now, but a restart will forget that and answer as though no provider were configured.",
             markerPath?.ReplaceLineEndings(string.Empty));
 
-    /// <summary>
-    /// Records that the marker could not be removed after an administrator supplied a configuration
-    /// (#1543), so the refusal would come back on the next restart although the server is repaired.
-    /// </summary>
+    /// <summary>Records that the marker could not be removed after a configuration arrived (#1543); a restart would refuse again.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="markerPath">The marker that could not be removed.</param>
     /// <param name="error">Why it could not be removed.</param>
@@ -1332,32 +926,13 @@ internal static class SsoAudit
             "[SSO Audit] The marker {MarkerPath} could not be removed. SSO is accepted again now, but a restart would refuse it once more; delete that file by hand.",
             markerPath?.ReplaceLineEndings(string.Empty));
 
-    /// <summary>
-    /// Records a configuration arriving while defaults were being served, which is what ends the refusal
-    /// (#1543). It is an audit line rather than a debug one because it is the moment SSO sign-in becomes
-    /// possible again on a server that was refusing it.
-    /// </summary>
-    /// <remarks>
-    /// IT NAMES WHAT LANDED AND NOT WHO LANDED IT. The state is ended by a persisted configuration holding
-    /// a provider, whichever door the write came through, and this line has no access to the caller's
-    /// identity - so a sentence crediting an administrator would be an assertion nothing here established,
-    /// on a security surface. The write itself is audited by the endpoint that made it.
-    /// </remarks>
+    /// <summary>Records a configuration with a provider arriving while defaults were served (#1543), which ends the refusal; it names what landed and not who, because this line cannot know the caller.</summary>
     /// <param name="logger">The logger.</param>
     internal static void UnreadableConfigurationCleared(ILogger logger)
         => logger.LogWarning(
             "[SSO Audit] A configuration holding at least one provider was persisted; the server stops serving defaults and SSO sign-in is accepted again. The preserved copy of the unreadable file is left where it is.");
 
-    /// <summary>
-    /// Records a second copy of this plugin loaded into the same server (#1601), which costs the
-    /// configuration unless somebody removes one of them.
-    /// </summary>
-    /// <remarks>
-    /// It NAMES THE FILES, because the remedy is to delete a directory and an operator who is told there
-    /// are two copies but not where they are has been told half of it. The preserved copy is named for the
-    /// same reason the unreadable-configuration line names its own: it is the only artefact a repair can
-    /// work on, and a copy that could not be taken is stated rather than elided.
-    /// </remarks>
+    /// <summary>Records a second copy of this plugin loaded into the same server (#1601), naming the files and the preserved copy, because the remedy is deleting a directory.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="installLocations">The file each loaded copy came from.</param>
     /// <param name="preservedCopyPath">Where the configuration was copied, or <see langword="null"/> when it was not.</param>
