@@ -184,7 +184,7 @@ const ssoConfigLinking = {
             : t(
                 "link.sign_out_failed",
                 undefined,
-                "Signing out everywhere did not start: the server did not issue a sign-out ticket. Reload the page and try again, or use Jellyfin's own Sign out.",
+                "Signing out everywhere did not start: the server issued no sign-out ticket. Reload the page and try again, or use Jellyfin's own Sign out.",
               ),
         );
       });

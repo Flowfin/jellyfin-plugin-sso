@@ -5,107 +5,40 @@ using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// What one aggregate configuration check answers (#1084): every configured OpenID and SAML provider, and
-/// for each of them whether a login against it would fail today and why.
-/// </summary>
+/// <summary>What one aggregate configuration check answers: every configured provider, and whether a login against it would fail today and why (#1084).</summary>
 /// <remarks>
-/// <para>
-/// ADVISORY ONLY. Building this report reads the configuration and writes nothing: no provider field, no
-/// toggle, no persisted byte. Nothing here blocks a save, and an administrator who disagrees with a row can
-/// save the provider anyway - the save path keeps its own fail-closed refusal, which is where a bad value is
-/// actually stopped.
-/// </para>
-/// <para>
-/// NO FIELD VALUE ON THE WIRE. A row carries the provider's name, which of its REQUIRED settings are empty
-/// by property name, and the refusal message the save path itself would produce. The refusal messages are
-/// the admin-facing ones <see cref="ProviderConfigValidator"/> already shows on a rejected save, so nothing
-/// reaches this report that an administrator does not already read on the settings page, and no secret is
-/// among them.
-/// </para>
-/// <para>
-/// REACHABILITY IS NOT PART OF THIS ANSWER, and the consumer must say so rather than leaving it out. Probing
-/// every provider from here would spend one shared throttle budget - both Test routes pass
-/// <c>SsoRateLimitClass.Test</c>, so a fan-out over many providers empties the bucket and the 429s that
-/// follow would name working providers as broken, worst on exactly the installations with the most providers
-/// to check. So a row says whether the configuration is complete and valid; whether the identity provider
-/// answers is what the per-provider Test Connection is for.
-/// </para>
+/// Advisory only and no field value on the wire; reachability is the per-provider Test Connection's question. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference#configuration-check-admin"/>.
 /// </remarks>
 public class ProviderCheckDocument
 {
-    /// <summary>
-    /// Gets one row per configured provider, OpenID first and SAML after it, each in the order the
-    /// configuration holds them. An installation with no provider configured gets an empty list, which is a
-    /// report rather than an error.
-    /// </summary>
+    /// <summary>Gets one row per configured provider, OpenID first, in configuration order.</summary>
     public IReadOnlyList<ProviderCheckResult> Providers { get; init; } = new List<ProviderCheckResult>();
 
-    /// <summary>
-    /// Gets a value indicating whether the stored configuration could not be read when this server
-    /// started, so what the rows above describe is a DEFAULT configuration and not the one this server
-    /// had (#1543).
-    /// </summary>
-    /// <remarks>
-    /// It rides on this report rather than on a route of its own because it is the same question the
-    /// report answers - would a login work today - given as the reason every row went missing. A server in
-    /// this state answers every SSO sign-in with 503 and has no provider to list, so a page that showed
-    /// only the empty list would say "nothing configured" to an operator whose configuration is sitting
-    /// on disk, damaged, one file away.
-    /// <para>
-    /// NO PATH ON THE WIRE. Where the unreadable file was kept is in the server log, which is where an
-    /// operator has to go anyway to act on this, and a filesystem path in an HTTP answer is a detail about
-    /// the host that the page has no use for.
-    /// </para>
-    /// </remarks>
+    /// <summary>Gets a value indicating whether the stored configuration could not be read at start, so the rows describe a default one (#1543).</summary>
+    /// <remarks>No path on the wire: where the unreadable file was kept is in the server log.</remarks>
     public bool ConfigurationUnreadable { get; init; }
 }
 
-/// <summary>
-/// One provider's row in <see cref="ProviderCheckDocument"/>.
-/// </summary>
+/// <summary>One provider's row in <see cref="ProviderCheckDocument"/>.</summary>
 public class ProviderCheckResult
 {
-    /// <summary>
-    /// Gets the protocol label, "OpenID" or "SAML", spelled as
-    /// <see cref="ProviderConfigValidator"/> spells it in the refusal messages so a row and its reason
-    /// cannot disagree about which provider they are describing.
-    /// </summary>
+    /// <summary>Gets the protocol label, spelled as the refusal messages spell it.</summary>
     public string Protocol { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Gets the provider name, keyed as it is in <see cref="PluginConfiguration.OidConfigs"/> or
-    /// <see cref="PluginConfiguration.SamlConfigs"/> so a consumer can match a row to a card without a
-    /// second lookup.
-    /// </summary>
+    /// <summary>Gets the provider name, keyed as it is in the configuration.</summary>
     public string Provider { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Gets a value indicating whether a login against this provider would get past the configuration:
-    /// every required setting filled in, and nothing the save path would refuse.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately independent of <see cref="Enabled"/>. A provider an administrator turned off is not
-    /// misconfigured, and reporting it as needing attention would train them to ignore the report.
-    /// </remarks>
+    /// <summary>Gets a value indicating whether a login against this provider would get past the configuration.</summary>
+    /// <remarks>Independent of <see cref="Enabled"/>: a provider an administrator turned off is not misconfigured.</remarks>
     public bool Ready { get; init; }
 
-    /// <summary>
-    /// Gets a value indicating whether the provider is switched on and therefore offered at the login page.
-    /// </summary>
+    /// <summary>Gets a value indicating whether the provider is switched on.</summary>
     public bool Enabled { get; init; }
 
-    /// <summary>
-    /// Gets the required settings that are empty, by PROPERTY name - which is also the id the settings page
-    /// gives that field, so a consumer resolves each one to the form's own localized label instead of
-    /// carrying a second copy of every label to drift against.
-    /// </summary>
+    /// <summary>Gets the required settings that are empty, by property name, which is also the settings page's field id.</summary>
     public IReadOnlyList<string> MissingFields { get; init; } = new List<string>();
 
-    /// <summary>
-    /// Gets the message the save path would refuse this provider with, or null where it would refuse
-    /// nothing. One message rather than a list: the save is refused on the first invalid rule found, so a
-    /// second one here would claim a completeness the refusal itself does not have.
-    /// </summary>
+    /// <summary>Gets the message the save path would refuse this provider with, or null; one message, because the save refuses on the first rule.</summary>
     public string? Problem { get; init; }
 }

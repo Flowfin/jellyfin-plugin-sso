@@ -8,60 +8,11 @@ using System.Text.Json.Nodes;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// Turns the secret REFERENCES in a declarative provider document into the secrets themselves, immediately
-/// before the document is deserialized (#1096), and refuses a document that writes a secret out in full.
-/// </summary>
+/// <summary>Turns the <c>Env</c> and <c>File</c> secret references in a declarative document into the secrets themselves, and refuses an inline secret (#1096).</summary>
 /// <remarks>
-/// <para>
-/// The document the loader applies (#1095) is a file on a mounted volume, and the deployment shape it exists
-/// for keeps that file in version control. A client secret or a SAML signing key written into it is therefore
-/// a secret in a repository, in a backup and in every image layer that copied it, and the plugin's own
-/// at-rest encryption cannot reach any of those. So an inline secret is REFUSED here rather than accepted
-/// with a warning: a warning at boot is read by nobody, and the value is already committed by the time it
-/// would be printed.
-/// </para>
-/// <para>
-/// Two reference forms, one per deployment habit, each spelled as the field name it fills plus a suffix, so a
-/// reader of the document can see which secret is being named:
-/// </para>
-/// <list type="bullet">
-/// <item><c>&lt;field&gt;Env</c> names an environment variable, which is how a compose file or a Kubernetes
-/// <c>env</c> block hands a value to a container.</item>
-/// <item><c>&lt;field&gt;File</c> names a path to read, which is the docker-secret and projected-volume
-/// habit, and the reason a container secret usually arrives as a file rather than as a variable.</item>
-/// </list>
-/// <para>
-/// The three fields are the three the JSON boundary already treats as write-only through
-/// <see cref="WriteOnlySecretConverter"/>: <c>OidSecret</c> on an OpenID provider, and
-/// <c>SamlSigningKeyPfx</c> plus <c>SamlRolloverSigningKeyPfx</c> on a SAML one. That is not a coincidence
-/// to be kept in step by hand - those are exactly the values an export refuses to emit, so they are exactly
-/// the values a document has no legitimate way to carry in full.
-/// </para>
-/// <para>
-/// FAIL-CLOSED IN ONE DIRECTION. Every failure this pass can meet - an inline secret, both forms on one
-/// field, a reference to a variable that is not set, a file that cannot be read or that is empty - rejects
-/// the document, which the loader turns into a rejection of the whole load. None of them resolves to a blank
-/// secret. That difference matters more than it looks: a blank secret is KEPT rather than applied by
-/// <see cref="ServerManagedFields"/>, so the server would carry on with its previous secret and the operator
-/// would be told nothing, at boot, on the surface they are least likely to be watching.
-/// </para>
-/// <para>
-/// A refusal names the REFERENCE - the variable name, the path, the field - and never what it resolved to,
-/// so a rejection is diagnosable from a log without the log becoming the leak this exists to prevent.
-/// </para>
-/// <para>
-/// Every member lookup here is case-insensitive, because the deserializer that reads the document afterwards
-/// is. Two members differing only in case would leave that deserializer choosing which one fills the field,
-/// and on these fields the choice is a secret, so the document is refused rather than one of them being
-/// picked - the same posture the loader already takes on a member repeated exactly.
-/// </para>
-/// <para>
-/// A file's content is trimmed. A secret file written by a shell redirect, by a projected volume or by a text
-/// editor ends in a newline, and a client secret carrying a trailing newline fails at the token endpoint with
-/// an error nobody traces back to the file. The cost is stated rather than hidden: a secret whose real value
-/// begins or ends with whitespace cannot be delivered by the file form and has to use the variable form.
-/// </para>
+/// Every failure rejects the document rather than resolving to a blank, because a blank secret is kept rather than
+/// applied; a refusal names the reference and never its value. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code#secrets-are-references-not-values"/>.
 /// </remarks>
 internal static class DeclarativeSecretReference
 {
@@ -76,16 +27,11 @@ internal static class DeclarativeSecretReference
     private static readonly string[] OidSecretFields = { "OidSecret" };
     private static readonly string[] SamlSecretFields = { "SamlSigningKeyPfx", "SamlRolloverSigningKeyPfx" };
 
-    /// <summary>
-    /// Resolves every secret reference in <paramref name="documentText"/> into the document, or refuses it.
-    /// </summary>
+    /// <summary>Resolves every secret reference in <paramref name="documentText"/> into the document, or refuses it.</summary>
     /// <param name="documentText">The declarative document as read from its source.</param>
     /// <param name="readEnvironmentVariable">Reads a named environment variable; null or blank means unset.</param>
     /// <param name="readReferenceFile">Reads a referenced file; null means it could not be read at all.</param>
-    /// <param name="resolvedText">
-    /// The document with each reference replaced by the secret it named and the reference members removed;
-    /// the input unchanged when the document carries no reference.
-    /// </param>
+    /// <param name="resolvedText">The document with each reference replaced by its secret, or the input unchanged when it carries none.</param>
     /// <param name="rejection">Why the document was refused, naming the reference and never its value.</param>
     /// <returns>True when the document may go on to the deserializer.</returns>
     internal static bool TryResolve(
@@ -108,8 +54,7 @@ internal static class DeclarativeSecretReference
         }
         catch (JsonException)
         {
-            // Syntax is the deserializer's refusal to make, and it makes it two steps later with a better
-            // message. This pass decides secrets, and a document it cannot parse carries none it can see.
+            // Syntax is the deserializer's refusal to make, two steps later with a better message.
             return true;
         }
 
@@ -253,12 +198,7 @@ internal static class DeclarativeSecretReference
         return true;
     }
 
-    // A secret member belonging to the OTHER protocol - the field itself or either of its reference forms -
-    // is refused rather than ignored. Every other misspelling in this document is a silent no-op, which the
-    // loader discloses; these are not allowed to be, because the operator who wrote one believes a secret has
-    // been supplied, and the provider would come up on whatever was stored before: working, and not from the
-    // file they are reading. The bare field is in the list for the second reason too - a secret written into
-    // the document under a name that happens to do nothing is still a secret in the document.
+    // A secret member of the other protocol is refused rather than ignored, because its author believes a secret was supplied.
     private static bool TryRefuseForeignReferences(JsonObject fields, string providerName, string[] secretFields, out string? rejection)
     {
         rejection = null;
@@ -335,22 +275,17 @@ internal static class DeclarativeSecretReference
         return trimmed;
     }
 
-    // A blank string and a non-string both come back as null, so a caller never has to ask which of the two
-    // it met: neither can name a variable, a path or a secret.
+    // A blank string and a non-string are both null: neither can name a variable, a path or a secret.
     private static string? Text(JsonNode? node)
         => node is JsonValue value && value.TryGetValue<string>(out var text) ? Text(text) : null;
 
     private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    // Only an absent member, a JSON null, or a string of whitespace count as "carries no secret". A member
-    // holding a number or an object is NOT blank: it says something, this pass cannot say it is not a secret,
-    // and treating it as absent would let a document past the inline refusal.
+    // A member holding a number or an object is not blank, or it would walk past the inline refusal.
     private static bool IsBlank(JsonNode? node)
         => node is null || (node is JsonValue value && value.TryGetValue<string>(out var text) && string.IsNullOrWhiteSpace(text));
 
-    // Case-insensitive, and it reports the KEY rather than the value so the caller can rewrite or remove the
-    // member it found. Two members differing only in case leave the deserializer picking one, and on these
-    // fields that pick is a secret, so the document is refused instead.
+    // Case-insensitive like the deserializer, and two members differing only in case are refused rather than picked between.
     private static bool TryMember(JsonObject owner, string name, out string? key, out string? rejection)
     {
         key = null;

@@ -7,22 +7,15 @@ using System.Xml;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// Builds SAML 2.0 service-provider metadata - an <c>EntityDescriptor</c> carrying an
-/// <c>SPSSODescriptor</c> - that an administrator can hand to an identity provider so it registers this
-/// service provider by URL instead of by hand (#162). Pure and request-free: it emits exactly the entity
-/// id, the HTTP-POST assertion-consumer URL(s), and - only when request signing is enabled - the PUBLIC
-/// signing certificate(s) it is given. This SP accepts BOTH ACS spellings on the way back - the new-path
-/// and the legacy one (<see cref="SamlAcsUrlBuilder.ExpectedAcsUrls"/>) - so when a legacy ACS URL is
-/// supplied the metadata advertises both as two <c>AssertionConsumerService</c> entries: the new spelling
-/// stays the default at <c>index="0"</c>, the legacy spelling follows at <c>index="1"</c>
-/// (<c>isDefault="false"</c>). During a signing-key rollover (#491) it advertises BOTH the primary
-/// and the optional rollover PUBLIC certificate as two <c>KeyDescriptor use="signing"</c> entries, so the
-/// identity provider trusts either while the administrator swaps. It never touches a private key or any
-/// secret, and it never reads the request <c>Host</c>: the caller resolves the entity id and ACS URL(s) from
-/// the configured canonical Base URL (#139), so a spoofed or proxy-forwarded host cannot poison the ACS the
-/// identity provider is told to POST assertions to.
-/// </summary>
+/// <summary>Builds SAML 2.0 service-provider metadata an administrator can hand to an identity provider, so it registers this service provider by URL instead of by hand (#162).</summary>
+/// <remarks>
+/// Pure and request-free: it emits the entity id, the HTTP-POST assertion-consumer URLs and, only where
+/// request signing is on, the public signing certificates it is given. Both accepted assertion-consumer
+/// spellings are advertised where a legacy one is supplied, the new one staying the default, and during a
+/// signing-key rollover both public certificates are advertised (#491). It touches no private key and never
+/// reads the request host, because the caller resolves every URL from the configured canonical base URL
+/// (#139), so a spoofed host cannot poison the endpoint assertions are posted to.
+/// </remarks>
 internal static class SamlSpMetadataBuilder
 {
     private const string MetadataNamespace = "urn:oasis:names:tc:SAML:2.0:metadata";
@@ -30,39 +23,12 @@ internal static class SamlSpMetadataBuilder
     private const string DsigNamespace = "http://www.w3.org/2000/09/xmldsig#";
     private const string HttpPostBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
 
-    /// <summary>
-    /// Renders the service-provider metadata document.
-    /// </summary>
-    /// <param name="entityId">
-    /// The SP entity id - the same value this service provider sends as the AuthnRequest <c>Issuer</c>
-    /// (the configured client id), so the identity provider correlates the two.
-    /// </param>
-    /// <param name="assertionConsumerServiceUrl">
-    /// The absolute HTTP-POST assertion-consumer URL - the new-path spelling - built from the configured
-    /// canonical Base URL (never the request host). This is the default ACS at <c>index="0"</c>.
-    /// </param>
-    /// <param name="signingCertificateBase64">
-    /// The Base64 (DER) PUBLIC signing certificate to advertise under a <c>KeyDescriptor use="signing"</c>
-    /// when request signing is enabled, or <see langword="null"/> to advertise no signing key. This is only
-    /// ever the public certificate - the private key must never be passed here.
-    /// </param>
-    /// <param name="rolloverSigningCertificateBase64">
-    /// The OPTIONAL Base64 (DER) PUBLIC rollover signing certificate (#491), advertised as a SECOND
-    /// <c>KeyDescriptor use="signing"</c> so the identity provider trusts either during an overlap window.
-    /// <see langword="null"/> (the default) means no rollover - a single KeyDescriptor, byte-for-byte the
-    /// pre-#491 output. Ignored when <paramref name="signingCertificateBase64"/> is <see langword="null"/>
-    /// (no primary means signing is off, so there is nothing to roll over). Again only ever the public
-    /// certificate - never a private key.
-    /// </param>
-    /// <param name="legacyAssertionConsumerServiceUrl">
-    /// The OPTIONAL absolute HTTP-POST assertion-consumer URL for the LEGACY route spelling. This SP accepts
-    /// either spelling at runtime (<see cref="SamlAcsUrlBuilder.ExpectedAcsUrls"/>), so when this is supplied
-    /// the metadata truthfully advertises both: the new spelling stays the default at <c>index="0"</c> and
-    /// this legacy spelling is emitted as a SECOND <c>AssertionConsumerService</c> at <c>index="1"</c>,
-    /// <c>isDefault="false"</c>. <see langword="null"/> (the default), or a value equal to
-    /// <paramref name="assertionConsumerServiceUrl"/>, emits a single ACS - byte-for-byte the pre-#569
-    /// output. Placed last so existing positional callers stay source-compatible.
-    /// </param>
+    /// <summary>Renders the service-provider metadata document.</summary>
+    /// <param name="entityId">The service-provider entity id, the same value sent as the AuthnRequest issuer, so the identity provider correlates the two.</param>
+    /// <param name="assertionConsumerServiceUrl">The absolute HTTP-POST assertion-consumer URL in the new-path spelling, built from the canonical base URL and advertised as the default.</param>
+    /// <param name="signingCertificateBase64">The Base64 public signing certificate to advertise where request signing is on, or null to advertise none; never a private key.</param>
+    /// <param name="rolloverSigningCertificateBase64">The optional Base64 public rollover certificate (#491), advertised second so either is trusted during an overlap; null, or a null primary, emits one.</param>
+    /// <param name="legacyAssertionConsumerServiceUrl">The optional assertion-consumer URL in the legacy spelling, advertised second and non-default; null, or a value equal to the new spelling, emits one. Last, so positional callers stay source-compatible.</param>
     /// <returns>The metadata document as an XML string.</returns>
     internal static string Build(string entityId, string assertionConsumerServiceUrl, string? signingCertificateBase64, string? rolloverSigningCertificateBase64 = null, string? legacyAssertionConsumerServiceUrl = null)
     {

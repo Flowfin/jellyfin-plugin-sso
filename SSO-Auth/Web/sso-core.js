@@ -123,7 +123,7 @@ const OIDC_PRESETS = {
   zitadel: {
     label: "Zitadel",
     noteKey: "config.preset_note_zitadel",
-    note: "Zitadel project application. Its roles arrive as an OBJECT whose keys are the role names, so 'Role claim is an object map' is pre-checked; without it no role can ever match. The project must have 'Assert Roles on Authentication' on, and the application 'User roles inside ID Token', or the role claim is absent entirely. Replace YOUR_INSTANCE in the endpoint.",
+    note: "Zitadel project application. Its roles arrive as an OBJECT whose keys are the role names, so 'Roles as object map' is pre-checked; without it no role can ever match. The project must have 'Assert Roles on Authentication' on, and the application 'User roles inside ID Token', or the role claim is absent entirely. Replace YOUR_INSTANCE in the endpoint.",
     fields: {
       OidEndpoint:
         "https://YOUR_INSTANCE.zitadel.cloud/.well-known/openid-configuration",
@@ -2284,7 +2284,7 @@ const ssoConfigurationPage = {
           page,
           tr(
             "config.profile_refused",
-            "The server refused the saved configuration, so nothing was changed. A profile is checked by exactly the rules an inline starting policy is: the administrator, all-folders and Live TV permissions keep their own settings on a provider and are not written from here, and no account can be created disabled from here. Reload the page and try again.",
+            "The server refused the profile, so nothing was changed. It follows the rules of an inline starting policy, described above. Reload and try again.",
           ),
         );
       },
@@ -2635,7 +2635,7 @@ const ssoConfigurationPage = {
           status,
           tr(
             "config.template_permissions_failed",
-            "Could not load the list of permissions from the server. Rows already configured are shown as they are; make sure you are signed in as an administrator, then reload the page.",
+            "Could not load the permission list from the server. Sign in as an administrator and reload the page; configured rows are shown as they are.",
           ),
         );
       }
@@ -3216,7 +3216,7 @@ const ssoConfigurationPage = {
               page,
               tr(
                 "config.server_settings_save_failed",
-                "The server refused the saved configuration, so NEITHER switch was changed - the two ride one document and are written together or not at all. Reload the page to see what is stored, and try again.",
+                "The server refused the configuration, so neither switch was changed; both are written together or not at all. Reload the page and try again.",
               ),
               false,
             ),
@@ -3359,7 +3359,7 @@ const ssoConfigurationPage = {
       page,
       tr(
         "config.provider_fill_failed",
-        "The stored configuration was read, but this form could not be filled from it, so it was closed rather than left half filled. Reload the page and try again.",
+        "The stored configuration was read, but this form could not be filled from it and was closed. Reload the page and try again.",
       ),
       false,
     );
@@ -3369,7 +3369,7 @@ const ssoConfigurationPage = {
       page,
       tr(
         "config.provider_read_failed",
-        "Could not read the stored configuration, so this form was closed rather than left showing values that are not the stored ones. Reload the page and try again.",
+        "Could not read the stored configuration, so this form was closed rather than showing values that are not stored. Reload the page and try again.",
       ),
       false,
     );
@@ -4135,7 +4135,7 @@ const ssoConfigurationPage = {
       return tested === false
         ? tr(
             "config.wizard_refuse_test_failed",
-            "The last Test Connection did not succeed. It asks the server about the provider it has STORED, so press Save first if this one is new, then read what the test reported and run it again; this wizard does not go on to enable a provider whose endpoint has not answered.",
+            "The last Test Connection failed; this wizard does not enable a provider whose endpoint has not answered. Save the provider, then test again.",
           )
         : tr(
             "config.wizard_refuse_untested",
@@ -6146,7 +6146,7 @@ const ssoConfigurationPage = {
           status,
           tr(
             "config.metadata_import_failed",
-            "Could not import the metadata. Check the URL or XML, make sure you are signed in as an administrator, and that the address is reachable and not a private/loopback host.",
+            "Could not import the metadata. Check the URL or XML, sign in as an administrator, and use a reachable, non-private address.",
           ),
         ),
     );
@@ -7140,7 +7140,7 @@ function initProvidersPage(view) {
           view,
           tr(
             "config.provider_save_refused",
-            "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+            "Could not save the provider: the name holds a control, backslash or URI-reserved character, or the Base URL Override is not a full URL.",
           ),
           false,
         ),
@@ -7298,7 +7298,7 @@ function initProvidersPage(view) {
           view,
           tr(
             "config.provider_save_refused",
-            "Could not save the provider. Check that the provider name has no control characters (such as a tab or newline, often introduced by copy-paste), no backslash, and none of the URI-reserved characters such as / ? # %, and that the Base URL Override is a full URL such as https://jellyfin.example.com (or blank).",
+            "Could not save the provider: the name holds a control, backslash or URI-reserved character, or the Base URL Override is not a full URL.",
           ),
           false,
         ),

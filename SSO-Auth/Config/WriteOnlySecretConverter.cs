@@ -7,16 +7,8 @@ using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// Makes a string property write-only across the JSON boundary (#189): it is still read
-/// (deserialized) from an incoming save as normal, so the value can be set and rotated, but it is
-/// never written (serialized) back out - a configuration response carries the property as
-/// <c>null</c> instead of its stored value, so the plaintext secret never reaches the admin browser,
-/// a HAR capture, or a proxy log. This is deliberately NOT <c>[JsonIgnore]</c>: that attribute is
-/// bidirectional and would also drop the value on the incoming save, silently breaking rotation and
-/// new-provider setup. The field is still persisted to the config XML (this converter only affects
-/// System.Text.Json).
-/// </summary>
+/// <summary>Makes a string property write-only across the JSON boundary: read from a save, serialized back as null (#189).</summary>
+/// <remarks>Not <c>[JsonIgnore]</c>, which is bidirectional and would drop the value on the incoming save too.</remarks>
 internal sealed class WriteOnlySecretConverter : JsonConverter<string?>
 {
     /// <inheritdoc />

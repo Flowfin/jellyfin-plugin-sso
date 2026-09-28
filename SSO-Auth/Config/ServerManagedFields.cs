@@ -5,28 +5,16 @@ using System;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// Re-injects the server-managed provider fields a save must not be allowed to clear (#157/#189).
-/// The whole-config <see cref="Preserve(PluginConfiguration, PluginConfiguration)"/> runs inside the
-/// config-page save pipeline (<see cref="ProviderConfigStore.Save"/>); the per-provider overloads are
-/// the single shared rule every admin write path converges on, so a field added to them is preserved
-/// on every door by construction (#318). <c>NewPath</c> is documented as server-managed too but is
-/// deliberately not preserved here: it round-trips through JSON, so a posted config carries the live
-/// value (see <see cref="ProviderConfigBase.NewPath"/>).
-/// </summary>
+/// <summary>Re-injects the server-managed fields a save must not be allowed to clear (#157, #189).</summary>
+/// <remarks>
+/// The per-provider overloads are the one rule every admin write path converges on, so a field added here is preserved
+/// on every door (#318). See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference#the-import-merges-and-preserves-an-unchanged-providers-secrets-and-links"/>.
+/// </remarks>
 internal static class ServerManagedFields
 {
-    /// <summary>
-    /// Copies the server-managed fields from <paramref name="live"/> into <paramref name="incoming"/>,
-    /// so a save built from a stale client snapshot cannot clear them. Only providers present in
-    /// <paramref name="incoming"/> are touched (a deleted provider stays deleted; a newly added one
-    /// keeps its own empty map). Two kinds of field are preserved: the per-provider canonical links
-    /// (always server-owned, #157), and the write-only secrets (the OpenID client secret #189, the SAML
-    /// signing key #167 and its optional rollover key #491) - the latter only when the incoming value is
-    /// blank, since a secret is withheld from JSON responses so a save that did not set a new one arrives
-    /// empty and must keep the stored value (a non-blank incoming value is an intentional rotation and is
-    /// left as-is).
-    /// </summary>
+    /// <summary>Copies the server-managed fields from <paramref name="live"/> into <paramref name="incoming"/>, so a stale client snapshot cannot clear them.</summary>
+    /// <remarks>Only providers present in both are touched, and a write-only secret is kept only when the incoming value is blank.</remarks>
     /// <param name="incoming">The configuration about to be persisted.</param>
     /// <param name="live">The current live configuration to read server-managed values from.</param>
     internal static void Preserve(PluginConfiguration incoming, PluginConfiguration live)
@@ -34,42 +22,19 @@ internal static class ServerManagedFields
         Preserve(incoming?.OidConfigs, live?.OidConfigs, Preserve);
         Preserve(incoming?.SamlConfigs, live?.SamlConfigs, Preserve);
 
-        // SSO-only login state is server-managed (#165): the config-page save must not be able to flip
-        // DisablePasswordLogin or repoint the break-glass admin. The plugin-config PUT carries no user
-        // context, so it cannot run the last-admin guard or the enforcement sweep - re-injecting the live
-        // values here freezes the pair on this path, leaving the RequiresElevation-gated SSO-Only endpoints
-        // (which DO run the guard, the sweep, and the audit) as the only way to change them. This is
-        // stronger than re-validating an incoming toggle: an unsafe (or accidental) value can never be
-        // introduced via the config-page save at all. A raw config.xml edit is the documented total-lockout
-        // recovery path and is out of the plugin's reach either way (SSO-ONLY-LOGIN-DESIGN.md §3 option B).
+        // The SSO-only pair can only change through the elevated endpoints that run the guard and the sweep (#165).
         if (incoming is not null && live is not null)
         {
             incoming.DisablePasswordLogin = live.DisablePasswordLogin;
             incoming.BreakGlassAdminUsername = live.BreakGlassAdminUsername;
             incoming.SsoOnlyRepointedUserIds = live.SsoOnlyRepointedUserIds;
 
-            // The Single Logout session store is server-managed runtime state (#727): it is withheld from
-            // JSON, so a config-page PUT arrives with it empty. Re-inject the live map so a save never wipes
-            // the captured sessions (which would strand every live session's id_token_hint) and a config PUT
-            // can neither read the stored id_tokens nor forge session entries - the login/logout paths are the
-            // only writers, exactly as for the SSO-only bookkeeping above.
+            // Withheld from JSON, so a save arrives with them empty; the login, logout and mint paths stay the only writers (#727, #1733).
             incoming.LogoutSessions = live.LogoutSessions;
-
-            // The minted-password record is server-managed for BOTH reasons the fields above are (#1733), and
-            // the forging direction is the one that decides it. The map says which accounts hold a password
-            // nobody was ever shown, and a guard refuses a last-link self-unlink on exactly that answer - so a
-            // config PUT able to add an entry could mark an administrator's account as having no way in, and
-            // one able to drop an entry could clear the refusal for an account that really is sealed. It is
-            // withheld from JSON, so a config-page save arrives with it empty and re-injecting the live map is
-            // also what keeps a save from wiping it; the two mint sites and the pruner stay the only writers.
             incoming.ProvisionedPasswords = live.ProvisionedPasswords;
         }
     }
 
-    // One generic loop for both protocols - the maps differ only in the per-provider overload the method
-    // group resolves to. Only providers present in BOTH maps are touched (a deleted provider stays
-    // deleted; a newly added one keeps its own empty map), and a null map on either side (a legacy store,
-    // a partial post) preserves nothing rather than NRE the save.
     private static void Preserve<T>(SerializableDictionary<string, T>? incoming, SerializableDictionary<string, T>? live, Action<T, T> preserveProvider)
         where T : ProviderConfigBase
     {
@@ -87,71 +52,28 @@ internal static class ServerManagedFields
         }
     }
 
-    // Links + issuer bindings + secret: an OpenID provider carries these server-managed fields
-    // (#157/#189/#186).
-
-    /// <summary>
-    /// Re-injects an OpenID provider's server-managed fields (#157/#189/#186): its canonical links and their
-    /// issuer bindings - carried over only while the discovery endpoint is unchanged, dropped on a repoint so
-    /// a re-identified provider does not silently inherit another's mappings - and its write-only client secret.
-    /// </summary>
+    /// <summary>Re-injects an OpenID provider's server-managed fields: the link maps, carried only while the discovery endpoint is unchanged, and the write-only client secret (#157, #186, #189).</summary>
     /// <param name="incoming">The provider config about to be persisted; a null entry is skipped.</param>
     /// <param name="live">The current live provider config to read server-managed values from; null skips.</param>
     internal static void Preserve(OidConfig incoming, OidConfig? live)
     {
-        // A null provider entry (a malformed Add before #350, or a legacy store) carries no
-        // server-managed fields; skip it rather than NRE the whole config-page save.
         if (incoming is null || live is null)
         {
             return;
         }
 
-        // The repoint belt (#186): an OidEndpoint change re-identifies the provider - a different discovery
-        // URL is potentially a different identity provider - exactly as ResolveUpdatedSecret treats it when
-        // it drops the client secret on the same change. Carrying the accumulated sub-keyed links across
-        // such a change is the silent-mapping this issue closes, so DROP them (and their issuer bindings)
-        // rather than preserve them. This protects even un-stamped legacy links (a user who has not logged
-        // in since the upgrade) against a post-upgrade repoint, which the per-login issuer gate alone could
-        // not. While the endpoint is UNCHANGED (the common save), both maps are carried over verbatim so
-        // existing links keep working (issue #186 criterion 3). The complementary per-login issuer gate
-        // covers a repoint that keeps the SAME discovery URL (a swapped IdP behind it), which this string
-        // compare cannot detect.
+        // A changed endpoint re-identifies the provider, so every per-link map is dropped with the links rather than inherited (#186).
         var endpointUnchanged = string.Equals(incoming.OidEndpoint, live.OidEndpoint, StringComparison.Ordinal);
         incoming.CanonicalLinks = endpointUnchanged ? live.CanonicalLinks : new SerializableDictionary<string, Guid>();
         incoming.CanonicalLinkIssuers = endpointUnchanged ? live.CanonicalLinkIssuers : new SerializableDictionary<string, string>();
-
-        // The expiry deadlines ride with the links they key off (#1145), on both arms of the repoint belt: a
-        // deadline whose link was just dropped would be an orphan the sweep can never redeem, and carrying
-        // one across a repoint would hand a different identity provider's subject an inherited deadline.
         incoming.CanonicalLinkDeadlines = endpointUnchanged ? live.CanonicalLinkDeadlines : new SerializableDictionary<string, DateTime>();
-
-        // The last-SSO-login stamps ride with the links on both arms too (#1120), and the DROP arm is the one
-        // that matters for a personal-data field: a repoint re-identifies the provider, so carrying the login
-        // history of subjects whose links were just dropped would retain personal data about accounts this
-        // provider no longer knows, with no administrator route left to erase it.
         incoming.CanonicalLinkLastLogins = endpointUnchanged ? live.CanonicalLinkLastLogins : new SerializableDictionary<string, DateTime>();
-
-        // The pending-approval marks ride with the links on both arms as well (#1529), and the DROP arm is
-        // again the one that decides something: a repoint re-identifies the provider, so a mark carried
-        // across it would say this plugin provisioned an account inert for an identity the new provider has
-        // never seen - and that mark is what makes an account approvable from the accounts page. Dropped
-        // with its link, the account simply stops being offered for approval, which is the safe direction.
         incoming.CanonicalLinkPendingApprovals = endpointUnchanged ? live.CanonicalLinkPendingApprovals : new SerializableDictionary<string, PendingApproval>();
 
         incoming.OidSecret = ResolveUpdatedSecret(incoming, live);
     }
 
-    // Links + the write-only signing keys: a SAML provider carries the server-managed link map (#157) and,
-    // since #167, an optional service-provider signing key plus its optional rollover key (#491), each
-    // withheld from JSON like the OpenID secret, so a save that did not rotate one arrives blank and must
-    // keep the stored value.
-
-    /// <summary>
-    /// Re-injects a SAML provider's server-managed fields: its canonical link map (#157) and its write-only
-    /// service-provider signing keys - the primary (#167) and optional rollover key (#491) - each kept when
-    /// the incoming value is blank (a save that did not rotate it) so a config-page save neither wipes the
-    /// key nor silently ends a rollover overlap.
-    /// </summary>
+    /// <summary>Re-injects a SAML provider's server-managed fields: the link maps and the write-only signing keys, each kept when the incoming value is blank (#157, #167, #491).</summary>
     /// <param name="incoming">The provider config about to be persisted; a null entry is skipped.</param>
     /// <param name="live">The current live provider config to read server-managed values from; null skips.</param>
     internal static void Preserve(SamlConfig incoming, SamlConfig? live)
@@ -161,53 +83,25 @@ internal static class ServerManagedFields
             return;
         }
 
+        // Withheld from JSON, so a save arrives with the maps empty; SAML has no repoint belt to gate them on.
         incoming.CanonicalLinks = live.CanonicalLinks;
-
-        // As on the OpenID arm (#1145), and for the stronger of the two reasons: these are withheld from
-        // JSON, so a config-page save arrives with them empty and re-injecting the live map is what stops a
-        // save silently clearing every stored deadline - which would leave the sweep nothing to act on and
-        // turn a time-limited account back into an unlimited one. SAML has no repoint belt to gate it on.
         incoming.CanonicalLinkDeadlines = live.CanonicalLinkDeadlines;
-
-        // Same shape for the last-SSO-login stamps (#1120): withheld from JSON, so a config-page save arrives
-        // with the map empty and re-injecting the live one is what stops an unrelated settings change silently
-        // resetting every "last SSO login" in the roster to never.
         incoming.CanonicalLinkLastLogins = live.CanonicalLinkLastLogins;
-
-        // Same shape again for the pending-approval marks (#1529), and the same consequence if it is left
-        // out: withheld from JSON, so an ordinary settings save arrives with the map empty, and without this
-        // line every account waiting for approval would quietly stop being offered for one - the list would
-        // empty itself on a save that had nothing to do with it.
         incoming.CanonicalLinkPendingApprovals = live.CanonicalLinkPendingApprovals;
         incoming.SamlSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlSigningKeyPfx, live.SamlSigningKeyPfx);
         incoming.SamlRolloverSigningKeyPfx = PreserveSigningKeyIfBlank(incoming.SamlRolloverSigningKeyPfx, live.SamlRolloverSigningKeyPfx);
     }
 
-    /// <summary>
-    /// Decides which service-provider signing key an updated SAML provider should keep - the one rule shared
-    /// by the primary key (#167) and the OPTIONAL rollover key (#491). A non-blank incoming key is an explicit
-    /// rotation and wins; a blank one keeps the stored key, so a config-page save (which never carries the
-    /// withheld keys) neither wipes the key nor silently ends a rollover overlap window. Unlike the OpenID
-    /// client secret these carry NO provider-identity guard: a signing key is never transmitted anywhere - it
-    /// signs a public AuthnRequest locally, and only its public certificate is ever published into metadata -
-    /// so repointing the endpoint cannot exfiltrate it, and carrying it over keeps a working signed-login
-    /// provider from breaking on an unrelated edit.
-    /// </summary>
+    /// <summary>Decides which signing key an updated SAML provider keeps: a non-blank incoming key is a rotation, a blank one keeps the stored key.</summary>
+    /// <remarks>No identity guard, unlike the client secret: a signing key is never transmitted, so a repoint cannot exfiltrate it.</remarks>
     /// <param name="incoming">The key about to be persisted; blank when the save did not rotate it.</param>
     /// <param name="live">The corresponding stored key.</param>
     /// <returns>The incoming key when non-blank, otherwise the stored key.</returns>
     private static string? PreserveSigningKeyIfBlank(string? incoming, string? live)
         => string.IsNullOrWhiteSpace(incoming) ? live : incoming;
 
-    /// <summary>
-    /// Decides which OpenID client secret an updated provider should keep (#189), the single rule
-    /// shared by the config-page save and <c>OID/Add</c>. A non-blank incoming secret is an explicit
-    /// rotation and wins. A blank one means "keep the stored secret" - but ONLY while the provider
-    /// identity (endpoint and client id) is unchanged: if either changed, the stored secret is not
-    /// carried over (it stays blank, failing the login closed until an admin supplies one), so a
-    /// write-only secret cannot be exfiltrated by repointing the provider at a different token
-    /// endpoint. Whitespace-only counts as blank, matching the <c>Trim()</c> at the consumption site.
-    /// </summary>
+    /// <summary>Decides which OpenID client secret an updated provider keeps: a non-blank incoming secret wins, a blank one keeps the stored secret only while the provider identity is unchanged (#189).</summary>
+    /// <remarks>Dropping it on a repoint is what stops a write-only secret being exfiltrated to a different token endpoint.</remarks>
     /// <param name="incoming">The provider config about to be persisted.</param>
     /// <param name="live">The current live provider config.</param>
     /// <returns>The secret to persist for the updated provider.</returns>
@@ -221,18 +115,8 @@ internal static class ServerManagedFields
         return IdentityUnchanged(incoming, live) ? live.OidSecret : incoming.OidSecret;
     }
 
-    /// <summary>
-    /// Says whether <see cref="ResolveUpdatedSecret"/> is about to drop a STORED secret for this save (#1872):
-    /// a blank incoming secret, a live secret that is there, and an identity that changed. The rule itself
-    /// is right and unchanged; what was missing was the word, since the save succeeded and the first sign
-    /// was the next login failing with the provider's own error naming the symptom. The two doors an
-    /// administrator saves through, <c>OID/Add</c> and the configuration page, answer with this fact so the
-    /// secret is asked for at the moment it went; a configuration import still drops without a word, which
-    /// <see cref="ConfigImport"/> documents. A provider that had no stored secret drops nothing, and saying
-    /// otherwise would send an administrator looking for a secret that never existed. Read against the
-    /// stored provider, never against a posted config <see cref="Preserve(OidConfig, OidConfig?)"/> has
-    /// already resolved, since that write is what makes a dropped secret look like one that never was.
-    /// </summary>
+    /// <summary>Says whether <see cref="ResolveUpdatedSecret"/> is about to drop a stored secret for this save, so the save can ask for it again (#1872).</summary>
+    /// <remarks>Read against the stored provider, never against a posted config the preserve has already resolved.</remarks>
     /// <param name="incoming">The provider config about to be persisted.</param>
     /// <param name="live">The current live provider config, or null when the provider is new.</param>
     /// <returns>True when this save drops a stored secret because the provider identity changed.</returns>
@@ -242,8 +126,6 @@ internal static class ServerManagedFields
             && string.IsNullOrWhiteSpace(incoming.OidSecret)
             && !IdentityUnchanged(incoming, live);
 
-    // The one identity compare both answers above share, so the fact reported and the secret resolved can
-    // never disagree about what "the provider changed" means.
     private static bool IdentityUnchanged(OidConfig incoming, OidConfig live)
         => string.Equals(incoming.OidEndpoint, live.OidEndpoint, StringComparison.Ordinal)
             && string.Equals(incoming.OidClientId, live.OidClientId, StringComparison.Ordinal);

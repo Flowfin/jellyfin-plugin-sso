@@ -8,18 +8,13 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// Orchestrates the inbound IdP-initiated SAML <c>LogoutRequest</c> validation (#727, SLO-3b): parse plus
-/// signature/time validation (<see cref="SamlLogoutRequest"/>) followed by the one-time-use (replay)
-/// consume of the request <c>ID</c>. It is the SAML-logout analogue of
-/// <see cref="SamlAssertionValidator"/> - it owns the process-wide replay cache as a <c>static readonly</c>
-/// field, so the controller endpoint that calls it holds no mutable static state, and reuses the SHARED
-/// ReplayCache primitive rather than a copy.
-/// </summary>
+/// <summary>Orchestrates the inbound identity-provider-initiated SAML LogoutRequest validation (#727): parse with signature and time validation, then the one-time consume of the request ID.</summary>
 /// <remarks>
-/// On success the caller receives the validated NameID and SessionIndex list; on failure it receives a
-/// FIXED reason code (never request-derived text) for the audit trail. The reason is server-side only - the
-/// endpoint renders every failure as one uniform 400, so the caller cannot tell the causes apart.
+/// It is the logout analogue of <see cref="SamlAssertionValidator"/> and owns the process-wide replay cache
+/// as a <c>static readonly</c> field, so the calling endpoint holds no mutable static state, reusing the
+/// shared replay primitive rather than a copy. On failure the caller receives a fixed reason code, never
+/// request-derived text, and that reason is server-side only, because the endpoint renders every failure as
+/// one uniform 400.
 /// </remarks>
 internal sealed class SamlLogoutValidator
 {
@@ -33,21 +28,16 @@ internal sealed class SamlLogoutValidator
     /// </summary>
     internal static void ResetReplaysForTests() => LogoutReplays.Clear();
 
-    /// <summary>
-    /// Parses and fully validates an inbound <c>LogoutRequest</c> for a provider: signature (against the
-    /// provider's configured primary/secondary certificate), the optional <c>NotOnOrAfter</c> time bound,
-    /// and one-time use of the request ID. Fail-closed: any failure returns <see langword="false"/> with a
-    /// fixed <paramref name="reasonCode"/> and no resolved subject.
-    /// </summary>
-    /// <param name="config">The SAML provider configuration (signing certificate(s)).</param>
-    /// <param name="provider">The provider the request arrived for (scopes the replay key so two IdPs cannot block each other).</param>
-    /// <param name="rawRequest">The untrusted, Base64-encoded <c>SAMLRequest</c>.</param>
-    /// <param name="nowUtc">The current UTC time (supplied for determinism).</param>
+    /// <summary>Parses and fully validates an inbound LogoutRequest for a provider: signature, the optional time bound and one-time use of the request ID, failing closed with a fixed reason and no resolved subject.</summary>
+    /// <param name="config">The SAML provider configuration, carrying the signing certificates.</param>
+    /// <param name="provider">The provider the request arrived for, which scopes the replay key so two identity providers cannot block each other.</param>
+    /// <param name="rawRequest">The untrusted, Base64-encoded SAMLRequest.</param>
+    /// <param name="nowUtc">The current UTC time, supplied for determinism.</param>
     /// <param name="nameId">On success, the subject NameID the request names.</param>
-    /// <param name="sessionIndexes">On success, the SessionIndex values the request carries (possibly empty).</param>
-    /// <param name="requestId">On success, the request's <c>ID</c> - the value the SP echoes as the <c>InResponseTo</c> of the signed <c>LogoutResponse</c> (#727, SLO-3c). Empty on failure.</param>
+    /// <param name="sessionIndexes">On success, the SessionIndex values the request carries, possibly empty.</param>
+    /// <param name="requestId">On success, the request ID this service provider echoes as the InResponseTo of the signed LogoutResponse (#727); empty on failure.</param>
     /// <param name="reasonCode">On failure, a fixed audit reason code; empty on success.</param>
-    /// <returns><see langword="true"/> when the request is fully valid; otherwise <see langword="false"/>.</returns>
+    /// <returns>True when the request is fully valid; otherwise false.</returns>
     internal bool TryValidate(
         SamlConfig config,
         string provider,
@@ -90,20 +80,13 @@ internal sealed class SamlLogoutValidator
             return false;
         }
 
-        // One-time use: consume the request ID so a captured LogoutRequest cannot be replayed to revoke again.
-        // Retained for the request's own NotOnOrAfter window (or the one-hour floor when it carries none), the
-        // same retention policy the login replay path uses. A missing ID fails closed inside TryConsume.
-        //
-        // DELIBERATE ORDERING - consume at validation time, BEFORE the endpoint's revoke, not only on a
-        // successful revoke (#727). A signed LogoutRequest is single-use by design regardless of downstream
-        // outcome, mirroring the login-side SamlAssertionValidator consume. Two reasons this is the more
-        // correct SLO semantic than a consume-on-success: (1) TryConsume is the ATOMIC claim that serialises
-        // concurrent copies of the same request - without it two in-flight copies could both resolve and
-        // revoke and race on removing store entries; (2) revocation is idempotent and a real IdP mints a FRESH
-        // request ID per retry, so burning the ID on a transient revoke fault blocks no genuine retry - the
-        // endpoint additionally leaves the matched entries in the store on a revoke fault, so a fresh-ID retry
-        // still finds and acts on them. Replay protection here is a hygiene/DoS bound, not a session-minting
-        // gate, so single-use-regardless is the safe default.
+        // One-time use: consume the request ID so a captured LogoutRequest cannot be replayed to revoke again,
+        // retained for its own NotOnOrAfter window or the one-hour floor, the same policy the login replay path
+        // uses. The consume is deliberately at validation time rather than on a successful revoke (#727),
+        // because TryConsume is the atomic claim that serialises concurrent copies of one request, and because
+        // revocation is idempotent while a real identity provider mints a fresh ID per retry, so burning the ID
+        // on a transient fault blocks no genuine retry. Replay protection here is a hygiene bound rather than a
+        // session-minting gate.
         var retention = ReplayCache.ComputeRetention(nowUtc, logoutRequest.GetNotOnOrAfter(), SamlAssertionTime.ClockSkew);
         var resolvedRequestId = logoutRequest.GetRequestId();
         var replayKey = ProviderScopedKey.For(provider, resolvedRequestId);

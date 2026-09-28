@@ -5,57 +5,22 @@ using System;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// One record that this plugin provisioned a linked account disabled and awaiting an administrator
-/// (#1529): which account it did that to, and when.
-/// </summary>
+/// <summary>One record that this plugin provisioned a linked account disabled and awaiting an administrator: which account, and when (#1529).</summary>
 /// <remarks>
-/// THE ACCOUNT IS HALF THE RECORD, and it is written here rather than left implied by the map's key
-/// because the key is an identity-provider subject and a subject does not hold the same account for ever.
-/// A link whose target account was deleted counts as absent everywhere in this plugin, so the next login
-/// for that subject writes the key again - at a DIFFERENT account, by adoption or by a fresh provisioning.
-/// A mark carrying only an instant would survive that hand-off and go on describing whichever account the
-/// key now names, which is how a record of what this plugin DID turns back into the guess it exists to
-/// replace. Written beside the instant, the account is the thing a reader compares: a mark whose account
-/// is no longer the one the link points at describes nothing, and says so.
-/// <para>
-/// A plain XML-serializable class (public parameterless ctor + get/set), because it is stored as the value
-/// of a <see cref="SerializableDictionary{TKey,TValue}"/> on <see cref="ProviderConfigBase"/> - the shape
-/// <see cref="LogoutSession"/> already takes there. It holds no secret: a user id and an instant, both of
-/// which the administrator-only roster row beside it already carries.
-/// </para>
+/// The account is half the record, because a subject whose account was deleted is re-linked at another account and
+/// a mark carrying only an instant would follow it. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Linked-Accounts#waiting-for-approval"/>.
 /// </remarks>
 public class PendingApproval
 {
-    /// <summary>
-    /// Gets or sets the Jellyfin account this plugin provisioned disabled and awaiting approval, as it
-    /// stood when the link was written. A mark is only about this account: when the link it is keyed
-    /// under points somewhere else, the mark is stale by definition and no reader may act on it.
-    /// </summary>
+    /// <summary>Gets or sets the account this plugin provisioned disabled, as it stood when the link was written.</summary>
     public Guid UserId { get; set; }
 
-    /// <summary>
-    /// Gets or sets the instant the account was provisioned, in UTC. The PROVISIONING instant rather than
-    /// the approval's, so a reader can see how long somebody has been waiting, which is the question an
-    /// approval list is opened with.
-    /// </summary>
+    /// <summary>Gets or sets the provisioning instant in UTC, so a reader can see how long somebody has been waiting.</summary>
     public DateTime SinceUtc { get; set; }
 
-    /// <summary>
-    /// The record this provider holds for one canonical link, or null when it holds none that still
-    /// describes the account the link points at (#1529).
-    /// </summary>
-    /// <remarks>
-    /// ONE HOME FOR THE RULE, because two readers act on it and they must not be able to disagree: the
-    /// roster decides from it which rows to present as waiting, and the approve action decides from it
-    /// which account it may enable. A page offering a row the action would refuse, or an action enabling
-    /// an account the page never showed, is the same defect from either side.
-    /// <para>
-    /// The comparison against the link is what makes this a record rather than a rumour. A link whose
-    /// target account was deleted counts as absent, so the key is written again at another account, and a
-    /// write path that forgot to clear the entry would otherwise hand its account over with it.
-    /// </para>
-    /// </remarks>
+    /// <summary>The record this provider holds for one canonical link, or null when none still describes the account the link points at.</summary>
+    /// <remarks>The one home for the rule, so the roster and the approve action cannot disagree.</remarks>
     /// <param name="config">The provider configuration holding both maps.</param>
     /// <param name="canonicalName">The identity key the link is stored under.</param>
     /// <returns>The live record, or <see langword="null"/>.</returns>

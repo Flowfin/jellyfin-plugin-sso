@@ -18,15 +18,10 @@ internal static class SamlAssertionTime
     /// </summary>
     internal static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// Determines whether an assertion is currently within its validity window. Fail-closed:
-    /// at least one upper bound (NotOnOrAfter) MUST be present and parseable, or the assertion is
-    /// rejected; a bound that is present but unparseable is likewise a rejection. Bounds are
-    /// evaluated in UTC with <see cref="ClockSkew"/> tolerance.
-    /// </summary>
-    /// <param name="subjectNotOnOrAfter">SubjectConfirmationData/@NotOnOrAfter, or null if absent.</param>
-    /// <param name="conditionsNotBefore">Conditions/@NotBefore, or null if absent.</param>
-    /// <param name="conditionsNotOnOrAfter">Conditions/@NotOnOrAfter, or null if absent.</param>
+    /// <summary>Determines whether an assertion is currently within its validity window, failing closed unless at least one upper bound is present, parseable and satisfied.</summary>
+    /// <param name="subjectNotOnOrAfter">The subject confirmation NotOnOrAfter, or null if absent.</param>
+    /// <param name="conditionsNotBefore">The Conditions NotBefore, or null if absent.</param>
+    /// <param name="conditionsNotOnOrAfter">The Conditions NotOnOrAfter, or null if absent.</param>
     /// <param name="nowUtc">The current time, in UTC.</param>
     /// <param name="skew">The clock-skew tolerance applied to each bound.</param>
     /// <returns>True only when a valid upper bound exists and every present bound is satisfied.</returns>

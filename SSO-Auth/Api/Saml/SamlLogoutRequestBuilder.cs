@@ -11,20 +11,14 @@ using System.Xml;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// Builds an OUTBOUND SP-initiated SAML 2.0 <c>LogoutRequest</c> for the HTTP-Redirect binding (#727, SLO-3c)
-/// - the mirror image of <see cref="SamlAuthnRequest"/> for the logout flow. It emits the same DEFLATE +
-/// Base64 encoding as the AuthnRequest builder (<see cref="GetRequest"/>) and hands the encoded message to the
-/// SHARED <see cref="SamlRedirectSigner"/> for the mandated detached SigAlg+Signature, so the outbound-signing
-/// infrastructure is reused verbatim rather than re-implemented.
-/// </summary>
+/// <summary>Builds an outbound service-provider-initiated SAML LogoutRequest for the HTTP-Redirect binding (#727), the mirror of <see cref="SamlAuthnRequest"/> for the logout flow.</summary>
 /// <remarks>
-/// This is the OUTBOUND builder and is deliberately distinct from <see cref="SamlLogoutRequest"/>, which is the
-/// INBOUND (IdP-initiated) validator: conflating them would let a change to the session-destructive inbound
-/// parser regress the outbound builder, or vice versa. The document carries the SP <c>Issuer</c> (the same
-/// entity id the AuthnRequest sends), the subject <c>NameID</c> the caller logged in as, and the captured
-/// <c>SessionIndex</c> when one is present, in the element order SAML core §3.7.1 fixes (Issuer, then the
-/// identifier, then any SessionIndex).
+/// It emits the same DEFLATE and Base64 encoding and hands the encoded message to the shared
+/// <see cref="SamlRedirectSigner"/>, so the outbound-signing infrastructure is reused rather than
+/// re-implemented. It is deliberately distinct from the inbound <see cref="SamlLogoutRequest"/>, because
+/// conflating them would let a change to the session-destructive parser regress the builder. The document
+/// carries the issuer, the subject identifier and any captured session index, in the element order SAML core
+/// fixes.
 /// </remarks>
 internal sealed class SamlLogoutRequestBuilder
 {

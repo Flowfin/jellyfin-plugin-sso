@@ -40,17 +40,12 @@ internal static class SamlResponseLoader
     internal static bool TryParse(string certificateStr, string? responseString, [NotNullWhen(true)] out SamlResponse? response)
         => TryParse(certificateStr, null, responseString, out response);
 
-    /// <summary>
-    /// Tries to parse a SAML response against the primary signing certificate OR an optional secondary
-    /// certificate - the identity-provider verification-key overlap window (#491) - returning
-    /// <see langword="false"/> (rather than throwing) on the malformed-input exceptions the
-    /// <see cref="SamlResponse"/> constructor raises.
-    /// </summary>
-    /// <param name="certificateStr">The identity provider's primary signing certificate as a Base64 string.</param>
-    /// <param name="secondaryCertificateStr">The optional secondary certificate (Base64), or blank for none.</param>
-    /// <param name="responseString">The untrusted SAML response (Base64).</param>
-    /// <param name="response">The parsed response on success; otherwise <see langword="null"/>.</param>
-    /// <returns><see langword="true"/> if the response parsed; otherwise <see langword="false"/>.</returns>
+    /// <summary>Tries to parse a SAML response against the primary signing certificate or an optional secondary one, the verification-key overlap window (#491), returning false rather than throwing on malformed input.</summary>
+    /// <param name="certificateStr">The primary signing certificate of the identity provider, as a Base64 string.</param>
+    /// <param name="secondaryCertificateStr">The optional secondary certificate, or blank for none.</param>
+    /// <param name="responseString">The untrusted Base64 SAML response.</param>
+    /// <param name="response">The parsed response on success; otherwise null.</param>
+    /// <returns>True if the response parsed; otherwise false.</returns>
     internal static bool TryParse(string certificateStr, string? secondaryCertificateStr, string? responseString, [NotNullWhen(true)] out SamlResponse? response)
     {
         // A null or empty body is the most common malformed callback (an absent SAMLResponse form field
