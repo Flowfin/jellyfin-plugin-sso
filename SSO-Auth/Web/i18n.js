@@ -133,7 +133,7 @@ const SENTENCE_END = /[.!?](?=\s)/g;
 const INITIALS = /^(?:\p{L}\.)*\p{L}$/u;
 
 // The LETTERS-AND-DOTS tail of what precedes a terminator, which is the only thing the rule above is
-// about. NOT the whole non-space run: `config.acr_values_help` writes `(e.g.` with the bracket glued on,
+// about. NOT the whole non-space run: a help text once wrote `(e.g.` with the bracket glued on,
 // `(e.g` is not a chain of initials, and the lead came out as "...authentication-context references
 // (e.g." - a fragment ending mid-abbreviation that every later check accepts, because it is still a
 // prefix of the text. Stopping at the first non-letter also settles the two cases a wider tail gets
@@ -291,7 +291,7 @@ function refresh(help) {
  *
  * SO THE FIELD'S LABEL IS PUT IN FRONT OF THAT WORD, BY REFERENCE AND NOT BY COPY. `aria-labelledby`
  * names the label and then the summary itself, so the computed name is the label's text followed by
- * the catalogue word - "Redirect URI (register this at your provider): Full text" - and it follows
+ * the catalogue word - "Redirect URI (register at provider): Full text" - and it follows
  * both texts through every later catalogue pass with no second string anybody has to keep in step.
  * The two ids the reference needs are written here where they are missing, derived from the control
  * the label is for, so no page authors them.

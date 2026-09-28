@@ -221,9 +221,9 @@
                             data-i18n="config.profiles_name_help"
                           >
                             The name a provider points at. Add profile creates a
-                            new one under this name; Rename profile renames the
+                            new one under this name. Rename profile renames the
                             profile selected above and repoints every provider
-                            and role rule that names it, so nothing is left
+                            and role rule that names it. Nothing is left
                             pointing at a name that no longer exists.
                           </div>
                         </details>
@@ -234,8 +234,9 @@
                         class="inputLabel inputLabelUnfocused"
                         for="ProvisioningProfileSource"
                         data-i18n="config.profiles_copy_label"
-                        >Add copies the starting policy of:</label
                       >
+                        Add copies the policy of:
+                      </label>
                       <select
                         is="emby-select"
                         id="ProvisioningProfileSource"
@@ -252,13 +253,13 @@
                             class="sso-help-body"
                             data-i18n="config.profiles_copy_help"
                           >
-                            A new profile begins as what a provider does today,
-                            so the first edit is a difference from a known state
-                            rather than a form filled from blank. Only providers
-                            that carry an inline policy are listed. Choosing to
-                            start empty is allowed and means exactly that: until
-                            you set a field, the profile writes nothing onto a
-                            new account.
+                            A new profile begins as what a provider does today.
+                            The first edit is then a difference from a known
+                            state rather than a form filled from blank. Only
+                            providers that carry an inline policy are listed.
+                            Starting empty is allowed and means exactly that:
+                            until you set a field, the profile writes nothing
+                            onto a new account.
                           </div>
                         </details>
                       </div>
@@ -615,14 +616,13 @@
                             data-i18n="config.template_home_sections_help"
                           >
                             The sections of the web client's home screen, one
-                            per line, top slot first: None, SmallLibraryTiles,
-                            LibraryButtons, ActiveRecordings, Resume,
-                            ResumeAudio, LatestMedia, NextUp, LiveTv or
-                            ResumeBook, spelled exactly like that. Up to ten
-                            lines; the slots you do not fill show nothing, as
-                            they would after saving the client's own home-screen
-                            settings. Leave the box empty to keep Jellyfin's own
-                            layout.
+                            per line, top slot first. Allowed names, spelled
+                            exactly so: None, SmallLibraryTiles, LibraryButtons,
+                            ActiveRecordings, Resume, ResumeAudio, LatestMedia,
+                            NextUp, LiveTv or ResumeBook. Up to ten lines; a
+                            slot you do not fill shows nothing, as after saving
+                            the client's own home-screen settings. Leave the box
+                            empty to keep Jellyfin's own layout.
                           </div>
                         </details>
                       </div>
@@ -632,7 +632,7 @@
                         class="sso-subgroup-title"
                         data-i18n="config.template_permissions_label"
                       >
-                        Permissions written onto a new account
+                        Permissions for a new account
                       </p>
                       <div class="fieldDescription sso-help">
                         <span class="sso-help-lead"></span>
@@ -648,11 +648,10 @@
                             a new account starts with. A permission that is not
                             listed is never touched. The names come from the
                             server rather than from a list kept on this page, so
-                            they cannot drift from what a save accepts;
-                            administrator, all-folders and Live TV access are
+                            they cannot drift from what a save accepts.
+                            Administrator, all-folders and Live TV access are
                             not offered here because each keeps its own setting
-                            above, and no account can be created disabled from
-                            here.
+                            above. No account can be created disabled from here.
                           </div>
                         </details>
                       </div>
