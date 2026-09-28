@@ -3,39 +3,12 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL pending-approvals panel of the shipped sso-core.js and
- * refuses each way it can grant the wrong thing or say the wrong thing (#1529).
+ * Drives the shipped pending-approvals panel of sso-core.js and refuses each way it
+ * can grant the wrong thing or say the wrong thing (#1529).
  *
- * WHY THIS IS A RUNNING PROOF. The panel decides which accounts an
- * administrator is offered to ENABLE, and every property that matters is a
- * decision rather than a string: which rows are built, what the button sends,
- * and what the page says when the server refuses. None of that is visible to
- * a rule that reads the assets as text, and all of it fails silently.
- *
- * THE ROWS ARE THE SERVER'S ANSWER AND NOTHING ELSE. A row is built for
- * exactly the links whose pending instant the roster carries. The page never
- * infers a waiting account from anything - not from a disabled flag, not from
- * a missing login - because the one row this panel must never contain is the
- * account somebody disabled on purpose, and the server is the only party that
- * can tell that account from one this plugin created inert.
- *
- * THE BUTTON SENDS EXACTLY THE REQUEST THE ENDPOINT PARSES: the mode token
- * the route reads, the provider in the path, and the canonical name as the
- * JSON body, so a subject with a slash in it reaches the server whole.
- *
- * THE LIST IS BOUNDED AND SAYS SO. A provider with a wide audience fills the
- * list as fast as it can log in, and a panel that drew every row would be the
- * page that breaks under the load the feature was built to absorb; a panel
- * that cut silently would be lying about how many are waiting.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the
- * renderer touches, and ApiClient is a recorder that answers what a test
- * tells it to. It is not a browser: it cannot say what the table looks like,
- * only which rows were built, what was sent, and which sentence was written -
- * which is what the properties above are about.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-account-filter.js.
+ * Rows come only from the pending instants the server reports, because only the server
+ * can tell an account disabled on purpose from one this plugin created inert. The DOM
+ * and ApiClient below are recording stubs, not a browser.
  */
 
 import fs from "node:fs";
@@ -45,9 +18,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORE = path.join(HERE, "..", "SSO-Auth", "Web", "sso-core.js");
 
-// ---------------------------------------------------------------------------
-// The stub.
-// ---------------------------------------------------------------------------
+// A minimal DOM element that records children, text and listeners.
 
 class Element {
   constructor(tag) {
@@ -112,6 +83,7 @@ class Element {
   }
 }
 
+// A page whose querySelector answers the panel's nodes by id.
 function pageWith() {
   const nodes = {
     LinkedAccountsFilter: new Element("input"),
@@ -129,8 +101,7 @@ globalThis.document = {
   createElement: (tag) => new Element(tag),
 };
 
-// The confirmation is answered by whatever the arm set, and the recorder holds
-// every request the panel made so an arm can read back what was sent.
+// Confirmation and fetch answer whatever the arm set; sent records every request.
 const answers = { confirm: true, fetch: () => Promise.resolve() };
 const sent = [];
 globalThis.window = {
@@ -146,12 +117,11 @@ globalThis.ApiClient = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// The fixture and the legs.
-// ---------------------------------------------------------------------------
+// The fixture and the arms.
 
 const SINCE = "2026-09-11T09:00:00Z";
 
+// A roster link row with an optional pending instant.
 function link(provider, protocol, canonical, pending) {
   return {
     Provider: provider,
@@ -188,6 +158,7 @@ const ROSTER = {
 
 const current = { roster: ROSTER };
 
+// Imports the shipped sso-core.js as a data URL module.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -399,7 +370,7 @@ function render(roster) {
   }
 }
 
-// ---- Arm: an elevation refusal is NOT read as the administrator one ----
+// ---- Arm: an elevation refusal is not read as the administrator one ----
 {
   answers.fetch = () =>
     Promise.reject({ status: 403, text: () => Promise.resolve("") });
@@ -472,7 +443,7 @@ function render(roster) {
   }
 }
 
-// ---- Arm: a 403 with some other body is NOT the administrator refusal ----
+// ---- Arm: a 403 with some other body is not the administrator refusal ----
 {
   answers.fetch = () =>
     Promise.reject({

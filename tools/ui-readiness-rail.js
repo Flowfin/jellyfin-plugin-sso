@@ -3,76 +3,14 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Runs the REAL readiness rail of sso-core.js against the REAL Providers page and
+ * Runs the shipped readiness rail of sso-core.js against the shipped Providers page and
  * refuses each way it can be wrong (#1678).
  *
- * WHY THIS EXISTS AS A RUNNING PROOF AND NOT AS A CONFORMANCE RULE. The rules this
- * repository already has over the rail read its TEXT:
- * ArchitectureConformanceTests.ProviderCheckSurface asks whether the two ids are
- * still declared, whether the list still ships `hidden`, and whether each spec
- * still names its required ids. None of them can ask what the page DOES, and
- * #1664 moved the panel out of the two editors and into one card in the rail - so
- * the rail is the ONLY place readiness appears now. A fault in the one function
- * that decides what it holds removes the signal from the product rather than
- * duplicating it somewhere else, and a page whose list quietly stops being filled
- * looks exactly like a page where every provider is fine.
- *
- * That is the failure shape this file exists for: the rail is confidently wrong or
- * confidently silent, and every text rule over it stays green.
- *
- * WHY IT IS NODE AND NOT A BROWSER OR A DOM LIBRARY. The means check, per the
- * standpoint: node is already carried by this tree - the .NET workflow runs the other
- * gates beside this one with no install - and a DOM library would add a dependency and a
- * lockfile to a repository that has neither. A browser would answer more and is
- * the walk, which is a person's job and is owed on #1664 either way. What the
- * cheap means cannot say is stated below rather than hidden.
- *
- * WHAT THE STUB CAN AND CANNOT SAY, AND THIS BOUND IS THE PART TO READ. The DOM
- * below is a stub: id lookup, one attribute selector, a class list, text nodes, a
- * parent walk for `closest`, and an ANCESTOR CHAIN read out of the page's own
- * markup so an event can bubble along it.
- *
- * THAT CHAIN IS WHY THE ROUTE FROM A KEYSTROKE TO THE REBUILD IS DRIVEN (#1687) and
- * is the newest thing here. initProvidersPage binds `input` and `change` on the two
- * editor ELEMENTS and relies on a field's event reaching them from inside, so until
- * there was a chain, a listener dropped, bound to a element the field's events never
- * reach, or paired with the wrong protocol key passed every arm. The chain is DERIVED
- * rather than declared: each id-bearing element's span is walked out of the markup and
- * its parent is the smallest span that strictly contains it, so a field moved out of
- * its editor moves in this fixture too.
- *
- * WHAT THE CHAIN STILL DOES NOT SAY. It holds id-bearing elements only, which is
- * enough for every listener this module registers and is not a document tree: an
- * element with no id is not in it, and capture-phase order, `stopPropagation` and
- * default actions are not modelled. A listener on an ANCESTOR of the editor is not
- * refused and should not be - an event from a field inside the editor reaches the page
- * too, so a handler there would rebuild the rail in a browser exactly as one on the
- * editor does. What is refused is a listener somewhere the field's event never reaches.
- *
- * It also cannot say anything about layout, about the order a real browser would
- * run two listeners in, or about what a screen reader announces from the list's
- * `role="status"`. What keeps it from being a proof about ITSELF is that the
- * CONTROLS, THE REGIONS AND THE FIELD LABELS are all read out of the shipped
- * providersPage.html, so a control or a label that leaves the page leaves this
- * fixture with it, and that the code under test is the shipped sso-core.js loaded
- * whole, not a copy and not an extract.
- *
- * WHY THE MODULE IS LOADED THROUGH A DATA URL. sso-core.js is an ES module and
- * this tree carries no package.json, so node would read a `.js` file as CommonJS
- * and fail on its `export`. Importing the bytes as a data: URL loads the same
- * source as a module without writing a temporary file beside the tree.
- *
- * THE CALIBRATION RUNS BEFORE THE REAL PAGE IS OPENED, POSITIVE AND NEGATIVE.
- * The reader below decides what the rail ought to hold, and a reader that cannot
- * fail is not a measurement: it would pass a page it had stopped looking at. So it
- * is first handed a hand-built rail that is right, and then one hand-broken rail
- * per refusal it can make - and the run stops on any disagreement instead of
- * opening the real page. The negative is the half that gets skipped and the half
- * that matters: a reader carrying positives only passes its own calibration by
- * accepting everything.
- *
- * EVERY LEG REFUSES BY NAME AND THE PASS IS PRINTED. A proof whose result nobody
- * sees reads exactly like one that never ran.
+ * Since #1664 the rail is the only place readiness appears, so a rail that is wrong or
+ * silent removes the signal. Controls, regions and labels are read from
+ * providersPage.html, and an ancestor chain derived from the markup lets a field's event
+ * reach the editor listener initProvidersPage binds (#1687). The stub models no layout,
+ * capture phase or screen reader. A calibration runs before the real page is opened.
  */
 
 "use strict";
@@ -84,20 +22,14 @@ const root = path.resolve(__dirname, "..");
 const CORE = path.join(root, "SSO-Auth", "Web", "sso-core.js");
 const PROVIDERS_PAGE = path.join(root, "SSO-Auth", "Web", "providersPage.html");
 
-// The two ids the rail is made of, and the two editors whose `hidden` attributes
-// decide which protocol it answers for. Spelled here because an arm has to name
-// them; that they are the ids the page and the module agree on is what
-// ProviderCheckSurface already refuses, and this file asserts it again below
-// rather than trusting it.
+// The two rail ids and the two editors whose `hidden` decides which protocol it answers for.
 const INVITATION = "sso-rail-readiness";
 const LIST = "sso-rail-readiness-list";
 const EDITORS = { oid: "sso-editor", saml: "saml-editor" };
 
-// ---------------------------------------------------------------------------
-// The stub. Small on purpose: every member here is one the code under test
-// reaches for, and nothing is added for completeness.
-// ---------------------------------------------------------------------------
+// The stub: only the members the code under test reaches.
 
+// A minimal classList over a set of names.
 class Classes {
   constructor() {
     this.set = new Set();
@@ -113,6 +45,7 @@ class Classes {
   }
 }
 
+// A text node.
 class Text {
   constructor(data) {
     this.nodeType = 3;
@@ -120,6 +53,7 @@ class Text {
   }
 }
 
+// A DOM element with children, attributes, listeners and a parent chain.
 class Element {
   constructor(tag, id, type) {
     this.nodeType = 1;
@@ -133,14 +67,9 @@ class Element {
     this.parentNode = null;
     this.nodes = [];
     this.classList = new Classes();
-    // Registered by the page's controller and called by `dispatch` below. A Map per
-    // element rather than one on the page, because WHICH element a listener sits on is
-    // the property #1687 is about.
+    // Listeners per element, because which element a listener sits on is the subject of #1687.
     this.listeners = new Map();
-    // initProvidersPage sets these on controls it wires; they are here so the fixture
-    // does not have to guess which. `dataset` carries the one flag the Save gate reads
-    // back - a button a managed provider froze - so the gate cannot hand a Save back that
-    // something else disabled.
+    // Properties initProvidersPage sets on controls; `dataset` carries the Save gate's frozen flag.
     this.placeholder = "";
     this.title = "";
     this.dataset = {};
@@ -153,27 +82,11 @@ class Element {
     this.listeners.get(name).push(handler);
   }
 
-  // A SELECT LOSES ITS SELECTION WHEN THE SELECTED OPTION GOES, AND THAT IS THE WHOLE
-  // REASON THIS OVERRIDE EXISTS (#1696). `populateProviders` rebuilds the hidden provider
-  // selector by removing every option and adding the current set back, and the selector is
-  // the state holder the save path, `applyManagedState` and both loaders read. A browser
-  // re-runs a select's selectedness the moment the selected option is removed: the first
-  // remaining option is selected, and an empty select carries the empty string. A stub that
-  // left `value` alone made the preservation in both populate functions green with it and
-  // green without it, which is what this issue was opened for - the guard shipped on a
-  // reading of the DOM specification rather than on a measurement.
-  //
-  // FOR A SELECT AND FOR NOTHING ELSE. Every other element here carries `value` as a plain
-  // property that removing a child cannot touch, which is also what a browser does.
-  //
-  // ITS BOUND, because it is half of the reset algorithm rather than all of it. A browser
-  // runs the same reset when an option is INSERTED into a select with nothing selected, so a
-  // clear-and-refill lands on the FIRST option there where it lands on the empty string
-  // here. Modelling that half too would make every arm that sets a selector's value on a
-  // fixture carrying no options read back empty, and those arms describe a page whose
-  // options exist. The two answers agree on the property that matters and the arm below is
-  // written against that: after the rebuild the selector no longer names the provider the
-  // page is about.
+  /*
+   * A select loses its value when the selected option is removed, as a browser does (#1696).
+   * Only for a select; the insert half of the reset algorithm is not modelled, and the arms
+   * rely only on the selector no longer naming its provider after a rebuild.
+   */
   removeChild(node) {
     this.nodes = this.nodes.filter((other) => other !== node);
     node.parentNode = null;
@@ -226,18 +139,7 @@ class Element {
     return this.ownerPage.querySelector(selector);
   }
 
-  // THE PAGE'S ANSWER PLUS THIS ELEMENT'S OWN CHILDREN, and the second half is what makes
-  // the removal above reachable (#1696). The fixture's elements are built from the markup
-  // and carry no children, so a walk over them adds nothing and every existing reader -
-  // `applyManagedState` asking a form for its controls - gets the page-global answer it got
-  // before. What the page cannot answer is a node the controller APPENDED at run time: the
-  // provider options live under the selector and are in no fixture list, so
-  // `select.querySelectorAll("option")` returned an empty list and the clear loop in
-  // `populateProviders` removed nothing at all. Measured, not supposed: with two options
-  // appended, that call answered 0 and the node count rose from 2 to 4 across a populate.
-  //
-  // ONE LEVEL, because that is where the options are. A deeper walk would be a different
-  // claim about a tree this stub does not build.
+  // The page's answer plus this element's own children, one level deep, so appended options are found (#1696).
   querySelectorAll(selector) {
     const tags = selector.split(",").map((part) => part.trim());
     const own = this.nodes.filter(
@@ -257,11 +159,7 @@ class Element {
     return [...this.nodes];
   }
 
-  // Concatenated, like a browser: readinessFieldName falls back to the WHOLE
-  // label's text for the wrapped-checkbox idiom, where the direct text nodes are
-  // empty and the name lives in a child span. A stub returning only its own text
-  // would make that idiom return the id and no arm would notice, because the id is
-  // also what an unlabelled control returns.
+  // Concatenated like a browser, because readinessFieldName falls back to the whole label text.
   get textContent() {
     return this.nodes.map((node) => node.textContent).join("");
   }
@@ -284,8 +182,7 @@ class Element {
     nodes.forEach((node) => this.appendChild(node));
   }
 
-  // The parent walk, `this` included, matching on the tag alone - which is the one
-  // form the code under test uses: `field.closest("label")`.
+  // The parent walk, `this` included, matching on the tag alone as `field.closest("label")` needs.
   closest(selector) {
     for (let at = this; at; at = at.parentNode) {
       if (at.tag === selector) {
@@ -296,24 +193,17 @@ class Element {
   }
 }
 
-/**
- * One page. Its `querySelector` answers the two forms the readiness path uses and
- * REFUSES anything else, so a selector this stub cannot resolve fails the run
- * instead of silently returning null - which the code reads as "the field is not
- * on the page" and reports as an empty required field.
- */
+/** One page whose querySelector answers the forms the readiness path uses and throws on any other. */
 class Page {
   constructor(elements, labels, byClass) {
     this.elements = elements;
     this.byId = new Map(elements.map((el) => [el.id, el]));
     this.labelFor = labels;
     this.byClass = byClass;
-    // The page is a class target too: markPageClean takes the dirty marker off it, and a
-    // stub without this throws inside the rejection arm rather than judging it.
+    // The page carries a classList because markPageClean removes the dirty marker from it.
     this.classList = new Classes();
     this.listeners = new Map();
-    // Every element resolves selectors through the page it belongs to, so a lookup made
-    // from inside a handler reaches the same fixture the arm built.
+    // Every element resolves selectors through its page.
     elements.forEach((el) => {
       el.ownerPage = this;
     });
@@ -327,14 +217,7 @@ class Page {
     if (label) {
       return this.labelFor.get(label[1]) || null;
     }
-    // A SINGLE CLASS, RESOLVED OUT OF THE MARKUP like every id here, because the fill path a
-    // resolved read reaches asks for one: fillProvisioningTemplate looks its permissions
-    // container up by class. Its BOUND is the one this whole stub has - a lookup is
-    // page-global rather than scoped to the element it was made on, so where a page carries
-    // the same class twice, once per protocol, the first in document order answers both. No
-    // arm asserts anything about that container; it is resolved so the fill runs instead of
-    // throwing inside a promise, which the unhandled-rejection count would then blame on the
-    // page.
+    // A single class token, resolved from the markup and page-global, so fillProvisioningTemplate runs.
     const token = /^\.([a-z][a-z0-9-]*)$/.exec(selector);
     if (token) {
       return this.byClass.get(token[1]) || null;
@@ -342,11 +225,7 @@ class Page {
     throw new Error("the stub does not resolve the selector " + selector);
   }
 
-  // TAG LISTS ONLY, which is the one form reached from here: editableControls asks for
-  // "input, select, textarea" on the way to the unsaved-changes baseline that the failed-read
-  // arm below takes. Written the same way tools/ui-unsaved-state.js writes it, because the
-  // two stubs answer the same question and two different answers to "which controls are on
-  // this page" would let one gate pass a page the other refuses.
+  // Tag lists only, answered the same way as tools/ui-unsaved-state.js.
   querySelectorAll(selector) {
     const tags = selector.split(",").map((part) => part.trim());
     return this.elements.filter((el) => tags.includes(el.tag));
@@ -359,8 +238,7 @@ class Page {
     this.listeners.get(name).push(handler);
   }
 
-  // The page is a node too: the controller appends rows and cards to elements it
-  // looked up, and one of those lookups can be the view itself.
+  // The page is a node too, because the controller can append to the view itself.
   appendChild(node) {
     this.elements.push(node);
     return node;
@@ -378,19 +256,9 @@ class Page {
     return [];
   }
 
-  /*
-   * One event, along the ancestor chain, innermost first.
-   *
-   * THIS IS THE WHOLE OF #1687 AND ITS WHOLE BOUND. A browser delivers a field's
-   * `input` to every ancestor that registered for it, which is why the controller may
-   * bind on the EDITOR rather than on 123 controls - so a fixture that called the
-   * target's own listeners only would prove the handler and not the binding. The chain
-   * walked here is the one `providersFixture` derived from the markup, so a field that
-   * is not inside its editor does not reach the editor's listener here either.
-   *
-   * The capture phase is not modelled and neither is `stopPropagation`: nothing this
-   * module registers asks for either, and a stub answering a question nobody poses is
-   * a thing to get wrong for free.
+  /**
+   * One event along the ancestor chain, innermost first (#1687).
+   * The capture phase and stopPropagation are not modelled.
    */
   dispatch(type, target) {
     for (let at = target; at; at = at.parentNode) {
@@ -404,9 +272,7 @@ class Page {
   }
 }
 
-// ---------------------------------------------------------------------------
 // The fixture, read out of the shipped page.
-// ---------------------------------------------------------------------------
 
 /** Replaces every HTML comment with spaces, so a documented control is not a real one. */
 function withoutComments(html) {
@@ -429,17 +295,9 @@ function shipsHidden(html, id) {
   return tag.split(/[\s>]+/).includes("hidden");
 }
 
-/*
- * Where in the markup the element bearing `id` starts and ends.
- *
- * Walked to its own close with a depth counter over tags of the SAME NAME, which is the
- * discipline tools/ui-condensed-help.js uses for the same job - one reading of "where does
- * this element end", not two. A self-closed tag ends at its own bracket and holds nothing,
- * which is what every `<input />` on this page is.
- *
- * Returns null for an element that never closes. That is broken markup and it is not this
- * reader's to refuse: it makes the element an ancestor of nothing, and the arm that asks
- * whether a required field is inside its editor then refuses by name.
+/**
+ * Where the element bearing `id` starts and ends, walked with a same-name depth counter,
+ * or null for an element that never closes.
  */
 function spanOf(html, id) {
   const at = html.indexOf('id="' + id + '"');
@@ -476,22 +334,13 @@ function spanOf(html, id) {
 }
 
 /**
- * The label a field's name is read from, built with the same two shapes the page
- * authors and `readinessFieldName` reads differently:
- *
- *   <label for="X">Name of Thing: <span>*</span></label>   - direct text is the name
- *   <label><input id="X"> <span>Name of Thing</span></label> - the span is the name
- *
- * Both are built from the page's own bytes. Restating the names here would give
- * this fixture a second copy of every label to drift against, which is the defect
- * the code under test avoids by reading the label in the first place.
+ * The label each control's name is read from, built from the page's own markup in both
+ * the `for=` idiom and the wrapping idiom.
  */
 function labelsOf(html, controls) {
   const labels = new Map();
 
-  // The `for=` idiom. The element is cut out around the attribute rather than
-  // matched, because these opening tags run over several lines and a pattern for
-  // one is a second thing to get wrong.
+  // The `for=` idiom, cut out around the attribute because these tags span lines.
   for (const m of html.matchAll(/<label\b[^>]*\bfor="([^"]+)"/g)) {
     const open = html.indexOf(">", m.index);
     const close = html.indexOf("</label", open);
@@ -501,8 +350,7 @@ function labelsOf(html, controls) {
     labels.set(m[1], labelFrom(html.slice(open + 1, close)));
   }
 
-  // The wrapping idiom. Found from the control rather than from the label, because
-  // the opening tag carries nothing that names the field.
+  // The wrapping idiom, found from the control because the label names nothing.
   for (const control of controls) {
     if (labels.has(control.id) || !control.id) {
       continue;
@@ -518,8 +366,7 @@ function labelsOf(html, controls) {
     }
     const label = labelFrom(html.slice(html.indexOf(">", open) + 1, close));
     labels.set(control.id, label);
-    // `closest("label")` has to find it, which is the lookup the wrapped idiom
-    // rests on: there is no `for=` to follow.
+    // `closest("label")` must find the wrapping label.
     control.parentNode = label;
   }
 
@@ -527,12 +374,8 @@ function labelsOf(html, controls) {
 }
 
 /**
- * One label element from its inner markup: the text OUTSIDE any child tag becomes
- * direct text nodes, and each child element becomes a child with its own text. The
- * split is the whole point - `readinessFieldName` takes the direct text nodes
- * first and the full text only as a fallback, so a fixture that flattened both
- * into one string would make the two idioms indistinguishable and the fallback
- * unreachable.
+ * One label element whose text outside child tags becomes direct text nodes, because
+ * readinessFieldName reads those before falling back to the full text.
  */
 function labelFrom(inner) {
   const label = new Element("label", "", "label");
@@ -555,11 +398,8 @@ function labelFrom(inner) {
 }
 
 /**
- * The Providers page as this stub sees it: every form control it declares, every
- * id it declares as a plain element, and the labels above. The regions the rail
- * writes into are ASSERTED against the markup rather than invented, because a
- * renamed region turns every render into a no-op that a stub building its own
- * regions would report as a pass.
+ * The Providers page as this stub sees it: its controls, its id-bearing elements and the
+ * labels, with the rail regions asserted against the markup.
  */
 function providersFixture() {
   const html = withoutComments(fs.readFileSync(PROVIDERS_PAGE, "utf8"));
@@ -590,10 +430,7 @@ function providersFixture() {
     .map((id) => new Element(id === LIST ? "ul" : "div", id, "div"));
 
   const elements = [...controls, ...others];
-  // The markup's own starting state, read off each tag. A fixture that started the
-  // editors open, or the list shown, would make an arm refuse for a reason the arm
-  // did not set up - and the list shipping `hidden` is load-bearing: it is what a
-  // page whose script never ran shows instead of a headed panel with no rows.
+  // The markup's own starting state; the list ships `hidden`.
   elements.forEach((el) => {
     el.hidden = shipsHidden(html, el.id);
   });
@@ -604,23 +441,9 @@ function providersFixture() {
   }
 
   /*
-   * THE ANCESTOR CHAIN, DERIVED (#1687). Each id-bearing element's span is walked out of
-   * the markup and its parent is the SMALLEST span that strictly contains it, so the chain
-   * is a reading of the page rather than a declaration in this file: move a required field
-   * out of its editor and it stops reaching the editor's listener here, exactly as it would
-   * in a browser.
-   *
-   * ID-BEARING ELEMENTS ONLY, and that is the bound. The real tree has a `<div>` or two
-   * between a field and its editor; those are not here, so this chain is shorter than the
-   * document's and holds the same ORDER. Every listener this module registers is on an
-   * element with an id, which is why the shorter chain answers the question.
+   * Derives the ancestor chain (#1687): each id-bearing element's parent is the smallest span
+   * that strictly contains it. Labels are built first so the chain passes through a wrapping label.
    */
-  // THE LABELS FIRST, BECAUSE THE WRAPPED IDIOM ALREADY CLAIMS A PARENT. labelsOf sets
-  // `control.parentNode` to the `<label>` a checkbox is wrapped in, which `closest("label")`
-  // needs, and the chain below has to go THROUGH that label rather than over it. Building
-  // the labels after the chain overwrote it, and the arm that asks whether each field is
-  // inside its editor said so by name for all seven flagged toggles - every one of them a
-  // wrapped checkbox.
   const labels = labelsOf(html, controls);
 
   const spans = new Map();
@@ -647,9 +470,7 @@ function providersFixture() {
       parent = other;
       width = span[1] - span[0];
     });
-    // A wrapping label is SPLICED IN rather than replaced, so both readings hold at once:
-    // `closest("label")` still finds it and an event still travels from the control to the
-    // editor. The label carries no id, so it is in no span and cannot be found any other way.
+    // A wrapping label is spliced into the chain, so closest and event delivery both hold.
     const wrapper = el.parentNode;
     if (wrapper !== null && wrapper.tag === "label") {
       wrapper.parentNode = parent;
@@ -658,9 +479,7 @@ function providersFixture() {
     }
   });
 
-  // One entry per class token, the FIRST element in document order that carries it. Read off
-  // each element's own opening tag rather than listed here, so a class that leaves the page
-  // leaves this map with it.
+  // The first element in document order per class token, read from the markup.
   const byClass = new Map();
   elements.forEach((el) => {
     const at = html.indexOf('id="' + el.id + '"');
@@ -688,9 +507,7 @@ function providersFixture() {
   return new Page(elements, labels, byClass);
 }
 
-// ---------------------------------------------------------------------------
-// The reader. What the rail ought to hold, and every way it can be wrong.
-// ---------------------------------------------------------------------------
+// The reader: what the rail ought to hold, and every way it can be wrong.
 
 /** The rows the list currently holds, as the strings appendReadinessRow wrote. */
 function rowsOf(page) {
@@ -700,19 +517,9 @@ function rowsOf(page) {
 }
 
 /**
- * Refuses one rail state against what it OUGHT to be.
- *
- * `expected.open` is the protocol the page is about, or null for neither, and
- * `expected.rows` is one matcher per row IN ORDER: its state word, the row label,
- * and a fragment its detail must contain. Matching a fragment rather than the
- * whole sentence is deliberate - the detail of a row listing field names is built
- * from the page's own labels, and pinning the whole string here would make this
- * reader a second copy of the catalogue.
- *
- * THE EMPTY STATE IS TWO REFUSALS AND NOT ONE, because a headed list with no rows
- * is the failure that reads as an answer: it says a provider answered nothing,
- * which is the opposite of the truth when no provider is open. So a closed rail is
- * refused both for showing the list and for holding rows behind it.
+ * Refuses one rail state against `expected`: `open` is the protocol or null, and `rows` is
+ * one matcher per row in order. A closed rail is refused both for showing the list and for
+ * holding rows behind it.
  */
 function inspectRail(page, expected) {
   const refusals = [];
@@ -752,12 +559,7 @@ function inspectRail(page, expected) {
       "an editor is open and the readiness list is hidden, so the only readiness signal on the page is absent",
     );
   }
-  // A ROW TOO MANY IS COUNTED AND A ROW TOO FEW IS NAMED, and the split is not
-  // tidiness. One check over both directions left the missing-row refusal below
-  // unreachable - each of the two covered the other, so deleting either one kept the
-  // gate green and neither could be proven. A longer list has no row to name, so the
-  // count is the only thing to say about it; a shorter one does, and WHICH row went
-  // missing is what a reader of the refusal needs.
+  // A row too many is counted and a row too few is named, so each refusal stays reachable.
   if (rows.length > expected.rows.length) {
     refusals.push(
       "the rail holds " +
@@ -770,10 +572,7 @@ function inspectRail(page, expected) {
   }
 
   expected.rows.forEach((want, index) => {
-    // A ROW THAT IS NOT THERE IS REFUSED RATHER THAN READ. The count above returns,
-    // so this cannot be reached on a short list today - and the proof run showed what
-    // resting on that costs: deleting the count refusal turned this loop into a
-    // TypeError, so the gate went red for the wrong reason and named no arm.
+    // A missing row is refused rather than read.
     const row = rows[index];
     if (row === undefined) {
       refusals.push(
@@ -811,17 +610,9 @@ function inspectRail(page, expected) {
   return refusals;
 }
 
-// ---------------------------------------------------------------------------
-// The calibration: a hand-built rail that is right, and one that is broken per
-// refusal the reader can make. Run BEFORE the real page is opened.
-// ---------------------------------------------------------------------------
+// The calibration: a correct hand rail, then one broken rail per refusal, run first.
 
-/**
- * A rail with no page around it, in a named state. Nothing here is read from the
- * shipped markup on purpose: the calibration is about whether the READER can fail,
- * and a fixture derived from the real page would make a broken arm depend on what
- * the page happens to carry today.
- */
+/** A hand-built rail in a named state, deliberately not read from the shipped markup. */
 function handRail(open, rowTexts) {
   const invitation = new Element("div", INVITATION, "div");
   const list = new Element("ul", LIST, "ul");
@@ -847,6 +638,7 @@ const GOOD_EXPECTED = {
   ],
 };
 
+/** Runs the reader over correct hand rails and over one broken rail per refusal. */
 function calibrate() {
   const arms = [];
   const record = (name, mustRefuse, refusals) => {
@@ -854,9 +646,7 @@ function calibrate() {
     arms.push({ name, mustRefuse, ok: refused === mustRefuse, refusals });
   };
 
-  // The positive, twice: the reader accepts a correct open rail and a correct
-  // closed one. A reader that refused either would fail every arm below for its
-  // own reason and the real page would never be reached.
+  // The positives: a correct open rail and a correct closed one.
   record(
     "open rail as it should be",
     false,
@@ -868,9 +658,7 @@ function calibrate() {
     inspectRail(handRail(null, []), { open: null, rows: [] }),
   );
 
-  // One negative per refusal, each a ONE-CHANGE neighbour of a rail that passes.
-  // A negative several changes away proves less: it would be refused by whichever
-  // arm noticed first, and the refusal this row is for could be missing.
+  // One negative per refusal, each one change away from a passing rail.
   {
     const page = handRail("oid", GOOD_ROWS);
     page.querySelector("#" + LIST).hidden = true;
@@ -957,11 +745,7 @@ function calibrate() {
     );
   }
   {
-    // THE HEADED EMPTY LIST, which is the state #1664 names and the one a reader
-    // asking only about `hidden` would pass: the list is correctly hidden and the
-    // invitation correctly shown, and the rows of the provider that was open a
-    // moment ago are still behind it. The next unhide would show them under a
-    // provider nobody chose.
+    // The headed empty list: hidden correctly, but still holding the previous provider's rows (#1664).
     const page = handRail(null, []);
     const list = page.querySelector("#" + LIST);
     const stale = new Element("li", "", "li");
@@ -977,18 +761,16 @@ function calibrate() {
   return arms;
 }
 
-// ---------------------------------------------------------------------------
 // The arms over the real page.
-// ---------------------------------------------------------------------------
 
+// Imports the shipped sso-core.js as a data URL module, since this tree has no package.json.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
     "data:text/javascript;base64," +
     Buffer.from(source, "utf8").toString("base64");
   const module = await import(url);
-  // The controller as well as the object, because #1687's subject is what
-  // initProvidersPage BINDS and the only way to ask is to run it.
+  // The controllers too, because #1687 is about what initProvidersPage binds.
   return { core: module.default, controllers: module.pageControllers };
 }
 
@@ -999,10 +781,7 @@ function installHost(counter) {
     createElement: (tag) => new Element(tag, "", tag),
     createTextNode: (data) => new Text(data),
   };
-  // initProvidersPage builds option rows for the preset pickers through the DOM's own
-  // Option constructor, and asks the host three things on its way through. None of them
-  // is reached by an arm's assertion; they are here so the controller runs rather than
-  // throwing, which is the difference between driving the binding and asserting it.
+  // The Option constructor and host members the controller needs to run without throwing.
   globalThis.Option = function (text, value) {
     const option = new Element("option", "", "option");
     option.textContent = text;
@@ -1013,23 +792,15 @@ function installHost(counter) {
     alert() {},
     processPluginConfigurationUpdateResult() {},
   };
-  // `document` RIDES ALONG ON window, because one call site reaches it that way:
-  // populateProvisioningProfileOptions builds its option rows with
-  // window.document.createElement. A window without it leaves that function throwing inside
-  // a promise, which surfaces as four rejections nobody handled rather than as a failed arm -
-  // and the arm that counts those rejections then blames the page.
+  // `document` rides on window because populateProvisioningProfileOptions reaches it that way.
   globalThis.window = {
     confirm: () => true,
     location: { search: "" },
     document: globalThis.document,
   };
-  // node already defines navigator and refuses an assignment to it, so the one member the
-  // controller reaches for is defined on the existing object instead.
+  // node refuses an assignment to navigator, so the member is set on the existing object.
   globalThis.navigator.clipboard = { writeText: () => Promise.resolve() };
-  // EVERY CALL IS COUNTED AND NONE IS SERVED. The panel's whole claim is that it
-  // reads what the form already holds, so a rebuild that reached the network would
-  // be refused here by the count rather than by a reading of the file - and a
-  // client that answered would let one slip past as a pass.
+  // Every call is counted, because the rail must not reach the network.
   globalThis.ApiClient = new Proxy(
     {},
     {
@@ -1039,48 +810,31 @@ function installHost(counter) {
         }
         return (...args) => {
           counter.calls.push(String(name) + "(" + args.length + ")");
-          // THE ONE REPLY THIS CLIENT CAN REFUSE (#1681), because a read that fails is a
-          // state the page has to be driven through rather than reasoned about: the server
-          // unreachable, a 500, a configuration the host cannot deserialize. Served as a
-          // rejected promise and not as an empty object, which is what the success arm
-          // already gets and is a different failure.
-          // The two that answer with a VALUE rather than a promise. Both are read
-          // synchronously - the computed URLs compose a string out of serverAddress, and
-          // getUrl builds a route - so a promise here is not a slower answer, it is the
-          // wrong type and the controller throws on it.
+          // serverAddress and getUrl answer with a value, because the controller reads them synchronously.
           if (name === "serverAddress") {
             return "https://jellyfin.example";
           }
           if (name === "getUrl") {
             return "https://jellyfin.example/" + String(args[0]);
           }
-          // A READ CAN BE PARKED AND SETTLED LATER, IN ANY ORDER (#1693). A reply's order
-          // relative to the clicks around it is the whole subject: a failing request is
-          // typically the slower of two, so the stale case is the ordinary ordering rather
-          // than an exotic one, and it cannot be reached by a client that answers at once.
+          // A read can be parked and settled later in any order (#1693).
           if (counter.park !== null && name === "getPluginConfiguration") {
             return new Promise((resolve, reject) =>
               counter.park.push({ resolve, reject }),
             );
           }
-          // A 200 CARRYING WHATEVER THE ARM CHOOSES (#1694). A read that fulfils is not a read
-          // that worked, and the bodies that matter here - a proxy's error page that parses, a
-          // version-skewed member - arrive as resolved promises. A client that could only
-          // reject or answer correctly could not reach either.
+          // A 200 carrying whatever the arm chooses (#1694).
           if (
             counter.serve !== undefined &&
             name === "getPluginConfiguration"
           ) {
             return Promise.resolve(counter.serve);
           }
+          // A read that fails, served as a rejected promise (#1681).
           if (counter.refuseRead && name === "getPluginConfiguration") {
             return Promise.reject(new Error("the stub refused this read"));
           }
-          // THE SHAPE AND NOT THE CONTENT. The controller's own load path walks the three
-          // members of a configuration and the managed-set report, so a bare `{}` makes it
-          // throw on a `.map` of undefined - which would read as "the binding does not
-          // work" when what failed is this client. Empty members are a server with nothing
-          // configured, which is the state every arm here sets up by hand anyway.
+          // An empty configuration with every member, so the load path does not throw.
           if (name === "getPluginConfiguration") {
             return Promise.resolve({
               OidConfigs: {},
@@ -1088,18 +842,13 @@ function installHost(counter) {
               ProvisioningProfiles: {},
             });
           }
-          // getJSON answers two routes, and which one is read off the route rather than
-          // guessed: the managed-set report, and the library list whose `Items` the folder
-          // checklists map over. A body with neither member makes the controller throw on a
-          // `.map` of undefined, which is this client failing and not the page.
+          // getJSON answers the managed-set report and the library list, chosen by route.
           if (name === "getJSON") {
             const route = String(args[0]);
             if (route.includes("Library/MediaFolders")) {
               return Promise.resolve({ Items: [] });
             }
-            // THE ONE ROUTE SERVED AS A STRING (#1710): the computed redirect URI is what the
-            // provider reply's fill asks for, so an arm that watches the field can tell a
-            // dropped reply from a server that had no address to give.
+            // The redirect URI route is served as a string (#1710).
             if (
               counter.redirect !== undefined &&
               route.includes("RedirectUri")
@@ -1124,16 +873,12 @@ function nameOf(core, page, id) {
   return core.readinessFieldName(page, id);
 }
 
-// HOW MANY CONFIGURATION READS A SAVE ISSUES AFTER ITS WRITE, per protocol. Both saves reload the
-// configuration and the provider. The OpenID save reads the configuration a third time (#1872): the
-// host's save door answers with no body, so whether the stored client secret survived the save is
-// read back, and the sentence under the save waits for that answer while the save itself settles at
-// once - which is why the arms can resolve the two reloads in either order and still meet a resolved
-// save with the third read parked. SAML has no such secret rule and no such read.
+// How many configuration reads a save issues after its write; OpenID adds a secret read-back (#1872).
 function reloadsAfterSave(protocol) {
   return protocol === "oid" ? 3 : 2;
 }
 
+/** Runs the calibration and answers the arms and refusal collector, or a number when it disagreed. */
 function main() {
   const faults = [];
   const refuse = (leg, detail) => faults.push(leg + ": " + detail);
@@ -1163,6 +908,7 @@ function main() {
   return { arms, mustPass, faults, refuse };
 }
 
+/** Runs the calibration, then every arm over the real page, and answers the exit code. */
 async function run() {
   const started = main();
   if (typeof started === "number") {
@@ -1175,17 +921,13 @@ async function run() {
     park: null,
     serve: undefined,
   };
-  // EVERY REJECTION NOBODY HANDLED IS RECORDED, which is a thing node tells you and a
-  // browser does not tell an administrator. The arm below asks for it by name, because
-  // "it surfaces in the console" is exactly the reporting #1681 is about the absence of.
+  // Every unhandled rejection is recorded, because #1681 is about failures only the console saw.
   const unhandled = [];
   process.on("unhandledRejection", (reason) => unhandled.push(String(reason)));
   installHost(counter);
   const { core, controllers } = await loadCore();
 
-  // The spec is read from the module rather than restated, because an arm naming
-  // its own required ids would stop testing the panel the day the spec changed and
-  // would instead test a copy of what the spec used to be.
+  // The spec is read from the module rather than restated.
   const REQUIRED = core.readinessSpecs.oid.requiredIds;
   const SAML_REQUIRED = core.readinessSpecs.saml.requiredIds;
 
@@ -1267,13 +1009,7 @@ async function run() {
   }
 
   // ---- Arm: the OpenID editor opened through the shipped opener ----
-  //
-  // THE SAML EDITOR IS OPENED FIRST, and that is not scene-setting. Both editors
-  // ship hidden, so an arm that opened the OpenID one on a fresh fixture would find
-  // the SAML one closed whether showEditor closed it or not - which is exactly what
-  // the first draft of this arm did, and the proof run caught it: taking
-  // hideSamlEditor out of showEditor left the gate green. The one-workspace rule
-  // (#1527) is only readable from a page where the other workspace was open.
+  // The SAML editor is opened first, so the one-workspace rule (#1527) is observable.
   {
     const page = providersFixture();
     core.showSamlEditor(page);
@@ -1301,9 +1037,7 @@ async function run() {
       );
     }
     const rows = rowsOf(page);
-    // The ACS row is the one that separates the two protocols by NAME rather than
-    // by count: both editors answer five rows, so a rail that answered for the
-    // wrong one would match on length alone.
+    // The ACS row separates the protocols by name, since both answer five rows.
     if (!rows.some((row) => row.includes("Reply URL (ACS)"))) {
       refuse(
         "saml-open",
@@ -1351,11 +1085,7 @@ async function run() {
   }
 
   // ---- Arm: a reply that lost the race may not paint the other protocol ----
-  //
-  // This is the #1664 race, driven rather than reasoned: three callers reach
-  // refreshReadiness asynchronously with a protocol decided when their request went
-  // out. While each editor held its own list a late write was harmless. One shared
-  // list removed that isolation.
+  // The #1664 race: three callers reach refreshReadiness with a protocol decided earlier.
   {
     const page = providersFixture();
     core.showSamlEditor(page);
@@ -1404,8 +1134,7 @@ async function run() {
           JSON.stringify(rows[0]),
       );
     }
-    // And back: the row has to move in BOTH directions, or an arm that only ever
-    // fills fields would pass a panel that hard-coded the ready sentence.
+    // And back, so the row moves in both directions.
     page.querySelector("#" + REQUIRED[0]).value = "";
     core.refreshReadiness(page, "oid");
     const emptied = rowsOf(page)[0];
@@ -1425,9 +1154,7 @@ async function run() {
           counter.calls.slice(callsBefore).join(", "),
       );
     }
-    // Twice in a row is one list, not two. The openers call railReadiness and the
-    // field handler calls refreshReadiness, so a doubled call is an ordinary
-    // arrival rather than an edge case.
+    // Twice in a row is one list, not two.
     const once = rowsOf(page).length;
     core.refreshReadiness(page, "oid");
     if (rowsOf(page).length !== once) {
@@ -1441,10 +1168,7 @@ async function run() {
     }
   }
 
-  // ---- Arm: each remaining row moves for its OWN reason ----
-  //
-  // One row per reason, because four rows built from one condition would pass with
-  // three of them wired to the wrong input.
+  // ---- Arm: each remaining row moves for its own reason ----
   {
     const page = providersFixture();
     core.showEditor(page);
@@ -1472,9 +1196,7 @@ async function run() {
       }
     }
 
-    // The last Test Connection outcome, through the shipped recorder in both
-    // directions - the pass is the arm that matters, because a row that said
-    // "Needs attention" whatever happened would satisfy the failure arm alone.
+    // The last Test Connection outcome, in both directions.
     core.recordTestOutcome(page, "oid", false);
     if (!rowsOf(page)[2].includes("did not reach")) {
       refuse(
@@ -1492,8 +1214,7 @@ async function run() {
       );
     }
 
-    // The computed URL, which for OpenID is the server's answer and is blank until
-    // the provider is saved.
+    // The computed URL, which for OpenID stays blank until the provider is saved.
     page.querySelector("#" + core.readinessSpecs.oid.urlId).value =
       "https://jellyfin.example/sso/OID/redirect/one";
     core.refreshReadiness(page, "oid");
@@ -1505,9 +1226,7 @@ async function run() {
       );
     }
 
-    // And a flagged toggle, named by its own label. This row is the one that is a
-    // security statement rather than a convenience, so it is asked in both
-    // directions too.
+    // And a flagged toggle, named by its own label, in both directions.
     const toggle = core.insecureFieldIds[0];
     page.querySelector("#" + toggle).checked = true;
     core.refreshReadiness(page, "oid");
@@ -1532,11 +1251,6 @@ async function run() {
   }
 
   // ---- Arm: a field name is the page's own label, not an id ----
-  //
-  // The rail's detail sentences are the only place these names appear, so a
-  // readinessFieldName that fell through to the id would leave an administrator
-  // reading "Still empty: OidClientId" - which is not the text beside the field
-  // they are looking at.
   {
     const page = providersFixture();
     REQUIRED.concat(core.insecureFieldIds).forEach((id) => {
@@ -1563,13 +1277,7 @@ async function run() {
   }
 
   // ---- Arm: a required field is inside the editor whose listener answers for it ----
-  //
-  // THE CHAIN IS ASKED ABOUT BEFORE IT IS RELIED ON (#1687). Every arm below rests on a
-  // field's event reaching its editor, and the chain that carries it is derived from the
-  // markup - so a field that has moved out of its editor would make those arms pass for
-  // the wrong reason, by reaching a listener that is not there to reach. Asked for both
-  // protocols, and for the flagged toggles as well as the required fields, because the
-  // rail answers for those too.
+  // The chain is checked before the arms below rely on it (#1687).
   {
     const page = providersFixture();
     const inside = (id, editorId) => {
@@ -1612,18 +1320,7 @@ async function run() {
   }
 
   // ---- Arm: the wrapping-label idiom is in the fixture, not only in the map ----
-  //
-  // WITHOUT THIS ARM THE SPLICE ABOVE IS DRIVEN BY NOTHING, and the proof run said so:
-  // taking it out left the gate green. A checkbox on this page is WRAPPED in a bare
-  // `<label>` with no `for=`, and `readinessFieldName` reads that idiom through
-  // `field.closest("label")` - the fallback half of a function whose first half is the
-  // `label[for=...]` lookup. The fixture answers that first lookup for wrapped controls
-  // too, out of the map `labelsOf` builds, so the fallback is never taken and the chain
-  // could lose the label without any arm noticing.
-  //
-  // So the idiom is asked about directly: the control's nearest `<label>` ancestor, the
-  // way the shipped code asks. That keeps the fixture modelling the page rather than
-  // modelling what the other arms happen to need.
+  // Asks for the control's nearest `<label>` ancestor the way readinessFieldName does.
   {
     const page = providersFixture();
     const source = withoutComments(fs.readFileSync(PROVIDERS_PAGE, "utf8"));
@@ -1658,17 +1355,8 @@ async function run() {
   }
 
   // ---- Arm: a keystroke in a required field rebuilds the rail ----
-  //
-  // THE ROUTE, NOT THE HANDLER. Every other arm here calls refreshReadiness itself, so all
-  // of them pass on a page whose controller bound nothing at all. This one runs the shipped
-  // initProvidersPage and then dispatches the event a control raises, on the CONTROL, so the
-  // only way the rail can move is along the chain to whatever the controller bound.
-  //
-  // BOTH EVENT TYPES, because they carry different controls: `change` alone leaves a text
-  // field's typing unanswered until focus moves, and `input` alone leaves every checkbox and
-  // select unanswered. And both protocols, because the pairing of a selector with a key is
-  // the third way this can be wrong and the quietest - refreshReadiness drops a call for the
-  // protocol that is not open at its own gate, so the rail simply never moves.
+  // Drives the route, not the handler: the event is dispatched on the control, for both event
+  // types and both protocols.
   for (const protocol of ["oid", "saml"]) {
     for (const type of ["input", "change"]) {
       const page = providersFixture();
@@ -1695,8 +1383,7 @@ async function run() {
       required.forEach((id) => {
         page.querySelector("#" + id).value = "filled";
       });
-      // Nothing calls refreshReadiness here. If the rail moves, it moved because the event
-      // reached a listener the controller registered.
+      // Nothing calls refreshReadiness here, so a move means a bound listener answered.
       page.dispatch(type, field);
       const after = rowsOf(page);
       if (!after[0].startsWith("Ready - Required fields - ")) {
@@ -1711,8 +1398,7 @@ async function run() {
             JSON.stringify(after[0]),
         );
       }
-      // And back, so the arm cannot pass on a rail that was rebuilt once at init and is
-      // now simply showing a ready row it was born with.
+      // And back, so a rail rebuilt once at init cannot pass.
       page.querySelector("#" + required[0]).value = "";
       page.dispatch(type, field);
       if (!rowsOf(page)[0].includes(nameOf(core, page, required[0]))) {
@@ -1729,18 +1415,7 @@ async function run() {
   }
 
   // ---- Arm: a reply that no longer speaks for the open editor changes nothing ----
-  //
-  // THE ORDERING IS THE ORDINARY ONE. A failing request is typically the slower of two, so
-  // "the read that fails settles after the one that succeeded" is what a timeout looks like
-  // rather than a race somebody has to contrive. Before #1693 the late FAILURE closed the
-  // editor the administrator was working in and explained it by naming a provider they had
-  // already left; the late SUCCESS was worse, because it wrote the old provider's values into
-  // the open form under the new provider's title and a Save then persisted them.
-  //
-  // Both directions are driven, and so are the two ways the editor stops being about a
-  // provider without any read being issued: it is CLOSED, and the other protocol is opened.
-  // A serial counting reads answers neither of those, which is why the guard compares the
-  // editor's subject instead.
+  // Late failure, late success, a closed editor and the other protocol opened, plus the current reply (#1693).
   for (const protocol of ["oid", "saml"]) {
     const selectorId =
       protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
@@ -1761,7 +1436,7 @@ async function run() {
     const settled = () =>
       new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 
-    // 1. a LATE FAILURE for the provider before the one on screen.
+    // 1. A late failure for the provider before the one on screen.
     {
       const page = providersFixture();
       counter.park = [];
@@ -1790,8 +1465,7 @@ async function run() {
       }
     }
 
-    // 2. a LATE SUCCESS for the provider before the one on screen. The name field is what
-    //    the fill writes first, so it is what says whose values landed.
+    // 2. A late success for the provider before the one on screen, seen in the name field.
     {
       const page = providersFixture();
       counter.park = [];
@@ -1815,7 +1489,7 @@ async function run() {
       }
     }
 
-    // 3. THE EDITOR CLOSED, which issues no read at all and is the case a serial cannot see.
+    // 3. The editor closed, which issues no read.
     {
       const page = providersFixture();
       counter.park = [];
@@ -1837,8 +1511,7 @@ async function run() {
       );
     }
 
-    // 4. THE OTHER PROTOCOL OPENED, the second case a serial cannot see: one workspace at a
-    //    time, so opening the other editor closes this one without any read being issued.
+    // 4. The other protocol opened, which closes this editor without a read.
     {
       const page = providersFixture();
       counter.park = [];
@@ -1865,8 +1538,7 @@ async function run() {
       }
     }
 
-    // 5. AND THE REPLY THAT IS STILL CURRENT STILL LANDS. Without this the guard could be
-    //    "drop everything" and every arm above would pass.
+    // 5. The reply that is still current still lands.
     {
       const page = providersFixture();
       counter.park = [];
@@ -1887,13 +1559,7 @@ async function run() {
   }
 
   // ---- Arm: a 200 that is not the configuration, and a fill that throws ----
-  //
-  // A FULFILLED READ IS NOT A READ THAT WORKED (#1694). Each of the bodies below arrives as a
-  // resolved promise, and before this each left the editor open over the fields resetEditor
-  // blanked, the rail asserting "Still empty" about a provider that is saved and fully
-  // configured, and the only trace in the browser console. The three states are kept apart
-  // because the act they ask for differs: a server that could not be reached, a server that
-  // answered with something else, and a document this form could not be filled from.
+  // A fulfilled read is not a read that worked (#1694); unreachable, wrong body and unfillable stay apart.
   for (const protocol of ["oid", "saml"]) {
     const member = protocol === "saml" ? "SamlConfigs" : "OidConfigs";
     const selectorId =
@@ -1959,8 +1625,7 @@ async function run() {
       { error: "Bad Gateway" },
       "is not this plugin's configuration",
     );
-    // The member present and not an object, which is the version-skew shape: the OpenID
-    // loader threw a TypeError on it and the SAML loader presented a blank provider as read.
+    // The member present and not an object, the version-skew shape.
     await closedAndSaid(
       "a body whose " + member + " is not a dictionary",
       { [member]: "unexpected" },
@@ -1973,10 +1638,7 @@ async function run() {
       "is not this plugin's configuration",
     );
 
-    // A WHOLE DOCUMENT, because the fill reads all three members and a body short of one
-    // throws in the fill rather than failing the shape test - which the arm below would then
-    // report as a server with nothing configured having its editor closed. Found by writing
-    // the short version first and reading the refusal.
+    // A whole document, because a body short of a member throws in the fill instead.
     const document = (providers) => ({
       OidConfigs: {},
       SamlConfigs: {},
@@ -1984,18 +1646,14 @@ async function run() {
       [member]: providers,
     });
 
-    // AND A DOCUMENT THAT IS THE DOCUMENT, whose provider holds a member of the wrong type, so
-    // the FILL throws part way rather than the shape test catching it first. A different
-    // sentence, because the read worked and this page is what could not use it.
+    // A valid document whose provider holds a member of the wrong type, so the fill throws.
     await closedAndSaid(
       "a provider whose role mapping is not a list",
       document({ "a-saved-provider": { FolderRoleMapping: 5 } }),
       "could not be filled from it",
     );
 
-    // THE OTHER DIRECTION, which is what stops all of the above passing on a loader that
-    // closes the editor for every reply: an EMPTY configuration is the commonest installation
-    // there is, and it must fill the form and leave the rail answering.
+    // The other direction: an empty configuration fills the form and leaves the rail answering.
     {
       const page = await drive(document({}));
       if (page.querySelector("#" + EDITORS[protocol]).hidden) {
@@ -2017,23 +1675,13 @@ async function run() {
   }
 
   // ---- Arm: the configuration read fails while an editor is being filled ----
-  //
-  // THE RAIL IS WHY THIS IS HERE RATHER THAN IN A GATE OF ITS OWN (#1681). An editor is
-  // already open over the fields resetEditor blanked when the read is asked for, so a
-  // failure used to leave the form reading as an empty provider AND the rail asserting
-  // "Still empty" about a provider that is saved and fully configured. The rail is the
-  // confident half: it was not silent, it was wrong, and what it said was the opposite of
-  // the truth. So the three things this arm asks for are the editor, the rail and the
-  // sentence, and the fourth is that node found nobody handling the rejection.
+  // Asks for the editor, the rail and the sentence, and that no rejection went unhandled (#1681).
   for (const protocol of ["oid", "saml"]) {
     const page = providersFixture();
     const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;
     const load = protocol === "oid" ? core.loadProvider : core.loadSamlProvider;
     open(page);
-    // THE SELECTOR CARRIES WHICH PROVIDER THE EDITOR IS ABOUT, and openProvider sets it
-    // before it loads. This arm sets it too, because both loaders drop a reply that no
-    // longer speaks for what is on screen (#1693), and a fixture that left the selector
-    // blank would have every reply read as stale - a pass for the wrong reason.
+    // The selector names the provider, because both loaders drop a stale reply (#1693).
     page.querySelector(
       protocol === "saml" ? "#saml-selectProvider" : "#selectProvider",
     ).value = "a-saved-provider";
@@ -2047,8 +1695,7 @@ async function run() {
     }
     counter.refuseRead = true;
     load(page, "a-saved-provider");
-    // Two turns: one for the rejection to settle and one for the handler's own work, and
-    // a third for node to decide a rejection was nobody's.
+    // Let the rejection and its handler settle before node judges it unhandled.
     await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
     counter.refuseRead = false;
@@ -2079,8 +1726,7 @@ async function run() {
             " read failed and the page said nothing, so the only report is in the browser console",
         );
       }
-      // THE CLASS AS WELL AS THE WORDS. The page marks an outcome ok or failed, and a
-      // failure rendered in the success colour is a worse read than no colour at all.
+      // The failure class as well as the words.
       if (!status.classList.contains("sso-status-fail")) {
         refuse(
           "read-failed",
@@ -2102,27 +1748,8 @@ async function run() {
   }
 
   // ---- Arm: a configuration read that lands first does not take the selector with it ----
-  //
-  // THE SELECTOR IS THE PAGE'S RECORD OF WHICH PROVIDER IT IS ABOUT (#1696), and a
-  // configuration read rebuilds it. `populateProviders` and `populateSamlProviders` remove
-  // every option and add the current set back; a browser drops the selection the moment the
-  // selected option goes, and re-adding an option carrying the same value does not restore
-  // it. Three readers then compare against the empty string: `applyManagedState`, and both
-  // loaders since #1693.
-  //
-  // A SAVE IS THE ORDINARY ROUTE INTO IT, which is why this arm drives one rather than
-  // calling the populate functions directly. `saveProvider`'s success handler issues
-  // `loadConfiguration` and `loadProvider` back to back and sets the selector after both, so
-  // the two are in flight together and the ordering decides the outcome. The configuration
-  // read answering FIRST is the losing one: it empties the selector, and the provider reply
-  // arriving a moment later no longer speaks for anything and is dropped - leaving the
-  // administrator looking at the blanked form of the provider they just saved.
-  //
-  // THE PRESERVATION IS WHAT THIS PROVES, AND IT WAS PROVEN BY NOTHING. It landed with #1693
-  // on a reading of the DOM specification; the stub did not model a select at all, so the
-  // gate was green with the guard and green without it. Deleting both halves of it turns
-  // this arm red on both protocols: the selector reads the empty string instead of the
-  // provider's name, and the name field the provider read would have refilled stays empty.
+  // A save issues loadConfiguration and loadProvider together; the configuration read landing
+  // first must not empty the selector the loaders and applyManagedState compare against (#1696, #1693).
   {
     const leaked = unhandled.length;
     for (const protocol of ["oid", "saml"]) {
@@ -2134,8 +1761,7 @@ async function run() {
         protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
       const nameField =
         protocol === "saml" ? "#saml-provider-name" : "#OidProviderName";
-      // Two providers, because one is the case the defect hides in: with a single option the
-      // value a browser lands on after the rebuild is the one it started with.
+      // Two providers, because with a single option the defect hides.
       const body = () => ({
         OidConfigs: { a: {}, b: { OidEndpoint: "https://b.example" } },
         SamlConfigs: { a: {}, b: { SamlEndpoint: "https://b.example" } },
@@ -2145,9 +1771,7 @@ async function run() {
         new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
       const selector = page.querySelector(selectorId);
 
-      // The page as an administrator meets it: the configuration already read once, so the
-      // selector carries an option per provider. Without this the clear loop has nothing to
-      // remove and the arm would pass on a selector that was never at risk.
+      // The configuration read once already, so the selector holds an option per provider.
       counter.serve = body();
       core.loadConfiguration(page);
       await settled();
@@ -2165,9 +1789,7 @@ async function run() {
         continue;
       }
 
-      // openProvider is not reachable from this stub - it resets the editor through a
-      // selector this page's querySelector refuses - so the editor is put into the state it
-      // leaves behind, which is what the stale-reply arm above does for the same reason.
+      // openProvider is unreachable from this stub, so the editor is put into the state it leaves.
       open(page);
       selector.value = "b";
       page.querySelector(nameField).value = "b";
@@ -2194,8 +1816,7 @@ async function run() {
         counter.park = null;
         continue;
       }
-      // The save's own read, then its write, and the reads its success handler issues: the two
-      // reloads, and for OpenID the read-back that answers whether the stored secret survived (#1872).
+      // The save's read, its write, the two reloads and for OpenID the secret read-back (#1872).
       counter.park[0].resolve(body());
       await settled();
       if (
@@ -2216,8 +1837,7 @@ async function run() {
         continue;
       }
 
-      // THE LOSING ORDERING, and the only line of this arm that chooses it: the
-      // configuration read settles while the provider read is still out.
+      // The losing ordering: the configuration read settles while the provider read is out.
       counter.park[1].resolve(body());
       await settled();
       if (selector.value !== "b") {
@@ -2231,8 +1851,7 @@ async function run() {
         );
       }
 
-      // What the emptied selector COSTS, driven rather than argued: the provider reply is
-      // dropped as stale and the form of the provider that was just saved stays blank.
+      // The emptied selector drops the provider reply and leaves the saved form blank.
       page.querySelector(nameField).value = "";
       counter.park[2].resolve(body());
       await settled();
@@ -2248,11 +1867,7 @@ async function run() {
         );
       }
 
-      // THE OTHER READER OF THE SAME VALUE, and it predates #1693. applyManagedState freezes
-      // the editor of a provider a configuration file owns, and it compares the selector
-      // first to be sure the form it is about to freeze is still the one that was asked
-      // about. Against an emptied selector that comparison never matches, so a managed
-      // provider's form stays editable and its Save stays live.
+      // applyManagedState compares the selector too, so an emptied one leaves a managed form editable.
       const owned = protocol === "saml" ? "SamlConfigs" : "OidConfigs";
       const named = core.managedProviders[owned];
       core.managedProviders[owned] = ["b"];
@@ -2278,20 +1893,8 @@ async function run() {
   }
 
   // ---- Arm: a provider saved for the first time still names itself, and its address arrives ----
-  //
-  // THE SELECTOR HOLDS NO OPTION FOR A NAME THE SERVER HAS NEVER SEEN (#1710). The arm above
-  // saves a provider whose option the first configuration read created; this one saves a name
-  // no option carries, which is every provider the wizard builds. A select assigned such a
-  // value reads as empty, populateProviders preserved that empty string (#1696), both loaders
-  // dropped their reply for it (#1693), and the redirect-URI read that only the provider reply
-  // issues never ran - so the wizard's third step refused the provider it had just saved, and
-  // the sentence it refused with promised the opposite.
-  //
-  // THE WINNING ORDERING IS ENOUGH HERE, because the defect does not need the losing one: the
-  // provider reply was dropped whichever read landed first. The observable is the field that
-  // reply fills - the stub serves the address as a string, so an empty field afterwards is a
-  // reply that was dropped and not a server that had nothing to give. The address is OpenID's
-  // alone; the SAML editor computes its ACS URL in the client and the name field is its proof.
+  // A name no option carries reads back empty from the selector, so both loaders dropped the reply
+  // and the redirect URI never arrived (#1710, #1696, #1693).
   {
     const leaked = unhandled.length;
     for (const protocol of ["oid", "saml"]) {
@@ -2316,12 +1919,7 @@ async function run() {
       const settled = () =>
         new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
       const selector = page.querySelector(selectorId);
-      // THE OTHER HALF OF A SELECT'S RESET, on this one element and nowhere else: a browser
-      // assigning a value no option carries reads back the empty string, which is the whole
-      // mechanism of #1710 and the half the class above says it leaves out. Modelled here
-      // rather than on the class because the arms above set a selector on fixtures whose
-      // options were never populated and describe a page whose options exist; this arm is
-      // the one whose subject is an option that does not exist yet.
+      // A value no option carries reads back empty on this selector only, the mechanism of #1710.
       Object.defineProperty(selector, "value", {
         configurable: true,
         get() {
@@ -2351,8 +1949,7 @@ async function run() {
         );
         continue;
       }
-      // The state addProvider leaves behind: the editor open on a blank form and the selector
-      // naming nobody. openProvider is not reachable from this stub, as the arms above say.
+      // The state addProvider leaves: the editor open on a blank form and the selector empty.
       open(page);
       selector.value = "";
       page.querySelector(nameField).value = "fresh";
@@ -2428,8 +2025,7 @@ async function run() {
         );
       }
       if (protocol === "oid") {
-        // The fill asks for the address after a short timer, so this waits for a clock and not
-        // for a turn; the timer is the code's own and is not restated here.
+        // The fill asks for the address after the code's own timer, so this waits on the clock.
         await new Promise((resolve) => setTimeout(resolve, 400));
         const address = page.querySelector("#OidRedirectUri").value;
         if (address !== counter.redirect) {
@@ -2455,14 +2051,7 @@ async function run() {
   }
 
   // ---- Arm: a path base in the Base URL Override is accepted, and the plugin's own route is not ----
-  //
-  // Jellyfin mounted under a path base resolves its base URL with that path and the server keeps
-  // it in an override, so the value that keeps a login working there carries the path (#1712).
-  // Both validators refused every path, and the warnings row reads the validators' own boxes, so
-  // the one correct value for that deployment stood under "Needs attention" and was saved anyway.
-  // Asked in both directions on both protocols: the path base is accepted and leaves the row
-  // Ready; an address pasted from the plugin's own /sso/... route, a query and a fragment are
-  // still refused, and the refusal no longer calls the path itself the error.
+  // A path base is valid under a mounted Jellyfin (#1712); /sso/ routes, queries and fragments are refused.
   for (const protocol of ["oid", "saml"]) {
     const page = providersFixture();
     const open = protocol === "oid" ? core.showEditor : core.showSamlEditor;

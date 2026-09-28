@@ -3,47 +3,14 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Reads the two regions that hide options behind a fold - Sensitive and Insecure,
- * on both protocol forms of the Providers page - and the count their summary
- * carries (#1666).
+ * Reads the Sensitive and Insecure option folds on both protocol forms of the
+ * Providers page and the count their summary carries (#1666).
  *
- * WHAT FAILURE THIS EXISTS AGAINST. A region that names only itself is a closed
- * box over a live downgrade: an administrator reads "Insecure options", sees a
- * collapsed fold, and has no way to know from the page that one of the six inside
- * is ticked. The count in the summary is what makes the closed state readable, so
- * the count being WRONG is worse than no count at all - "0 of 6 in use" over a
- * ticked DisableHttps is a page telling an administrator the opposite of the
- * truth. That is the subject here, and it fails in two different ways: the markup
- * can stop being a fold, and the number can stop following the form.
- *
- * WHY BOTH HALVES ARE READ HERE AND NOT SPLIT. The static half asks whether the
- * shipped markup is four folds, collapsed, each with a summary that has somewhere
- * to put a count. The runtime half loads the shipped sso-core.js and drives its
- * own recount over a tree built out of that same markup. Either half alone passes
- * the state the other one refuses: a perfect count written into a page that is no
- * longer a fold, or four folds whose summaries stay empty because nothing fills
- * them.
- *
- * WHY IT IS NODE AND NOT A BROWSER, AND WHAT THAT COSTS. The means check, per the
- * standpoint: node is already carried by this tree - eleven gates beside this one
- * are run by the .NET workflow with no install - and a DOM library would add a
- * dependency and a lockfile to a repository that has neither. The stub below has
- * a real TREE, because the code under test walks downward from a fold into the
- * boxes it holds and that is not decidable without one, and it is still NOT a
- * browser. It says nothing about whether `<details>` draws a triangle, what a
- * reader announces when one opens, or whether a closed fold's controls are
- * submitted - that last one is the HTML specification's promise rather than this
- * code's, and it is why the element is native instead of rebuilt. A walk on a
- * real server is what confirms those, and the issue keeps that Done-when open
- * rather than this tool claiming it.
- *
- * THE ONE BOUND TO READ CAREFULLY. The stub has NO EVENT PROPAGATION. The
- * delegated recount is registered on the page and the stub CALLS it with the
- * element the change landed on, which is the shape a browser delivers a captured
- * `change` in - but the stub cannot say that `change` reaches a capturing listener
- * on an ancestor, and a mutation dropping the capture flag passes every arm below.
- * That property is the event's, not this code's, and it is named here rather than
- * claimed.
+ * A wrong count over a closed fold is worse than none, so the static half checks the
+ * markup is four collapsed folds with a count slot and the runtime half drives the
+ * shipped recount over a tree built from that markup. The stub has no event
+ * propagation, so dropping the capture flag on the delegated listener is not caught
+ * here.
  */
 
 const fs = require("fs");
@@ -60,22 +27,15 @@ const COUNT = "sso-fold-count";
 const BOXES = ["checkboxContainer", "inputContainer"];
 // The two regions, by the class that says which one a fold is.
 const REGIONS = ["sso-sensitive-region", "sso-danger-zone"];
-// The ids sso-core.js reaches for when a loaded provider has an active insecure
-// toggle. They are on the danger folds themselves now, because the fold IS the
-// region; a rename here without one there leaves the expand silently doing
-// nothing, which is the state #689 was about.
+// The ids sso-core.js expands when a loaded provider has an active insecure toggle (#689).
 const EXPANDS = ["sso-insecure-options", "saml-insecure-options"];
-// The catalogue row the count is rendered from, and the English the script must
-// hold for it. The C# suite compares the two; this holds the English because the
-// runtime arms run with no catalogue loaded and read exactly that fallback.
+// The count's catalogue row and the English fallback the runtime arms read with no catalogue loaded.
 const COUNT_KEY = "config.option_fold_count";
 const COUNT_EN = "{active} of {total} in use";
 
-// ---------------------------------------------------------------------------
-// The stub. Every member here is one the code under test touches, and nothing
-// is added for completeness.
-// ---------------------------------------------------------------------------
+// The stub: only the members the code under test touches.
 
+// A minimal classList over a set of names.
 class Classes {
   constructor(names) {
     this.set = new Set(names || []);
@@ -91,6 +51,7 @@ class Classes {
   }
 }
 
+// A DOM element with a real tree, attributes and a classList.
 class Element {
   constructor(tag, options) {
     const settings = options || {};
@@ -111,7 +72,7 @@ class Element {
     return this;
   }
 
-  /** Every descendant, in document order. The element itself is not one. */
+  /** Every descendant in document order, excluding the element itself. */
   descendants() {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
@@ -136,6 +97,7 @@ class Element {
   }
 }
 
+// The page root, which holds capture listeners and dispatches events to them.
 class Page extends Element {
   constructor() {
     super("div", {});
@@ -150,14 +112,9 @@ class Page extends Element {
     this.listeners.get(key).push(handler);
   }
 
-  /*
-   * Dispatches one event at `target`, the way a browser delivers a captured one
-   * to a listener on the page.
-   *
-   * `isTrusted` is false on purpose and it is the property the whole design rests
-   * on: two of this dashboard's own controls dispatch synthetic events on real
-   * user input, so a recount that read the flag would stop counting exactly when
-   * an administrator ticked a box.
+  /**
+   * Dispatches one event at `target` the way a browser delivers a captured one.
+   * `isTrusted` is false because two dashboard controls dispatch synthetic events on real input.
    */
   dispatch(name, target) {
     (this.listeners.get(name + ":capture") || []).forEach((handler) =>
@@ -166,9 +123,7 @@ class Page extends Element {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Reading the markup.
-// ---------------------------------------------------------------------------
 
 /** Replaces every HTML comment with spaces, so a documented fold is not a real one. */
 function withoutComments(html) {
@@ -186,14 +141,9 @@ function classesOf(tag) {
   return new Set(attr(tag, "class").split(/\s+/).filter(Boolean));
 }
 
-/*
- * The span of the element whose opening tag starts at `start`, as
- * `{ tag, inner: [from, to] }`, by counting that element's own tag depth.
- *
- * The tag name is taken from the match rather than assumed, because the regions
- * this reads are `<details>` and the boxes inside them are `<div>` - a walk that
- * counted one tag inside the other returns at the first inner close and reports a
- * region holding nothing.
+/**
+ * The span of the element whose opening tag starts at `start`, as `{ tag, inner: [from, to] }`.
+ * The tag name comes from the match because regions are `<details>` and boxes inside are `<div>`.
  */
 function spanFrom(html, start) {
   const name = /^<([a-zA-Z][-\w]*)/.exec(html.slice(start));
@@ -222,15 +172,9 @@ function spanFrom(html, start) {
   throw new Error("the <" + tag + "> at offset " + start + " is never closed");
 }
 
-/*
- * Every option fold the markup holds, read rather than declared:
- * `{ tag, classes, id, open, summary, boxes }`, where a box is
- * `{ classes, control }` and a control is `{ tag, id, type, value, checked }`.
- *
- * NESTED FOLDS ARE NOT A CASE THIS ADMITS, and that is deliberate rather than
- * overlooked: an option fold inside an option fold would have its boxes counted
- * by both, and the outer count would then disagree with what its own summary
- * hides. The arms below refuse the shape instead of this reader guessing at it.
+/**
+ * Every option fold the markup holds, as `{ tag, classes, id, open, summary, boxes }`.
+ * Nested folds are not admitted; the arms refuse that shape.
  */
 function foldsOf(html) {
   const source = withoutComments(html);
@@ -265,9 +209,7 @@ function foldsOf(html) {
       classes: classesOf(m[0]),
       open: /\sopen[\s>]/.test(m[0]),
       boxes,
-      // The summary must OPEN the fold for a browser to treat it as the fold's
-      // name; one further down is ordinary content. So its offset is kept, not
-      // just its presence.
+      // A summary names the fold only as its first child, so the offset is kept.
       summary:
         summary === null
           ? null
@@ -313,11 +255,9 @@ function fixtureFrom(html) {
   return { page, folds };
 }
 
-// ---------------------------------------------------------------------------
-// The arms. Each one is a named refusal over one page's markup and the tree
-// built from it, so the calibration can drive the same set over a hand page.
-// ---------------------------------------------------------------------------
+// The arms: named refusals over one page's markup and its tree, reused by the calibration.
 
+/** The static arms: four collapsed folds, each opened by a summary with a count slot. */
 function markupArms(html, refuse) {
   const folds = foldsOf(html);
 
@@ -427,14 +367,7 @@ function markupArms(html, refuse) {
   return folds;
 }
 
-/*
- * The expander ids, asked of the markup rather than of the code.
- *
- * This is the arm that catches the half a rename breaks silently: sso-core.js
- * expands the insecure fold when a loaded provider has an active toggle, by id,
- * and a fold whose id moved leaves that expand doing nothing while every other
- * arm here still passes.
- */
+/** The expander ids, read from the markup, since a moved id leaves the expand doing nothing. */
 function expanderArms(html, refuse) {
   const folds = foldsOf(html);
   EXPANDS.forEach((id) => {
@@ -457,6 +390,7 @@ function countsOf(page) {
   });
 }
 
+/** The English count sentence for the given numbers. */
 function expected(active, total) {
   return COUNT_EN.replace("{active}", String(active)).replace(
     "{total}",
@@ -464,13 +398,9 @@ function expected(active, total) {
   );
 }
 
-/*
- * The runtime arms: the shipped recount, driven over the tree the markup built.
- *
- * Every number here is compared against one derived from the SAME markup, never
- * against a figure typed into this file: a page that gains a seventh insecure
- * toggle moves both sides and this stays green, and a page whose recount stops
- * following the boxes moves one side only.
+/**
+ * The runtime arms: the shipped recount driven over the tree the markup built.
+ * Every expected number is derived from the same markup, never typed into this file.
  */
 function runtimeArms(core, html, refuse) {
   const { page, folds } = fixtureFrom(html);
@@ -502,9 +432,7 @@ function runtimeArms(core, html, refuse) {
     }
   });
 
-  // One ticked checkbox, and no other fold's number may move. The second half is
-  // the one that matters: a recount reading the whole page rather than the fold
-  // it is filling would put every ticked box on every summary.
+  // One ticked checkbox, and no other fold's number may move.
   const withCheckbox = page.querySelectorAll("." + FOLD).findIndex(
     (fold) =>
       fold
@@ -543,8 +471,7 @@ function runtimeArms(core, html, refuse) {
         );
       }
     });
-    // And back, because a count that only ever grows says "1 of 6 in use" over a
-    // region an administrator has just emptied.
+    // And back, because a count that only grows misreports an emptied region.
     box.checked = false;
     page.dispatch("change", box);
     countsOf(page).forEach((said, index) => {
@@ -565,9 +492,7 @@ function runtimeArms(core, html, refuse) {
     });
   }
 
-  // A value, not a tick. The SAML sensitive region holds the secondary signing
-  // certificate, so a count that read `checked` alone would report that region
-  // empty while it carried a second trusted key.
+  // A value, not a tick: the SAML sensitive region holds the secondary signing certificate.
   const valued = page
     .querySelectorAll("." + FOLD)
     .map((fold, index) => ({
@@ -601,8 +526,7 @@ function runtimeArms(core, html, refuse) {
           JSON.stringify(want),
       );
     }
-    // Whitespace is not a value. A certificate box holding a newline is empty,
-    // and a count that called it in use would say the region was doing something.
+    // Whitespace is not a value.
     valued.control.value = "   ";
     page.dispatch("input", valued.control);
     if (countsOf(page)[valued.index] !== expected(0, totals[valued.index])) {
@@ -618,9 +542,7 @@ function runtimeArms(core, html, refuse) {
     valued.control.value = "";
   }
 
-  // The expanders, driven rather than read: an insecure fold that cannot be
-  // opened from code leaves #689's repair - surface an active downgrade on load -
-  // silently doing nothing.
+  // The expanders, driven: an insecure fold that code cannot open undoes #689.
   EXPANDS.forEach((id) => {
     const fold = page.querySelector("#" + id);
     if (fold === null) {
@@ -673,10 +595,8 @@ function catalogueArms(refuse) {
   }
 
   /*
-   * The arms below drive `bindOptionFoldCounts` themselves, so they say nothing
-   * about whether the page ever calls it. That is the one line whose absence
-   * leaves every other arm here green over a page where no count ever moves, so
-   * it is read out of the source rather than assumed.
+   * The arms drive bindOptionFoldCounts themselves, so the call from initSharedPage
+   * is read out of the source.
    */
   const shared = core.slice(core.indexOf("function initSharedPage("));
   const body = shared.slice(0, shared.indexOf("\n}"));
@@ -694,11 +614,8 @@ function catalogueArms(refuse) {
   );
 
   /*
-   * And the other half of "right on load": loading a provider TICKS boxes without
-   * dispatching anything, so the delegated listener the arms drive never fires and
-   * the summary would still read the blank form's number over a loaded provider.
-   * Both re-sync functions have to recount, and each one is read within its own
-   * body rather than anywhere in the file.
+   * Loading a provider ticks boxes without dispatching, so both re-sync functions
+   * must recount, each read within its own body.
    */
   ["syncDependentFields:", "syncSamlDependentFields:"].forEach((entry) => {
     const at = core.indexOf(entry);
@@ -722,17 +639,11 @@ function catalogueArms(refuse) {
   });
 }
 
-// ---------------------------------------------------------------------------
 // The calibration, run before the real page is opened.
-// ---------------------------------------------------------------------------
 
-/*
- * A hand page holding two folds: one region of checkboxes and one of a value
- * field, which is the shape both protocols between them have.
- *
- * It is deliberately NOT a copy of the shipped page. A calibration built from
- * the subject it calibrates passes by agreeing with whatever the subject
- * currently is, which is the defect the negative half below exists against.
+/**
+ * A hand page with one checkbox fold and one value-field fold, deliberately not a
+ * copy of the shipped page.
  */
 function handPage(mutate) {
   const page = [
@@ -842,14 +753,7 @@ const MUTATIONS = [
   ],
 ];
 
-/*
- * Runs the markup arms over the hand page and over one mutation per arm.
- *
- * The NEGATIVE half is the half that matters and the half that gets skipped. A
- * gate carrying positives only passes its own calibration by refusing nothing,
- * which is the failure it was built to catch arriving through the door built to
- * keep it out.
- */
+/** Runs the markup arms over the hand page and over one mutation per arm, which each must refuse. */
 function calibrate() {
   const results = [];
 
@@ -894,10 +798,9 @@ function calibrate() {
   );
 }
 
-// ---------------------------------------------------------------------------
 // The run.
-// ---------------------------------------------------------------------------
 
+// Imports the shipped sso-core.js as a data URL module.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -906,6 +809,7 @@ async function loadCore() {
   return (await import(url)).default;
 }
 
+// Runs the calibration, then every arm over the shipped page, and exits non-zero on a refusal.
 async function run() {
   console.log(calibrate());
 

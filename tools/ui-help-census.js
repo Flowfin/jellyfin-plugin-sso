@@ -4,80 +4,11 @@
 
 /*
  * Counts every help text the five settings pages show, page by page and field by
- * field, and refuses the count moving in either direction (#1661).
- *
- * WHY A CENSUS AND NOT ANOTHER CATALOG RULE. Stage 2 of the 4.4 surface moves
- * every help text these pages show: the sentence under the field becomes the
- * first sentence, the whole text goes behind a `<details>`, and the same whole
- * text is written into the rail when the field is focused. The promise made to
- * the reader of that change is "nothing is deleted, only moved", and it is worth
- * exactly as much as the thing that checks it. How many that is, is printed by
- * this tool rather than written here.
- *
- * Nothing checked it. The C# rules in `LocalizationCatalogTests` read the
- * catalogs and the markers: `MarkupBuiltInEnglish_MatchesTheCatalog` says a
- * marked element's built-in English equals its catalog row, and
- * `UiCatalogKeys_AreAllReferencedBySomeWebAsset` says no key is orphaned. Both
- * are key-wise over ALL assets at once, so neither can see a page. Delete the
- * whole `config.template_bitrate_help` field from the Policies page and both
- * stay green, because the Providers page still names that key twice. That is
- * the exact shape a move produces when it drops a field on the way.
- *
- * WHAT THIS ADDS is the two numbers those rules do not hold: WHICH page names a
- * key, and HOW OFTEN. `docs/ui/HELP-CENSUS.md` is the census - one row per
- * SITE, a site being one field on one page naming one help key - and this tool
- * reconciles that table against the tree in both directions. A site the table
- * names and the tree lost is a deleted help text; a site the tree holds and the
- * table does not is one that arrived unmeasured. Both are refused by name.
- *
- * AND THE TEXT ITSELF, which is a different question from the marker. A marker
- * says a field claims a key; it does not say the prose is on the page. So each
- * site's text is counted in the page's own visible text, and the count has to
- * equal the number of sites naming it: zero is a text that vanished, two is one
- * that was copied rather than moved - which is the failure mode of slice 1
- * specifically, where the same sentence is meant to exist once behind a
- * `<details>` and not also be left standing where it was.
- *
- * WHERE the text sits is checked too, because "moved" has a destination. An
- * occurrence must lie inside the field scope of a site that names it - the
- * nearest `inputContainer` or `checkboxContainer` around the marker, or the
- * marker's parent where the page has neither. A `<details>` opened in the right
- * field passes; the same text copied into the next field over does not.
- *
- * AND EVERY OCCURRENCE IS ATTRIBUTED TO ONE SITE, which the first draft of this
- * did not do and which the review of 2026-09-11 refuted it on twice. A count
- * alone is satisfied by "twice in the OIDC form, never in the SAML one" - both
- * totals agree and every occurrence has an owner - and that is precisely the
- * accident stage 2 will have, because 14 keys on the Providers page sit in both
- * protocol forms and get edited twice. A maximum MATCHING, which was the first
- * repair, is satisfied one nesting further in: it hands a section-level site the
- * second copy belonging to a field inside it, so the section text can be deleted
- * outright and the page still passes. Each occurrence therefore goes to the
- * innermost site holding it, and a field left with none is named.
- *
- * WHAT IT CANNOT SAY. It reads bytes, so it says nothing about what a browser
- * renders, nothing about the German catalog (the texts are compared against
- * `en.json` only, because the markup's built-in English is what the pages ship),
- * and nothing about whether a first sentence derived at runtime is a good one.
- * It cannot tell a help text that was moved from one that was deleted and
- * rewritten identically inside the same field. And the field scope it measures
- * "elsewhere" against is only as tight as the page's own containers: the 117
- * control-level sites sit in scopes of 1.5 KB at the median, but the 16
- * section-level ones reach 2.5 KB at the median and 19.5 KB for the two
- * starting-policy blocks, which enclose every `Tmpl-*` field of their form. For
- * those two, "outside the field that names it" means outside the whole block.
- *
- * THE CALIBRATION RUNS FIRST AND THE REAL PAGES SECOND. A census that counts
- * everything passes its own arithmetic, so the arms below drive the same reader
- * over fixtures whose answers are known - a positive for each shape that must
- * pass, and one negative per refusal the reader can make - and stop before the
- * pages are opened if any of them disagrees. The pass is printed, because a
- * calibration nobody sees the result of reads exactly like one that was never
- * run. One refusal is outside it and says so where it is raised: the census
- * table being absent altogether is `fs.existsSync` rather than a judgement.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-untranslated.js.
+ * field, and refuses the count moving in either direction (#1661). It reconciles
+ * docs/ui/HELP-CENSUS.md, one row per site (one field on one page naming one
+ * help key), against the tree, and checks that each site's English text appears
+ * exactly once inside the innermost field that names it. It reads bytes, not a
+ * rendered page; calibration fixtures run first and stop the run on a mismatch.
  */
 
 import fs from "node:fs";
@@ -90,10 +21,7 @@ const WEB = path.join(ROOT, "SSO-Auth", "Web");
 const CATALOG = path.join(ROOT, "SSO-Auth", "Localization", "en.json");
 const CENSUS = path.join(ROOT, "docs", "ui", "HELP-CENSUS.md");
 
-// Elements that never carry content, so the reader below must not look for a
-// closing tag for them. The list is the one these five pages actually use plus
-// the rest of the HTML void set, because a page gaining an `<img>` tomorrow
-// should not hang the reader.
+// Void elements, so the reader never looks for a closing tag for them.
 const VOID = new Set([
   "area",
   "base",
@@ -111,20 +39,12 @@ const VOID = new Set([
   "wbr",
 ]);
 
-// What counts as the field a help key belongs to. These are the two containers
-// the settings pages draw around one control and its description; a help text
-// that leaves its own container has left its field, whatever it looks like on
-// screen.
+// The containers the settings pages draw around one control and its help text.
 const FIELD_CONTAINERS = ["inputContainer", "checkboxContainer"];
 
 /*
- * The entities this markup uses, decoded the way the C# rule beside it decodes
- * them: `&amp;` LAST, so `&amp;lt;` becomes `&lt;` and stops there rather than
- * being read a second time into a `<` the text never had. The pages carry five
- * of the six - `&nbsp;` is here for the hard space a condensed sentence invites
- * rather than for anything written today. A SEVENTH would not be decoded, and
- * the site would be refused as deleted rather than as unreadable, which is loud
- * and misleading in the same breath.
+ * Decodes the entities this markup uses the way the C# rule does, `&amp;` last
+ * so `&amp;lt;` stops at `&lt;`.
  */
 function decodeEntities(text) {
   return text
@@ -142,16 +62,12 @@ function decodeEntities(text) {
     .join("&");
 }
 
+/** Collapses runs of whitespace into one space and trims. */
 function collapse(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/*
- * Where an ordinary tag ends, given the offset of its `<`. Quote-aware, which is
- * not for these pages - no attribute value in any of the six HTML assets holds an
- * angle bracket today - but so that the day one does, the reader stops at the
- * tag's own `>` rather than at a `>` somebody wrote inside a title.
- */
+/** Returns where an ordinary tag ends given the offset of its `<`, skipping quoted `>`. */
 function endOfTag(source, start) {
   let scan = start + 1;
   let quote = null;
@@ -170,25 +86,10 @@ function endOfTag(source, start) {
 }
 
 /*
- * The page with everything that only LOOKS like markup replaced by spaces, one
- * for one, so every offset in the result still names the same byte of the file:
- * the inside of every comment, of every `<script>` and `<style>`, and every
- * angle bracket sitting inside a quoted attribute value.
- *
- * Everything below reads the masked page, and that is not an optimisation. The
- * readers here scan for `<div` and `</div` as strings, and this repository's
- * markup is heavily commented - `providersPage.html` already carries comments
- * containing `<select`, `<span>...</span>` and `<name`. A comment that merely
- * MENTIONS a tag would otherwise move an element's end, and the refusal that
- * came out of it would name the wrong key on a page nobody had touched. The same
- * goes for an `id="..."` written in a comment to point at the script that reads
- * it, which is a thing this markup also does, and for a `</div>` written into a
- * `title=` - no attribute value on these five pages holds an angle bracket
- * today, and the reader should not be the thing that decides whether one may.
- *
- * Blanking rather than deleting is what keeps the offsets: a help text found in
- * the flattened page has to be placed back in the markup to say which field it
- * is sitting in, and a reader that shortened the page could not do it.
+ * Blanks the inside of comments, `<script>`, `<style>` and angle brackets in
+ * quoted attribute values, one space per byte, so offsets survive. Everything
+ * below reads the masked page, so a tag merely mentioned in a comment cannot
+ * move an element's end.
  */
 function maskInert(source) {
   const out = source.split("");
@@ -238,21 +139,9 @@ function maskInert(source) {
 }
 
 /*
- * The page as a browser would read it - tags gone, entities decoded, runs of
- * whitespace collapsed - with the source offset of every character kept beside
- * it. It reads a page that maskInert has already been over.
- *
- * A TAG BOUNDARY IS NOT A SPACE, and the first draft of this made it one. An
- * inline element does not separate words: the Providers page writes
- * `<a>authelia</a>), additional scopes` and a browser reads `authelia),`, so a
- * space at the boundary produced `authelia ),` and 15 assembled sentences
- * stopped matching their own page. What the boundary cannot do is separate two
- * BLOCK elements written with nothing between them. That shape IS in this tree -
- * `providersPage.html` writes `later.<br />A common option` - and it is harmless
- * only because that site is a parts element whose slot absorbs the `<br />`. A
- * plain marked element written the same way would splice two texts into a string
- * that matches neither and be refused for both, which is loud rather than
- * silent, and is the residual this paragraph is the disclosure of.
+ * Returns the page as a browser reads it, tags gone, entities decoded and
+ * whitespace collapsed, with the source offset of every character. A tag
+ * boundary is not a space, since inline elements do not separate words.
  */
 function flatten(source) {
   let text = "";
@@ -285,11 +174,7 @@ function flatten(source) {
         const entity = source.slice(index, semicolon + 1);
         const decoded = decodeEntities(entity);
         if (decoded !== entity) {
-          // An entity that decodes to whitespace - `&nbsp;`, the "do not break
-          // this line here" idiom - goes through the same collapsing as a real
-          // space. Pushed straight in, it escaped the collapse and a `&nbsp;`
-          // written beside an ordinary newline produced two spaces where the
-          // catalog has one, which reads as the help text having been deleted.
+          // A whitespace entity such as `&nbsp;` goes through the same collapse as a space.
           if (/^\s+$/.test(decoded)) {
             pendingSpace = text.length > 0;
             index = semicolon + 1;
@@ -318,10 +203,7 @@ function flatten(source) {
   return { text, at };
 }
 
-/*
- * The next `<tag` or `</tag` whose NAME ends there - so `<input` does not match
- * `<inputContainer` and `</a` does not match `</abbr`.
- */
+/** Finds the next `<tag` or `</tag` whose name ends there, so `<input` skips `<inputContainer`. */
 function nameBoundary(source, token, from) {
   let cursor = from;
   while (cursor < source.length) {
@@ -334,13 +216,9 @@ function nameBoundary(source, token, from) {
 }
 
 /*
- * The element whose opening tag contains the given offset: its tag name, where
- * its content starts and ends, and where the whole thing ends.
- *
- * Written as a scan rather than as a pair of regular expressions because the
- * attribute values in these pages contain `>` (a `data-i18n-parts` slot marker
- * does not, but a URL query does), and because the formatter breaks an opening
- * tag across a dozen lines.
+ * Returns the element whose opening tag contains the offset: its tag name, its
+ * content span and its end. A scan, because opening tags hold `>` in URLs and
+ * span many lines.
  */
 function elementAround(source, offset) {
   let start = offset;
@@ -370,9 +248,7 @@ function elementAround(source, offset) {
   const opening = "<" + tag;
   const closing = "</" + tag;
   while (cursor < source.length) {
-    // Both sides need the boundary test, and the closing side is the one that
-    // was missing it: without it `</abbr>` ends an `<a>`, and the element stops
-    // seven bytes early with nothing saying so.
+    // The closing side needs the boundary test too, or `</abbr>` ends an `<a>`.
     const nextOpen = nameBoundary(source, opening, cursor);
     const nextClose = nameBoundary(source, closing, cursor);
     if (nextClose === -1) break;
@@ -408,14 +284,7 @@ function childrenOf(source, contentStart, contentEnd) {
   return out;
 }
 
-/*
- * The value of an attribute on an element's opening tag, or null.
- *
- * The name is anchored at a space, so asking for `class` does not answer with
- * `sso-class` and asking for `id` does not answer with `data-testid`. Neither
- * pair exists on these pages today; the first one that does would take the field
- * container away from `fieldOf` below and be refused as a site nobody named.
- */
+/** Returns the value of an attribute on an element's opening tag, or null; the name is anchored at a space. */
 function attributeOf(source, element, attribute) {
   const opening = source.slice(element.start, element.contentStart);
   const found = opening.match(new RegExp("\\s" + attribute + '="([^"]*)"'));
@@ -423,18 +292,9 @@ function attributeOf(source, element, attribute) {
 }
 
 /*
- * The field a marker belongs to: the nearest enclosing container the settings
- * pages draw around one control, and the id of the control inside it.
- *
- * Some help texts are about a SECTION rather than about a control - the two
- * empty-state paragraphs on the Providers page, the sentence that opens the
- * starting-policy block in each of the two provider forms. Those get the id of
- * the nearest ancestor that carries one, which is what separates the OIDC copy
- * from the SAML copy of an identical sentence, and their scope stays the
- * marker's own parent so the "outside its field" refusal is no weaker for them
- * than for a control. A page with no ancestor id at all falls back to the key,
- * which keeps a scope for every site rather than silently skipping the ones it
- * cannot place.
+ * Returns the field a marker belongs to: the nearest field container and the
+ * id of the control inside it. A section-level text takes the id of the
+ * nearest ancestor that has one, and the key when none does.
  */
 function fieldOf(source, marker, key) {
   const ancestors = [];
@@ -475,13 +335,9 @@ function fieldOf(source, marker, key) {
 }
 
 /*
- * Every help site on one page: the marker, the field it belongs to, and the text
- * the page is supposed to be showing for it.
- *
- * The text of a `data-i18n` site is the catalog row. The text of a
- * `data-i18n-parts` site is that row with each `{n}` replaced by the nth direct
- * child of the marker, because the whole point of a parts element is that the
- * sentence on the screen is assembled from pieces and no single node holds it.
+ * Returns every help site on one page with its field and expected text. A
+ * `data-i18n-parts` text is its catalog row with each `{n}` replaced by the
+ * marker's nth child.
  */
 function sitesOf(source, page, catalog) {
   const sites = [];
@@ -496,12 +352,7 @@ function sitesOf(source, page, catalog) {
     const { scope, field } = fieldOf(source, marker, key);
     let text = catalog[key];
     if (match[1]) {
-      // Each child is read by the SAME reader as the page it has to be found
-      // in, rather than by a tag-stripping replace of its own. Two readers for
-      // one question drift, the strip handled no entity, and a single-pass
-      // strip is `js/incomplete-multi-character-sanitization` to CodeQL - a
-      // sanitizer is not what this is, and code that looks like a broken one is
-      // its own defect.
+      // Each child is read by the same reader as the page it must be found in.
       const children = childrenOf(
         source,
         marker.contentStart,
@@ -511,22 +362,15 @@ function sitesOf(source, page, catalog) {
         children[Number(slot)] === undefined ? whole : children[Number(slot)],
       );
     }
-    // The catalog holds TEXT and never entities - the applier writes through
-    // createTextNode - so only the markup side is decoded, which the parts
-    // children above already were.
+    // The catalog holds text, never entities, so only the markup side is decoded.
     sites.push({ page, key, field, text: collapse(text), scope });
   }
   return sites;
 }
 
 /*
- * Where each site's text actually is on the page.
- *
- * Distinct texts are searched longest first and the matched span is masked, so a
- * help text that is a substring of a longer one is not counted twice. No two
- * help texts stand in that relation today; the ordering is here because the one
- * that arrives will be found by a reader of a refusal that names the wrong key,
- * which is the most expensive way to learn it.
+ * Returns where each site's text is on the page. Texts are searched longest
+ * first and masked, so a substring of a longer text is not counted twice.
  */
 function occurrencesOf(source, sites) {
   const page = flatten(source);
@@ -560,14 +404,9 @@ function occurrencesOf(source, sites) {
   return found;
 }
 
-/*
- * The census table: one row per site, as `page | key | field`.
- *
- * Rows are read by the same shape as docs/ui/mock/FIELDS.md, which is the table
- * this repository already reconciles against the tree. A row is identified by
- * all three cells together, because the same key on two fields of one page is
- * two sites and losing one of them is exactly the loss this file exists to
- * refuse.
+/**
+ * Reads the census table as `page | key | field` rows, in the shape of
+ * docs/ui/mock/FIELDS.md; all three cells identify a row.
  */
 function readCensus() {
   if (!fs.existsSync(CENSUS)) return null;
@@ -597,23 +436,10 @@ function detailsSpans(source) {
 }
 
 /*
- * Gives each occurrence to the INNERMOST site whose scope holds it, and reports
- * how many each site ended up with.
- *
- * COUNTING IS NOT ENOUGH AND THAT IS THE WHOLE REASON THIS IS AN ATTRIBUTION.
- * Two sites of one key with two occurrences balance as a count while both
- * occurrences sit in ONE of the two fields and the other shows nothing - which
- * is exactly what a stage-2 edit produces when the OIDC form is condensed twice
- * and the SAML form is dropped, and 14 keys on the Providers page have that
- * shape. So each site must own an occurrence of its own.
- *
- * INNERMOST, AND NOT A MAXIMUM MATCHING, and the first draft of this was the
- * matching. The two agree wherever the scopes are disjoint, and they disagree
- * exactly where a section-level site encloses a control-level one: a maximum
- * matching hands the outer site the inner site's second copy and calls both
- * satisfied, so the section text can be deleted outright while the page passes.
- * Scopes in a tree are nested or disjoint, never crossing, so "the smallest
- * scope that holds it" is one site and the attribution is a function.
+ * Gives each occurrence to the innermost site whose scope holds it and returns
+ * how many each site got. A plain count or a maximum matching passes a page
+ * where one of two copies moved into the wrong field or a section text was
+ * deleted; scopes nest, so the innermost site is unique.
  */
 function attributeHits(sites, hits) {
   const owned = new Map(sites.map((site) => [site, []]));
@@ -637,12 +463,8 @@ function attributeHits(sites, hits) {
 }
 
 /*
- * The whole judgement, over a set of pages given as source, so the calibration
- * below can drive it against fixtures whose answers are known.
- *
- * `expected` is the census row list, or null to skip the reconciliation - which
- * the calibration arms that are about the TEXT rather than about the table do,
- * so that one arm refuses one thing.
+ * Runs the whole judgement over pages given as source, so the calibration can
+ * drive it. `expected` is the census row list, or null to skip reconciliation.
  */
 function census(pages, catalog, expected) {
   const faults = [];
@@ -652,13 +474,7 @@ function census(pages, catalog, expected) {
 
   for (const [page, raw] of pages) {
     const source = maskInert(raw);
-    // Markup the readers below cannot walk - an unclosed element, a comment
-    // opened inside an opening tag - is a refusal with the page named, not a
-    // stack trace. The reader is strict on purpose; what it may not do is fail
-    // in a shape nobody can act on. The `<details>` walk is inside this guard
-    // and not outside it, which the first draft got wrong: `<details>` is the
-    // one element stage 2 adds to every field, so an unclosed one is the most
-    // likely way to reach here at all.
+    // Markup the reader cannot walk, including an unclosed `<details>`, is a refusal naming the page.
     let sites;
     let folds;
     try {
@@ -683,10 +499,7 @@ function census(pages, catalog, expected) {
     const occurrences = occurrencesOf(source, known);
     let behindDetails = 0;
 
-    // Grouped by the TEXT, because that is what an occurrence is an occurrence
-    // OF. Two keys carrying the same sentence share a group and are separated by
-    // the attribution below rather than by the count, which is the only way
-    // round that neither merges them nor refuses each of them for the other.
+    // Grouped by text; two keys with the same sentence are separated by attribution.
     const groups = new Map();
     known.forEach((site) => {
       if (!groups.has(site.text)) groups.set(site.text, []);
@@ -736,9 +549,7 @@ function census(pages, catalog, expected) {
     });
   }
 
-  // A key the catalog carries that no page names is a help text written for
-  // nobody. It is judged here rather than in main(), so the calibration below
-  // reaches it like every other refusal.
+  // A catalog key no page names is a help text written for nobody.
   Object.keys(catalog)
     .filter((key) => key.endsWith("_help") && !seen.has(key))
     .forEach((key) =>
@@ -767,9 +578,7 @@ function census(pages, catalog, expected) {
     ].forEach((row) =>
       faults.push(`one field names one help key twice: ${row}`),
     );
-    // The set comparison above cannot see a row written twice, and the document
-    // is only worth anything as one row per site: without this the run would
-    // print 133 sites and 134 rows on the same screen and exit 0.
+    // The set comparison cannot see a row written twice.
     if (expected.length !== rows.length) {
       faults.push(
         `HELP-CENSUS.md holds ${expected.length} row(s) for ${rows.length} help site(s), ` +
@@ -781,11 +590,7 @@ function census(pages, catalog, expected) {
   return { faults, perPage, seen, rows };
 }
 
-// ---------------------------------------------------------------------------
-// Calibration. One positive and one negative per refusal, run before the real
-// pages are opened, because a census that counts everything passes its own
-// arithmetic.
-// ---------------------------------------------------------------------------
+// Calibration: one positive and one negative per refusal, run before the real pages.
 
 const FIXTURE_CATALOG = {
   "probe.one_help": "The first help text, which says one thing.",
@@ -793,24 +598,22 @@ const FIXTURE_CATALOG = {
   "probe.parts_help": "Read the {0} before changing this.",
   "probe.long_help":
     "The first help text, which says one thing. And then keeps going.",
-  // Deliberately the same sentence as probe.one_help: two keys with one wording
-  // is the case the grouping has to keep apart without refusing either.
+  // The same sentence as probe.one_help, which the grouping must keep apart.
   "probe.echo_help": "The first help text, which says one thing.",
   "probe.nobody_help": "A help text no page shows.",
-  // A catalog row is TEXT, so these are eight characters a reader sees and not
-  // an ampersand. Decoding this side would turn them into one.
+  // A catalog row is text, so this stays a literal `&amp;` and is not decoded.
   "probe.entity_help": "Write &amp; where the document needs an ampersand.",
   "probe.hardspace_help": "Set it to 10 seconds at the most.",
 };
 
+/** Wraps fixture bodies into a single probe page. */
 function fixture(bodies) {
   return [["probe.html", "<div>" + bodies.join("") + "</div>"]];
 }
 
 /*
- * The catalog rows an arm's own fixture names, so an arm about one refusal is
- * not also refused for the five keys it does not mention. The orphan arm hands
- * in its own catalog instead.
+ * Returns the catalog rows an arm's fixture names, so an arm is not refused for
+ * keys it does not mention.
  */
 function narrow(pages) {
   const marked = new Set();
@@ -892,9 +695,7 @@ const ARMS = [
       "probe.html | probe.two_help | Two",
     ],
     expect: null,
-    // The reported figure, held here because it is what stage 2 will be read by:
-    // one of the two texts is behind a fold and the other is not, and a reader
-    // that counted both or neither would print the same green run.
+    // The reported figure, since a reader counting both folds or neither would also pass.
     counts: { sites: 2, behindDetails: 1 },
   },
   {
@@ -1219,6 +1020,7 @@ const ARMS = [
   },
 ];
 
+/** Runs every calibration arm and returns the disagreements. */
 function calibrate() {
   const wrong = [];
   for (const arm of ARMS) {
@@ -1227,9 +1029,7 @@ function calibrate() {
       arm.catalog ?? narrow(arm.pages),
       arm.rows,
     );
-    // The figures an arm pins, for the ones that are reported rather than
-    // refused: a run that counted every fold or none of them prints the same
-    // green line, and that line is what stage 2 will be read by.
+    // Reported figures are pinned too, since a wrong count prints the same green line.
     Object.entries(arm.counts ?? {}).forEach(([name, value]) => {
       if (perPage[0][name] !== value) {
         wrong.push(
@@ -1255,8 +1055,7 @@ function calibrate() {
   return wrong;
 }
 
-// ---------------------------------------------------------------------------
-
+/** Calibrates, then runs the census over the real pages and exits non-zero on a refusal. */
 function main() {
   const wrong = calibrate();
   if (wrong.length > 0) {
@@ -1279,9 +1078,7 @@ function main() {
     .sort()
     .map((name) => [name, fs.readFileSync(path.join(WEB, name), "utf8")]);
 
-  // The one refusal the calibration does not cover, because it is the absence
-  // of a file rather than a judgement about one: without the table there is
-  // nothing to compare and the run stops instead of counting.
+  // A missing census table is not covered by the calibration, so the run stops here.
   const rows = readCensus();
   const faults = [];
   if (rows === null) {

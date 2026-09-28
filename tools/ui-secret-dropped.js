@@ -3,40 +3,13 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL decisions of the shipped SSO-Auth/Web/sso-core.js about whether a
- * provider save dropped the stored client secret and what the page says about it,
- * and refuses each way the page can go quiet about it again (#1872).
+ * Drives the shipped sso-core.js decisions about whether a provider save dropped the
+ * stored client secret and what the page says about it (#1872).
  *
- * WHY THIS IS A RUNNING PROOF. The rule it reports is the server's: a stored
- * write-only secret is not carried over to a provider whose discovery endpoint or
- * client id changed, because such a secret must not follow a provider repointed at
- * another token endpoint. The save therefore succeeds and the provider signs nobody
- * in, and until this the first sign of it was the next login failing with the
- * provider's own error naming the symptom. The page saves through the host's
- * plugin-configuration door, which answers with no body, so it reads the answer
- * back: OidSecretStored before the save against OidSecretStored after it. Whether
- * the page SAYS so is two decisions inside two functions, and every rule that reads
- * these assets as text is satisfied by a page that computes the answer wrongly,
- * inverts it, chooses the plain sentence for it, or takes the first reading after
- * the form has already touched the provider.
- *
- * FOUR LEGS. The decision leg drives the exported decision over every pair of
- * readings with a known answer, including the one where the read-back did not come
- * back, which must be neither answer. The sentence leg drives the exported sentence
- * choice over every answer: a drop and an unanswered read-back each get their own
- * sentence in the failure colour, and only a kept secret gets the plain one. The
- * capture leg reads the order of two statements inside saveProvider: the first
- * reading is taken from the stored provider, which the form loops mutate in place,
- * so a capture moved below them reads the posted state rather than the stored one.
- * The read-back leg reads that the second reading is asked for AFTER the save call
- * and that BOTH arms of that request hand the first reading to the decision, inside
- * the same function. Every search is bounded to saveProvider, because the file
- * holds the same call names in other functions and an unbounded search finds those
- * and passes over a saveProvider that reads nothing back. Every anchor must be
- * found, or the leg refuses rather than passing over a file it did not recognise.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the same
- * terms as tools/ui-unsaved-state.js and tools/ui-test-verdict.js.
+ * The server does not carry a stored secret over to a provider whose discovery endpoint
+ * or client id changed, so the page reads the configuration back after the save and
+ * compares OidSecretStored before and after. Every source search is bounded to
+ * saveProvider, and a missing anchor refuses rather than passes.
  */
 
 import fs from "node:fs";
@@ -46,6 +19,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORE = path.join(HERE, "..", "SSO-Auth", "Web", "sso-core.js");
 
+// Imports the shipped sso-core.js as a data URL module.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -54,8 +28,7 @@ async function loadCore() {
   return (await import(url)).default;
 }
 
-// The two readings, as the server answers for a provider: the secret is never sent
-// back, so OidSecretStored is the only thing that says one is there.
+// The two readings per case: the secret is never sent back, so OidSecretStored is the only signal.
 const DECISIONS = [
   [
     "dropped",
@@ -101,6 +74,7 @@ const DECISIONS = [
   ],
 ];
 
+// Refuses unless each answer maps to its own sentence and colour.
 function sentenceLeg(core, refuse) {
   if (typeof core.saveStatusFor !== "function") {
     refuse(
@@ -143,6 +117,7 @@ function sentenceLeg(core, refuse) {
   }
 }
 
+// Refuses unless saveProvider captures the first reading early and reads back after the save.
 function sourceLegs(refuse) {
   const source = fs.readFileSync(CORE, "utf8");
   const start = source.indexOf("\n  saveProvider: (page, provider_name) => {");
@@ -153,8 +128,7 @@ function sourceLegs(refuse) {
     );
     return;
   }
-  // The next member of the page object bounds every search below: an anchor found past
-  // it belongs to another function and says nothing about this one.
+  // The next page-object member bounds every search below.
   const next = /\n {2}[A-Za-z_$][\w$]*: /g;
   next.lastIndex = start + 1;
   const bound = next.exec(source);
@@ -213,6 +187,7 @@ function sourceLegs(refuse) {
   }
 }
 
+// Runs every leg and exits non-zero on any refusal.
 async function main() {
   const core = await loadCore();
   const faults = [];

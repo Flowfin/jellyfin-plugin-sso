@@ -3,37 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL Test Connection renderer of the shipped SSO-Auth/Web/sso-core.js
- * against both catalogues and refuses each way a verdict can reach the page in the
- * wrong language, or not at all (#1728).
- *
- * WHY THIS IS A RUNNING PROOF. The verdict of a Test Connection is built on the
- * other side of an HTTP call, so tools/ui-untranslated.js, which reads the web
- * sources, never saw the English sentence it used to be, and the German dashboard
- * showed German help around an English result while every localization gate was
- * green. The server now answers with catalogue keys and the provider values beside
- * them, and whether the page then SHOWS the row in the administrator's language
- * is a decision inside a function rather than a string in a file: a renderer that
- * writes the key, the English default, or an empty line satisfies every rule that
- * reads these assets as text. The C# suite holds the keys to the catalogues; this
- * holds the renderer to the keys.
- *
- * THE KEYS ARE READ FROM THE VOCABULARY AND NOT TYPED HERE. The fixture below names
- * its keys through SSO-Auth/Api/Provider/ProviderTestKeys.cs, so a renamed key
- * moves this gate with it rather than leaving it green over a fixture the server
- * no longer sends. The expected sentences are read from the catalogues the same
- * way: a sentence hard-coded into the page - the drift this issue is about - is
- * refused rather than reviewed.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the renderer
- * touches - createElement, appendChild, replaceChildren, classList, textContent -
- * and the page's localizer is loaded through the page's own localize(), with the
- * catalogue served through a stubbed fetch. It is not a browser: no layout, no
- * CSS, no focus, so it cannot say the verdict is visible on screen. What it can say
- * is which sentence was written into which node, which is what the property is.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-account-filter.js and tools/ui-self-service-unlink.js.
+ * Drives the shipped sso-core.js Test Connection renderer against both catalogues
+ * and refuses a verdict that reaches the page in the wrong language or not at all
+ * (#1728). Keys are read from ProviderTestKeys.cs and sentences from the catalogues.
+ * Run with `node tools/ui-test-verdict.js`; no dependencies.
  */
 
 import fs from "node:fs";
@@ -87,9 +60,7 @@ if (faults.length) {
   process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
 // The stub.
-// ---------------------------------------------------------------------------
 
 class Element {
   constructor(tag) {
@@ -138,8 +109,7 @@ globalThis.document = {
   querySelectorAll: () => [],
 };
 
-// The page's localizer is imported through ApiClient.getUrl, so that route hands back the shipped
-// i18n.js; the catalogue it then fetches is whatever the current arm has set.
+// ApiClient.getUrl hands back the shipped i18n.js; the catalogue it fetches is the arm's.
 const culture = { values: {} };
 globalThis.ApiClient = {
   getUrl: (route) =>
@@ -160,12 +130,7 @@ async function loadCore() {
 
 const core = await loadCore();
 
-/*
- * Loads one catalogue the way the page does - its own localize(), its own dynamic
- * import, its own loadCatalog() - and waits until a lookup answers from it. A
- * catalogue that never arrives fails here rather than letting every arm below
- * compare English against English.
- */
+/** Loads one catalogue through the page's own localize() and waits until a lookup answers from it. */
 async function localizeTo(name) {
   culture.values = catalogue(name);
   core.localize(new Element("div"));

@@ -3,41 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL linked-accounts renderer of the shipped sso-core.js and
- * refuses each way its filter can mislead (#1529).
- *
- * WHY THIS IS A RUNNING PROOF. Every rule this tree has over these assets reads
- * their TEXT, and a filter is not a string: it is a decision about which rows a
- * reader is shown and whether the page says so. The two ways it goes wrong are
- * both silent.
- *
- * A NARROWED TABLE THAT DOES NOT SAY IT IS NARROWED looks exactly like a
- * complete one. An administrator counting rows to answer "how many accounts are
- * linked" then gets the filter's answer instead of the server's, and nothing on
- * the page contradicts them. So a filtered render must carry a count line, and
- * an unfiltered one must not - furniture that is always there stops being read.
- *
- * A FILTER THAT MATCHES NOTHING MUST NOT SAY THE SERVER HAS NOTHING. "No account
- * holds a link" is a statement about the server; "nothing matches what you
- * typed" is about the box. A reader who saw the first after typing would
- * conclude the links were gone, and on a page whose other button revokes links
- * that is a conclusion with consequences.
- *
- * THE THIRD PROPERTY IS THAT IT ASKS THE SERVER FOR NOTHING. The roster is
- * elevation-gated and rate-limited; a filter that re-fetched would spend one
- * call per keystroke on data that has not changed, and would hit the limiter on
- * a six-letter word.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the
- * renderer touches: createElement for the tags it builds, appendChild,
- * replaceChildren, textContent, classList, setAttribute, addEventListener and
- * querySelector by id. It is not a browser and it has no layout, no CSS and no
- * event dispatch, so it cannot say what the table LOOKS like or that the input
- * is reachable by keyboard. What it can say is which rows were built and which
- * sentence was written, which is what the three properties above are about.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-untranslated.js.
+ * Drives the shipped linked-accounts renderer of sso-core.js and refuses each
+ * way its filter can mislead (#1529): a narrowed table must say so, a filter
+ * matching nothing must not claim the server is empty, and filtering must not
+ * fetch the rate-limited roster again. The DOM stub has no layout or events.
  */
 
 import fs from "node:fs";
@@ -47,10 +16,9 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORE = path.join(HERE, "..", "SSO-Auth", "Web", "sso-core.js");
 
-// ---------------------------------------------------------------------------
 // The stub.
-// ---------------------------------------------------------------------------
 
+/** The stub DOM element; its members mirror the DOM members of the same name. */
 class Element {
   constructor(tag) {
     this.tag = tag;
@@ -110,6 +78,7 @@ class Element {
   }
 }
 
+/** Returns a stub page holding the filter input and the result container. */
 function pageWith(filterValue) {
   const filter = new Element("input");
   filter.value = filterValue;
@@ -125,18 +94,14 @@ function pageWith(filterValue) {
   };
 }
 
-// BOTH spellings, because the renderer uses both. The row builder reaches for a
-// bare `document` and renderTransferMessage for `window.document`; one stub
-// object behind both names is what keeps this a test of the shipped code rather
-// than of whichever spelling the stub happened to provide.
+// Both spellings, because the row builder uses `document` and
+// renderTransferMessage uses `window.document`.
 globalThis.document = {
   createElement: (tag) => new Element(tag),
 };
 globalThis.window = { document: globalThis.document };
 
-// ---------------------------------------------------------------------------
 // The fixture and the legs.
-// ---------------------------------------------------------------------------
 
 /** Three accounts whose only overlap is deliberate, so each arm can aim. */
 const ROSTER = {
@@ -183,6 +148,7 @@ const ROSTER = {
   ],
 };
 
+/** Imports the shipped sso-core.js as a module. */
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -291,9 +257,7 @@ for (const [leg, needle, expected] of [
 
 // ---- Arm: re-rendering asks the server for nothing ----
 {
-  // The roster is passed ONCE and then held. A second render without one must
-  // still draw the table: if it fetched instead, this call would need ApiClient,
-  // which is not defined here at all, and the arm would throw rather than pass.
+  // Without a roster a fetch would need ApiClient, which is undefined here.
   const { page, container } = pageWith("");
   core.renderLinkedAccounts(page, container, ROSTER);
   const again = pageWith("carol");

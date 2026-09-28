@@ -26,13 +26,8 @@
           </div>
 
           <!--
-            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
-            navigable before any controller runs and a page whose script failed to load still says where
-            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
-            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
-            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
-            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
-            there breaks the page.
+            The tab strip (#1527), static so the pages are navigable before any controller runs.
+            Each href uses a page name registered in SSOPlugin.GetPages; the names are part of the URL contract.
           -->
           <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="4">
             <div class="emby-tabs-slider">
@@ -85,12 +80,7 @@
             </div>
           </div>
 
-          <!--
-            The server could not read its stored configuration and is running on defaults (#1543). Hidden
-            until the server says so, and it says so until an administrator imports or saves one - so this
-            is the one statement on the page that is not about what the form in front of you contains, but
-            about whether the form is showing you your settings at all.
-          -->
+          <!-- Shown while the server runs on defaults because it could not read its stored configuration (#1543). -->
           <div
             id="sso-unreadable-config"
             class="fieldDescription sso-empty-state"
@@ -98,11 +88,8 @@
           ></div>
 
           <!--
-            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
-            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
-            carries no configuration value. It is above the columns rather than beside the save, because
-            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
-            at the moment of arrival rather than after scrolling past every field.
+            The unsaved-changes indicator (#1572), written by sso-core.js renderUnsavedNotice with textContent (#221).
+            It sits above the columns so it can also say on arrival why a returned-to tab was not refreshed.
           -->
           <div
             id="sso-unsaved"
@@ -115,14 +102,9 @@
           <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
-            Config export / import (#161). Export downloads a REDACTED, importable document: the provider
-            secrets and the server-managed canonical-link maps are withheld by the server, so the file carries
-            no secret, encrypted envelope, or key. Import merges the document into THIS instance, keeping the
-            stored secret and account links of each unchanged provider (an OpenID provider whose endpoint or
-            client id the import changes has its links/secret cleared, the #186 repoint safety measure);
-            because secrets are redacted, they are re-entered on the target after an import. Both endpoints
-            require administrator privileges. The download is built from a Blob and the status is rendered with
-            textContent (never innerHTML), so no document value reaches the DOM as markup (#221).
+            Config export and import (#161). The export is redacted, so secrets are re-entered after an import;
+            the import merges into this instance and clears links and secret of a repointed OpenID provider (#186).
+            Both endpoints need an administrator, and document values reach the DOM only as text (#221).
           -->
               <form id="sso-config-transfer" class="esqConfigurationForm">
                 <div
@@ -191,12 +173,8 @@
               </form>
 
               <!--
-            Login-page buttons (#722): GLOBAL setting. ManageLoginPageButtons lives on the root
-            PluginConfiguration, not on a provider, so it deliberately sits OUTSIDE both provider forms
-            and carries NO sso-* marker class: it is saved by this page's own Save (sso-core.js
-            saveServerSettings), which re-posts the whole configuration with only this page's two flags
-            changed, and loaded by loadConfiguration. The per-provider button settings (HideLoginButton,
-            LoginButtonText) are ordinary persisting provider-form fields in each provider's editor.
+            Login-page buttons (#722): a global setting outside both provider forms, saved by this page's Save
+            (sso-core.js saveServerSettings) and loaded by loadConfiguration.
           -->
               <form id="sso-login-buttons" class="esqConfigurationForm">
                 <div
@@ -251,11 +229,8 @@
               </form>
 
               <!--
-            Single Logout (#727): GLOBAL setting. EnableSingleLogout lives on the root PluginConfiguration,
-            not on a provider, so, like ManageLoginPageButtons above, it sits OUTSIDE both provider forms and
-            carries NO sso-* marker class: it is saved by this page's Save together with that flag (sso-core.js
-            saveServerSettings) and loaded by loadConfiguration. The per-provider return URL
-            (PostLogoutRedirectUri) is an ordinary persisting provider-form field in each provider's editor.
+            Single Logout (#727): a global setting outside both provider forms, saved by this page's Save
+            (sso-core.js saveServerSettings) and loaded by loadConfiguration.
           -->
               <form id="sso-single-logout" class="esqConfigurationForm">
                 <div
@@ -314,16 +289,8 @@
               </form>
 
               <!--
-            ONE SAVE FOR THIS PAGE (#1572). The two switches above each had their own button and their own
-            handler, and each handler re-read the whole configuration, set its own flag and posted the
-            result. This button replaces both with sso-core.js saveServerSettings, which reads that
-            document ONCE, sets both flags on it and posts it ONCE - so there is no moment at which one
-            flag is stored and the other is not, and a refusal leaves both exactly as they were stored.
-            That is why merging the buttons was #1527's deferral and not its layout work.
-
-            It sits outside both forms, because it belongs to neither: a button inside one of them would
-            read as that section's save. The outcome is rendered into the region below it rather than
-            raised as an alert - a modal that has to be dismissed says nothing a reader can come back to.
+            The one Save for this page (#1572): saveServerSettings sets both flags on one read of the
+            configuration and posts it once, so they are never stored half. The outcome is shown in the region below.
           -->
               <div class="verticalSection sso-page-save">
                 <button
@@ -346,11 +313,7 @@
             </div>
             <aside class="sso-column-rail">
               <!--
-                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
-                the rest behind a fold; this is the second way to read the rest, without losing the field while
-                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
-                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
-                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+                The whole help text of the focused field (#1662), filled on focus by SSO-Auth/Web/i18n.js and hidden until then.
               -->
               <div class="verticalSection sso-help-card" hidden>
                 <h2 class="sectionTitle" data-i18n="config.help_full_text">

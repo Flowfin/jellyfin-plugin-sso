@@ -57,24 +57,14 @@
             Something went wrong loading or updating your links. Please reload
             the page and try again.
           </div>
-          <!-- The refusal the server can give for a removal (#1731). Empty and hidden as authored: it
-          is filled from the catalogue by linking.js and never from the server's own body, so nothing
-          the server writes reaches this page. It is authored here rather than created on demand for the
-          same reason the generic banner above it is: one element, in one place, that the script only
-          ever fills and unhides. WHAT `role="alert"` BUYS IS NOT CLAIMED HERE - the element is `hidden`
-          until it has text, and whether a client announces the change is a browser and screen-reader
-          behaviour this tree cannot read; the gate beside it says the same in its own words. -->
+          <!-- The refusal banner for a removal (#1731), filled by linking.js from the catalogue, never from the server's body. -->
           <div
             id="sso-linking-refused"
             class="sso-linking-error"
             role="alert"
             hidden
           ></div>
-          <!-- The one success this page cannot draw (#1882): the last SSO link that could sign the
-          holder in is gone and the session with it, as the question before the press said. Shown by
-          linking.js in place of a reload, which would only draw the generic banner over two feeds
-          answering 401. A sentence assembled around its own sign-in link, so the way back is one press
-          away; the link is relative, so a server under a path prefix keeps it. -->
+          <!-- Shown by linking.js after the last SSO link is removed and the session ended (#1882), with a relative sign-in link. -->
           <div
             id="sso-linking-signed-out"
             class="sso-linking-error"

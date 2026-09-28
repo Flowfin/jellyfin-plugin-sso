@@ -3,90 +3,11 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Counts the text the page TEMPLATES show without going through the catalog,
- * and refuses the number moving in either direction (#1529).
- *
- * WHY A SECOND COUNTER BESIDE tools/ui-untranslated.js. That one asks the same
- * question of the SCRIPTS, and it reached zero. The templates are a different
- * surface with different rules and it never looked at them: a sentence written
- * between two tags is not a literal in a bundle, and no amount of scanning
- * JavaScript finds it. The walk of 2026-09-11 read a de-DE client and found the
- * five pages mixing both languages while every localization check in the tree
- * was green, which is what two surfaces and one counter buys.
- *
- * WHAT COUNTS, AND WHY IT IS A RUN AND NOT AN ELEMENT. The house pattern in
- * these templates is a `<span data-i18n="key">` around ONE SENTENCE, because
- * `i18n.applyTo` assigns `el.textContent`, which replaces every child an element
- * has. So a paragraph of mixed content - prose with an `<a>` or a `<strong>` in
- * the middle - cannot carry one marker; it carries several, one per sentence,
- * and the bare text between them is its own run. Counting ELEMENTS would report
- * such a paragraph as handled the moment any one of its spans was marked. The
- * unit here is therefore the text run: a stretch of characters between two tags,
- * whose enclosing element carries no marker.
- *
- * The three attributes i18n.js can localize are counted too. They are user-
- * visible text in every other respect, and the collapse headers of the provider
- * editor - each one a `title=` - are among the largest untranslated surfaces on
- * the page.
- *
- * WHAT DOES NOT COUNT. Three of the four exemptions are STRUCTURAL - a property of
- * the element rather than of its text - because a property cannot be granted to a
- * string that later changes under it.
- *
- *  - Content of `code`, `kbd`, `samp`, `pre` and `title`. An identifier, a
- *    command or a code sample is the same in every language, and a catalog row
- *    for `DisablePasswordLogin` would be a row nobody could ever change.
- *  - An `<option>` whose text IS its `value`. Those name a value the server
- *    declares rather than saying something: the help beside the subtitle-mode
- *    picker states outright that the options are the exact mode names Jellyfin
- *    declares and that the spelling is what a save accepts. Translating one
- *    would break the field it belongs to.
- *  - A `placeholder` with no whitespace in it. A placeholder is a sample of what
- *    to type, and a one-token sample is a VALUE: `preferred_username` is a claim
- *    name and `https://idp.example.com/metadata` is an address. Prose in a
- *    placeholder has spaces in it, so the rule keeps the one that reads "...or
- *    paste the metadata XML here" and drops the two that are examples. Scoped to
- *    placeholders on purpose: a `title` of one word is usually a section heading
- *    and needs translating, which is why the same rule would be wrong there.
- *
- * A run with fewer than two letters is not text: it is the comma between two
- * links, or an entity, or whitespace the formatter left behind.
- *
- * THE LAST EXEMPTION IS A LIST, and it is a list because what it stands for
- * cannot be read off the element. Two texts are in it, for two different reasons
- * that a property cannot express.
- *
- * A heading whose text the SCRIPT owns is marked nowhere and looks exactly like
- * one nobody has keyed yet. The editor title is the case, and the markup beside
- * it says at length why a marker there would let a late catalog pass overwrite a
- * loaded provider's name with the word "New provider". Such text IS translated,
- * at its source, through the tr() call that writes it.
- *
- * A PRODUCT NAME is the same string in every language, and a catalogue row for it
- * would be a row nobody could ever change. Nothing about the element says which
- * of its words is a product, which is why the script-side counter carries the
- * same kind of entry for "Microsoft Entra ID (Azure AD)".
- *
- * What keeps this list from ageing the way a list of strings usually does is that
- * it is matched on the EXACT text and a stale entry is refused: a wording that
- * changes loses its exemption and comes back into the count, which is the moment
- * somebody has to look again.
- *
- * THE RATCHET, same shape and same reason as the script-side counter. It refuses
- * an increase, which is the drift. It refuses a decrease too, because a tranche
- * that keys thirty runs and leaves the pin alone lets the next thirty arrive
- * unseen behind the slack. The pin moves in the same commit as the work.
- *
- * WHAT THIS TOOL CANNOT SAY, and the bound belongs here rather than in a commit
- * message nobody will find. It counts what the catalog never sees. It cannot see
- * a string that DOES reach the catalog and is English on the screen anyway,
- * which happens when a `tr()` call runs during init while the catalog is still
- * arriving. That defect is real, it was measured on the same walk, and it is
- * invisible to this tool and to its script-side sibling alike, because both read
- * the source and neither can see WHEN a line runs.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-untranslated.js.
+ * Counts the text runs and localizable attributes the page templates show without
+ * a catalog marker, and refuses the number moving either way (#1529). Code-like
+ * content, value options, one-token placeholders and the EXEMPT list do not count.
+ * It cannot see a tr() call that runs before the catalog arrives.
+ * Run with `node tools/ui-untranslated-markup.js`; no dependencies.
  */
 
 import fs from "node:fs";
@@ -96,13 +17,11 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
-// The pinned count. It goes DOWN as runs are keyed, in the same commit that keys
-// them, and it never goes up.
+// The pinned count: it goes down in the commit that keys runs, and never up.
 const PINNED = 0;
 const PINNED_ATTRIBUTES = 0;
 
-// The six templates a reader of this plugin actually sees: the five dashboard
-// pages and the self-service page.
+// The five dashboard pages and the self-service page.
 const TEMPLATES = [
   "configPage.html",
   "providersPage.html",
@@ -112,9 +31,7 @@ const TEMPLATES = [
   "linking.html",
 ];
 
-// Text the SCRIPT owns, each with the reason a marker cannot sit on it. Matched
-// on the exact text; an entry no template carries any more is refused below, so
-// a changed wording loses its exemption instead of inheriting it.
+// Text the script owns, each with its reason; matched exactly, and a stale entry is refused.
 const EXEMPT = [
   {
     text: "New provider",
@@ -145,8 +62,7 @@ const OPAQUE = new Set([
   "style",
 ]);
 
-// The attributes i18n.js will localize, and the only ones it will: the allowlist
-// there is deliberate, so this asks about exactly those three.
+// The attributes i18n.js localizes, and only those.
 const ATTRIBUTES = ["title", "placeholder", "aria-label"];
 
 // HTML elements that never close, so nothing is ever nested inside them.
@@ -180,18 +96,10 @@ function attributeOf(tagText, name) {
   return found ? found[1] : null;
 }
 
-/**
- * Walks the tag stream of one template and returns the runs and attributes the
- * catalog never sees. Deliberately a tag walk and not a parser: the templates
- * are well-formed and generated by nothing, a parser would be a dependency, and
- * what this needs to know - which element encloses this text, and does it carry
- * a marker - is exactly what a walk with a stack knows.
- */
-// Every exempt text actually met in a template. What is not in here by the end is
-// an entry the templates no longer carry, and it is refused rather than left to
-// grant its exemption to nothing.
+// Every exempt text met in a template; one missing at the end is a stale entry.
 const seenExempt = new Set();
 
+/** Walks one template's tag stream and returns the runs and attributes the catalog never sees. */
 function scan(file) {
   const html = blankNonMarkup(fs.readFileSync(path.join(WEB, file), "utf8"));
   const runs = [];
@@ -207,9 +115,7 @@ function scan(file) {
     const text = html.slice(textStart, match.index).replace(/\s+/g, " ").trim();
     if (text && /[A-Za-z]{2}/.test(text)) {
       const parent = open[open.length - 1];
-      // Either marker covers the run. `data-i18n` replaces the element's whole content, so the
-      // run IS what it replaces. `data-i18n-parts` rewrites the sentence AROUND the children,
-      // and the text between them is precisely that sentence (#1529).
+      // Either marker covers the run: data-i18n replaces it, data-i18n-parts rewrites around it (#1529).
       const marked = parent ? parent.marker !== null : false;
       const opaque = parent ? OPAQUE.has(parent.name) : false;
       const declared =

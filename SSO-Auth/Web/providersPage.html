@@ -26,13 +26,8 @@
           </div>
 
           <!--
-            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
-            navigable before any controller runs and a page whose script failed to load still says where
-            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
-            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
-            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
-            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
-            there breaks the page.
+            The tab strip (#1527), static so the pages are navigable before any controller runs.
+            Each href uses a page name registered in SSOPlugin.GetPages; the names are part of the URL contract.
           -->
           <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="1">
             <div class="emby-tabs-slider">
@@ -85,12 +80,7 @@
             </div>
           </div>
 
-          <!--
-            The server could not read its stored configuration and is running on defaults (#1543). Hidden
-            until the server says so, and it says so until an administrator imports or saves one - so this
-            is the one statement on the page that is not about what the form in front of you contains, but
-            about whether the form is showing you your settings at all.
-          -->
+          <!-- Shown while the server runs on defaults because it could not read its stored configuration (#1543). -->
           <div
             id="sso-unreadable-config"
             class="fieldDescription sso-empty-state"
@@ -98,11 +88,8 @@
           ></div>
 
           <!--
-            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
-            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
-            carries no configuration value. It is above the columns rather than beside the save, because
-            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
-            at the moment of arrival rather than after scrolling past every field.
+            The unsaved-changes indicator (#1572), written by sso-core.js renderUnsavedNotice with textContent (#221).
+            It sits above the columns so it can also say on arrival why a returned-to tab was not refreshed.
           -->
           <div
             id="sso-unsaved"
@@ -113,9 +100,7 @@
           ></div>
 
           <!--
-            The page-level outcome region (#1572). What a delete, or a save whose own section is no longer
-            on screen, has to say: the editor's status region lives INSIDE the editor, and a delete closes
-            that editor, so an outcome written there would be invisible. Written with textContent (#221).
+            The page-level outcome region (#1572) for a delete or a save whose editor has closed, written with textContent (#221).
           -->
           <div
             id="sso-page-status"
@@ -130,16 +115,9 @@
           >
             <div class="sso-column-main">
               <!--
-            Configuration check (#1084): ONE action across every configured OpenID and SAML provider,
-            restoring the aggregate check the #365 redesign dropped. It sits above both workspaces because it
-            answers about both; the per-provider readiness panel (#1083) inside each editor answers about the
-            form in front of you, and the two do not overlap.
-
-            ADVISORY. The button is outside both provider forms and carries no sso-* marker class, so it is
-            not a provider field and the save contract does not see it. The handler reads a report and writes
-            into the list below; it assigns no field and no toggle, which is what keeps a run from changing
-            what a subsequent Save would persist. Every row is rendered with textContent and states its
-            outcome in words rather than in colour alone (#221).
+            Configuration check (#1084, #365): one advisory action across every configured provider, beside the
+            per-editor readiness panel (#1083). It is not a provider field, assigns no field or toggle, and
+            renders each row with textContent and words rather than colour alone (#221).
           -->
               <form id="sso-config-check" class="esqConfigurationForm">
                 <div
@@ -180,34 +158,11 @@
               </form>
 
               <!--
-            THE PROVIDER WIZARD (#1665), stage 2 of the 4.4 surface, and a PAGE STATE rather than a dialog
-            (decision D2 on #1528): it stays inside the dashboard's own navigation, the unsaved-changes
-            indicator above covers it, and the Add provider card on Overview deep-links into it with a
-            query flag.
-
-            IT DRIVES THE EDITOR AND HOLDS NO FIELD OF ITS OWN. Every value the wizard is about is typed
-            into the grouped editor below, which is the editor that already existed; this block carries
-            buttons and prose only. So there is no second way to edit a provider, nothing here is
-            serialized, and the ProviderFormFieldIds contract has nothing new to cover. It also means the
-            wizard issues no request of its own: the two that matter, the save and the test, are the
-            editor's own buttons, which already carry their own late-reply guards.
-
-            WHAT IT DOES TO THE READINESS RAIL IS NOTHING, WHICH IS THE ANSWER #1664 ASKED FOR. The rail
-            answers for whichever editor is open, and openEditorKey reads the two editors' hidden
-            attributes and nothing else. The wizard OPENS an editor instead of replacing it, so both
-            attributes mean exactly what they meant before and the rail goes on answering beside the form
-            an administrator is filling in.
-
-            THE FIVE STEPS AND THE FIVE PANELS ARE AUTHORED HERE RATHER THAN BUILT BY THE SCRIPT, for the
-            reason the preset picker's own comment gives (#1602): text a script writes with tr() while the
-            catalog is still arriving keeps its English for the life of the page, and this wizard can be
-            opened by the query flag during init. Markup rides i18n.applyTo instead. What the script writes
-            is what only it knows - the state word beside each step, and the refusal a press earned - and
-            both of those are written long after the catalog has landed.
-
-            THE STEP IS AN ATTRIBUTE ON THIS ELEMENT rather than a variable in the module, because it is a
-            fact about this page: a module-scope number would be shared by every page of one dashboard,
-            and a reader of the DOM can see where the wizard stands without asking the script.
+            The provider wizard (#1665), a page state rather than a dialog (#1528). It drives the editor below
+            and holds no field of its own, so it adds nothing to serialize and no request of its own, and it
+            leaves the readiness rail untouched (#1664).
+            Steps and panels are authored here so the catalogue localizes them (#1602); the current step is an
+            attribute on this element so it stays a fact about this page.
           -->
               <button
                 id="sso-wizard-start"
@@ -350,10 +305,7 @@
                 </div>
 
                 <!--
-              The refusal a press earned, written by sso-core.js with textContent (#221) and carrying no
-              configuration value beyond the localized NAMES of the fields that are still empty. It is a
-              live region because it is the whole answer to a Next that did nothing: without an
-              announcement, a press that refuses and a press that is not wired read the same.
+              The refusal a press earned, written by sso-core.js with textContent (#221); a live region so a refused Next is announced.
             -->
                 <div
                   id="sso-wizard-refusal"
@@ -403,11 +355,8 @@
               </div>
 
               <!--
-            Provider workspace (#365 UI redesign). The provider LIST replaces the old select -> Load flow:
-            each saved OpenID provider is a card (name + type badge + enabled/disabled pill); clicking a card
-            loads it into the editor below. The hidden <select id="selectProvider"> is retained as the state
-            holder the save path already reads (sso-core.js saveProvider sets its value after a save), so the
-            serializer contract is unchanged; only the visible affordance moved from a dropdown to cards.
+            Provider workspace (#365): saved OpenID providers are cards that load into the editor below.
+            The hidden provider select stays as the state holder the save path reads, so the serializer contract is unchanged.
           -->
               <form id="sso-load-config" class="esqConfigurationForm">
                 <div class="verticalSection">
@@ -465,14 +414,7 @@
                         </div>
                       </details>
                     </div>
-                    <!--
-                  The order lives in the wizard above and nowhere else (#1665). A first-run list of its
-                  own stood here until the wizard enforced the same five steps: two statements of one
-                  order is a copy, and these two had already come apart - the list asked for the
-                  redirect URI to be copied before the save the server needs before it will compute
-                  one, and ended with a provider appearing on the sign-in page, which it does not do
-                  until Enabled is ticked. This points at the one statement that is enforced.
-                -->
+                    <!-- Points at the wizard above, the one enforced statement of the setup order (#1665). -->
                     <p
                       class="fieldDescription"
                       data-i18n="config.first_run_wizard"
@@ -504,9 +446,8 @@
                   ></div>
 
                   <!--
-                Retained state holder for the save path (#365). No sso-* marker class and not a provider
-                field: sso-core.js reads and writes its value only to remember which provider is loaded. It is
-                visually hidden, not removed, because saveProvider assigns to it after a successful save.
+                Retained state holder for the save path (#365): not a provider field, and visually hidden rather
+                than removed because saveProvider assigns to it after a save.
               -->
                   <label
                     for="selectProvider"
@@ -524,32 +465,18 @@
               </form>
 
               <!--
-            Provider settings form: the save contract (#365). Each input here that must persist carries a
-            behavior-marker class (sso-text / sso-line-list / sso-toggle / sso-folder-list / sso-role-map)
-            AND an id spelled EXACTLY like the OidConfig property it writes to: sso-core.js saveProvider does
-            current_config[element.id] = value, and the server drops JSON members that are not OidConfig
-            properties. A field with a mismatched id, a missing marker class, or placed outside this form
-            renders but silently never saves. The provider-name input is the one deliberate non-persisting
-            field (it supplies the OidConfigs dictionary key, not a property), so it carries no marker
-            class. Locked in by ArchitectureConformanceTests.ProviderFormFieldIds_MatchOidConfigProperties.
-
-            The editor is chunked into native emby-collapse accordion sections (Connection, User provisioning,
-            Roles & access, Live TV, Compatibility & overrides, Security & hardening). Progressive disclosure
-            HIDES, never removes: collapsed sections and reveal-on-toggle dependent fields stay in the DOM
-            (via the `hidden` attribute), because sso-core.js listArgumentsByType enumerates every marked field
-            with querySelectorAll unconditionally on save. Detaching a field when it is hidden would silently
-            drop its value or downgrade a security setting, so every field remains present and serializable.
+            Provider settings form and its save contract (#365). Each persisting input carries a marker class
+            (sso-text, sso-line-list, sso-toggle, sso-folder-list, sso-role-map) and an id spelled exactly like
+            its OidConfig property; anything else renders but never saves. The provider-name input is the one
+            deliberate exception. Collapsed sections and dependent fields are hidden, never removed, because
+            listArgumentsByType serializes every marked field on save.
           -->
               <form id="sso-new-oidc-provider" class="esqConfigurationForm">
                 <div class="sso-editor" id="sso-editor" hidden>
                   <div class="sso-editor-header">
                     <!--
-                  Deliberately carries NO data-i18n marker (#913): sso-core.js OWNS this heading, since it writes
-                  the loaded provider's name here (setEditorTitle), and the catalog is applied
-                  asynchronously. A marker would let a late applyTo() overwrite "keycloak-prod" with
-                  "New provider" over an editor that actually has a provider loaded, and the Save path
-                  targets the loaded provider without a name-bearing confirmation. The blank-editor
-                  wording is localized at its source instead, through tr() in sso-core.js.
+                  No data-i18n marker (#913): sso-core.js writes the loaded provider's name here, and a late
+                  catalogue pass must not overwrite it; the blank-editor wording is localized through tr().
                 -->
                     <h3 class="sso-editor-title" id="sso-editor-title">
                       New provider
@@ -575,13 +502,7 @@
                     are required.
                   </p>
 
-                  <!--
-                WHERE THE READINESS PANEL WENT (#1664). It was a section here (#1083) and it is now the
-                rail's card, answered once for whichever editor is open. This line is the pointer the
-                issue asks for: a reader of the form meets it where the panel used to be and is told
-                where the answer is, rather than finding the panel gone. It is a sentence and not a
-                second panel - nothing here restates a row, so there is nothing to drift.
-              -->
+                  <!-- Points at the rail card that replaced this form's readiness panel (#1664, #1083). -->
                   <p
                     class="fieldDescription sso-readiness-pointer"
                     data-i18n="config.readiness_moved"
@@ -591,13 +512,9 @@
                   </p>
 
                   <!--
-                The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
-                reason the editor title does not: sso-core.js OWNS this text, writing it only for a provider
-                the server reports as declaratively managed, and the catalog is applied asynchronously - a
-                marker would let a late applyTo() paint the sentence over an editor whose provider is
-                ordinary and editable. The wording is localized at its source instead, through tr(). The
-                state is in the text and not in colour alone (#221), and role="status" announces it to a
-                screen reader when the editor is opened.
+                The "managed by file" state (#1104), written only by sso-core.js through tr() and carrying no
+                data-i18n marker, so a late catalogue pass cannot paint it on an editable provider. The state is
+                in the text, not colour alone (#221).
               -->
                   <p
                     class="fieldDescription sso-managed-note"
@@ -607,13 +524,8 @@
                   ></p>
 
                   <!--
-                Start from a template (#726): a NON-persisting picker (no marker class, so it is never
-                saved and the conformance scan ignores it). Choosing a provider pre-fills only the
-                non-secret provider-specific fields (scopes, role-claim path, username claim, an endpoint
-                PLACEHOLDER) and pre-checks only the compatibility toggles that identity provider genuinely
-                needs. It never fills a secret and never auto-saves; any pre-enabled insecure/compatibility
-                toggle surfaces in the auto-expanded danger zone. The options are populated from
-                OIDC_PRESETS in sso-core.js so the catalog is the single source of truth.
+                Start from a template (#726): a non-persisting picker populated from OIDC_PRESETS in sso-core.js.
+                It pre-fills only non-secret fields and needed compatibility toggles, never a secret, and never auto-saves.
               -->
                   <div class="inputContainer sso-preset-picker">
                     <label
@@ -674,14 +586,8 @@
                   >
                     <div class="collapseContent">
                       <!--
-                    Why this label, and every field label that wraps a required/optional hint, carries no
-                    data-i18n marker (#913): the marker REPLACES an element's textContent, so a marker here
-                    would delete the nested <span class="sso-required">*</span> the moment the catalog
-                    resolves, silently dropping the required indicator from a rendered page (it would still
-                    look right offline, which is what makes it invisible in review). The text and its hint
-                    span need a placeholder-aware applier, so these labels are localized in a follow-up
-                    sub-unit; only leaf elements carry markers today.
-                    LocalizationCatalogTests.TextMarkers_OnlySitOnElementsWithoutChildMarkup enforces it.
+                    Labels that wrap a required or optional hint carry no data-i18n marker (#913), since the marker
+                    replaces textContent and would drop the nested hint span; only leaf elements carry markers.
                   -->
                       <div class="inputContainer">
                         <label
@@ -694,10 +600,8 @@
                           ></label
                         >
                         <!--
-                      No sso-* marker class: this input's value is the OidConfigs dictionary KEY (sso-core.js
-                      reads it as the provider name and does config.OidConfigs[name] = current_config), not an
-                      OidConfig property. listArgumentsByType must not pick it up as a persisting field, and it
-                      is deliberately absent from the ProviderFormFieldIds_MatchOidConfigProperties contract.
+                      No marker class: this value is the OidConfigs dictionary key, not an OidConfig property, so it
+                      is not a persisting field.
                     -->
                         <input
                           is="emby-input"
@@ -734,14 +638,8 @@
                       </div>
 
                       <!--
-                    Read-only redirect URI (#724): shows the exact redirect_uri the login uses, so an admin can
-                    register it verbatim at the identity provider (a wrong value is the most common OIDC setup
-                    failure). NO sso-* marker class and read-only, so it is not a persisting field
-                    (listArgumentsByType must not pick it up, and it stays out of the
-                    ProviderFormFieldIds_MatchOidConfigProperties contract, like OidProviderName). Its value is
-                    set via .value in sso-core.js (never innerHTML, #221). That value is FETCHED from
-                    sso/OID/RedirectUri/<name> rather than composed here (#1303): the server builds the bytes
-                    the login sends, so this page cannot show a second, drifting computation of them.
+                    Read-only redirect URI (#724) to register verbatim at the identity provider; not a persisting field.
+                    Its value is fetched from the server (#1303) and set via .value, never innerHTML (#221).
                   -->
                       <div class="inputContainer">
                         <label
@@ -808,12 +706,8 @@
                             </div>
                           </details>
                           <!--
-                    The copy the field's aria-describedby names (#1672). A description computed from
-                    the block itself is the lead line and the word "Full text" while the fold is
-                    closed, and empty when it names the body inside the closed fold; a hidden element
-                    named directly carries the whole text. i18n.js fills it from the body on every
-                    catalogue pass, and tools/ui-condensed-help.js refuses a field described by its
-                    block or a copy nothing names.
+                    The hidden copy the field's aria-describedby names (#1672), filled by i18n.js from the fold body,
+                    since a closed fold would describe the field with its summary only.
                   -->
                           <span
                             class="sso-help-spoken"
@@ -1466,15 +1360,9 @@
 
                   <!-- Section 2b: Starting policy for new accounts -->
                   <!--
-                The starting policy this provider writes onto a brand-new account (#1367). Every control
-                here is THREE-STATE - set, deliberately off, or declined - because every member of
-                ProvisioningPolicyTemplate is nullable and null means "leave Jellyfin's own default
-                alone". That is why none of them is a checkbox: a checkbox has two states and would post
-                a deliberate false for a field the administrator never touched. These ids are NOT the
-                flat current_config[element.id] contract the rest of the form uses - they carry their own
-                sso-tmpl-* marker classes and are assembled into one nested object by
-                readProvisioningTemplate in sso-core.js, because the template is a nested member rather
-                than a property of OidConfig.
+                The starting policy for a new account (#1367). Every control is three-state, since null means
+                leave Jellyfin's default, so none is a checkbox. The ids carry sso-tmpl-* markers and are
+                assembled by readProvisioningTemplate in sso-core.js rather than the flat OidConfig contract.
               -->
                   <div
                     is="emby-collapse"
@@ -1516,14 +1404,8 @@
                         back to (none) to use these fields again.
                       </div>
                       <!--
-                    The named provisioning profile this provider's new accounts get (#1105). It is a real
-                    ProviderConfigBase property, but it is deliberately NOT a flat sso-text field: the flat
-                    load path sets a text field only when the loaded provider carries a value, so switching
-                    from a provider that names a profile to one that names none would leave the previous
-                    provider's name selected and a later save would write it onto the second provider - the
-                    same stale-value failure the check_fields comment in sso-core.js describes. It is filled
-                    and read beside the inline template instead, in fillProvisioningTemplate and in the two
-                    save paths, which is also where the mutual exclusion between the two lives.
+                    The named provisioning profile (#1105). Not a flat sso-text field, which would keep a previous
+                    provider's value on load; it is filled and read by fillProvisioningTemplate and the save paths.
                   -->
                       <div class="inputContainer">
                         <label
@@ -3356,10 +3238,7 @@
                   </div>
 
                   <!--
-                Test-connection (#163). No sso-* marker class: this button and the result container are
-                not persisting provider fields, so listArgumentsByType/saveProvider must not pick them up
-                and the ProviderFormFieldIds_MatchOidConfigProperties contract does not apply to them. The
-                test validates the SAVED provider, reading the stored config server-side, so save first.
+                Test connection (#163): not persisting fields. The test validates the saved provider, so save first.
               -->
                   <div class="sso-test-block">
                     <button
@@ -3400,27 +3279,10 @@
 
                   <!-- Sticky save footer (Fitts): the primary action stays reachable at the bottom edge. -->
                   <div class="sso-save-footer">
+                    <!-- No restart note: a save updates the live configuration in place (#1573). -->
                     <!--
-                      NO RESTART NOTE HERE, AND ITS ABSENCE IS THE DECISION (#1573). The footer used to
-                      say that saving requires a restart of Jellyfin to take effect. It does not, and the
-                      reading that settles it is on that issue: nothing in this plugin holds a
-                      configuration snapshot - no field anywhere is of that type, and the thirty-eight
-                      call sites fetch the live object at the moment they need it or take it as a
-                      parameter - while a save writes the file and then mutates that live object in
-                      place. The one component that reaches into Jellyfin's own state, the login-page
-                      branding, is subscribed to the configuration-changed event rather than read at
-                      startup. So there is no setting on the restart side of the line.
-                      What the sentence cost was not nothing: a Jellyfin restart drops every playing
-                      session and every connected client, and it was being asked for after every save.
-                    -->
-                    <!--
-                      The save outcome sits WITH the button (#1572), not in the editor header where it
-                      used to. The footer is sticky, so this is on screen whenever the editor is; the
-                      header is up to fifty-seven controls above, and the footer exists precisely so an
-                      administrator never scrolls back up to it. While a modal also carried the reason
-                      that did not matter. Now this is the only channel, so it has to be where the press
-                      happened. role/aria-live are kept from its old home, so it is announced as well as
-                      seen.
+                      The save outcome sits with the sticky button (#1572), so it is on screen where the press happened,
+                      and keeps role and aria-live so it is announced.
                     -->
                     <div
                       id="sso-save-status"
@@ -3441,13 +3303,8 @@
               </form>
 
               <!--
-            SAML provider workspace (#725): a second, independent workspace parallel to the OpenID one above.
-            To keep every element id unique in the document (an HTML requirement) while still driving the save
-            contract off the id, every SAML persisting field carries a "saml-" PREFIXED id AND the marker class:
-            sso-core.js's SAML save path writes current_config[id.slice("saml-".length)] = value, so the property
-            name is the id minus the prefix (e.g. id="saml-SamlEndpoint" -> SamlConfig.SamlEndpoint). This leaves
-            the OpenID workspace and its JS completely untouched. Pinned by
-            ArchitectureConformanceTests.ProviderFormFieldIds_MatchSamlConfigProperties.
+            SAML provider workspace (#725), parallel to the OpenID one. SAML persisting fields carry the marker
+            class and an id prefixed "saml-"; the save path writes the property named by the id minus the prefix.
           -->
               <form id="sso-load-saml-config" class="esqConfigurationForm">
                 <div class="verticalSection">
@@ -3498,14 +3355,7 @@
                         </div>
                       </details>
                     </div>
-                    <!--
-                  The order lives in the wizard above and nowhere else (#1665). A first-run list of its
-                  own stood here until the wizard enforced the same five steps: two statements of one
-                  order is a copy, and these two had already come apart - the list asked for the
-                  redirect URI to be copied before the save the server needs before it will compute
-                  one, and ended with a provider appearing on the sign-in page, which it does not do
-                  until Enabled is ticked. This points at the one statement that is enforced.
-                -->
+                    <!-- Points at the wizard above, the one enforced statement of the setup order (#1665). -->
                     <p
                       class="fieldDescription"
                       data-i18n="config.first_run_wizard"
@@ -3583,11 +3433,7 @@
                     are required.
                   </p>
 
-                  <!--
-                WHERE THE READINESS PANEL WENT (#1664), the SAML half of the move the OpenID form above
-                carries the same note for. The rail answers for whichever editor is open, so one card
-                serves both forms and neither holds a panel of its own.
-              -->
+                  <!-- Points at the rail card that replaced this form's readiness panel (#1664). -->
                   <p
                     class="fieldDescription sso-readiness-pointer"
                     data-i18n="config.readiness_moved"
@@ -3597,13 +3443,9 @@
                   </p>
 
                   <!--
-                The "managed by file" state (#1104). Deliberately carries NO data-i18n marker, for the same
-                reason the editor title does not: sso-core.js OWNS this text, writing it only for a provider
-                the server reports as declaratively managed, and the catalog is applied asynchronously - a
-                marker would let a late applyTo() paint the sentence over an editor whose provider is
-                ordinary and editable. The wording is localized at its source instead, through tr(). The
-                state is in the text and not in colour alone (#221), and role="status" announces it to a
-                screen reader when the editor is opened.
+                The "managed by file" state (#1104), written only by sso-core.js through tr() and carrying no
+                data-i18n marker, so a late catalogue pass cannot paint it on an editable provider. The state is
+                in the text, not colour alone (#221).
               -->
                   <p
                     class="fieldDescription sso-managed-note"
@@ -3716,9 +3558,8 @@
                       </div>
 
                       <!--
-                    Import from IdP metadata (#735): fetch a metadata URL server-side (SSRF-hardened) or paste
-                    the XML, and pre-fill the endpoint + signing certificate below. Read-only result via
-                    textContent (#221). These inputs/buttons are NOT persisting fields (no marker class).
+                    Import from IdP metadata (#735): a server-side fetch or pasted XML pre-fills the endpoint and
+                    signing certificate. Not persisting fields; the result is written via textContent (#221).
                   -->
                       <div class="inputContainer sso-metadata-import">
                         <label
@@ -3965,10 +3806,8 @@
                       </div>
 
                       <!--
-                    Read-only computed SP URLs (#569/#725): the ACS and metadata URLs the IdP must be told
-                    about, plus the SP entityID. Derived client-side from the Base URL Override (else the
-                    server address) exactly like the login builds them; set via .value/textContent, never
-                    innerHTML (#221). Not persisting fields (no marker class, read-only).
+                    Read-only computed SP URLs (#569, #725), derived like the login builds them and set via .value
+                    or textContent (#221). Not persisting fields.
                   -->
                       <div class="inputContainer">
                         <label
@@ -4364,15 +4203,9 @@
 
                   <!-- SAML Section 2b: Starting policy for new accounts -->
                   <!--
-                The starting policy this provider writes onto a brand-new account (#1367). Every control
-                here is THREE-STATE - set, deliberately off, or declined - because every member of
-                ProvisioningPolicyTemplate is nullable and null means "leave Jellyfin's own default
-                alone". That is why none of them is a checkbox: a checkbox has two states and would post
-                a deliberate false for a field the administrator never touched. These ids are NOT the
-                flat current_config[element.id] contract the rest of the form uses - they carry their own
-                sso-tmpl-* marker classes and are assembled into one nested object by
-                readProvisioningTemplate in sso-core.js, because the template is a nested member rather
-                than a property of SamlConfig.
+                The starting policy for a new account (#1367). Every control is three-state, since null means
+                leave Jellyfin's default, so none is a checkbox. The ids carry sso-tmpl-* markers and are
+                assembled by readProvisioningTemplate in sso-core.js rather than the flat SamlConfig contract.
               -->
                   <div
                     is="emby-collapse"
@@ -4414,14 +4247,8 @@
                         back to (none) to use these fields again.
                       </div>
                       <!--
-                    The named provisioning profile this provider's new accounts get (#1105). It is a real
-                    ProviderConfigBase property, but it is deliberately NOT a flat sso-text field: the flat
-                    load path sets a text field only when the loaded provider carries a value, so switching
-                    from a provider that names a profile to one that names none would leave the previous
-                    provider's name selected and a later save would write it onto the second provider - the
-                    same stale-value failure the check_fields comment in sso-core.js describes. It is filled
-                    and read beside the inline template instead, in fillProvisioningTemplate and in the two
-                    save paths, which is also where the mutual exclusion between the two lives.
+                    The named provisioning profile (#1105). Not a flat sso-text field, which would keep a previous
+                    provider's value on load; it is filled and read by fillProvisioningTemplate and the save paths.
                   -->
                       <div class="inputContainer">
                         <label
@@ -5368,14 +5195,7 @@
                           hidden
                         ></div>
                         <!--
-                      DECLARED FLAT (#1677), and the declaration is the point rather than the class. This
-                      carries a *_help key and is NOT condensed: it is a warning beside the field, and
-                      folding a warning hides the thing it exists to put in front of a reader. Both readers
-                      in tools/ui-condensed-help.js enter a help text through its class, so without this
-                      attribute the site would sit in neither population and a field taken out of the
-                      condensing by renaming its class would look exactly the same. The gate closes the
-                      count over the markers instead, and every marker it cannot see as a fold has to say
-                      here why it is not one.
+                      Declared flat (#1677): a warning is not folded, and the marker tells tools/ui-condensed-help.js why.
                     -->
                         <div
                           class="sso-callout sso-callout-warning"
@@ -5826,27 +5646,10 @@
                   </div>
 
                   <div class="sso-save-footer">
+                    <!-- No restart note: a save updates the live configuration in place (#1573). -->
                     <!--
-                      NO RESTART NOTE HERE, AND ITS ABSENCE IS THE DECISION (#1573). The footer used to
-                      say that saving requires a restart of Jellyfin to take effect. It does not, and the
-                      reading that settles it is on that issue: nothing in this plugin holds a
-                      configuration snapshot - no field anywhere is of that type, and the thirty-eight
-                      call sites fetch the live object at the moment they need it or take it as a
-                      parameter - while a save writes the file and then mutates that live object in
-                      place. The one component that reaches into Jellyfin's own state, the login-page
-                      branding, is subscribed to the configuration-changed event rather than read at
-                      startup. So there is no setting on the restart side of the line.
-                      What the sentence cost was not nothing: a Jellyfin restart drops every playing
-                      session and every connected client, and it was being asked for after every save.
-                    -->
-                    <!--
-                      The save outcome sits WITH the button (#1572), not in the editor header where it
-                      used to. The footer is sticky, so this is on screen whenever the editor is; the
-                      header is up to fifty-seven controls above, and the footer exists precisely so an
-                      administrator never scrolls back up to it. While a modal also carried the reason
-                      that did not matter. Now this is the only channel, so it has to be where the press
-                      happened. role/aria-live are kept from its old home, so it is announced as well as
-                      seen.
+                      The save outcome sits with the sticky button (#1572), so it is on screen where the press happened,
+                      and keeps role and aria-live so it is announced.
                     -->
                     <div
                       id="saml-save-status"
@@ -5879,18 +5682,8 @@
                   Open a provider to see whether it is ready to serve a login.
                 </div>
                 <!--
-                  THE READINESS PANEL, ONCE, FOR WHICHEVER EDITOR IS OPEN (#1664). It was a section inside
-                  each provider form (#1083) and the two could never both be answering, because only one
-                  workspace is open at a time (#1527). One list here is the same answer with one place to
-                  read it, and each form keeps a pointer where its panel was.
-
-                  EMPTY IN THE MARKUP AND THE LINE ABOVE VISIBLE, so a page whose script never ran shows
-                  the invitation rather than a headed panel with nothing in it. sso-core.js swaps the two
-                  whenever an editor opens or closes, and it is the only thing that writes here.
-
-                  role="status" and aria-live="polite" ride along from the panel this replaces: the list
-                  is rebuilt on every field change, and a reader who has moved past the form is told what
-                  changed without being interrupted. Every row still carries its state as words (#221).
+                  The readiness panel for whichever editor is open (#1664, #1083, #1527). Empty in the markup with
+                  the line above visible; sso-core.js swaps the two and is the only writer. Rows carry their state as words (#221).
                 -->
                 <ul
                   class="sso-readiness-list"
@@ -5901,16 +5694,8 @@
                 ></ul>
               </div>
               <!--
-                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1663), the same card slice 1 put on the small
-                pages (#1662). Every field below shows one sentence and keeps the rest behind a fold; this is
-                the second way to read the rest, without losing the field while reading about it. Empty and
-                hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus, so a page whose
-                script never ran shows nothing here rather than a card naming a field nobody chose. The
-                heading is the same catalogue row the folds are named with, so the two cannot drift apart.
-
-                BELOW the readiness card rather than above it, because readiness answers about the provider
-                being edited and does not move while a form is filled in, and this one changes on every focus.
-                Where the two sit relative to each other is the next slice's question (#1664), not this one's.
+                The whole help text of the focused field (#1663, #1662), filled on focus by SSO-Auth/Web/i18n.js
+                and hidden until then. It sits below the readiness card, which changes less often (#1664).
               -->
               <div class="verticalSection sso-help-card" hidden>
                 <h3 class="sectionTitle" data-i18n="config.help_full_text">

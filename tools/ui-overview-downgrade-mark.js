@@ -3,45 +3,13 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL Overview renderer of the shipped sso-core.js and refuses each
- * way the downgrade mark on a provider card can mislead (#1727).
+ * Drives the shipped Overview renderer of sso-core.js and refuses each way the
+ * downgrade mark on a provider card can mislead (#1727).
  *
- * WHAT FAILURE THIS EXISTS AGAINST. Overview is the page that answers "does
- * sign-in through SSO work here", and it is opened by the reader who has NOT yet
- * decided which provider they mean. A provider with `DisableHttps` or
- * `AllowExistingAccountLink` switched on is a provider whose card is the same
- * card as a clean one unless something puts the fact there - and the two states
- * being indistinguishable is the whole defect, so the negative arm below is
- * worth more than the positive one.
- *
- * WHY THE MARK MUST BE ABSENT ON A CLEAN PROVIDER, and why that is an arm rather
- * than an assumption. A mark every card carries is furniture, and furniture
- * stops being read. A renderer that flagged everything would pass an arm that
- * only ever looked for the mark, so each positive arm below is paired with a
- * card in the same render that must NOT carry it.
- *
- * WHY THE CLASS IS NAMED AND NOT COUNTED. The editor's fold summary counts the
- * controls inside the fold; the id lists this mark reads are the classified
- * subset of them, and on the sensitive fold those two populations are five and
- * one. A number here in the editor's wording would be a second population under
- * one sentence, so the arms read the class NAME and refuse a digit in the mark.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the
- * renderer touches: createElement for the tags it builds, appendChild,
- * replaceChildren, textContent, classList, setAttribute and querySelector by id.
- * It is not a browser: no layout, no CSS, no events. It cannot say that the row
- * is legible, that its `data-state` paints red, or that a reader announces it -
- * a walk on a real server is what confirms those, and #1727 keeps that
- * Done-when for the walk rather than this tool claiming it.
- *
- * THE CALIBRATION IS THE PAIRING, not a separate page. Every arm is run against
- * one render holding both a flagged provider and a clean one, so an arm that
- * passed by finding the mark everywhere fails its partner in the same call, and
- * an arm that passed by finding it nowhere fails the positive. A tool that can
- * only say yes is not a measurement.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-account-filter.js and tools/ui-option-folds.js.
+ * A card with DisableHttps or AllowExistingAccountLink on must differ from a clean one,
+ * so every positive arm is paired with a clean card in the same render that must carry
+ * no mark. The mark names the class rather than a count. The DOM is a stub without
+ * layout or CSS; the visual check stays with the walk on a real server (#1727).
  */
 
 import fs from "node:fs";
@@ -52,16 +20,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORE = path.join(HERE, "..", "SSO-Auth", "Web", "sso-core.js");
 const ENGLISH = path.join(HERE, "..", "SSO-Auth", "Localization", "en.json");
 
-// The three catalogue keys the mark is built from. They are read from the
-// catalogue here rather than pasted, so a row renamed in en.json reddens this
-// tool instead of leaving it asserting a sentence the page no longer says.
+// The catalogue keys the mark is built from, read from en.json so a renamed row fails here.
 const SENTENCE_KEY = "config.insecure_option_active";
 const INSECURE_KEY = "config.security_insecure_heading";
 const ADOPTION_KEY = "config.security_adoption_heading";
 
-// ---------------------------------------------------------------------------
-// The stub.
-// ---------------------------------------------------------------------------
+// A minimal DOM element with the members the renderer touches.
 
 class Element {
   constructor(tag) {
@@ -125,25 +89,18 @@ function overviewPage() {
   };
 }
 
-// BOTH spellings, because the renderer uses both: the card builder reaches for a
-// bare `document` and renderTransferMessage for `window.document`.
+// Both spellings, because the card builder uses `document` and renderTransferMessage `window.document`.
 globalThis.document = { createElement: (tag) => new Element(tag) };
 globalThis.window = { document: globalThis.document };
 
-// ---------------------------------------------------------------------------
 // The fixture.
-// ---------------------------------------------------------------------------
 
 const catalogue = JSON.parse(fs.readFileSync(ENGLISH, "utf8"));
 const SENTENCE = catalogue[SENTENCE_KEY];
 const INSECURE = catalogue[INSECURE_KEY];
 const ADOPTION = catalogue[ADOPTION_KEY];
 
-/**
- * One report row per provider named, in the report's own protocol spelling.
- * Ready and Enabled are true throughout: a downgrade is orthogonal to both, and
- * holding them fixed keeps every arm below about the mark alone.
- */
+/** One report row per provider named, with Ready and Enabled held true so arms test the mark alone. */
 const rowsFor = (names) =>
   names.map(([protocol, provider]) => ({
     Protocol: protocol,
@@ -154,6 +111,7 @@ const rowsFor = (names) =>
     Problem: null,
   }));
 
+// Imports the shipped sso-core.js as a data URL module.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -166,11 +124,7 @@ const core = await loadCore();
 const faults = [];
 const refuse = (leg, detail) => faults.push(leg + ": " + detail);
 
-/**
- * Paints one report and answers, per provider, the text of every status row on
- * its card. The roster is null throughout: a recorded sign-in is a third row
- * that says nothing about this mark.
- */
+/** Paints one report and answers the status-row texts per provider card, with no roster. */
 function paint(names, config) {
   const { page, cards } = overviewPage();
   core.paintOverview(page, { Providers: rowsFor(names) }, null, config);
@@ -187,10 +141,7 @@ function paint(names, config) {
 /** The mark's row on a card, or null where the card carries none. */
 const markOn = (rows) => rows.find((text) => text.startsWith(SENTENCE)) ?? null;
 
-/**
- * One paired arm: the card that must carry the mark and name each class, and a
- * card in the SAME render that must carry no mark at all.
- */
+/** One paired arm: a card that must name each expected class and a clean card in the same render. */
 function paired(leg, names, config, flagged, expected) {
   const painted = paint(names, config);
 
@@ -257,7 +208,7 @@ paired(
   [INSECURE],
 );
 
-// ---- Arm: adoption alone names the adoption class and NOT the insecure one ----
+// ---- Arm: adoption alone names the adoption class and not the insecure one ----
 paired(
   "oid-adoption",
   [
@@ -297,9 +248,7 @@ paired(
 );
 
 // ---- Arm: the SAML list is the SAML one ----
-// DoNotValidateAudience is SAML's whole insecure list, and the OpenID ids are
-// not on a SAML provider at all - so a renderer reading one list for both
-// protocols flags the wrong card here rather than passing quietly.
+// A renderer reading one id list for both protocols flags the wrong card here.
 paired(
   "saml-insecure",
   [
@@ -318,9 +267,7 @@ paired(
 );
 
 // ---- Arm: a hardening toggle is not a downgrade ----
-// These three are OFF by default and switching one ON makes the provider MORE
-// secure. Flagging them would be backwards, and it is the shape that produces
-// alert fatigue on exactly the well-configured installations.
+// These default off, and switching one on makes the provider more secure.
 {
   const painted = paint(
     [
@@ -354,9 +301,7 @@ paired(
 }
 
 // ---- Arm: a configuration that did not load draws the cards and marks nothing ----
-// The read is best-effort and answers null on failure. The cards still have to
-// appear: a page that threw here would leave an administrator with an empty
-// Overview on a server whose providers are fine.
+// The read answers null on failure, and the cards must still appear.
 {
   const painted = paint([["OpenID", "unknown"]], null);
   if (!painted.unknown || painted.unknown.length === 0) {

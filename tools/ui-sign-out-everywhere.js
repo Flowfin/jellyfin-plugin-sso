@@ -3,40 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL self-service linking page of the shipped SSO-Auth/Web/linking.js
- * and refuses each way its "Sign out everywhere" control can put a credential where
- * it does not belong, act on a ticket it never got, or hide a refusal (#1768).
- *
- * WHY THIS IS A RUNNING PROOF. The control exists so that the RP-initiated logout
- * can be reached with one press and WITHOUT the access token in a URL. Whether it
- * keeps that promise is decided at press time and not in the source: the URL it
- * navigates to is built from what the server answered, so a page that fell back to
- * the token when the mint failed, navigated before the ticket arrived, or minted
- * twice for one press reads identically to a rule over the text. A rule reading
- * these assets sees a fetch and a navigation and can say nothing about their order
- * or their contents.
- *
- * THE TOKEN IS A SENTINEL THE STUB KNOWS. The recording ApiClient answers a fixed
- * access token, and every arm below asks whether that value, or an api_key
- * parameter, reached any URL the page built. That is the Done-when of the issue,
- * read on the URL rather than believed from the code.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the page
- * touches. It is not a browser: no layout, no CSS, no focus and no event dispatch,
- * so it cannot say that the control is visible or reachable by keyboard. What it
- * can say is which requests were sent, in what order, what the page navigated to,
- * and which sentence was written - which is what the properties above are about.
- * The routes the page navigates to are driven against real identity providers by
- * the end-to-end harness (test/e2e/harness/harness.sh), which is where the two
- * halves of the redirect - a provider that advertises an end_session_endpoint and
- * one that does not - are exercised over the wire.
- *
- * THE SENTENCES ARE READ FROM THE CATALOGUE AND NOT FROM THIS FILE. The last arm
- * loads de.json instead of en.json and requires the label and the refusal to
- * change, so a sentence hard-coded into the page is refused rather than reviewed.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-self-service-unlink.js.
+ * Drives the shipped linking.js page and refuses a "Sign out everywhere" control
+ * that puts the access token in a URL, navigates without a minted ticket, or hides
+ * a refusal (#1768). The token is a sentinel the stub knows, and every sentence
+ * comes from the catalogue. Run with `node tools/ui-sign-out-everywhere.js`.
  */
 
 import fs from "node:fs";
@@ -58,9 +28,7 @@ function catalogue(name) {
 const faults = [];
 const refuse = (leg, detail) => faults.push(leg + ": " + detail);
 
-// ---------------------------------------------------------------------------
 // The stub.
-// ---------------------------------------------------------------------------
 
 class Element {
   constructor(tag) {
@@ -152,10 +120,8 @@ class Element {
 }
 
 /*
- * The three selector shapes this page uses, and nothing else: `#id`, `.class`, and
- * `.class[data-name="value"]`. Deliberately not a selector engine - a wider one would
- * quietly accept a selector the page does not write and answer it differently from a
- * browser, which is the kind of stub that proves the stub.
+ * The three selector shapes the page uses: `#id`, `.class` and `.class[data-name="value"]`.
+ * Deliberately narrow, so the stub never answers a selector the page does not write.
  */
 const SELECTOR = /^(?:#([\w-]+)|\.([\w-]+)(?:\[data-([\w-]+)="(.*)"\])?)$/;
 
@@ -180,8 +146,7 @@ function matches(node, selector) {
   );
 }
 
-// The two banners the page owns live on the document, not inside the view, exactly as the served
-// markup authors them, so a page that filled the wrong one is visible here.
+// The page's banners live on the document, as the served markup authors them.
 const banners = {
   "sso-linking-error": new Element("div"),
   "sso-linking-refused": new Element("div"),
@@ -199,8 +164,7 @@ globalThis.document = {
 
 globalThis.CSS = { escape: (value) => String(value) };
 
-// The credential the page holds and must never write into a URL. A value no route and no provider
-// name contains, so a hit below is the token and not a coincidence.
+// The credential the page must never write into a URL; unique, so a hit is the token.
 const TOKEN = "SENTINEL-ACCESS-TOKEN-6f1c2a9e";
 const USER = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 
@@ -220,15 +184,12 @@ globalThis.window = {
   },
 };
 
-// The feeds the page loads from: the enabled-provider names per protocol, and the links the holder
-// holds. An arm sets these before it renders.
+// The feeds the page loads: enabled-provider names per protocol and the holder's links.
 const server = { names: { oid: [], saml: [] }, links: { oid: {}, saml: {} } };
 
 globalThis.ApiClient = {
   accessToken: () => TOKEN,
-  // The shipped client builds `<server>/<route>` and appends `params` as a query string, and appends
-  // nothing else - the api_key form is something a caller has to write on purpose. Mirrored here so
-  // the URL an arm reads is the URL the page asked for.
+  // Mirrors the shipped client: `<server>/<route>` plus `params`, and never an api_key.
   getUrl: (route, params) =>
     "/" + route + (params ? "?" + new URLSearchParams(params).toString() : ""),
   getCurrentUserId: () => USER,
@@ -269,9 +230,7 @@ function refusedWith(status) {
   return () => Promise.reject({ status, text: () => Promise.resolve("") });
 }
 
-// ---------------------------------------------------------------------------
 // Rendering one page.
-// ---------------------------------------------------------------------------
 
 const linking = await import(pathToFileURL(path.join(WEB, "linking.js")).href);
 
@@ -296,10 +255,7 @@ async function settle() {
   }
 }
 
-/*
- * Builds the page the way a browser does - the module's own entry point, its own
- * catalogue load, its own two feeds - and hands back the sign-out controls it drew.
- */
+/** Builds the page through its own entry point, catalogue load and feeds, and returns its sign-out controls. */
 async function render(scenario) {
   server.names = scenario.names;
   server.links = scenario.links;
@@ -320,8 +276,7 @@ async function render(scenario) {
 
 /** Presses one sign-out control and lets the page settle. */
 async function press(button) {
-  // The handler's own promise is deliberately not awaited: one arm leaves the mint pending for ever,
-  // and the question there is what the page did while it waited.
+  // Not awaited: one arm leaves the mint pending and reads what the page did meanwhile.
   button.fire("click", { target: button });
   await settle();
 }
@@ -355,9 +310,7 @@ const RESERVED = {
   links: { oid: { "a/b?c": ["alice"] }, saml: {} },
 };
 
-// ---------------------------------------------------------------------------
 // The legs.
-// ---------------------------------------------------------------------------
 
 const english = catalogue("en");
 const german = catalogue("de");
@@ -422,11 +375,7 @@ const german = catalogue("de");
 }
 
 // ---- Arm: no credential reaches a URL ----
-//
-// THIS IS THE DONE-WHEN OF THE ISSUE, read on the URLs rather than believed. Every URL the page
-// built during the press - the mint request and the navigation - is asked whether it carries the
-// access token the client holds or an api_key parameter, which is the form the ticket exists to
-// replace.
+// Every URL built during the press is checked for the access token and an api_key parameter.
 {
   const page = await render(SIGNED_IN);
   answers.mint = () => Promise.resolve(mintOf("ticket-abc"));

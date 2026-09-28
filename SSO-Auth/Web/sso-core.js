@@ -1,22 +1,10 @@
-// The shared localization module (#913), set once its dynamic import resolves in localize() below.
-// Until then, and permanently if the load fails, tr() returns the caller's built-in English, so the
-// page never renders a bare catalog key.
+// The shared localization module (#913), set once localize() resolves; until then tr() returns the
+// caller's English default.
 let i18n = null;
 
-// Localized text for a catalog key, falling back to the English default the call site carries. The
-// default is the same wording the static markup holds, so a JS-set string and its HTML twin cannot drift.
-//
-// THE FALLBACK SUBSTITUTES TOO, and that is a fix rather than a flourish (#1529). It used to return the
-// default verbatim, so every parameterised call rendered its braces: before the catalog arrived, and
-// permanently on a server whose fetch fails, a reader saw "Deleted account ({id})" and "Showing {shown} of
-// {total} linked accounts." The default is the SAME string the catalog carries, placeholders included, so
-// the only question was whether anything filled them, and on this path nothing did. Found by the arm in
-// tools/ui-account-filter.js, which drives the renderer with no localization module loaded at all - which
-// is precisely the state this branch describes.
-//
-// The substitution is written here rather than imported because this is the branch where the module is
-// ABSENT; reaching into it for the helper is the one thing this path cannot do. An absent parameter is
-// left as it stands, exactly as i18n.js does, so a mismatched call never drops text.
+// Localized text for a catalog key, falling back to the English default the call site carries.
+// The fallback fills placeholders too, so a page without the catalog never shows raw braces (#1529).
+// The substitution is inlined because this is the branch where the i18n module is absent.
 function tr(key, englishDefault, params) {
   if (i18n) {
     return i18n.t(key, params, englishDefault);
@@ -31,21 +19,12 @@ function tr(key, englishDefault, params) {
   );
 }
 
-// What the tracked controls of a page held the last time it was read (#1572), keyed on the page element.
-// The unsaved-changes state is the difference between this and what they hold now; markPageClean is the
-// only writer, and what that means is argued where it is defined. Weak, so a view the dashboard discards
-// takes its entry with it, and module-scope rather than an attribute because a 123-control signature is
-// this module's bookkeeping and not a fact about the page.
+// What the tracked controls of each page held when last marked clean (#1572), keyed on the page element.
+// markPageClean is the only writer; weak so a discarded view takes its entry with it.
 const pageBaselines = new WeakMap();
 
-// Builds a customized built-in the way BOTH clients accept (#1607). The options form is what upgrades
-// the element on 10.11, and the Jellyfin 12 client REFUSES that argument outright: createElement throws
-// `t.toLowerCase is not a function` for any `is` value, a registered name and an invented one alike, and
-// that client registers no emby-* element at all. The throw landed before the first row existed, so every
-// library checklist on the provider page came up empty and a save then wrote the empty set over the
-// provider's folder restriction. The fallback carries the `is` attribute, which both clients take and
-// which every call site sets on the next line anyway; what it gives up on 10.11 is nothing, because the
-// upgrading form is tried first and only a client that refuses it ever reaches the second line.
+// Creates a customized built-in element in a way both the 10.11 and the Jellyfin 12 client accept (#1607).
+// The Jellyfin 12 client throws on the options form, so the plain form is the fallback and callers set `is`.
 function customizedBuiltIn(tag, is) {
   try {
     return document.createElement(tag, { is });
@@ -54,33 +33,20 @@ function customizedBuiltIn(tag, is) {
   }
 }
 
-// Settles a promise without deciding anything about it. Used where a load has to WAIT for a request
-// whose failure it deliberately does not act on - the checklist fills the baseline waits for, and the
-// configuration read of a refresh, which leaves the page showing what it last read.
+// Settles a promise without acting on it, for loads that wait on a request whose failure they ignore.
 const noop = () => {};
 
-// The Jellyfin account routing that a revoke restores (#1121). The Unregister endpoint PERSISTS
-// whatever the caller sends here onto the account, so a wrong string does not fail the request: it routes
-// that account to core's InvalidAuthenticationProvider, which refuses every password, and nothing on this
-// page would report it. The literal is pinned here and compared against
-// SsoAuthenticationProviders.DefaultPasswordProviderId by LinkedAccountsRevoke_PostsThePinnedPasswordProviderId,
-// so the page and the server cannot drift apart (#837 pinned the server side for the same reason).
+// The Jellyfin account routing a revoke restores (#1121). The server persists whatever is sent, so a wrong
+// value routes the account to a provider that refuses every password; a test pins it to the server (#837).
 const DEFAULT_PASSWORD_PROVIDER_ID =
   "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider";
 
-// Provider templates (#726): the single source of truth for the "Start from a template" pickers.
-// Applying a preset writes ONLY into existing marker-classed fields by their id (OpenID: the property
-// name; SAML: "saml-" + the property name) and pre-checks ONLY the compatibility toggles a given IdP
-// genuinely needs. Presets are plain data so they are trivial to extend and to lock in with a fitness
-// test (ProviderPresets_* in ArchitectureConformanceTests): every `fields` key / `toggles` entry must be
-// a real config property, no preset may fill a secret, and toggles may only pre-check a known
-// compatibility toggle. `fields` values are non-secret placeholders: endpoints use an example host and
-// UPPERCASE tokens the admin replaces (realm/tenant/domain), never a hard-coded production host, so they
-// never go stale. OidScopes holds the ADDITIONAL scopes only (one per line); the server always prepends
-// "openid profile", so a preset lists just what a provider needs on top (e.g. "email", or "email\ngroups"
-// where roles ride a groups scope), never "openid"/"profile" again. Every OpenID preset sets the SAME four
-// fields (blank where a provider has none), so switching templates is idempotent, and no stale value survives;
-// ProviderPresets_OidcPresetsShareTheSameFieldKeySet locks that shared-key-set invariant in.
+// Provider templates (#726) for the "Start from a template" pickers, as plain data.
+// A preset writes only into marked fields by id (SAML ids carry a "saml-" prefix), never fills a secret,
+// and pre-checks only known compatibility toggles; conformance tests lock these rules in.
+// Values are placeholders with UPPERCASE tokens to replace. OidScopes lists only the scopes beyond the
+// "openid profile" the server always adds. Every OpenID preset sets the same four fields, so switching
+// templates leaves no stale value.
 const OIDC_PRESETS = {
   keycloak: {
     label: "Keycloak",
@@ -225,11 +191,8 @@ const SAML_PRESETS = {
   },
 };
 
-// The compatibility/insecure toggles a preset is ALLOWED to pre-check. A preset never pre-checks a
-// fail-closed HARDENING toggle (RequirePkce, RequireVerifiedEmail*, RequireAcr, SAML ValidateRecipient/
-// ValidateInResponseTo/SignAuthnRequests), because enabling those is a deliberate admin decision, and silently
-// turning them on could lock out a not-yet-ready IdP. This set is also what applyOidcPreset/applySamlPreset
-// clear before applying, so switching templates never leaves a previous preset's toggle checked.
+// The compatibility toggles a preset may pre-check, also cleared before a preset is applied.
+// Hardening toggles are never pre-checked, because turning them on could lock out an IdP that is not ready.
 const OIDC_PRESET_MANAGED_TOGGLES = [
   "DisablePushedAuthorization",
   "DoNotValidateEndpoints",
@@ -237,25 +200,19 @@ const OIDC_PRESET_MANAGED_TOGGLES = [
   "DoNotValidateResponseIssuer",
   "DisableHttps",
   "DoNotLoadProfile",
-  // Not an insecure toggle: it names the SHAPE of the RoleClaim path's terminal (#934). It is here because
-  // every preset sets RoleClaim, so leaving a previous provider's shape flag ticked while the claim path is
-  // replaced by an array-shaped one (Keycloak's realm_access.roles) would extract ZERO roles and lock the
-  // whole userbase out on the next login. Clearing is correct for every shipped preset; a future
-  // object-map preset can pre-check it from its own `toggles`; the Zitadel preset above does exactly that.
+  // Not an insecure toggle but the shape of the RoleClaim terminal (#934). Clearing it on every preset
+  // switch avoids extracting zero roles from an array-shaped claim; an object-map preset re-checks it.
   "RoleClaimIsObjectMap",
 ];
 const SAML_PRESET_MANAGED_TOGGLES = ["DoNotValidateAudience"];
 
-// The one list the readiness panel writes into (#1664). It is named once because both protocol specs
-// point at it now: a second spelling is a second place for the two forms to disagree about where the
-// answer goes, and the whole point of the move is that there is only one.
+// The one list the readiness panel writes into (#1664), shared by both protocol specs.
 const RAIL_READINESS_LIST = "sso-rail-readiness-list";
 
 const ssoConfigurationPage = {
   pluginUniqueId: "505ce9d1-d916-42fa-86ca-673ef241d7df",
-  // Toggles that disable an OpenID Connect security defense. An active one is a downgrade the admin must
-  // not miss, so loading a provider with any of these expands the "Insecure options" list and its
-  // enclosing "Security & hardening" accordion.
+  // Toggles that disable an OpenID Connect defense; loading a provider with one active expands the insecure
+  // options and their accordion.
   insecureFieldIds: [
     "DisableHttps",
     "DisablePushedAuthorization",
@@ -264,86 +221,34 @@ const ssoConfigurationPage = {
     "DoNotValidateResponseIssuer",
     "AllowPrivateNetworkAddresses",
   ],
-  // The non-insecure settings whose ENABLED state is still a downgrade / attack-surface widening, so they
-  // are surfaced the same way as the insecure toggles (card "Review" flag + auto-expand the enclosing
-  // accordion). Only AllowExistingAccountLink qualifies: turning it ON lets a first SSO login adopt (take
-  // over) a same-named local account. Deliberately EXCLUDES the fail-closed hardening toggles
-  // (RequireVerifiedEmailForAdoption, RequireVerifiedEmailForLogin, RequirePkce): those are OFF by default
-  // and enabling them makes the provider MORE secure, so flagging or force-surfacing them would be
-  // backwards and would cause alert fatigue on well-configured providers. Do not add an OFF-direction
-  // surfacing for them either: it would be noisy on the default.
+  // Settings whose enabled state widens the attack surface, surfaced like the insecure toggles.
+  // AllowExistingAccountLink lets a first SSO login adopt a same-named local account. Hardening toggles are
+  // excluded because enabling them makes a provider more secure.
   sensitiveFieldIds: ["AllowExistingAccountLink"],
-  // #1104. Which providers a declarative source decided, as the server reports them (#1102). Fetched once
-  // per configuration load and held as a promise, so an editor opened before the answer arrives still waits
-  // for it instead of rendering an editable form over a managed provider.
-  //
-  // ADVISORY ONLY. The guard is on the server: a save to a managed provider keeps the stored value and is
-  // audited whether or not this page ever learned the provider was managed. That is why an unreachable
-  // report is never read as "assume everything is managed" - that answer would lock an administrator out of
-  // every form the server would have accepted, on a page whose own report is the thing that is broken.
-  //
-  // A FAILED READ NO LONGER EMPTIES THE SET (#1589). It used to, and the emptying was the fail-open
-  // direction of the same reasoning: a 500, an expired dashboard session or a restart turned every provider
-  // a file owns into an ordinary editable form, an administrator edited it, pressed Save and was told
-  // "Settings saved." while the server kept the stored value and logged an ignored write. #1576 made that
-  // reachable on every return to a settings tab rather than once per page construction. So the last set that
-  // WAS read survives a failure, which is the only answer that is neither an invention nor a lockout: it
-  // freezes exactly what the server last said it owns and nothing else.
-  //
-  // What survives no failure is a set that was never read, and that residual is carried rather than hidden:
-  // `managedReportUnread` says the read failed, and BOTH arms of the editor then say so - an unfrozen form
-  // stops looking identical to a provider nothing owns, and a frozen one stops claiming a certainty the
-  // page has just admitted it does not have.
-  //
-  // The other cost of keeping the set is stated rather than left to be discovered: a provider REMOVED at
-  // the file source while the report is unreadable stays frozen until a read succeeds. That direction
-  // refuses a save the server would have accepted, which is one dashboard reload away from repaired and is
-  // the side of the trade this page is allowed to be wrong on.
+  // Which providers a declarative source owns, as the server reports them (#1104, #1102), held as a promise
+  // so an editor opened early waits for it. Advisory only: the server guards managed providers itself.
+  // A failed read keeps the last set read rather than emptying it (#1589), and managedReportUnread lets both
+  // editors say the report could not be read.
   managedProviders: {
     OidConfigs: [],
     SamlConfigs: [],
     ProvisioningProfiles: [],
   },
   managedProvidersLoaded: null,
-  // Whether the last managed-set read to SETTLE failed. Read by the two editors to tell "nothing owns this"
-  // apart from "this page could not find out", which are the same empty form without it.
-  //
-  // Settled rather than most recently STARTED, and the difference is deliberate. Two reads can be in flight
-  // at once - the refresh on a tab show and a save's reload - and the flag follows whichever answers last.
-  // So a rejection followed by a success clears it, which is correct: a set that was read is a set that was
-  // read. A success followed by a rejection sets it over a fresh set, which over-warns and clears itself on
-  // the next successful read. Neither ordering unfreezes anything, because the freeze is decided by the set
-  // and never by this flag.
+  // Whether the last managed-set read to settle failed, so the editors can tell "nothing owns this" apart
+  // from "this page could not find out". It never decides the freeze; the set does.
   managedReportUnread: false,
-  // The sentence an unfrozen editor carries while the report is unread, in ONE place because both editors
-  // say the same thing for the same reason. It states the residual rather than softening it: the form is
-  // editable, the page does not know whether anything owns it, and the server is still the party that
-  // decides - a save it refuses keeps the stored value and is recorded.
-  //
-  // WHY IT NAMES TWO ROUTES AND NOT "REOPEN THIS TAB". Measured: `refreshOnShow` returns early while any
-  // editor region is open, so returning to the Providers tab with the frozen editor in front of you issues
-  // no read at all - the shortest instruction would have been the one that does nothing in the state it is
-  // printed in. Closing the editor and coming back, visiting another SSO tab, and reloading the dashboard
-  // all re-read; the note names the two an administrator can act on without knowing the code.
-  //
-  // Suppressed on a form with no name - the blank add-new editor - at the call sites. Nothing owns a
-  // provider that does not exist yet, so the sentence there would be noise in a live region on every tab
-  // that has one.
+  // The note an unfrozen editor carries while the managed report is unread.
+  // It names closing the editor and reloading, because returning to the tab with an editor open issues no
+  // read. Suppressed on the blank add-new editor at the call sites.
   unreadReportNote: () =>
     tr(
       "config.managed_report_unread_note",
       "Which providers and profiles a configuration file sets could not be read, so this form is editable without confirming that nothing sets it. Close any open editor and return to this tab, or reload the dashboard, to try again. If a configuration file does set it, a save made here would keep the stored value and leave a record in the log.",
     ),
-  // What a FROZEN editor adds while the report is unread, and what the four refusals that block a rename,
-  // a delete or a profile save add for the same reason. The freeze then rests on the last answer the server
-  // gave rather than on a current one, and a message that went on asserting "this is set by a configuration
-  // file" would state a certainty this page has just recorded that it does not have. It is appended at the
-  // blocking messages as well as at the advisory notes, because a refusal is where that certainty costs
-  // something: it sends an administrator to a source that may no longer define what they are being refused.
-  // Empty while the report reads fine, so every one of those messages is unchanged in the ordinary case.
-  // The note an editor carries when it is NOT frozen, in one function so both editors and the proof ask the
-  // same question. Empty on a form with no name - the blank add-new editor - because nothing can own a
-  // provider that does not exist yet, and a live region repeating that on every tab would be noise.
+  // The note an editor carries while the report is unread: the residual for an unfrozen editor, and for a
+  // frozen one or a refusal the caveat that the freeze rests on the last answer read. Empty for a nameless
+  // add-new form and while the report reads fine.
   unreadNoteFor: (name) =>
     name && ssoConfigurationPage.managedReportUnread
       ? ssoConfigurationPage.unreadReportNote()
@@ -361,10 +266,7 @@ const ssoConfigurationPage = {
       ApiClient.getUrl("sso/Config/Managed"),
     ).then(
       (report) => {
-        // AN EMPTY REPORT AND SOMETHING THAT IS NOT THE REPORT ARE NOT THE SAME ANSWER (#1597). Each member
-        // is kept as `null` until it is seen to be a list, so the arm can tell the two apart; a report
-        // naming any one of the three is the report, whatever the other two are, because a server with no
-        // SAML provider legitimately sends an empty list for that member.
+        // Keeps each member null until it is seen to be a list, so an empty report and a non-report differ (#1597).
         const listOrNothing = (member) =>
           Array.isArray(member) ? member : null;
         const oid = listOrNothing(report && report.OidConfigs);
@@ -372,10 +274,8 @@ const ssoConfigurationPage = {
         const profiles = listOrNothing(report && report.ProvisioningProfiles);
 
         if (oid === null && saml === null && profiles === null) {
-          // A 200 carrying none of the three is a body that reached this page instead of the report - a
-          // proxy's error page that happens to parse, a version-skewed endpoint, a truncated body. Reading
-          // it as "nothing is managed" is the #1589 fail-open arriving through the arm that believes it
-          // succeeded, and it is worse there, because that arm also clears the flag that would have said so.
+          // A 200 carrying none of the three members is not the report; reading it as "nothing managed" would fail
+          // open (#1589).
           ssoConfigurationPage.managedReportUnread = true;
           return;
         }
@@ -388,17 +288,14 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.managedReportUnread = false;
       },
       () => {
-        // The set is deliberately left alone. See the note above: replacing it with an empty one is the
-        // fail-open #1589 is about, and replacing it with "everything" is the lockout.
+        // The set is left alone: emptying it fails open (#1589), filling it locks out.
         ssoConfigurationPage.managedReportUnread = true;
       },
     );
     return ssoConfigurationPage.managedProvidersLoaded;
   },
-  // The unit is the PROVIDER and not the field, which is the server's measurement rather than this page's
-  // simplification: the declarative merge replaces a named provider whole, so a field the document omits
-  // comes back at its default at the next start. A form that greyed out three fields and left the rest
-  // editable would tell the administrator the opposite of what happens.
+  // Whether a provider is declaratively managed. The unit is the whole provider, because the declarative
+  // merge replaces a named provider whole.
   isManagedProvider: (protocol, provider_name) => {
     if (!provider_name) {
       return false;
@@ -409,23 +306,18 @@ const ssoConfigurationPage = {
         : ssoConfigurationPage.managedProviders.OidConfigs;
     return Array.isArray(names) && names.indexOf(provider_name) !== -1;
   },
-  // A profile a declarative source defined (#1498). The freeze is the one a managed provider gets - the save
-  // keeps the stored value and records the ignored write - and until the report named profiles this editor
-  // printed "Saved" over a value the server had already put back.
+  // Whether a declarative source defined this profile (#1498); a save to it keeps the stored value.
   isManagedProfile: (name) => {
     const names = ssoConfigurationPage.managedProviders.ProvisioningProfiles;
     return Boolean(name) && Array.isArray(names) && names.indexOf(name) !== -1;
   },
-  // The three acts a managed profile freezes beside its policy fields. Add stays usable, because a new profile
-  // under another name is not a write to this one, and so does the selector, so the frozen policy can be read.
+  // The acts a managed profile freezes beside its policy fields; Add and the selector stay usable.
   managedProfileActs: [
     "RenameProvisioningProfile",
     "DeleteProvisioningProfile",
     "SaveProvisioningProfile",
   ],
-  // Render the profile editor as managed or as ordinary, AFTER the fill: the permission rows are created by
-  // the fill, so a pass made before it would leave every one of them editable. Always applied on both arms,
-  // so choosing an ordinary profile after a managed one restores the editor rather than leaving it frozen.
+  // Renders the profile editor as managed or ordinary, after the fill that creates the permission rows.
   applyManagedProfileState: (page, name) => {
     const pending =
       ssoConfigurationPage.managedProvidersLoaded || Promise.resolve();
@@ -451,22 +343,17 @@ const ssoConfigurationPage = {
       ].forEach((element) => {
         if (element) {
           element.disabled = managed;
-          // The freeze's own record of why (#1572). The Save gate reads it rather than remembering what
-          // it disabled: two owners writing one boolean cannot compose, and the direction that fails is
-          // the gate handing a frozen Save back. Written by the party that knows.
+          // Records why the control is frozen, for the Save gate to read (#1572).
           element.dataset.ssoManaged = managed ? "true" : "";
         }
       });
 
-      // The freeze runs as a microtask, so on the paths that call it after the gate - addProvider,
-      // addSamlProvider, a profile selected while the report was in flight - it writes `disabled`
-      // directly and clears whatever the gate had just decided. Re-asserting here is what makes the
-      // composition hold in BOTH orders rather than in the one that happened to be tested (#1572).
+      // Re-asserts the Save gate, since the freeze may run after it and overwrite `disabled` (#1572).
       ssoConfigurationPage.updateSaveAvailability(page);
 
       const note = page.querySelector("#profile-managed-note");
       if (note) {
-        // Set as text only (#221). Both texts are fixed and carry no profile value.
+        // Set as text only (#221).
         note.textContent = managed
           ? tr(
               "config.managed_profile_note",
@@ -477,8 +364,7 @@ const ssoConfigurationPage = {
       }
     });
   },
-  // The controls that stay usable on a managed provider: they read, they never write a provider field, and
-  // they are the ones an administrator most needs while diagnosing a provider they cannot edit here.
+  // Controls that stay usable on a managed provider: they read and never write a provider field.
   managedReadOnlyActions: [
     "TestProvider",
     "CopyRedirectUri",
@@ -486,10 +372,7 @@ const ssoConfigurationPage = {
     "saml-CopyAcsUrl",
     "saml-CopyMetadataUrl",
   ],
-  // Render the open editor as managed or as ordinary. Applied AFTER the provider has been loaded, because
-  // the role-map and folder-list widgets create their controls during that load and a pass made before it
-  // would leave every one of them editable. Always applied on both arms, so switching from a managed
-  // provider to an ordinary one restores the form rather than leaving it frozen.
+  // Renders the open editor as managed or ordinary, after the load that creates the widget controls.
   applyManagedState: (page, protocol, provider_name) => {
     const formId =
       protocol === "saml" ? "sso-new-saml-provider" : "sso-new-oidc-provider";
@@ -504,8 +387,7 @@ const ssoConfigurationPage = {
     const pending =
       ssoConfigurationPage.managedProvidersLoaded || Promise.resolve();
     return pending.then(() => {
-      // The editor may have moved on while the report was in flight. The selector is the state holder the
-      // save path already reads, so comparing against it is comparing against what would actually be saved.
+      // The editor may have moved on while the report was in flight; the selector is what a save reads.
       const selectorId =
         protocol === "saml" ? "#saml-selectProvider" : "#selectProvider";
       const selector = page.querySelector(selectorId);
@@ -528,18 +410,15 @@ const ssoConfigurationPage = {
             return;
           }
           element.disabled = managed;
-          // The freeze's own record of why (#1572), read by the Save gate. See the same line in
-          // applyManagedProfileState for the reason it is written here rather than remembered there.
+          // Records why the control is frozen, for the Save gate to read (#1572).
           element.dataset.ssoManaged = managed ? "true" : "";
         });
 
-      // Same reason as applyManagedProfileState: this pass lands after the gate on the add paths and
-      // writes `disabled` directly, so the gate is re-asserted once the freeze has had its say.
+      // Re-asserts the Save gate, since the freeze may run after it and overwrite `disabled` (#1572).
       ssoConfigurationPage.updateSaveAvailability(page);
 
       if (note) {
-        // textContent, never innerHTML (#221). Both texts are fixed and carry no provider value, so nothing
-        // from the configuration reaches the DOM here at all.
+        // textContent, never innerHTML (#221).
         note.textContent = managed
           ? tr(
               "config.managed_by_file_note",
@@ -550,15 +429,8 @@ const ssoConfigurationPage = {
       }
     });
   },
-  // Whether the server is running on a default configuration because it could not read the stored one
-  // (#1543). Read from the aggregate check, which is the report that already answers "would a login work"
-  // - and on such a server the answer is no for a reason no provider row can carry, because there are no
-  // provider rows. Without this the page would show an empty workspace and read as "nothing configured"
-  // to an operator whose providers are on disk in a file the server refused.
-  //
-  // Fail QUIET rather than fail loud: a check that cannot be fetched leaves the banner hidden. The state it
-  // reports is already an Error line in the server log and a 503 on every SSO sign-in, so a page that
-  // cannot reach the server is not the surface to invent an alarm on.
+  // Shows whether the server is running on defaults because it could not read the stored configuration
+  // (#1543). Fails quiet: an unreachable check leaves the banner hidden.
   showUnreadableConfigurationNotice: (page) => {
     const notice = page.querySelector("#sso-unreadable-config");
     if (!notice) {
@@ -581,40 +453,19 @@ const ssoConfigurationPage = {
         notice.hidden = true;
       });
   },
-  // ONE load path for five pages since #1527, and every section it fills is gated on that section being
-  // in front of it. The gate is the presence of the section's own control rather than a page name: a
-  // page is identified by what it holds, so moving a section between tabs moves its load with it and
-  // this function does not have to learn the new arrangement. What it must never become is a load that
-  // SKIPS a section the page does have - so each test names the exact control the branch below writes
-  // to, not a container that could survive the control being dropped.
-  //
-  // `options.refreshing` marks the ONE caller that is re-running this against a page an administrator is
-  // already looking at - the return to a tab, #1576 - and it changes two things and nothing else. The
-  // library checklists are not repopulated, because only `loadProvider` ticks them and nothing here would
-  // put the ticks back; and the write is re-gated on the page still being replaceable, because the
-  // decision to refresh was taken before this fetch went out. Every other caller is a save, a delete or
-  // an import that has just changed the stored configuration and is reading it back, and those replace
-  // the page unconditionally as they always have.
+  // Loads the stored configuration into whichever sections the page holds, one load path for all pages
+  // (#1527). Each section is gated on the control it writes to.
+  // `options.refreshing` marks a return to a tab (#1576): the library checklists are not repopulated, and
+  // the write is skipped if the page is no longer replaceable.
   loadConfiguration: (page, options) => {
     const refreshing = Boolean(options && options.refreshing);
-    // Refreshed with the configuration itself: a provider that stopped being declaratively managed between
-    // two loads must not keep a frozen form, and one that started being managed must not keep an open one.
+    // Refreshed with the configuration, so a provider's managed state follows the server.
     ssoConfigurationPage.loadManagedProviders();
-    // Same refresh reason: a save or an import ends the serve-defaults state, so the banner has to be
-    // re-asked rather than left standing from the load that found it. It is on every page, because the
-    // statement it makes - that the settings in front of you are not this server's - is true of all five.
+    // Re-asked on every load, since a save or import ends the serve-defaults state.
     ssoConfigurationPage.showUnreadableConfigurationNotice(page);
 
-    // NOT ON A REFRESH, and this is the guard that keeps a returning tab from costing users their
-    // libraries (#1576). populateFolders rebuilds the checklist from Library/MediaFolders with nothing
-    // ticked; loadProvider is what ticks it, and a refresh does not run loadProvider. Skipping it is
-    // safe because both checklists live inside an editor, a refresh only happens with every editor
-    // closed, and opening one runs loadProvider - which is where the ticks come from either way. What
-    // it costs is a media library added while the dashboard has been left open on this tab: the
-    // checklist is the one this load put there, until the next save, import or reload of the page.
-    //
-    // Issued BEFORE the configuration request rather than after it, because the baseline below waits on
-    // all three and the order they go out in is the order they tend to come back in.
+    // Not on a refresh (#1576): repopulating would clear the ticks that only loadProvider restores.
+    // Issued before the configuration request, since the baseline below waits on all three.
     const folderFills = [];
     if (!refreshing) {
       const folder_container = page.querySelector("#EnabledFolders");
@@ -624,7 +475,7 @@ const ssoConfigurationPage = {
         );
       }
 
-      // The SAML editor has its own available-folders checklist; populate it too (#725).
+      // The SAML editor has its own available-folders checklist (#725).
       const saml_folder_container = page.querySelector("#saml-EnabledFolders");
       if (saml_folder_container) {
         folderFills.push(
@@ -636,93 +487,59 @@ const ssoConfigurationPage = {
     const load = ApiClient.getPluginConfiguration(
       ssoConfigurationPage.pluginUniqueId,
     ).then((config) => {
-      // THE SECOND ASKING, and the whole answer to the check-then-act the review refused (#1576). The
-      // refresh decided to run before this request went out; an administrator can open an editor or
-      // type into a control while it is in flight, and every line below writes a control. So the
-      // question is put again HERE, at the last moment before the first write, and a refresh that has
-      // been overtaken does nothing at all rather than overwriting what arrived.
+      // Asks again right before the first write, since an editor may have opened while this was in flight (#1576).
       if (refreshing && !ssoConfigurationPage.mayReplacePageContents(page)) {
         return;
       }
       // The two provider workspaces (Providers). Both or neither: they are one tab.
       if (page.querySelector("#selectProvider")) {
         ssoConfigurationPage.populateProviders(page, config.OidConfigs);
-        // Refresh the SAML workspace from the same configuration load (#725), so a SAML save/delete/import
-        // reloads its provider list exactly as the OpenID one does.
+        // Refreshes the SAML provider list from the same load (#725).
         ssoConfigurationPage.populateSamlProviders(
           page,
           config.SamlConfigs || {},
         );
       }
-      // The GLOBAL login-page buttons opt-in (#722) rides the same configuration load. It is a root
-      // PluginConfiguration flag, not a provider field, so it has the Server page's save path (saveServerSettings)
-      // and no sso-* marker class. On the Server tab since #1527.
+      // The global login-page buttons opt-in (#722), a root flag saved by saveServerSettings.
       const manage_buttons = page.querySelector("#ManageLoginPageButtons");
       if (manage_buttons) {
         manage_buttons.checked = Boolean(config.ManageLoginPageButtons);
-        // What this switch was FILLED with, so the save can tell a switch the administrator moved from
-        // one they never touched (#1572). See saveServerSettings for why that distinction is the whole
-        // difference between one Save and one lost update.
+        // What the switch was filled with, so the save can tell a moved switch from an untouched one (#1572).
         manage_buttons.dataset.ssoLoaded = String(manage_buttons.checked);
       }
 
-      // The GLOBAL Single Logout opt-in (#727) rides the same configuration load. Like
-      // ManageLoginPageButtons it is a root PluginConfiguration flag, not a provider field, so it has its
-      // own save path (saveServerSettings, together with the flag above) and no sso-* marker class.
+      // The global Single Logout opt-in (#727), a root flag saved by saveServerSettings.
       const single_logout = page.querySelector("#EnableSingleLogout");
       if (single_logout) {
         single_logout.checked = Boolean(config.EnableSingleLogout);
         single_logout.dataset.ssoLoaded = String(single_logout.checked);
       }
 
-      // The GLOBAL provisioning profile set (#1105) rides the same configuration load, for the
-      // reason the two flags above do: it is a root PluginConfiguration member with its own save
-      // path. Doing it here means every existing save, delete and import route refreshes the
-      // editor and both provider-form selectors without knowing that they exist. Since #1527 the
-      // editor is on Policies and the two provider-form selectors are on Providers, so this runs on
-      // both tabs and fills whichever half is there.
+      // The global provisioning profile set (#1105), a root member filled here so every save, delete and import
+      // refreshes the profile editor and the provider-form selectors on whichever tab holds them (#1527).
       ssoConfigurationPage.populateProvisioningProfiles(page, config);
 
-      // The Overview tab reads the same configuration rather than a second endpoint, so what it says
-      // about a provider and what the editor shows for it cannot come apart.
+      // Overview reads the same configuration, so it cannot disagree with the editor.
       ssoConfigurationPage.renderOverviewFrom(page, config);
 
-      // The Save gate is re-run against the values just filled in. The BASELINE is taken below rather
-      // than here, because this is one of the load's three requests and not the whole of it.
+      // Re-runs the Save gate against the filled values; the baseline is taken once the whole load settles.
       ssoConfigurationPage.updateSaveAvailability(page);
 
-      // THE BASELINE COVERS THE WHOLE LOAD, AND TAKING IT HERE ALONE WAS A DEFECT THE REVIEW
-      // REPRODUCED AGAINST THE SHIPPED FILE (#1576). A load is three requests: the two checklists are
-      // filled by their own, and each appends one ID-LESS checkbox per media library that
-      // controlSignature counts. Whenever the configuration answered first, the baseline was taken
-      // before those controls existed and nothing corrected it, so the Providers page differed from
-      // its own baseline for the life of the view. Under #1572 that was invisible, because only a user
-      // event consulted the comparison. Under the refresh it decides everything: the tab would have
-      // refused to re-read for good, and would have asserted unsaved changes on a page nobody had
-      // touched - training away the one indicator that says a real edit is about to be lost.
-      //
-      // A rejected checklist read settles here too, so a failed fill cannot leave the page with no
-      // baseline at all - which pageDiffersFromBaseline reads as edited, and which would refuse every
-      // refresh from then on. What that read leaves behind is a checklist with no rows, and what a
-      // save then writes for it is its own defect on a different path; it is #1587 rather than this.
+      // Takes the baseline after all three requests settle, since the checklists add id-less rows the signature
+      // counts (#1576). A rejected checklist read settles too, so the page is never left without a baseline
+      // (the empty checklist it leaves is #1587).
       return Promise.all(folderFills.map((fill) => fill.then(noop, noop))).then(
         () => ssoConfigurationPage.markPageClean(page),
       );
     });
 
-    // A refresh that could not read the configuration leaves the page showing what it last read, which
-    // is what a failed refresh should leave. Attached ONLY for the refresh: every other caller has just
-    // written something and is reading it back, and its failure is not this function's to swallow.
+    // A failed refresh leaves the page showing what it last read; other callers keep their rejection.
     if (refreshing) {
       load.then(noop, noop);
     }
   },
-  // WHICH PROVIDER THE PAGE IS ABOUT, NAMED BEFORE THE READS A SAVE ISSUES (#1710). A provider saved
-  // for the first time has no option under the selector yet, and a select assigned a value no option
-  // carries reads as empty. populateProviders then preserves that empty string (#1696), both loaders drop
-  // their reply for it (#1693), and the one read that fills the redirect URI after a save never runs -
-  // so the wizard's third step refused the provider it had just saved. Adding the option first makes the
-  // assignment take; the configuration read that follows replaces it with the served set, value intact.
+  // Adds an option for a provider saved for the first time, so the selector names it before the reads a
+  // save issues (#1710, #1696, #1693).
   nameSelectedProvider: (page, selectorId, provider_name) => {
     const select = page.querySelector(selectorId);
     const held = [...select.querySelectorAll("option")].some(
@@ -736,22 +553,14 @@ const ssoConfigurationPage = {
   populateProviders: (page, providers) => {
     const select = page.querySelector("#selectProvider");
 
-    // WHICH PROVIDER THE PAGE IS ABOUT SURVIVES THE RE-POPULATE (#1693). The comment below
-    // calls this selector the state holder the save path reads, and a browser empties
-    // `value` the moment the selected `<option>` is removed - re-adding an option with the
-    // same value does not restore the selection. So a read of the configuration landing after
-    // a save silently took the page's own record of its subject away, and everything that
-    // compares against it - applyManagedState, and since #1693 both loaders - then compared
-    // against the empty string. Read before, restored after, with no branch: assigning a
-    // value no option carries leaves it empty, which is what it would have been anyway.
+    // Keeps the selected provider across the re-populate (#1693): removing the selected option empties
+    // `value`, and re-adding one does not restore it.
     const chosen = select.value;
 
     // Clear providers in case there are out of date ones
     select.querySelectorAll("option").forEach((option) => option.remove());
 
-    // Add providers as options for the (hidden) selector. The selector is retained as the state holder the
-    // save path already reads (saveProvider sets its value after a save); the visible affordance is the card
-    // list rendered below.
+    // The hidden selector stays the state holder the save path reads; the cards below are the visible list.
     Object.keys(providers).forEach((provider_name) => {
       select.appendChild(new Option(provider_name, provider_name));
     });
@@ -759,9 +568,7 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.renderProviderCards(page, providers);
   },
-  // Render the provider LIST as cards (#365). Built with createElement/textContent (never innerHTML) so a
-  // provider name is inert on the page (a name like `<img onerror=...>` cannot inject markup), mirroring
-  // _populateFolders and the linking view (#221). Clicking a card loads that provider into the editor.
+  // Renders the provider list as cards (#365), built with textContent so a provider name stays inert (#221).
   renderProviderCards: (page, providers) => {
     const list = page.querySelector("#sso-provider-list");
     const empty = page.querySelector("#sso-provider-empty");
@@ -797,10 +604,7 @@ const ssoConfigurationPage = {
 
       card.append(name, badge, pill);
 
-      // Flag a provider that carries an active insecure / sensitive setting, so an admin sees the downgrade
-      // in the list without opening the editor (the setting itself lives behind the collapsed
-      // "Security & hardening" accordion). Presentation only: the flag reads from the saved config and
-      // changes nothing.
+      // Flags a provider with an active insecure or sensitive setting, read from the saved config.
       const flagged = ssoConfigurationPage.insecureFieldIds
         .concat(ssoConfigurationPage.sensitiveFieldIds)
         .some((id) => Boolean(provider[id]));
@@ -819,22 +623,8 @@ const ssoConfigurationPage = {
       list.appendChild(card);
     });
   },
-  // ONE WORKSPACE AT A TIME (#1527), and the two lines that enforce it are here and at showSamlEditor.
-  //
-  // This page carries two protocol editors side by side and each one has its own Save. Opening one while
-  // the other is open put BOTH on the screen, under a single page-wide unsaved-changes notice that cannot
-  // say which of the two it is about - so the reader is shown two buttons and told, once, that something
-  // is unsaved. Read off a live Jellyfin 12 during the stage-1 walk: an OpenID provider opened beside a
-  // SAML one gave a 21163px page carrying #SaveProvider and #saml-SaveProvider at the same time.
-  //
-  // CLOSING THE OTHER ONE RATHER THAN REFUSING TO OPEN THIS ONE, because opening an editor is ALREADY an
-  // act that discards: openProvider and addProvider both call resetEditor before they fill, so switching
-  // provider within a protocol drops whatever was typed and marks the page clean again. Crossing the
-  // protocol boundary is the same act and now behaves the same way, rather than being the one direction
-  // that quietly keeps a second form alive.
-  //
-  // Both editors ship in the same markup - providersPage.html is the only page that declares either - so
-  // the sibling lookup is as safe as the one on the line below it, and a page missing one is missing both.
+  // Shows the OpenID editor and closes the SAML one, so only one workspace and one Save is open (#1527).
+  // Closing discards like any editor switch, since opening an editor already resets it.
   showEditor: (page) => {
     ssoConfigurationPage.hideSamlEditor(page);
     page.querySelector("#sso-editor").hidden = false;
@@ -847,31 +637,22 @@ const ssoConfigurationPage = {
   setEditorTitle: (page, title) => {
     page.querySelector("#sso-editor-title").textContent = title;
   },
-  // Load a card into the editor and reveal it. resetEditor gives a CLEAN SLATE first (the same way
-  // addProvider does) so no field, toggle, or collapse state from the previously loaded provider can bleed
-  // into this one: a text/array field the target provider does not set must not keep the previous
-  // provider's value, or a later save would silently persist it (e.g. repoint OidEndpoint with no edit).
-  // loadProvider then fills the target provider's actual values on top and re-syncs visibility at its tail.
+  // Loads a card into a freshly reset editor, so no value from the previous provider survives into a save.
   openProvider: (page, provider_name) => {
     page.querySelector("#selectProvider").value = provider_name;
     ssoConfigurationPage.resetEditor(page);
     ssoConfigurationPage.clearValidationErrors(page);
     ssoConfigurationPage.renderSaveStatus(page, "");
-    // The page-level region still holds the outcome of the last delete, which was about a provider that
-    // is gone (#1572). Opening another one is a new act, so it starts with nothing asserted.
+    // Clears the outcome of the last delete, which was about another provider (#1572).
     ssoConfigurationPage.renderPageStatus(page, "");
     ssoConfigurationPage.setEditorTitle(page, provider_name);
     ssoConfigurationPage.showEditor(page);
     ssoConfigurationPage.loadProvider(page, provider_name);
-    // Opening an editor is a read, not an edit: whatever the previous provider left behind is gone with
-    // resetEditor, and loadProvider marks the page clean again once its own fill lands (#1572). This call
-    // covers the window before that, so a Save is never live over a half-reset form.
+    // Opening is a read, so the page is clean until loadProvider re-marks it after its fill (#1572).
     ssoConfigurationPage.markPageClean(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
   },
-  // Open a blank editor for a NEW provider. Every toggle is reset OFF (fail closed), the same security
-  // posture loadProvider enforces when switching providers, so a stale insecure toggle from a previous
-  // edit can never be carried into a new provider and silently saved.
+  // Opens a blank editor for a new provider with every toggle off (fail closed).
   addProvider: (page) => {
     page.querySelector("#selectProvider").value = "";
     ssoConfigurationPage.resetEditor(page);
@@ -883,12 +664,10 @@ const ssoConfigurationPage = {
       tr("config.new_provider", "New provider"),
     );
     ssoConfigurationPage.syncDependentFields(page);
-    // A new provider is never managed - no source has named it yet - so this arm exists to RESTORE a form
-    // left frozen by a managed provider opened just before (#1104).
+    // A new provider is never managed; this restores a form a managed provider left frozen (#1104).
     ssoConfigurationPage.applyManagedState(page, "oid", "");
     ssoConfigurationPage.showEditor(page);
-    // A blank editor holds nothing anybody typed, so the page is clean and its Save is closed until the
-    // three required fields carry a value (#1572).
+    // A blank editor is clean, and its Save stays closed until the required fields are filled (#1572).
     ssoConfigurationPage.markPageClean(page);
     page.querySelector("#sso-editor").scrollIntoView({ block: "start" });
     page.querySelector("#OidProviderName").focus();
@@ -896,9 +675,7 @@ const ssoConfigurationPage = {
   resetEditor: (page) => {
     const form_elements = ssoConfigurationPage.listArgumentsByType(page);
 
-    // A Test Connection result belongs to the provider it was run against (#1083). Clearing it here means
-    // the next provider opened reads as "not yet tested" rather than inheriting a verdict about a
-    // different endpoint.
+    // A Test Connection result belongs to the provider it ran against (#1083).
     ssoConfigurationPage.readinessTestState.oid = null;
 
     page.querySelector("#OidProviderName").value = "";
@@ -927,26 +704,21 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.fillProvisioningTemplate(page, "", null, null);
 
-    // Clean slate for progressive disclosure and collapse state, so a previous provider's expanded danger
-    // zone / accordion state cannot bleed into the next provider. Collapse the "Insecure options" list,
-    // return every editor accordion to its authored default (data-expanded), then re-sync the
-    // reveal-on-toggle groups now that every controlling toggle is off. loadProvider (openProvider) and the
-    // explicit syncDependentFields (addProvider) re-expand only what the loaded/new provider actually needs.
+    // Resets the insecure list and every editor accordion to their defaults, then re-syncs the reveal groups,
+    // so no expanded state bleeds into the next provider.
     ssoConfigurationPage.setInsecureOptionsExpanded(page, false);
     ssoConfigurationPage.resetEditorSections(page);
     ssoConfigurationPage.syncDependentFields(page);
     // Clear the computed redirect URI back to its placeholder for the fresh/blank editor (#724).
     ssoConfigurationPage.updateRedirectUri(page);
-    // Reset the template picker + its note so opening/adding a provider never shows a stale template (#726).
+    // Reset the template picker and its note so a provider never shows a stale template (#726).
     const oidPreset = page.querySelector("#OidPreset");
     if (oidPreset) {
       oidPreset.value = "";
     }
     ssoConfigurationPage.renderPresetNote(page, "OidPreset-note", "");
   },
-  // Return every accordion section INSIDE the editor to its authored default collapse state (the sections
-  // with data-expanded="true" open, the rest, including "Security & hardening", collapsed). Scoped to
-  // #sso-editor so the page-level About / Export collapses are untouched.
+  // Returns every accordion inside the editor to its authored default state (data-expanded).
   resetEditorSections: (page) => {
     const editor = page.querySelector("#sso-editor");
     if (!editor) {
@@ -959,12 +731,8 @@ const ssoConfigurationPage = {
       );
     });
   },
-  // Drive an emby-collapse to a definite expanded/collapsed state. The host component tracks its open state
-  // as the boolean `expanded` PROPERTY on its `.collapseContent` element and flips it by a click of the
-  // generated `.emby-collapsible-button` (its own click handler runs the slide + hide-class toggle). We read
-  // that property and click only when it differs from the target, so this is idempotent: clicking an
-  // already-open section would wrongly collapse it. Null-guarded so it degrades to a no-op (rather than
-  // throwing) if the section has not been upgraded yet or the host markup changes.
+  // Drives an emby-collapse to a given state by clicking its button only when `expanded` differs, so it is
+  // idempotent. A no-op on markup that is not upgraded yet.
   setCollapseExpanded: (section, expanded) => {
     const button = section.querySelector(".emby-collapsible-button");
     const content = section.querySelector(".collapseContent");
@@ -982,10 +750,8 @@ const ssoConfigurationPage = {
     }
     ssoConfigurationPage.setCollapseExpanded(section, expanded);
   },
-  // Keep reveal-on-toggle groups in sync with their controlling checkbox. Presentation ONLY: it toggles the
-  // `hidden` attribute on wrapper elements and never mutates a field's value or `.checked`, so every marked
-  // field stays in the DOM and serializable (the hide-not-remove invariant, #365). The save path enumerates
-  // the fields with querySelectorAll regardless of whether their group is hidden.
+  // Shows or hides a reveal-on-toggle group for its checkbox. Presentation only: fields stay in the DOM and
+  // serializable (#365).
   setDependent: (page, checkboxId, groupId, revealWhenChecked) => {
     const checkbox = page.querySelector("#" + checkboxId);
     const group = page.querySelector("#" + groupId);
@@ -1017,13 +783,8 @@ const ssoConfigurationPage = {
       true,
     );
 
-    // Surface active insecure / sensitive settings so an admin cannot miss that a security defense is
-    // disabled or an account-adoption path is widened. The "Security & hardening" accordion is collapsed by
-    // default, and the insecure toggles are additionally behind a "Show insecure options" list, so a
-    // downgrade on a loaded provider would otherwise be invisible behind two collapsed layers. Expand BOTH
-    // the enclosing accordion section AND, for the insecure subset, the inner list. Expand-only: it never
-    // AUTO-HIDES a set option; resetEditor returns the section to its default when switching to a provider
-    // that has none.
+    // Expands the security accordion, and the insecure list for insecure toggles, when an active downgrade
+    // would otherwise hide behind collapsed layers. Expand only; resetEditor restores the defaults.
     const isChecked = (id) => {
       const el = page.querySelector("#" + id);
       return Boolean(el && el.checked);
@@ -1042,16 +803,10 @@ const ssoConfigurationPage = {
       );
     }
 
-    // A load ticks boxes without dispatching anything, so the count is refreshed here as well as from
-    // the delegated listener. It walks every fold on the page, so either protocol's re-sync answers
-    // for both.
+    // A load ticks boxes without events, so the fold counts are refreshed here for both protocols.
     ssoConfigurationPage.refreshOptionFoldCounts(page);
   },
-  // The insecure options are a native fold now (#1666), so opening one is setting `open` and the
-  // expanded state is the element's own. What went with the button it replaced is a whole class of
-  // disagreement: an `aria-expanded` this code had to keep in step with a `hidden` it set elsewhere,
-  // and a label it swapped between two catalogue strings. The toggles are still in the DOM when the
-  // fold is closed - `<details>` keeps its content in the form - so they serialize exactly as before.
+  // Opens or closes the insecure options fold, a native `<details>` since #1666.
   setInsecureOptionsExpanded: (page, expanded) => {
     const fold = page.querySelector("#sso-insecure-options");
     if (!fold) {
@@ -1059,9 +814,7 @@ const ssoConfigurationPage = {
     }
     fold.open = expanded;
   },
-  // On-blur inline validation (#365). These are pre-emptive WARNINGS that mirror the server's fail-closed
-  // checks, surfaced beside the field before the round-trip; they never block the save (the server remains
-  // the authority), so a false positive cannot lock an admin out of saving.
+  // On-blur inline warnings that mirror the server's checks (#365); they never block the save.
   clearValidationErrors: (page) => {
     [
       "OidProviderName",
@@ -1181,9 +934,7 @@ const ssoConfigurationPage = {
       );
       return;
     }
-    // The base URL is the origin plus Jellyfin's path base when it runs under one - the server keeps
-    // that path (#1712) - and never the plugin's own /sso/... route, a query or a fragment: an address
-    // pasted from the redirect URI would put /sso/... in front of every URL derived from it.
+    // Allows a path base (#1712) but not a plugin route, a query or a fragment.
     if (url.search || url.hash || ssoConfigurationPage.isPluginRoute(url)) {
       ssoConfigurationPage.setFieldError(
         page,
@@ -1197,8 +948,7 @@ const ssoConfigurationPage = {
     }
     ssoConfigurationPage.setFieldError(page, "BaseUrlOverride", "");
   },
-  // Whether a URL's path is one of the plugin's own routes rather than a path base: /sso alone or any
-  // path below it, case-insensitively, because the server matches its routes that way.
+  // Whether a URL's path is /sso or below it, case-insensitively like the server's routes.
   isPluginRoute: (url) => /^\/sso(\/|$)/i.test(url.pathname),
   validateProviderName: (page) => {
     const value = page.querySelector("#OidProviderName").value;
@@ -1210,8 +960,8 @@ const ssoConfigurationPage = {
       );
       return;
     }
-    // Mirror the server's fail-closed name checks (#336/#360) so they surface before the round-trip.
-    // Control characters are detected by code point (not a regex escape) to keep this source ASCII-only.
+    // Mirrors the server's name checks (#336/#360). Control characters are found by code point to keep this
+    // source ASCII-only.
     const hasControlChar = [...value].some((ch) => {
       const code = ch.charCodeAt(0);
       return code < 0x20 || code === 0x7f;
@@ -1242,87 +992,28 @@ const ssoConfigurationPage = {
     }
     ssoConfigurationPage.setFieldError(page, "OidProviderName", "");
   },
-  // ---- The unsaved-changes state (#1572) ----
-  //
-  // WHAT IT IS FOR, AND WHY THE THREE THINGS BELOW ARE ONE THING. The dashboard keeps three views alive
-  // and hands a cached one back rather than building it again, so a tab returned to has NOT re-run its
-  // controller and still shows whatever it last loaded. #1527 made Overview re-read on every show and
-  // left the other four alone deliberately, because re-reading them re-fills form controls and would
-  // silently discard an edit an administrator had made and not yet saved. Knowing whether the page is
-  // dirty is exactly what makes the safe re-read possible, and it is the same state the indicator needs
-  // and the same state the Save gate needs - so the three arrive together rather than this being built
-  // three times or the refresh being built on a guess.
-  //
-  // THE EVENT IS THE TRIGGER AND THE VALUES ARE THE AUTHORITY, AND THE FIRST DRAFT HAD IT THE OTHER WAY
-  // ROUND. That draft marked the page dirty on an `input` or `change` whose `isTrusted` was true, on the
-  // reasoning that this page's own fills write `.value` and `.checked` directly and fire nothing. The
-  // reasoning was about THIS file and the controls are the host's. Two of them dispatch their own
-  // synthetic events, which carry `isTrusted` false, and both were measured in jellyfin-web rather than
-  // supposed: `emby-checkbox` toggles `checked` and dispatches a bubbling `CustomEvent('change')` when
-  // the control is operated from the KEYBOARD, and `emby-select` dispatches `new Event('change', {
-  // bubbles: false })` when its value is set through the action sheet. Under the first draft a keyboard
-  // user could change every switch on the Server page, have the page go on reading as clean, and lose
-  // the lot to the re-read on the next return to the tab - the exact failure this state exists to stop,
-  // aimed at the people least able to work around it.
-  //
-  // So an event only asks the question, and what answers it is a comparison of the tracked controls
-  // against what the last fill left on them. That is correct whoever dispatched the event and whatever
-  // flag it carries: a fill that fires an event compares equal and stays clean, a person who changes a
-  // control compares different and is dirty, and a person who changes one back is clean again.
-  //
-  // THE LISTENER IS IN THE CAPTURE PHASE AND THAT IS LOAD-BEARING, not defensive. `emby-select`'s event
-  // sets `bubbles: false`, so a bubble-phase listener on the page never sees it at all. Measured in a
-  // browser rather than reasoned: a non-bubbling event dispatched on a descendant IS delivered to a
-  // capture-phase listener on an ancestor, and is NOT delivered to a bubble-phase one.
-  //
-  // WHAT IS DELIBERATELY NOT TRACKED. A file input is a transfer trigger rather than a setting: it is
-  // cleared to "" after every use and nothing saves it. The provider and profile selectors NAVIGATE -
-  // changing one refills the form from the stored configuration, so what it leaves behind is a fresh
-  // read and not an unsaved edit, and those reset the page to clean instead of dirtying it.
+  // The unsaved-changes state (#1572), which the indicator, the Save gate and the safe re-read share.
+  // An event only triggers the check; a comparison of the tracked controls against the last baseline
+  // answers it, because host controls dispatch their own synthetic events.
+  // The listener is in the capture phase because emby-select's change event does not bubble.
+  // File inputs and the navigating selectors are not tracked; changing a selector resets the page to clean.
   navigationControlIds: [
     "selectProvider",
     "saml-selectProvider",
     "selectProvisioningProfile",
   ],
-  // Every control on the page an administrator can edit and a Save on that page would commit. Accounts
-  // holds exactly one control, a hidden file input, so this is empty there and that page can never be
-  // dirty - which is why it re-reads on every show alongside Overview.
+  // Every control an administrator can edit and a Save would commit. Empty on Accounts, which is never dirty.
   editableControls: (page) =>
     [...page.querySelectorAll("input, select, textarea")].filter(
       (element) =>
         element.type !== "file" &&
-        // A READ-ONLY CONTROL IS NOT ONE AN ADMINISTRATOR EDITS, which is what this function is
-        // named for, and leaving the three this surface has in it cost the notice that says work is
-        // about to be lost (#1701). All three are computed addresses no save reads: the OpenID
-        // redirect URI the SERVER answers with, and the two SAML URLs. The first is the one that
-        // bit. `loadProvider` empties it, schedules the request behind a debounce, and calls
-        // `markPageClean` twenty lines later - so the baseline is taken with the field EMPTY and the
-        // reply writes into it a quarter of a second afterwards, with no second baseline. From the
-        // first load onwards `pageDiffersFromBaseline` therefore answered true on a page nobody had
-        // typed into: the tab asserted an edit that did not exist, and `refreshOnShow` took its
-        // edit-protecting arm every time, so it stopped re-reading for the life of the view.
-        //
-        // EXCLUDED HERE RATHER THAN BY RE-TAKING THE BASELINE, because the other repair swallows
-        // real work: a keystroke made while the address was in flight falls inside the window a
-        // blind re-take covers, and would afterwards read as part of what the server put there.
-        // This direction cannot lose an edit, because the fields it drops are ones no edit reaches.
-        //
-        // DERIVED FROM THE CONTROL rather than from a list of three ids, so a computed field added
-        // tomorrow is covered by being read-only, which is the property that makes it one.
+        // Read-only controls hold computed addresses no save reads, and the redirect URI fills after the baseline
+        // (#1701). Deriving this from readOnly covers future computed fields too.
         element.readOnly !== true &&
         ssoConfigurationPage.navigationControlIds.indexOf(element.id) === -1,
     ),
-  // What the tracked controls hold right now, as one comparable string. A checkbox is read from
-  // `checked` and everything else from `value`, and the id rides along so a control appearing or
-  // disappearing - a permission row, a folder checklist filled from the server - is a difference rather
-  // than something two lengths could cancel out.
-  //
-  // SEPARATED, AND THE EMPTY JOIN IT REPLACED WAS A COLLISION (#1576). The rows a page renders from a
-  // server list carry no id, so two of them contribute "=a" and "=b=c" where two others contribute
-  // "=a=b" and "=c" - the same string, a different page. Under #1572 that could only miss an edit; under
-  // the refresh, "the same signature" is the permission to REPLACE what is on the page, so a collision
-  // is a discarded edit rather than an unmarked one. A separator no value can contain removes the class
-  // for one character, which is cheaper than reasoning about which pairs are reachable.
+  // What the tracked controls hold now, as one comparable string that carries each id.
+  // A separator no value can contain keeps id-less rows from colliding (#1576).
   controlSignature: (page) =>
     ssoConfigurationPage
       .editableControls(page)
@@ -1341,24 +1032,14 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.renderUnsavedNotice(page);
     ssoConfigurationPage.updateSaveAvailability(page);
   },
-  // Back to clean, which is what every fill path and every successful save leaves behind, and the ONE
-  // place the baseline is taken: clean means "what is on the page is what the last read put there", so
-  // the two statements cannot come apart. It re-runs the Save gate too, because a fill changes the
-  // values that gate reads.
-  //
-  // The baseline is held in a module-scope map keyed on the view rather than on the element, because it
-  // is this module's bookkeeping and not a fact about the page - and because a 123-control signature is
-  // not something to put in an attribute. The map is weak, so a view the dashboard discards takes its
-  // entry with it.
+  // Marks the page clean, the one place the baseline is taken, and re-runs the Save gate.
   markPageClean: (page) => {
     pageBaselines.set(page, ssoConfigurationPage.controlSignature(page));
     page.classList.remove("sso-page-dirty");
     ssoConfigurationPage.renderUnsavedNotice(page);
     ssoConfigurationPage.updateSaveAvailability(page);
   },
-  // Whether the page now holds something other than what the last read left on it. A page whose baseline
-  // was never taken is treated as EDITED rather than clean: the only way to get there is a controller
-  // that did not finish wiring, and the safe answer to "may I replace what is on this page" is no.
+  // Whether the page holds something other than the last baseline; no baseline counts as edited.
   pageDiffersFromBaseline: (page) => {
     const baseline = pageBaselines.get(page);
     return (
@@ -1366,10 +1047,7 @@ const ssoConfigurationPage = {
       baseline !== ssoConfigurationPage.controlSignature(page)
     );
   },
-  // The indicator. It says what is true of this page and promises nothing about another one: opening a
-  // different provider in the editor still replaces what is in it, which is what it has always done and
-  // is not this change's to alter. textContent, never innerHTML (#221); the text carries no
-  // configuration value.
+  // The unsaved-changes indicator text, about this page only. Set as textContent (#221).
   unsavedNoticeText: () =>
     tr(
       "config.unsaved",
@@ -1381,11 +1059,7 @@ const ssoConfigurationPage = {
       return;
     }
     const dirty = ssoConfigurationPage.isPageDirty(page);
-    // UNHIDE FIRST, THEN WRITE. `hidden` takes the element out of the accessibility tree, so text set
-    // while it is hidden changes a live region nothing is watching, and the unhide that follows is not
-    // itself a text change for the region to announce. Doing it in this order is what gives the
-    // announcement a chance; whether a particular screen reader takes it is not something this tree can
-    // measure, and nothing here claims it does.
+    // Unhides before writing, since text set on a hidden live region is not announced.
     if (dirty) {
       box.hidden = false;
       box.textContent = ssoConfigurationPage.unsavedNoticeText();
@@ -1394,10 +1068,8 @@ const ssoConfigurationPage = {
     box.textContent = "";
     box.hidden = true;
   },
-  // What each Save on a page needs before it can be pressed, DERIVED from the readiness specs rather
-  // than restated, so a required field added to an editor closes its Save without a second edit here. A
-  // gate whose region is hidden is skipped: the button is not reachable, and touching it would fight
-  // whoever hid it.
+  // What each Save needs before it can be pressed, derived from the readiness specs. A gate whose region is
+  // hidden is skipped.
   saveGates: () => [
     {
       button: "#SaveProvider",
@@ -1410,42 +1082,22 @@ const ssoConfigurationPage = {
       requiredIds: ssoConfigurationPage.readinessSpecs.saml.requiredIds,
     },
     {
-      // The SELECTOR and not the name box: saveProvisioningProfile keys off `#selectProvisioningProfile`
-      // and the name box is the add/rename parameter, so gating on the name closed the Save when an
-      // administrator cleared the rename field and left it open when no profile was selected at all -
-      // both backwards.
+      // Gated on the selector, which the profile save keys off, rather than on the rename box.
       button: "#SaveProvisioningProfile",
       region: null,
       requiredIds: ["selectProvisioningProfile"],
     },
     { button: "#SaveServerSettings", region: null, requiredIds: [] },
   ],
-  // WHICH FAILURES CLOSE A SAVE, AND WHY NOT ALL OF THEM. #365 put the validators beside the fields as
-  // pre-emptive WARNINGS and argued they must never block, because a false positive would lock an
-  // administrator out of saving a value the server would have accepted. That argument is about the
-  // validators that GUESS - an endpoint shape, a base URL - and it still holds for them: they go on
-  // warning and go on not blocking. It does not reach an EMPTY REQUIRED FIELD, which the server refuses
-  // every time, so a Save left live for one is a Save that exists to fail. The emptiness is read from
-  // the VALUES rather than from the validators' output boxes, exactly as the readiness panel reads it,
-  // so typing into a blank field re-opens the Save on the keystroke instead of on the next blur.
+  // The gate's empty required fields, read from the values like the readiness panel. Only an empty
+  // required field closes a Save; the guessing validators keep warning without blocking (#365).
   saveGateEmpties: (page, gate) =>
     gate.requiredIds.filter((id) => {
       const field = page.querySelector("#" + id);
       return field && !String(field.value || "").trim();
     }),
-  // ONE WRITER, TWO DECLARED REASONS, AND WHY THE FIRST DRAFT OF THIS WAS A FAIL-OPEN.
-  //
-  // Two parties want this button disabled: this gate, while a required field is empty, and the
-  // declarative-source freeze (#1104), because a provider or a profile a configuration file owns may not
-  // be edited here. A boolean with two owners cannot compose, and the draft that tried to remember what
-  // it had disabled handed a frozen Save back: opening the Policies tab with no profile selected left the
-  // gate holding the button down, and selecting a MANAGED profile then filled the name, so the gate saw
-  // nothing left to block and released a Save the freeze had just closed - `applyManagedProfileState`
-  // runs before the fill's `markPageClean`, so its disable was the one being cleared.
-  //
-  // So the freeze records its own reason on the button and this reads it. The write is in one place and
-  // each reason is asserted by the party that knows it; a reason nobody wrote is nobody's, and the only
-  // other writers of `disabled` on these buttons are the two freeze functions, which now both mark.
+  // Sets a Save's disabled state from this gate and the freeze's recorded reason (#1104), so the gate never
+  // hands back a Save the freeze closed. The freeze functions are the only other writers of `disabled`.
   setSaveBlocked: (button, blocked) => {
     button.disabled = blocked || button.dataset.ssoManaged === "true";
   },
@@ -1465,21 +1117,8 @@ const ssoConfigurationPage = {
       );
     });
   },
-  // ---- What a closed fold says about what it hides (#1666) ----
-  //
-  // The Sensitive and Insecure regions are folds, and a fold that names only its region lets an active
-  // downgrade sit behind one word. So the summary carries a count, and the count is DERIVED from the
-  // region's own boxes rather than from a list written down beside it: an option added to a region is
-  // counted the day it is added, where a list would have to be edited in a second place and the one
-  // that was forgotten would read "0 of 5" over a ticked box.
-  //
-  // An OPTION is one of the page's own field boxes - a `checkboxContainer` or an `inputContainer` - and
-  // it is IN USE when its control is ticked or carries a value. Both halves are needed because the two
-  // protocols do not hide the same shape: the OpenID regions hold toggles, and the SAML sensitive
-  // region holds the secondary signing certificate, which is a value.
-  //
-  // Presentation only. Nothing here reads or writes a control's value, so a count that is somehow wrong
-  // cannot change what a save sends.
+  // What a closed fold says about what it hides (#1666): the summary carries a count derived from the
+  // region's own option boxes. An option is in use when ticked or carrying a value. Presentation only.
   optionFoldControls: (fold) =>
     Array.from(fold.querySelectorAll(".checkboxContainer, .inputContainer"))
       .map((box) => box.querySelector("input, select, textarea"))
@@ -1507,19 +1146,14 @@ const ssoConfigurationPage = {
       );
     });
   },
-  // The count updates with no save, so it is delegated and in the capture phase for the same two reasons
-  // bindUnsavedChangeTracking states below: a non-bubbling event reaches nothing else, and a handler that
-  // stops propagation on its own control would otherwise hide the change from this. `isTrusted` is not
-  // read here either - the host's own checkbox dispatches a synthetic event on a real click.
+  // Keeps the fold counts current without a save, delegated in the capture phase like the change tracking.
   bindOptionFoldCounts: (page) => {
     const recount = () => ssoConfigurationPage.refreshOptionFoldCounts(page);
     page.addEventListener("input", recount, true);
     page.addEventListener("change", recount, true);
   },
-  // One delegated listener per page rather than one per control, so a control the page renders later - a
-  // permission row, a folder checkbox - is tracked from the moment it exists. Capture phase for the two
-  // reasons written at the top of this section: a non-bubbling event reaches nothing else, and a handler
-  // that stops propagation on its own control would otherwise hide the edit from this.
+  // One delegated capture-phase listener per page, so late-rendered controls are tracked and non-bubbling
+  // or stopped events still arrive.
   bindUnsavedChangeTracking: (page) => {
     const observe = (event) => {
       if (!event.target) {
@@ -1537,9 +1171,7 @@ const ssoConfigurationPage = {
       ) {
         return;
       }
-      // The event only asks; the values answer. `isTrusted` is deliberately NOT read - two of the host's
-      // own controls dispatch synthetic events on real user input, and the reason is at the top of this
-      // section.
+      // The event only asks; the values answer, since host controls dispatch synthetic events on real input.
       if (ssoConfigurationPage.pageDiffersFromBaseline(page)) {
         ssoConfigurationPage.markPageDirty(page);
       } else {
@@ -1549,60 +1181,17 @@ const ssoConfigurationPage = {
     page.addEventListener("input", observe, true);
     page.addEventListener("change", observe, true);
   },
-  // ---- The refresh on return to a tab (#1576) ----
-  //
-  // WHAT WAS REFUSED AND WHY IT IS NOT THE DIRTY STATE'S FAULT. #1572 built the state so a clean tab
-  // could re-read the server on `viewshow`, and the review took the re-read out again: the danger was
-  // never in the state, it was in what `loadConfiguration` does when it runs a SECOND time, having been
-  // written to run once at construction while the editors are still hidden. Three ways, and each of the
-  // three has its own guard below rather than one guard credited with all of them.
-  //
-  // ONE. `loadConfiguration` re-populates both library checklists from `Library/MediaFolders` with
-  // nothing ticked, and it does not re-run `loadProvider`, which is what ticks them. A return to
-  // Providers with an editor open therefore emptied the checklist while the editor still showed its
-  // provider, and the next save serialises that checklist unconditionally and persists
-  // `EnabledFolders: []` - after which `SessionMinter` writes that empty set on every login while
-  // `EnableAllFolders` is off, and every user of that provider loses library access at their next
-  // sign-in. That is the worst outcome on this surface and it needed no race and no typing.
-  //
-  // TWO. Removing a permission row or a role-mapping row is a button click: `row.remove()`, no `input`,
-  // no `change`. So the tracking never runs and the page is never MARKED dirty, while holding a real
-  // edit that the Policies re-read would render straight back out of storage.
-  //
-  // THREE. The check was check-then-act: the dirty test ran first and the fill landed at the end of an
-  // asynchronous chain, so an edit made inside that window was overwritten and the page then reported
-  // itself clean.
-  //
-  // THE THREE GUARDS, IN THE ORDER THEY BITE.
-  //
-  //   - An OPEN EDITOR refuses the refresh outright, which is what answers ONE. Nothing is re-read while
-  //     an editor is on screen: not the checklists, not the hidden `#selectProvider` the save path reads
-  //     its target from - `populateProviders` clears that selector's options, and clearing them drops
-  //     its value - and not the profile selectors inside the two provider forms. An open editor is work
-  //     in progress, and the cost of refusing is staleness behind a panel the administrator is looking
-  //     through anyway.
-  //   - The decision reads `pageDiffersFromBaseline`, which recomputes the SIGNATURE from the live
-  //     controls, and NOT `isPageDirty`, which reads a class something has to have set. That is what
-  //     answers TWO without the tracking having to see a click: the signature carries each control's id,
-  //     so a row that is no longer in the page is a difference by construction. The marked state is
-  //     brought into line at the same moment, so the indicator says why the tab did not refresh.
-  //   - The same two questions are asked AGAIN inside the fill, immediately before anything is written,
-  //     which answers THREE: an edit made while the configuration was in flight leaves the fill with
-  //     nothing to do rather than being overwritten by it.
-  //
-  // WHAT THIS SETTLES ABOUT THE INDICATOR'S GRANULARITY, which #1576 asks for as its own condition. The
-  // indicator is page-wide and the Providers page carries two editors, so opening one still clears the
-  // other's state - unchanged, and it does not matter here: the refresh does not depend on the state
-  // being per-editor, because ANY open editor refuses it wholesale. The granularity question is about
-  // what the indicator promises, and it promises the same thing it did before this.
+  // The refresh on return to a tab (#1576). A second load could empty the library checklists under an open
+  // editor, miss removed rows that fire no event, and overwrite edits made while in flight.
+  // Three guards answer these: an open editor refuses the refresh, the decision recomputes the signature
+  // from the live controls, and the same checks run again right before the fill writes.
   editorRegionIds: ["sso-editor", "saml-editor"],
   anyEditorOpen: (page) =>
     ssoConfigurationPage.editorRegionIds.some((id) => {
       const region = page.querySelector("#" + id);
       return region !== null && region.hidden !== true;
     }),
-  // Whether the page may have its contents replaced by a fresh read. Asked twice per refresh, before the
-  // fetch and again before the write, because the answer can change in between.
+  // Whether the page may be replaced by a fresh read, asked before the fetch and again before the write.
   mayReplacePageContents: (page) =>
     !ssoConfigurationPage.anyEditorOpen(page) &&
     !ssoConfigurationPage.pageDiffersFromBaseline(page),
@@ -1611,9 +1200,7 @@ const ssoConfigurationPage = {
       return;
     }
     if (ssoConfigurationPage.pageDiffersFromBaseline(page)) {
-      // The tab holds something the last read did not put there - possibly a removed row nothing
-      // dispatched an event for. Say so where it is read, which is the same notice an ordinary edit
-      // raises, and leave the page exactly as the administrator left it.
+      // The tab holds something the last read did not put there, so mark it dirty and leave it untouched.
       ssoConfigurationPage.markPageDirty(page);
       return;
     }
@@ -1635,13 +1222,8 @@ const ssoConfigurationPage = {
       e.checked = folder_list.includes(e.dataset.id);
     });
   },
-  // NO ROWS IS NOT AN EMPTY SELECTION (#1607). An administrator who clears the list leaves the rows on
-  // screen and unticked; a container holding no rows at all is one the fill never reached - the client
-  // refused the row construction, or Library/MediaFolders did not answer. Writing that as "no libraries"
-  // while EnableAllFolders is off is the save this file already names as the worst outcome on this
-  // surface, in the refresh guards above: SessionMinter then writes the empty set on every login and
-  // every user of the provider loses library access at their next sign-in. So the two cases are told
-  // apart here and the caller decides; null means the question could not be answered.
+  // Serializes the ticked folders, or null when the container has no rows because the fill never ran
+  // (#1607). Saving that as "no libraries" would remove library access for every user of the provider.
   serializeEnabledFolders: (container) => {
     const rows = [...container.querySelectorAll(".folder-checkbox")];
     if (rows.length === 0) {
@@ -1659,28 +1241,19 @@ const ssoConfigurationPage = {
       ssoConfigurationPage._populateFolders(container, folders);
     });
   },
-  /*
-  container: html element
-  folders.Items: array of objects, with .Id & .Name
-  */
+  // Fills a folder checklist from folders.Items, each with Id and Name.
   _populateFolders: (container, folders) => {
     container
       .querySelectorAll(".emby-checkbox-label")
       .forEach((e) => e.remove());
 
     const checkboxes = folders.Items.map((folder) => {
-      // The library folder Name/Id come from the Jellyfin core API; build the row with
-      // createElement/textContent (never innerHTML) so a folder named e.g. `<img onerror=...>`
-      // stays inert on the config page (#221). Mirrors linking.js populateExistingLinks.
+      // Built with textContent so a folder name stays inert (#221), as in linking.js.
       const out = document.createElement("label");
-      // Tag the row with the class the re-render cleanup (querySelectorAll above) removes, so a
-      // second populate deterministically clears the old rows instead of relying on the
-      // emby-checkbox upgrade to add it; otherwise folder IDs could be duplicated on re-populate.
+      // Tags the row for the cleanup above, so a second populate does not duplicate folder ids.
       out.classList.add("emby-checkbox-label");
 
-      // The `is` option upgrades the customized built-in where the client accepts it, and is refused
-      // outright on Jellyfin 12 (#1607) - see customizedBuiltIn. The attribute is set either way, so
-      // CSS attribute selectors and the web-components polyfill see it.
+      // See customizedBuiltIn for the Jellyfin 12 fallback (#1607); the `is` attribute is set either way.
       const checkbox = customizedBuiltIn("input", "emby-checkbox");
       checkbox.setAttribute("is", "emby-checkbox");
       checkbox.classList.add("folder-checkbox", "chkFolder");
@@ -1765,10 +1338,8 @@ const ssoConfigurationPage = {
         const role = elem.querySelector(".sso-role-mapping-name").value;
         const checklist = elem.querySelector(".sso-folder-list");
 
-        // A row whose checklist never drew is written as the empty set rather than skipped (#1607).
-        // The two are different failures and the smaller one is chosen deliberately: an empty mapping
-        // grants that role no libraries, which the administrator sees on the row in front of them,
-        // while dropping the row would silently delete a mapping they never touched.
+        // A row whose checklist never drew is saved as an empty set rather than dropped, which would delete the
+        // mapping (#1607).
         out.push({
           Role: role,
           Folders:
@@ -1783,32 +1354,13 @@ const ssoConfigurationPage = {
     const targeted_mapping = evt.target.closest(".sso-role-mapping-container");
     targeted_mapping.remove();
   },
-  // ---------------------------------------------------------------------------------------------------
-  // The provisioning-template save contract (#1367).
-  //
-  // ProvisioningPolicyTemplate is a NESTED member of the provider config, so its controls cannot ride the
-  // flat contract listArgumentsByType feeds (current_config[element.id] = value, one top-level member per
-  // control). They carry their own marker classes instead - sso-tmpl-number, sso-tmpl-text, sso-tmpl-bool,
-  // sso-tmpl-list and sso-tmpl-perms - and an id of "<prefix>Tmpl-" + the exact ProvisioningPolicyTemplate
-  // property they write. readProvisioningTemplate below is the second serializer that assembles them into
-  // one object.
-  //
-  // Two failures this shape exists to prevent, both of which turn a DECLINED field into a set one:
-  //  - a control the administrator never touched must contribute NO member, because null is what leaves
-  //    Jellyfin's own default alone. That is why the three nullable bools are three-option lists and not
-  //    checkboxes: a checkbox has two states where the model has three.
-  //  - an all-unset form must send NO OBJECT rather than an object of nulls. ProviderConfigValidator
-  //    refuses an inline template on a provider that names a provisioning profile, and the refusal is on
-  //    the object being PRESENT rather than on it carrying values - so an always-assembled object would
-  //    make every profile-using provider permanently unsaveable from this page, client id and secret
-  //    included, over a section nobody touched.
-  // ---------------------------------------------------------------------------------------------------
+  // The provisioning-template save contract (#1367). The nested template has its own sso-tmpl-* classes and
+  // "<prefix>Tmpl-" ids, assembled by readProvisioningTemplate.
+  // An untouched control contributes no member, and an all-unset form sends no object, since the validator
+  // refuses any inline template on a provider that names a profile.
   templateFieldName: (prefix, element) =>
     element.id.slice((prefix + "Tmpl-").length),
-  // The form each template-control prefix lives in. The global profile editor (#1105) renders the same
-  // ten controls a THIRD time, outside both provider forms, so the two-way ternary this replaced could
-  // not name it: "is it the SAML prefix" is a different question from "which form is this prefix in", and
-  // the first one silently answers the OpenID form for every prefix that is not "saml-".
+  // The form each template-control prefix lives in, including the global profile editor (#1105).
   templateFormSelectors: {
     "": "#sso-new-oidc-provider",
     "saml-": "#sso-new-saml-provider",
@@ -1839,9 +1391,7 @@ const ssoConfigurationPage = {
       }
     });
 
-    // A list control (#1101) is one entry per line, in order. Blank lines are not entries, and a box with
-    // no entry contributes no member - the same declined state as an empty text control - so the server
-    // never sees an empty list where "keep Jellyfin's own layout" was meant.
+    // A list control (#1101) is one entry per line; a box with no entry contributes no member.
     controls.lists.forEach((element) => {
       const lines = element.value
         .split("\n")
@@ -1858,16 +1408,12 @@ const ssoConfigurationPage = {
         return;
       }
 
-      // A value that is not a whole number is sent ON as typed rather than dropped or coerced. The server
-      // refuses it and the save reports a failure, which is visible; Number("12e9") or a silent skip would
-      // turn something the administrator DID set into an unset field, which is the failure this whole
-      // contract is about.
+      // A value that is not a whole number is sent as typed, so the server refuses it visibly.
       const parsed = Number(raw);
       template[name(element)] = Number.isInteger(parsed) ? parsed : raw;
     });
 
-    // Only these two spellings are a value. Anything else - the empty option, or a value no option carries
-    // - leaves the member out, so the field stays declined.
+    // Only these two spellings are a value; anything else leaves the field declined.
     controls.bools.forEach((element) => {
       if (element.value === "true") {
         template[name(element)] = true;
@@ -1904,19 +1450,11 @@ const ssoConfigurationPage = {
       element.value = Array.isArray(value) ? value.join("\n") : "";
     });
 
-    // The named-profile selector is filled here rather than by the flat load path (#1105). That path sets
-    // a text field ONLY when the loaded provider carries a value, so a provider naming no profile would
-    // keep the previously loaded provider's name selected and a later save would write it onto the second
-    // provider - the same stale-value failure the check_fields loop above is written unconditionally for.
-    // Set unconditionally for exactly that reason, and the stored name is offered even when the profile
-    // set does not carry it, so a name that has gone missing is visible instead of silently reading as
-    // "no profile" and being saved that way.
+    // Set unconditionally so no previous provider's profile carries over (#1105); a stored name missing from
+    // the profile set is still offered, so it stays visible.
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
     if (selector) {
-      // A caller that supplies no name list is clearing the form rather than describing the configuration -
-      // resetEditor and resetSamlEditor do exactly that - so the OPTIONS are kept and only the value is
-      // cleared. Rebuilding them from an empty list instead emptied the selector on every new provider, and
-      // a new provider could then not be pointed at a profile at all until it was saved and reopened.
+      // Without a name list the caller is clearing the form, so the options stay and only the value clears.
       if (profiles) {
         ssoConfigurationPage.populateProvisioningProfileOptions(
           selector,
@@ -1936,19 +1474,11 @@ const ssoConfigurationPage = {
       values.Permissions || [],
     );
   },
-  // Where the provider names a provisioning profile the inline template is not this provider's policy.
-  // The controls are disabled and the reason is put on the page, rather than leaving the administrator to
-  // infer it from a save that changes nothing here. Read off the SELECTOR rather than off a value passed
-  // in, so choosing a profile updates the page immediately instead of only after the next load; the
-  // profile editor's own prefix has neither a selector nor a note, so it reads as "no profile named" and
-  // leaves its controls enabled, which is what a profile is.
+  // Disables the inline template controls when the selector names a profile, and says why.
   syncProvisioningProfileState: (page, prefix, managed) => {
     const controls = ssoConfigurationPage.templateControls(page, prefix);
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
-    // Disabled where a profile supersedes the fields OR where the whole form is frozen by a declarative
-    // source (#1104). The second half is not optional: this call runs AFTER applyManagedState, so a plain
-    // `= named` re-enables exactly these ten controls on a managed provider and tells the administrator
-    // the opposite of what a save does - the inverse of the invariant applyManagedState exists for.
+    // Also disabled on a managed provider (#1104), since this runs after applyManagedState.
     const named = Boolean(selector && selector.value) || Boolean(managed);
 
     const note = page.querySelector("#" + prefix + "Tmpl-profile-note");
@@ -1966,8 +1496,7 @@ const ssoConfigurationPage = {
       element.disabled = named;
     });
   },
-  // Options are built with createElement/textContent, never innerHTML (#221): a profile name is
-  // administrator-supplied configuration and is rendered as literal text wherever it appears.
+  // Builds profile options with textContent, never innerHTML (#221).
   populateProvisioningProfileOptions: (select, names, selected) => {
     const offered =
       selected && !names.includes(selected) ? [...names, selected] : names;
@@ -1987,36 +1516,15 @@ const ssoConfigurationPage = {
 
     select.value = selected || "";
   },
-  // ---------------------------------------------------------------------------------------------------
-  // The provisioning-profile editor (#1105).
-  //
-  // ProvisioningProfiles is a root PluginConfiguration member - a named set of ProvisioningPolicyTemplate -
-  // so every act here fetches the live configuration, changes only that member (and, on a rename, the
-  // references to it), and re-posts the whole document, exactly as saveServerSettings does. Nothing here adds
-  // a server route.
-  //
-  // Two of the four acts can break a provider, and both are checked against the live configuration BEFORE
-  // the PUT rather than left to ProviderConfigValidator's refusal:
-  //  - DELETE of a profile some provider or role rule still names is refused here and the references are
-  //    shown. The server refuses the same state; what this adds is telling the administrator before they
-  //    lose the edit, which is courtesy rather than the guard.
-  //  - RENAME repoints every reference in the same document, so the configuration is never posted in the
-  //    state the validator refuses. A rename that left the references behind would be a delete with extra
-  //    steps.
-  // ---------------------------------------------------------------------------------------------------
+  // The provisioning-profile editor (#1105). Every act fetches the live configuration, changes the
+  // ProvisioningProfiles member and re-posts the document.
+  // A delete of a referenced profile is refused with the references shown, and a rename repoints every
+  // reference in the same document.
   provisioningProfileNames: (config) =>
     Object.keys(config.ProvisioningProfiles || {}).sort(),
-  // The name the act that is running wants selected once the reload has rebuilt the list. It cannot be
-  // written onto the select before then: assigning a value no option carries leaves the element on
-  // selectedIndex -1 with an empty value, so the rebuild read "" and fell back to the FIRST profile - the
-  // editor then showed one profile while the administrator believed it showed the one just added or
-  // renamed, and the next Save wrote there. Consumed once, so a later ordinary reload does not re-apply it.
+  // The name to select once the reload rebuilds the list, consumed once.
   provisioningProfileWanted: null,
-  // A name an ordinary assignment does not turn into an own property is not usable as a profile name, and
-  // "__proto__" is the one that reaches this page: profiles["__proto__"] = template sets the prototype and
-  // creates nothing, so an Add would report success over an empty set and a rename would DELETE the source
-  // profile while reporting that it had moved. Derived by probing an assignment rather than listed by name,
-  // so a second spelling with the same asymmetry is refused without anybody having to think of it first.
+  // Whether a plain assignment creates an own property for this name, which rules out "__proto__".
   provisioningProfileNameIsAssignable: (name) => {
     const probe = {};
     probe[name] = true;
@@ -2027,10 +1535,7 @@ const ssoConfigurationPage = {
       page.querySelector("#ProvisioningProfileResult"),
       message,
     ),
-  // Every provider and every role rule that names a profile, as readable subjects, each carrying whether
-  // the provider holding it is decided by a declarative source. Used to refuse a delete, to refuse a rename
-  // it cannot carry out, and to report what a rename moved; the walk is one function so the three cannot
-  // disagree about what counts as a reference.
+  // Every provider and role rule that names a profile, each marked if its provider is managed.
   provisioningProfileReferences: (config, name) => {
     const found = [];
     [
@@ -2044,10 +1549,7 @@ const ssoConfigurationPage = {
           found.push({ label: `${protocol} provider "${provider}"`, managed });
         }
 
-        // Trimmed, because the server resolves a ROLE ROW's name trimmed - a row reading " Staff " is a
-        // live reference to Staff for ProviderConfigValidator and would be invisible to an exact
-        // comparison. Such a row can only arrive from a configuration file or an import; this page has no
-        // editor for them, which is why it must not assume the shape it would have written.
+        // Trimmed, because the server resolves a role row's name trimmed.
         (provider_config.ProvisioningProfileRoleMappings || []).forEach(
           (row) => {
             if (row && (row.Profile || "").trim() === name) {
@@ -2071,8 +1573,7 @@ const ssoConfigurationPage = {
           provider_config.ProvisioningProfile = to;
         }
 
-        // Trimmed on the same reading as the reference walk, so a rename repoints every row the server
-        // would have resolved rather than posting a document the validator then refuses.
+        // Trimmed like the reference walk, so every row the server resolves is repointed.
         (provider_config.ProvisioningProfileRoleMappings || []).forEach(
           (row) => {
             if (row && (row.Profile || "").trim() === from) {
@@ -2083,8 +1584,7 @@ const ssoConfigurationPage = {
       });
     });
   },
-  // The providers that carry an inline template, as the sources an Add can copy. Only those: a source with
-  // no policy of its own would produce an empty profile under a label that promised one.
+  // The providers with an inline template, as the sources an Add can copy.
   provisioningProfileSources: (config) => {
     const sources = [];
     [
@@ -2117,21 +1617,13 @@ const ssoConfigurationPage = {
         : config.OidConfigs;
     const provider = (providers || {})[value.slice(separator + 1)] || {};
 
-    // A COPY, not the live object: the profile and the provider's own template are two independent policies
-    // from the moment the profile exists, and sharing one object would make the next edit to either of them
-    // change both inside this one PUT.
+    // A copy, so the profile and the provider's template stay independent.
     return provider.ProvisioningPolicyTemplate
       ? JSON.parse(JSON.stringify(provider.ProvisioningPolicyTemplate))
       : null;
   },
-  // Fills the editor and both provider-form selectors from one configuration load. Called from
-  // loadConfiguration, so every existing save, delete and import path refreshes the editor for free.
-  //
-  // THE TWO HALVES ARE ON DIFFERENT TABS SINCE #1527 and each is gated on its own control. The editor
-  // is on Policies and the two provider-form selectors are on Providers, so this runs on both and fills
-  // whichever half is in front of it. It returns the fill promise a Save waits on only where it started
-  // one; on a page with no editor it returns nothing and, more importantly, WRITES nothing - the branch
-  // below says what that costs when it does.
+  // Fills the profile editor and both provider-form selectors from one configuration load, each half gated
+  // on its own control (#1527). Returns the fill promise only where it started one.
   populateProvisioningProfiles: (page, config) => {
     const names = ssoConfigurationPage.provisioningProfileNames(config);
     const select = page.querySelector("#selectProvisioningProfile");
@@ -2151,8 +1643,7 @@ const ssoConfigurationPage = {
       );
     }
 
-    // An open provider form keeps whatever it has selected, so a profile added here appears in its list
-    // without discarding a choice the administrator has already made and not yet saved.
+    // An open provider form keeps its current selection.
     ["ProvisioningProfile", "saml-ProvisioningProfile"].forEach((id) => {
       const selector = page.querySelector("#" + id);
       if (selector) {
@@ -2166,27 +1657,8 @@ const ssoConfigurationPage = {
 
     const source_select = page.querySelector("#ProvisioningProfileSource");
     if (!source_select) {
-      // No editor on this page, so there is nothing left to fill: the provider-form selectors above are
-      // this page's whole share of the profile set.
-      //
-      // AND `provisioningProfileFill` IS LEFT ALONE, WHICH IS WHAT THIS BRANCH IS FOR. It first wrote
-      // `Promise.resolve(true)` here, on the reading that a page with no editor has no fill to be
-      // mid-way through. That reading is wrong for one reason: the field is not this page's. It lives
-      // on the shared object, the dashboard is a single-page application, so one instance of that
-      // object serves every tab of a session - and the only reader is the Policies Save. A page that
-      // can never save a profile was reaching across and overwriting the guard of the page that can,
-      // always in the direction of "go ahead".
-      //
-      // What that cost was demonstrated rather than argued. Policies is opened while another tab's
-      // configuration fetch is still outstanding; that fetch lands after Policies has assigned its own
-      // fill promise; the guard is then permanently true; and a Save in that window PUTs the profile
-      // with its permission rows cleared and not yet re-rendered - every grant and deny stripped,
-      // under a success message. Those denials are what new SSO-provisioned accounts are given, so an
-      // administrator's restriction quietly stops applying.
-      //
-      // Leaving the field is what the single page did, because there was nothing else to write it: it
-      // is null until the editor's own load sets it, and the page that has the editor always sets it
-      // before a Save on that page is possible.
+      // No editor on this page. provisioningProfileFill is left alone: it lives on the shared object and guards
+      // the Policies Save, so writing it here would release that guard from another tab.
       return;
     }
 
@@ -2212,15 +1684,9 @@ const ssoConfigurationPage = {
 
     return ssoConfigurationPage.provisioningProfileFill;
   },
-  // Whether the editor currently shows the profile the selector names, as a promise resolving true or
-  // false. A Save must wait on it for two reasons, and only the whole chain covers both: the permission
-  // rows are cleared synchronously and re-rendered only once sso/Config/Permissions answers, so a Save in
-  // that window serializes no rows and drops every grant and deny the profile carries; and the fill itself
-  // begins with a configuration fetch, so between choosing a profile and that fetch answering the selector
-  // names one profile while the fields still hold another. Assigned SYNCHRONOUSLY by the change handler,
-  // covering its own fetch - a promise assigned after the fetch resolved would be the PREVIOUS profile's,
-  // already settled, and the Save would sail straight through it and write the previous policy under the
-  // new name.
+  // Whether the editor shows the profile the selector names, as a promise of true or false. A Save waits on
+  // it so it never serializes unrendered permission rows or the previous profile's fields. Assigned
+  // synchronously by the change handler, so it covers its own fetch.
   provisioningProfileFill: null,
   selectProvisioningProfile: (page) => {
     const pending = ApiClient.getPluginConfiguration(
@@ -2230,8 +1696,7 @@ const ssoConfigurationPage = {
         ssoConfigurationPage
           .showSelectedProvisioningProfile(page, config)
           .then(() => true),
-      // Resolves FALSE rather than rejecting: a rejection nobody is waiting for is an unhandled one, and
-      // what the Save needs to know is not the error but that the fields no longer describe the selection.
+      // Resolves false rather than rejecting, so no rejection goes unhandled.
       () => {
         ssoConfigurationPage.provisioningProfileStatus(
           page,
@@ -2261,14 +1726,12 @@ const ssoConfigurationPage = {
           [],
         )
         .then(() => ssoConfigurationPage.applyManagedProfileState(page, name))
-        // The editor now holds the selected profile as it is stored, so the page is clean and the Save gate
-        // is re-run against the name that was just filled in (#1572).
+        // The editor holds the stored profile, so the page is clean (#1572).
         .then(() => ssoConfigurationPage.markPageClean(page))
     );
   },
-  // The one write path of the four acts: re-post the whole configuration, then reload the page's view of it.
-  // A rejected PUT is reported in this section's own status region rather than swallowed - the server can
-  // refuse for a reason this act did not cause, and a silent failure here reads as a save that worked.
+  // Re-posts the whole configuration and reloads the view; a rejected PUT is reported in this section's
+  // status region.
   putProvisioningProfiles: (page, config, message) =>
     ApiClient.updatePluginConfiguration(
       ssoConfigurationPage.pluginUniqueId,
@@ -2321,12 +1784,8 @@ const ssoConfigurationPage = {
           return;
         }
 
-        // Add COPIES the chosen provider's inline policy rather than creating an empty profile (#1105,
-        // decided 2026-09-02): an empty profile writes nothing onto a new account, so the control would
-        // appear to do something and not do it. The copy works for the reason the automatic load-time hoist
-        // declined on 2026-08-31 did not - the administrator supplies the name that could not be derived.
-        // It CREATES and does not SELECT: no provider changes policy until somebody points it at this
-        // profile, so the two acts stay distinct in the record and on the page.
+        // Add copies the chosen provider's inline policy (#1105), since an empty profile would do nothing.
+        // It creates and does not select, so no provider changes policy until pointed at the profile.
         const source = page.querySelector("#ProvisioningProfileSource").value;
         const template = source
           ? ssoConfigurationPage.provisioningProfileSourceTemplate(
@@ -2363,8 +1822,8 @@ const ssoConfigurationPage = {
       return;
     }
 
-    // A managed profile is restored under its old name after the save (DeclarativeManagedProviders.Reinject),
-    // so a rename would leave a copy under the new name that the source no longer decides (#1498).
+    // A managed profile is restored under its old name after the save, so a rename would leave an unmanaged
+    // copy (#1498).
     if (ssoConfigurationPage.isManagedProfile(from)) {
       ssoConfigurationPage.provisioningProfileStatus(
         page,
@@ -2416,12 +1875,8 @@ const ssoConfigurationPage = {
           config,
           from,
         );
-        // A provider a declarative source decided is restored WHOLE after this configuration is validated
-        // (DeclarativeManagedProviders.Reinject), so a repoint of one does not survive the save: the
-        // profile ends up renamed and that provider keeps naming the old name. That state is refused by
-        // ProviderConfigValidator on every LATER save, so the whole plugin configuration becomes
-        // unsaveable from this page - over a rename that reported success. Refused here instead, with the
-        // repair named, because nothing downstream can undo it.
+        // A managed provider is restored whole after the save, so its reference would keep the old name and make
+        // every later save fail validation. Refused here with the repair named.
         const frozen = references.filter((reference) => reference.managed);
         if (frozen.length > 0) {
           ssoConfigurationPage.provisioningProfileStatus(
@@ -2435,8 +1890,7 @@ const ssoConfigurationPage = {
         profiles[to] = profiles[from];
         delete profiles[from];
         config.ProvisioningProfiles = profiles;
-        // In the SAME document, so the configuration is never posted with a provider pointing at a name
-        // that no longer exists - the state ProviderConfigValidator refuses.
+        // Repointed in the same document, so no provider ever names a missing profile.
         ssoConfigurationPage.repointProvisioningProfile(config, from, to);
         ssoConfigurationPage.provisioningProfileWanted = to;
 
@@ -2479,9 +1933,7 @@ const ssoConfigurationPage = {
           name,
         );
         if (references.length > 0) {
-          // Refused rather than cascaded. Clearing the references here would silently switch every one of
-          // those providers to a different starting policy - for a provider with no inline template, to none
-          // at all - which is a change to what new accounts get, made from a delete button.
+          // Refused rather than cascaded, since clearing references would change what new accounts get.
           ssoConfigurationPage.provisioningProfileStatus(
             page,
             `"${name}" is still in use, so it was not deleted: ${references.map((reference) => reference.label).join("; ")}. Point each of them at another profile first, or clear the name to go back to that provider's own inline policy.`,
@@ -2531,9 +1983,7 @@ const ssoConfigurationPage = {
       return;
     }
 
-    // Waits for the fill above, so what is serialized is the profile as it was loaded plus the
-    // administrator's edits - never a permission list that has not been rendered yet, and never a previous
-    // profile's policy under this name.
+    // Waits for the fill, so the save serializes the loaded profile plus edits and nothing older.
     Promise.resolve(ssoConfigurationPage.provisioningProfileFill).then(
       (filled) => {
         if (filled === false) {
@@ -2559,9 +2009,7 @@ const ssoConfigurationPage = {
             return;
           }
 
-          // An all-declined profile is an EMPTY OBJECT here, never null. The provider arm sends no object at
-          // all for that state, because an object present beside a named profile is refused; a profile IS the
-          // object, so removing it would delete the profile and break every provider pointing at it.
+          // An all-declined profile is an empty object, never null, since the profile is the object.
           profiles[name] =
             ssoConfigurationPage.readProvisioningTemplate(page, "profile-") ||
             {};
@@ -2576,10 +2024,8 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // Choosing a profile on a PROVIDER form is the only act here that discards something: the provider's own
-  // inline policy stops being its policy, and the save clears it, because a configuration carrying both is
-  // refused. Asked here, at the moment of the choice, where those fields are still on screen - not at Save,
-  // where the administrator has already committed. Declining puts the selector back on (none).
+  // Confirms choosing a profile on a provider form, since the save then clears the inline policy.
+  // Declining puts the selector back on (none).
   chooseProvisioningProfile: (page, prefix) => {
     const selector = page.querySelector("#" + prefix + "ProvisioningProfile");
     const inline = ssoConfigurationPage.readProvisioningTemplate(page, prefix);
@@ -2596,10 +2042,7 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.syncProvisioningProfileState(page, prefix);
   },
-  // The mappable permission vocabulary, fetched once per page load from the one route that publishes it
-  // (#1484). It is deliberately NOT a list kept in this file: a copy here drifts in three silent
-  // directions - a name Jellyfin adds stays invisible, a name it removes stays offerable and is refused at
-  // save, and a name added to the server's exclusion set keeps being offered.
+  // The mappable permission names, fetched once from the server (#1484) rather than copied here.
   templatePermissionNames: null,
   loadTemplatePermissionNames: () => {
     if (ssoConfigurationPage.templatePermissionNames) {
@@ -2610,9 +2053,7 @@ const ssoConfigurationPage = {
       ApiClient.getUrl("sso/Config/Permissions"),
     ).then(
       (doc) => (doc && doc.Permissions ? doc.Permissions : []),
-      // A failed fetch resolves to no vocabulary rather than rejecting: a row still renders, carrying its
-      // own stored name, so an unreachable route cannot silently drop a permission an administrator has
-      // already configured on the next save.
+      // A failed fetch yields no vocabulary; rows still render their stored names, so nothing is dropped on save.
       () => null,
     );
 
@@ -2649,9 +2090,7 @@ const ssoConfigurationPage = {
       );
     });
   },
-  // Built with createElement/textContent, never innerHTML: a permission name is server data today, and the
-  // same row renders whatever a stored configuration carries, which an administrator may have hand-edited
-  // (#221).
+  // Renders a permission row with textContent, never innerHTML (#221).
   renderTemplatePermissionRow: (container, entry, names) => {
     const row = document.createElement("div");
     row.classList.add("sso-tmpl-permission-row", "listItem");
@@ -2672,10 +2111,7 @@ const ssoConfigurationPage = {
     );
     permission.appendChild(placeholder);
 
-    // The stored name is offered even when the vocabulary does not carry it - the fetch may have failed,
-    // or the server may have stopped accepting the name. Dropping the option would silently rewrite the
-    // row to "unset" on the next save; keeping it lets the administrator see it and lets the server refuse
-    // it by name.
+    // The stored name is offered even if the vocabulary lacks it, so a save never silently unsets the row.
     const offered = names.includes(entry.Permission)
       ? names
       : [...names, entry.Permission].filter(Boolean);
@@ -2758,13 +2194,8 @@ const ssoConfigurationPage = {
       current,
     );
   },
-  // The provider form's save contract, made explicit (#365): every input in #sso-new-oidc-provider
-  // that should persist carries an sso-* class AND an id spelled EXACTLY like the OidConfig property it
-  // writes to (saveProvider does current_config[element.id] = value). A field with the wrong id, a
-  // missing sso-* class, or placed outside this form renders fine but silently never saves, and the
-  // server drops unknown JSON members too. The ArchitectureConformanceTests
-  // ProviderFormFieldIds_MatchOidConfigProperties test locks this in: it fails the build if any
-  // sso-*-classed field id is not a real OidConfig property.
+  // The provider form's save contract (#365): every persisted input carries an sso-* class and an id equal
+  // to the OidConfig property it writes. A conformance test locks the ids in.
   listArgumentsByType: (page) => {
     const toggle_class = ".sso-toggle";
     const text_class = ".sso-text";
@@ -2816,16 +2247,13 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.pluginUniqueId,
     ).then(
       (config) => {
-        // A reply for a provider the editor has since left writes nothing (#1693). Dropped
-        // rather than queued, because it is stale by then: whatever the editor is about now
-        // was filled by its own read.
+        // A reply for a provider the editor has since left writes nothing (#1693).
         if (
           !ssoConfigurationPage.replyStillSpeaksFor(page, "oid", provider_name)
         ) {
           return;
         }
-        // A 200 that is not the configuration is a state the page can reach, rather than a
-        // TypeError on the next line that nobody handles (#1694).
+        // A 200 that is not the configuration is handled rather than thrown (#1694).
         if (!ssoConfigurationPage.isProviderConfiguration(config, "oid")) {
           ssoConfigurationPage.hideEditor(page);
           ssoConfigurationPage.reportUnrecognisedProviderConfiguration(page);
@@ -2860,11 +2288,7 @@ const ssoConfigurationPage = {
         });
 
         form_elements.check_fields.forEach((id) => {
-          // Always set the checkbox from the loaded provider so switching providers
-          // resets stale toggles. Setting it only when truthy left a previous
-          // provider's checked box in place, which a later save could silently
-          // persist as true, a security downgrade for toggles like
-          // DoNotValidateEndpoints / DisableHttps.
+          // Always set from the loaded provider, so a previous provider's insecure toggle never persists.
           page.querySelector("#" + id).checked = Boolean(provider[id]);
         });
 
@@ -2882,18 +2306,12 @@ const ssoConfigurationPage = {
           ssoConfigurationPage.provisioningProfileNames(config),
         );
 
-        // Reflect the loaded toggles in the reveal-on-toggle groups (hide-not-remove) and surface any
-        // active insecure option. Runs after the check_fields above are set from the loaded provider, so a
-        // hidden-but-checked box is never left behind for the next save.
+        // Syncs the reveal groups and insecure surfacing to the toggles just loaded.
         ssoConfigurationPage.syncDependentFields(page);
-        // Reflect the loaded provider's name + base-URL override in the computed redirect URI (#724).
+        // Reflect the loaded provider's name and base-URL override in the computed redirect URI (#724).
         ssoConfigurationPage.updateRedirectUri(page);
-        // Last, so the role-map and folder-list controls the calls above created are covered too (#1104),
-        // and the profile state is re-applied after it: applyManagedState disables or ENABLES every
-        // control in the form, so for an unmanaged provider it re-enables the template controls this load
-        // had just disabled for a provider whose policy comes from a profile - the fields would look
-        // editable and their contents would then be discarded by the save. Chained on its promise,
-        // because it waits for the managed-set report before it touches anything.
+        // Last, so the widgets created above are covered (#1104), with the profile state re-applied after it
+        // because applyManagedState re-enables every control.
         ssoConfigurationPage
           .applyManagedState(page, "oid", provider_name)
           .then(() =>
@@ -2905,19 +2323,13 @@ const ssoConfigurationPage = {
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "oid");
-        // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
-        // against what was filled in rather than against what stood here before (#1572).
+        // The editor holds the stored provider, so the page is clean (#1572).
         ssoConfigurationPage.markPageClean(page);
       },
-      // The read failed, so there is nothing to fill the form from (#1681). Attached as the SECOND
-      // argument to then rather than as a catch, for the reason saveProvider states at its own handler:
-      // a catch here would also fire for anything thrown by the fill above, and a fill that threw
-      // halfway would then be reported as a server that could not be reached.
+      // The read failed, so there is nothing to fill (#1681). A second argument rather than a catch, so a
+      // throw from the fill is not reported as an unreachable server.
       () => {
-        // And a failure for a provider the editor has since left closes nothing and says
-        // nothing (#1693): the editor on screen was filled by its own read, and a sentence
-        // about the provider before it would explain the loss of a form the reader is working
-        // in by naming one they have already left.
+        // A failure for a provider the editor has since left says nothing (#1693).
         if (
           !ssoConfigurationPage.replyStillSpeaksFor(page, "oid", provider_name)
         ) {
@@ -2925,41 +2337,24 @@ const ssoConfigurationPage = {
         }
         ssoConfigurationPage.hideEditor(page);
         ssoConfigurationPage.reportUnreadableProviderConfiguration(page);
-        // The form is gone, so nothing in it is unsaved, and the notice that says otherwise would
-        // outlive the editor it is about (#1572).
+        // The form is gone, so nothing in it is unsaved (#1572).
         ssoConfigurationPage.markPageClean(page);
       },
     );
-    // A THROW FROM THE FILL IS SETTLED HERE AND NOWHERE ELSE (#1694). This catch is on the
-    // promise the two arms above RETURN, so it sees what the fulfilled arm threw and never the
-    // original rejection - that one was handled by the second argument, which is the separation
-    // #1689 asked for and could not express. A fill that threw used to run off the end of the
-    // promise: the editor stayed open over blanks, the rail asserted "Still empty" about a
-    // configured provider, and the only trace was in the browser console.
-    //
-    // A SECOND STATEMENT RATHER THAN A THIRD LINK, so the arms above keep the depth they had.
-    // As a chain, Prettier breaks the call onto its own lines and re-indents two hundred
-    // untouched lines of fill with it, which buries the three lines that changed.
+    // Settles a throw from the fill (#1694); the read's own rejection was handled by the second argument.
+    // A separate statement keeps Prettier from re-indenting the fill.
     read.catch(() => {
       ssoConfigurationPage.hideEditor(page);
       ssoConfigurationPage.reportUnfillableProviderForm(page);
       ssoConfigurationPage.markPageClean(page);
     });
   },
-  // Serial of the most recent redirect-URI request. A reply for an older provider name must never land in
-  // the field after a newer one has already answered it, which per-keystroke requests otherwise allow.
+  // Serial of the latest redirect-URI request, so an older reply never overwrites a newer one.
   redirectUriSerial: 0,
-  // Debounce handle for the same request: the field follows the provider-name and base-URL-override inputs,
-  // and each update is now a round trip rather than a local computation.
+  // Debounce handle for the redirect-URI request.
   redirectUriTimer: null,
-  // Live-updates the read-only redirect-URI field from the SERVER, the one producer of these bytes (#1303).
-  // The page used to compose the value itself - the canonical base and the path spelling both - so what an
-  // administrator registered at the identity provider was a second computation of what the login sends. A
-  // divergence between the two does not fail here. It fails at the identity provider, as a redirect_uri
-  // mismatch that reads as a plugin bug, and nothing in this repository ever learns about it. There is
-  // deliberately NO local fallback: one would restore that second producer at the moment it is least likely
-  // to be noticed. Sets .value only (never innerHTML, #221). Called on name/override input, on load, on
-  // reset, and at init.
+  // Updates the read-only redirect-URI field from the server, its one producer (#1303). No local fallback,
+  // so the value never diverges from what the login sends. Sets .value only (#221).
   updateRedirectUri: (page) => {
     const field = page.querySelector("#OidRedirectUri");
     if (!field) {
@@ -3006,8 +2401,7 @@ const ssoConfigurationPage = {
           field.placeholder = "";
           ssoConfigurationPage.refreshReadiness(page, "oid");
         },
-        // A rejection is a 404 for a provider that has not been saved yet, or a transport/authorization
-        // failure. Say what to do; never show a value the server did not produce.
+        // An unsaved provider or a failed request: say what to do, never show a value the server did not produce.
         () => {
           if (serial !== ssoConfigurationPage.redirectUriSerial) {
             return;
@@ -3100,24 +2494,15 @@ const ssoConfigurationPage = {
             // The deleted provider is gone from the list; close its now-stale editor.
             ssoConfigurationPage.hideEditor(page);
 
-            // The PAGE region and not the editor's (#1572): the line above just hid the editor and the
-            // editor's status box lives inside it, so an outcome written there would be invisible. That
-            // is what an outcome needs now that it is no longer raised as a modal alert.
+            // The page region, since the editor and its status box were just hidden (#1572).
             ssoConfigurationPage.renderPageStatus(
               page,
               tr("config.provider_removed", "Provider removed."),
               true,
             );
           },
-          // Report a genuine save failure rather than swallowing it. The delete
-          // re-posts the whole configuration, so the server can now reject it for
-          // a reason unrelated to this delete, e.g. a different provider whose
-          // reserved-character name became "new" because it was removed from the
-          // live config in the meantime (#336). Without this the PUT would reject
-          // silently and the provider would appear undeleted with no explanation.
-          // The FAILED arm does not hide the editor, so its outcome goes in the editor's own region, beside
-          // the Delete button that was pressed - not in the page region, which is where the success arm
-          // speaks because the success arm has just closed that editor (#1572).
+          // Reports a save failure, since the re-posted configuration can be refused for another reason (#336).
+          // The editor stays open, so the outcome goes in its own region (#1572).
           function () {
             ssoConfigurationPage.renderSaveStatus(
               page,
@@ -3130,9 +2515,7 @@ const ssoConfigurationPage = {
           },
         );
       })
-      // The read that precedes the delete can fail on its own (#1577), and a delete that says nothing
-      // reads as one that worked. The editor is still open on this arm - nothing was removed - so the
-      // message goes in the editor's own region, exactly where the write-failure arm above puts its own.
+      // The read before the delete can fail too (#1577); reported in the still-open editor's region.
       .catch(() =>
         ssoConfigurationPage.renderSaveStatus(
           page,
@@ -3144,45 +2527,16 @@ const ssoConfigurationPage = {
         ),
       );
   },
-  // ONE SAVE FOR THE SERVER PAGE (#1572), AND THE PARTIAL FAILURE IT DOES NOT HAVE.
-  //
-  // The two GLOBAL switches this page carries - ManageLoginPageButtons (#722) and EnableSingleLogout
-  // (#727) - each had their own button and their own handler, and each handler re-read the whole
-  // configuration, set its own flag and posted the result. One Save over two such handlers would be two
-  // writes with no transaction between them: a failure on the second leaves the first applied while the
-  // page shows a single outcome for a half-written pair, which is why #1527 refused to merge the buttons
-  // and left the write path to this issue.
-  //
-  // WHAT REMOVES THE HAZARD IS NOT A TRANSACTION, IT IS THERE BEING ONE WRITE. Both flags are members of
-  // the SAME root PluginConfiguration document, so this reads that document once, sets both flags on it,
-  // and posts it once. There is no moment at which one flag is stored and the other is not: the server
-  // writes the document whole or refuses it whole. A rejected PUT therefore leaves BOTH switches exactly
-  // as they were stored, which is what the failure message says, and the reload that follows a success
-  // is what re-reads the stored pair rather than trusting what was posted.
-  //
-  // What rides along unchanged is the rest of the document - the provider dictionaries, the provisioning
-  // profiles, every other root setting - exactly as the provider save and delete paths carry them, so a
-  // save here is not a way to lose a setting this page does not show. The server reacts to the saved
-  // configuration itself (LoginButtonManager listens for the configuration change), so no extra endpoint
-  // call is needed: on save the managed login block is injected or refreshed, or, with the flag off,
-  // only that managed region is removed and an administrator's own branding is preserved.
-  //
-  // The outcome is rendered INLINE in this page's own status region rather than raised as an alert
-  // (#1572): a modal that has to be dismissed says nothing a reader can come back to, and the failure
-  // sentence here is the one that has to survive being re-read.
+  // One Save for both global switches, ManageLoginPageButtons (#722) and EnableSingleLogout (#727) (#1572).
+  // Both are members of one document, read once and posted once, so the pair is stored whole or not at all.
+  // The rest of the document rides along unchanged; the outcome is rendered inline.
   saveServerSettings: (page) => {
     ssoConfigurationPage.renderPageStatus(page, "");
     return ApiClient.getPluginConfiguration(
       ssoConfigurationPage.pluginUniqueId,
     ).then(
       (config) => {
-        // ONLY WHAT THE ADMINISTRATOR MOVED, WHICH IS WHAT THE TWO OLD HANDLERS DID BY ACCIDENT OF BEING
-        // TWO. Each of them set its own flag on the freshly-read document and left the other alone, so a
-        // change made elsewhere between this page's load and its save survived. Writing both from the
-        // form takes that away: a second administrator who turns Single Logout on is silently undone by
-        // the first pressing Save over a page loaded before it - a security flag switched off by somebody
-        // who never touched it. So the merge keeps the property rather than the shape: a switch still
-        // showing what it was loaded with is not written at all, and the value the read returned stands.
+        // Writes only a switch the administrator moved, so a concurrent change elsewhere is not undone.
         ssoConfigurationPage.applyMovedSwitch(
           page,
           config,
@@ -3209,8 +2563,7 @@ const ssoConfigurationPage = {
               true,
             );
           },
-          // Report a genuine save failure rather than swallowing it: this PUT re-posts the whole
-          // configuration, so the server can reject it for a reason neither switch caused (#336).
+          // Reports a save failure, since the re-posted configuration can be refused for another reason (#336).
           () =>
             ssoConfigurationPage.renderPageStatus(
               page,
@@ -3222,8 +2575,7 @@ const ssoConfigurationPage = {
             ),
         );
       },
-      // The read that precedes the write can fail on its own, and a page that says nothing after a
-      // pressed Save reads as a save that worked. Nothing was posted in this arm, so nothing changed.
+      // The read before the write failed, so nothing was posted; say so.
       () =>
         ssoConfigurationPage.renderPageStatus(
           page,
@@ -3235,10 +2587,7 @@ const ssoConfigurationPage = {
         ),
     );
   },
-  // Writes one switch onto the document being saved, and ONLY where it differs from what the page was
-  // loaded with. A switch nobody moved leaves the read value in place, so this Save cannot carry a stale
-  // view of a flag its user never touched. A control the load never reached carries no loaded value, and
-  // is left alone for the same reason: nothing here knows what it means.
+  // Writes one switch onto the document only where it differs from what the page loaded.
   applyMovedSwitch: (page, config, selector, property) => {
     const control = page.querySelector(selector);
     if (!control || control.dataset.ssoLoaded === undefined) {
@@ -3248,8 +2597,7 @@ const ssoConfigurationPage = {
       config[property] = control.checked;
     }
   },
-  // The Server page's own status region, the exact parallel of renderSaveStatus on Providers, so one
-  // page's outcome can never be written over another's.
+  // Renders an outcome in the page's own status region, parallel to renderSaveStatus on Providers.
   renderPageStatus: (page, message, ok) => {
     const box = page.querySelector("#sso-page-status");
     if (!box) {
@@ -3261,47 +2609,9 @@ const ssoConfigurationPage = {
       box.classList.add(ok ? "sso-status-ok" : "sso-status-fail");
     }
   },
-  // THE ONE ANSWER TO A CONFIGURATION READ THAT FAILED WHILE AN EDITOR WAS BEING FILLED (#1681).
-  //
-  // Both loaders fill a form from a read that can fail, and until this existed neither had a rejection
-  // arm at all: the editor was already open over the fields resetEditor had blanked, so the form read as
-  // an empty provider, the readiness rail had been rebuilt from those blanks and asserted "Still empty"
-  // about a provider that is saved and fully configured, and the rejection surfaced in the browser
-  // console and nowhere a reader of the page will look. The rail is the part worth stating plainly: since
-  // #1664 it is the only place readiness appears, so it was not silent, it was confidently wrong, and
-  // what it said was the opposite of the truth.
-  //
-  // THE EDITOR IS CLOSED RATHER THAN ANNOTATED, and that is the decision. A note above a form full of
-  // blanks leaves the blanks on screen, one Save away from writing them over a provider that is fine, and
-  // leaves the rail answering about them. Closing it takes all three at once: nothing reads as the
-  // provider's values, the Save goes with the form, and hideEditor / hideSamlEditor put the rail back to
-  // its invitation through railReadiness, which is the state that matches a page with no editor open.
-  //
-  // THE PAGE REGION AND NOT THE EDITOR'S, for the reason deleteProvider states where it does the same
-  // thing: the editor's status box lives inside the element that was just hidden, so an outcome written
-  // there would be invisible.
-  /*
-   * Whether a reply about `provider_name` on `key` still speaks for what is on screen (#1693).
-   *
-   * A LOADER'S REPLY CAN BE ABOUT A PROVIDER NOBODY IS LOOKING AT ANY MORE, and a failing
-   * request is typically the slower of two, so this is the ordinary ordering rather than an
-   * exotic one: an administrator clicks a, its read stalls, they click b, b answers and fills
-   * the form, and then a's read settles. Before this, a's FAILURE closed b's editor and put a
-   * sentence about a on the page, and a's SUCCESS wrote a's values into b's form under b's
-   * title. The second is the worse of the two, because a Save then persists it.
-   *
-   * THE SUBJECT AND NOT A COUNTER. A serial bumped when a read is issued answers "has another
-   * read started", which is three of the four ways a reply goes stale and not the fourth: the
-   * editor being CLOSED, or the other protocol being opened, issues no read at all. What the
-   * editor is currently ABOUT answers all four at once - another provider opened, a blank New
-   * provider form opened, the editor closed, the protocol switched - and it is read from the
-   * same two places every other part of this page reads it from. `redirectUriSerial` twenty
-   * lines below is the counter shape, for a question where the subject cannot move: that field
-   * follows what is typed rather than which provider is loaded.
-   *
-   * applyManagedState compares the selector's value for the same reason, and this is that
-   * comparison with the open-editor half added.
-   */
+  // Whether a reply about `provider_name` on `key` still speaks for the open editor (#1693).
+  // It compares what the editor is about rather than a request counter, since closing the editor or
+  // switching protocol issues no read.
   replyStillSpeaksFor: (page, key, provider_name) => {
     if (ssoConfigurationPage.openEditorKey(page) !== key) {
       return false;
@@ -3311,24 +2621,8 @@ const ssoConfigurationPage = {
     );
     return selector !== null && selector.value === provider_name;
   },
-  /*
-   * Whether a body a 200 carried is this plugin's configuration at all (#1694).
-   *
-   * A FULFILLED READ IS NOT A READ THAT WORKED. A proxy's error page that happens to parse, a
-   * version-skewed endpoint, a truncated body: each arrives as a resolved promise, and the
-   * first line of the fill then reads a member of undefined. The OpenID loader threw a
-   * TypeError there and ran off the end of the promise, so the editor stayed open over the
-   * fields resetEditor blanked, the rail asserted "Still empty" about a provider that is saved
-   * and fully configured, and the only trace was in the browser console. The SAML loader read
-   * `(config.SamlConfigs || {})` and so presented a blank provider as successfully read, which
-   * is quieter and no better.
-   *
-   * THE MEMBER FOR THE PROTOCOL BEING READ, AND AN OBJECT. PluginConfiguration declares
-   * OidConfigs and SamlConfigs as dictionaries that are always serialized, so a body missing
-   * the one this loader needs is not the document whatever else it holds. Empty is fine and
-   * must stay fine - a server with no provider of that protocol is the commonest installation
-   * there is, and refusing it would close the editor on every one of them.
-   */
+  // Whether a 200 body is this plugin's configuration (#1694): the protocol's member must be an object,
+  // though it may be empty.
   isProviderConfiguration: (config, key) => {
     if (config === null || typeof config !== "object") {
       return false;
@@ -3336,10 +2630,7 @@ const ssoConfigurationPage = {
     const member = key === "saml" ? config.SamlConfigs : config.OidConfigs;
     return member !== null && typeof member === "object";
   },
-  // A body that arrived and is not the configuration (#1694). A SECOND SENTENCE RATHER THAN
-  // THE ONE ABOVE: the server answered, so "could not read the stored configuration" would
-  // describe the wrong failure to whoever has to act on it - the thing to look at is what is
-  // answering for Jellyfin, not whether Jellyfin is up.
+  // Reports a body that is not the configuration (#1694), worded apart from a failed read.
   reportUnrecognisedProviderConfiguration: (page) => {
     ssoConfigurationPage.renderPageStatus(
       page,
@@ -3350,10 +2641,7 @@ const ssoConfigurationPage = {
       false,
     );
   },
-  // And a fill that threw part way (#1694). A third state, because the two above are both
-  // about the ANSWER and this one is about this page: the document was the document and
-  // something in it was not the shape this form expects, so the form is closed rather than
-  // left holding half of a provider.
+  // Reports a fill that threw part way (#1694); the form is closed rather than left half filled.
   reportUnfillableProviderForm: (page) => {
     ssoConfigurationPage.renderPageStatus(
       page,
@@ -3364,6 +2652,8 @@ const ssoConfigurationPage = {
       false,
     );
   },
+  // Reports a read that failed while an editor was being filled (#1681); the editor is closed so no blanks
+  // read as the provider, and the outcome goes to the page region.
   reportUnreadableProviderConfiguration: (page) => {
     ssoConfigurationPage.renderPageStatus(
       page,
@@ -3374,19 +2664,9 @@ const ssoConfigurationPage = {
       false,
     );
   },
-  // WHETHER A SAVE DROPPED THE STORED CLIENT SECRET (#1872), read back from the server rather than
-  // re-derived here. The server does not carry a stored secret over to a provider whose discovery
-  // endpoint or client id changed, because a write-only secret must not follow a provider repointed at
-  // another token endpoint - so the save succeeds and the provider signs nobody in until a secret
-  // arrives. The page saves through the host's plugin-configuration door, which answers with no body,
-  // so the fact is the difference between two readings of OidSecretStored: true before the save and
-  // false after it. A second copy of the rule in this file would be the thing that disagrees with the
-  // server one day (a null endpoint and an empty one compare equal here and differ there); a reading
-  // cannot. OidSecretStored is the only thing that says a secret is there at all, since the secret
-  // itself is withheld from every response. A provider that had none drops nothing, and saying
-  // otherwise would send an administrator looking for a secret that never existed. Null means the
-  // question could not be answered - the provider did not come back - and the caller says so rather
-  // than reading it as either answer. A pure function of the two readings, testable without a page.
+  // Whether a save dropped the stored client secret (#1872), from the OidSecretStored readings before and
+  // after the save; the server drops it when the endpoint or client id changes. Null when the provider did
+  // not come back.
   secretDroppedByThisSave: (secret_was_stored, saved_provider) => {
     if (secret_was_stored !== true) {
       return false;
@@ -3396,14 +2676,8 @@ const ssoConfigurationPage = {
     }
     return saved_provider.OidSecretStored !== true;
   },
-  // THE SENTENCE UNDER THE SAVE, chosen from that answer (#1872). The provider is stored either way,
-  // so none of the three is a failure; but a provider that cannot sign anybody in until a secret
-  // arrives is not a plain "saved", and nothing else on this page would ever say so, because the
-  // secret field is blank on every load. The sentence carries the reason and the remedy rather than
-  // the colour doing it (#221). Null is the read-back not answering, and it is said as that: a
-  // negative that could not be taken is not turned into "saved". A pure function of the outcome, so
-  // the choice is testable without a page, and the colour rides with the sentence rather than being
-  // decided a second time at the render site.
+  // The status sentence and colour for a save outcome (#1872); a dropped secret or an unanswered read-back
+  // is never a plain "saved" (#221).
   saveStatusFor: (outcome) => {
     const dropped = (outcome || {}).secretDropped;
     if (dropped === true) {
@@ -3440,11 +2714,7 @@ const ssoConfigurationPage = {
             current_config = config.OidConfigs[provider_name];
           }
 
-          // WHETHER A SECRET WAS STORED IS READ BEFORE THE FORM TOUCHES THE PROVIDER (#1872). The
-          // object below IS the stored provider and the loops after this mutate it in place, so the
-          // reading is copied out here rather than taken afterwards. It is the first of the two
-          // readings secretDroppedByThisSave compares; the second is taken from the server after the
-          // save has landed.
+          // Read before the loops below mutate the stored provider in place (#1872).
           const secret_was_stored = current_config.OidSecretStored === true;
 
           form_elements.text_fields.forEach((id) => {
@@ -3464,9 +2734,7 @@ const ssoConfigurationPage = {
           form_elements.folder_list_fields.forEach((id) => {
             const elem = page.querySelector(`#${id}`);
             const folders = ssoConfigurationPage.serializeEnabledFolders(elem);
-            // A checklist that never drew leaves the stored restriction alone rather than replacing it
-            // with nothing (#1607). The key is left off the object entirely, so the stored value is what
-            // the server keeps; assigning null here would be the same destructive write in another shape.
+            // A checklist that never drew leaves the stored restriction alone (#1607).
             if (folders !== null) {
               current_config[id] = folders;
             }
@@ -3478,14 +2746,8 @@ const ssoConfigurationPage = {
               ssoConfigurationPage.serializeRoleMappings(elem);
           });
 
-          // The named profile and the inline template are ONE decision and are written together (#1105).
-          // The selector is read here rather than by the flat loop above, for the reason
-          // fillProvisioningTemplate states; the template follows it, because a save carrying both is
-          // refused by ProviderConfigValidator - one account-creation policy has one source. Leaving the
-          // stored template in place beside a newly chosen profile name would therefore make the provider
-          // unsaveable from this page, client id and secret included, so the discard is deliberate; it is
-          // confirmed at the moment the profile is chosen (chooseProvisioningProfile) rather than here,
-          // where the administrator has already pressed Save.
+          // The named profile and the inline template are written together (#1105): a save carrying both is
+          // refused, so choosing a profile discards the template, confirmed in chooseProvisioningProfile.
           current_config.ProvisioningProfile =
             page.querySelector("#ProvisioningProfile").value || null;
           current_config.ProvisioningPolicyTemplate =
@@ -3508,15 +2770,8 @@ const ssoConfigurationPage = {
               );
               ssoConfigurationPage.loadConfiguration(page);
               ssoConfigurationPage.loadProvider(page, provider_name);
-              // THE SECOND READING (#1872): the save has landed, so the server can be asked whether the
-              // secret is still there. The outcome is rendered inline by the caller, in the editor's own
-              // status region (#1572), and it carries the answer AS A PROMISE: the save itself settles
-              // now, as it always has - the readiness rail (#1678) drives that ordering and its reloads
-              // above are still in flight at this point - and the sentence waits for the answer rather
-              // than the other way round. A read-back that fails does not turn a save that worked into a
-              // failure; it answers with the question unanswered, and the caller says that rather than
-              // "saved" - the one save this fix exists for is exactly the one that would otherwise read
-              // as fine.
+              // Reads back whether the secret survived (#1872), as a promise the caller's status sentence waits on;
+              // a failed read-back leaves the question unanswered rather than reporting "saved".
               const secret_dropped = ApiClient.getPluginConfiguration(
                 ssoConfigurationPage.pluginUniqueId,
               ).then(
@@ -3525,8 +2780,7 @@ const ssoConfigurationPage = {
                     secret_was_stored,
                     ((saved || {}).OidConfigs || {})[provider_name],
                   ),
-                // The rejection arm hands the same decision a read-back that holds no provider: null
-                // when a secret was there, false when none was, and no second rule beside it.
+                // A failed read-back is decided as if no provider came back.
                 () =>
                   ssoConfigurationPage.secretDroppedByThisSave(
                     secret_was_stored,
@@ -3535,11 +2789,8 @@ const ssoConfigurationPage = {
               );
               resolve({ secretDropped: secret_dropped });
             },
-            // Rejection handler attached directly to the save call, so it reports only a genuine save
-            // failure and not an error thrown by the post-save UI work above. The server can refuse a
-            // save for more than one reason (a malformed Base URL Override, #139; a provider name with
-            // URI-reserved or control characters, #336/#360), so the message the caller renders names both
-            // checks instead of blaming one.
+            // Attached to the save call so only a real save failure is reported; the message names both server
+            // checks (#139, #336/#360).
             function () {
               reject(
                 new Error(
@@ -3549,13 +2800,7 @@ const ssoConfigurationPage = {
             },
           );
         })
-        // THE READ CAN FAIL ON ITS OWN, AND WITHOUT THIS NOTHING SETTLES (#1577). The rejection arm above
-        // belongs to the WRITE. If the configuration read that precedes it fails - an expired dashboard
-        // token, a 500, the server restart this editor itself asks for after a save - this promise never
-        // settles, so neither of the caller's status arms runs and a pressed Save produces nothing at all:
-        // the one failure a page can make that reads exactly like a save that worked. It also settles a
-        // throw from inside the fill above, which would otherwise hang in the same way. A reject after a
-        // resolve is a no-op, so the success path is untouched.
+        // Settles a failed configuration read, or a throw from the fill, so a pressed Save always reports (#1577).
         .catch(() =>
           reject(
             new Error(
@@ -3565,12 +2810,8 @@ const ssoConfigurationPage = {
         );
     });
   },
-  // Test-connection (#163). Calls the elevation-gated OID/Test endpoint for the SAVED provider and renders
-  // the result. The endpoint reads the stored config server-side, fetches the discovery document over the
-  // login's hardened path, and returns only non-secret facts (issuer, endpoints, JWKS reachability); the
-  // client secret is never sent back. Everything is rendered with createElement/textContent (never
-  // innerHTML) so a reflected issuer/endpoint string cannot inject markup, matching linking.js and
-  // _populateFolders (#221).
+  // Tests the saved provider through the elevated OID/Test endpoint (#163) and renders the non-secret facts
+  // with textContent (#221).
   testProvider: (page, provider_name) => {
     const container = page.querySelector("#TestResult");
     if (!provider_name) {
@@ -3600,8 +2841,7 @@ const ssoConfigurationPage = {
           Boolean(result && result.Ok),
         );
       },
-      // A rejection is a transport/authorization failure or an unconfigured provider (404). Keep the
-      // message generic and actionable: it never reflects a server-side secret.
+      // A transport or authorization failure, or an unconfigured provider; the message stays generic.
       () => {
         ssoConfigurationPage.renderTestMessage(
           container,
@@ -3614,9 +2854,7 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // Remember the outcome of a Test Connection so the readiness panel (#1083) can report reachability
-  // without issuing a second request of its own. A rejection is recorded as a failure rather than left
-  // unknown: the row must not read as "not yet tested" after a test the admin watched fail.
+  // Records a Test Connection outcome for the readiness panel (#1083); a rejection counts as a failure.
   recordTestOutcome: (page, key, ok) => {
     ssoConfigurationPage.readinessTestState[key] = ok;
     ssoConfigurationPage.readinessTestSubject[key] =
@@ -3626,15 +2864,8 @@ const ssoConfigurationPage = {
       );
     ssoConfigurationPage.refreshReadiness(page, key);
   },
-  // ---- Readiness panel (#1083), answered once in the rail (#1664) ----
-  // WHICH PROTOCOL THE PAGE IS CURRENTLY ABOUT, or null when it is about neither. COMPUTED RATHER THAN
-  // REMEMBERED: the two editors are mutually exclusive (#1527) and every route that opens one hides the
-  // other, so this is a function of two `hidden` attributes and never of a variable somebody has to keep
-  // in step.
-  //
-  // ONE READING, USED BY THE RAIL AND BY THE PANEL ITSELF, because two readings disagreeing is the
-  // failure this arrangement can have: one list shared by both forms shows whatever was written into it
-  // last, whichever form is on screen.
+  // Readiness panel (#1083), answered once in the rail (#1664).
+  // Which protocol's editor is open, or null, computed from the two editors' `hidden` state (#1527).
   openEditorKey: (page) => {
     const oid = page.querySelector("#sso-editor");
     const saml = page.querySelector("#saml-editor");
@@ -3643,12 +2874,7 @@ const ssoConfigurationPage = {
     }
     return !oid.hidden ? "oid" : !saml.hidden ? "saml" : null;
   },
-  // The rail, brought into line with whatever is on screen. Both openers and both closers call it, and a
-  // doubled call is a rebuild of the same list - which the panel was already safe for, being idempotent
-  // and request-free.
-  //
-  // BOTH HIDDEN IS THE INVITATION, not an empty panel: a headed list with no rows reads as a provider
-  // that answered nothing, which is the opposite of the truth when no provider is open.
+  // Brings the rail into line with the open editor, or shows the invitation when none is open.
   railReadiness: (page) => {
     const list = page.querySelector("#" + RAIL_READINESS_LIST);
     const empty = page.querySelector("#sso-rail-readiness");
@@ -3666,34 +2892,13 @@ const ssoConfigurationPage = {
     list.hidden = false;
     ssoConfigurationPage.refreshReadiness(page, open);
   },
-  // The last Test Connection outcome per protocol, so the reachability row can report it WITHOUT
-  // re-issuing the request. null means "not yet tested in this page session", which is what a provider
-  // that has never been tested must read as - not as a failure. resetEditor / resetSamlEditor clear it,
-  // so a previous provider's result cannot be read as this one's.
+  // The last Test Connection outcome per protocol; null means not yet tested. Cleared on editor reset.
   readinessTestState: { oid: null, saml: null },
-  // WHAT THE LAST OUTCOME WAS ABOUT, so a later reader can ask whether it still speaks for the form in
-  // front of it (#1665). The outcome above says only that a test ran and what it answered; it is a flag,
-  // and nothing clears it when a field moves. That is correct for the rail, which reports a past run,
-  // and wrong for a gate. The wizard refuses to open its last step without a test that SUCCEEDED, so on
-  // the flag alone an administrator could pass that step, go back, put a typo in the endpoint, walk
-  // forward through a gate re-reading the same stale boolean, and finish on a page saying the provider
-  // was tested. Driven on the fixture rather than reasoned about.
-  //
-  // NULL UNTIL A TEST RUNS, and deliberately not reset beside the outcome: it is read only where the
-  // outcome is already true, so a stale subject under a null outcome says nothing to anybody.
+  // What the last test was about, so the wizard can tell whether it still speaks for the form (#1665).
+  // Read only where the outcome is true, so it is not reset.
   readinessTestSubject: { oid: null, saml: null },
-  // The fields a Test Connection's answer depends on, as one comparable string. The spec's REQUIRED ids
-  // and no separate list: they are the provider's identity and its endpoint - which provider the server
-  // is asked about, and what it fetches - and they are declared once already. So ticking Enabled or
-  // editing a role map is not a reason to re-test, and changing the endpoint is.
-  //
-  // The separator is the one controlSignature settles on, for the reason it gives (#1576): a value
-  // cannot contain it, so two fields cannot join into a third form's string.
-  //
-  // IT READS `value` AND NOT `checked`, which is complete for what it is handed: every required id of
-  // both specs is a text field. A checkbox made required tomorrow would need the branch
-  // controlSignature carries, because a checkbox's `value` does not move when it is ticked - so this
-  // would go on answering the same string across the change it exists to notice.
+  // The fields a test depends on, the spec's required ids, as one comparable string using the
+  // controlSignature separator (#1576). Reads `value` only, since every required id is a text field.
   providerTestSubject: (page, spec) =>
     spec.requiredIds
       .map((id) => {
@@ -3701,8 +2906,7 @@ const ssoConfigurationPage = {
         return id + "=" + String((field && field.value) || "");
       })
       .join("\n"),
-  // What each editor's panel is made of. Everything here is an id that already exists on the form: the
-  // panel adds no field, no request and no state of its own beyond the test outcome above.
+  // What each editor's panel is made of, all ids that already exist on the form.
   readinessSpecs: {
     oid: {
       testKey: "oid",
@@ -3738,16 +2942,8 @@ const ssoConfigurationPage = {
       enabledId: "saml-Enabled",
     },
   },
-  // A field's human name, taken from the form's own <label>. Restating the names here would give the panel
-  // a second copy of every label to drift against, and the label is already localized, so reading it keeps
-  // the panel in the page's language for free.
-  //
-  // The two label idioms on this page are read differently, and both are needed: a text/textarea field has
-  // a sibling `<label for=...>` whose OWN text is the name, with the required marker and the "(optional)"
-  // hint as child elements to be dropped; a checkbox is WRAPPED in a bare `<label>` whose text lives in a
-  // child `<span>`, so there the direct text nodes are empty and the whole label's text is the name. Taking
-  // the direct text nodes first and falling back to the full text covers both without asking which is which.
-  // The id is the last resort, so an unlabelled control still names itself rather than rendering blank.
+  // A field's human name, read from its localized label: the label's own text for a `for` label, the full
+  // text for a wrapping checkbox label, and the id as the last resort.
   readinessFieldName: (page, id) => {
     const field = page.querySelector("#" + id);
     const label =
@@ -3769,11 +2965,8 @@ const ssoConfigurationPage = {
       .trim();
     return text || id;
   },
-  // Which of the spec's fields are empty, and which are currently showing an inline validation message.
-  // The empties are read from the VALUES rather than by re-running the validators, so typing into a blank
-  // required field clears its row immediately and no premature "is required" error is forced onto a field
-  // the admin has not left yet. The warnings are read from the validators' own output boxes, so the panel
-  // and the message beside the field cannot disagree.
+  // Which fields are empty, read from the values, and which show an inline warning, read from the
+  // validators' own output.
   readinessFieldStates: (page, spec) => {
     const named = (ids) =>
       ids.map((id) => ssoConfigurationPage.readinessFieldName(page, id));
@@ -3787,8 +2980,7 @@ const ssoConfigurationPage = {
     });
     return { missing: named(missing), warned: named(warned) };
   },
-  // The flagged security toggles that are currently ON. Reads `.checked`; it never assigns one, so the
-  // danger-zone isolation the editor relies on is untouched by rendering this panel.
+  // The flagged security toggles that are on; reads `.checked` and never assigns it.
   readinessActiveToggles: (page, key) => {
     const ids =
       key === "saml"
@@ -3805,8 +2997,7 @@ const ssoConfigurationPage = {
       })
       .map((id) => ssoConfigurationPage.readinessFieldName(page, id));
   },
-  // One row. The state word is part of the text, never a colour on its own (#221), and the row is built
-  // with textContent so a value echoed into a field name could not reach the DOM as markup.
+  // Appends one row; the state word is in the text, never colour alone (#221), and set as textContent.
   appendReadinessRow: (list, ok, label, detail) => {
     const item = document.createElement("li");
     item.classList.add("fieldDescription");
@@ -3816,34 +3007,15 @@ const ssoConfigurationPage = {
     item.textContent = state + " - " + label + " - " + detail;
     list.appendChild(item);
   },
-  // Rebuild a panel from the form's current state. Cheap and idempotent, so it is safe to call from a
-  // field event; it issues no request and reads nothing the page does not already hold.
+  // Rebuilds a panel from the form's current state; idempotent and request-free.
   refreshReadiness: (page, key) => {
-    // ONLY THE OPEN EDITOR MAY WRITE, and this is not belt-and-braces on top of
-    // railReadiness - it is the half railReadiness cannot cover (#1664). Three callers
-    // reach here ASYNCHRONOUSLY with a protocol decided when the request went out: the
-    // redirect-URI debounce, the two loadProvider replies, and recordTestOutcome. While
-    // each protocol wrote into its own list inside its own editor those late writes were
-    // harmless - they landed in a hidden panel and were rebuilt on the next open. One
-    // shared list removed that isolation, so an OpenID reply arriving after the
-    // administrator clicked a SAML provider painted the OpenID answer under the SAML
-    // form, including "Ready - Endpoint test", and it stood until the next keystroke.
-    // Found by a review that drove it rather than by a reading of this file.
-    //
-    // A LATE WRITE IS DROPPED RATHER THAN QUEUED, because it is stale by then: the panel
-    // is rebuilt from the form on the next open and on every field event, so nothing is
-    // owed to the reply that lost the race.
+    // Only the open editor may write (#1664): late async replies for the other protocol are dropped, since
+    // the panel is rebuilt on the next open anyway.
     if (ssoConfigurationPage.openEditorKey(page) !== key) {
       return;
     }
     const spec = ssoConfigurationPage.readinessSpecs[key];
-    // THE LIST IS READ FROM THE CONSTANT AND NOT FROM THE SPEC, so the two cannot diverge.
-    // Each spec carried a listId until the review of 2026-09-12 pointed out that both had come
-    // to hold the same value: a per-protocol field that no longer varies is a place for one of
-    // them to be edited alone, and that is the last route left to the shape this card is
-    // supposed to be free of - railReadiness unhides the list and hands over, so a lookup that
-    // misses below leaves a headed panel with no rows. Driven on a tree with the old literals
-    // put back, it produced exactly that. One name, one lookup, no divergence to have.
+    // Read from the shared constant, so the two specs cannot point at different lists.
     const list = page.querySelector("#" + RAIL_READINESS_LIST);
     if (!list) {
       return;
@@ -3902,12 +3074,8 @@ const ssoConfigurationPage = {
             ),
     );
 
-    // The two computed URLs become available at DIFFERENT moments, so the row says which: the SAML reply
-    // URL is composed on the page as soon as a name is typed, while the OpenID redirect URI is produced by
-    // the server and answers 404 until the provider has been saved. Both branches carry their key and their
-    // English at the tr() call itself rather than through the spec above: a key reached through a variable
-    // is invisible to the catalog's own reference scan, which reports it as an orphan and would have to be
-    // told about this indirection to stop.
+    // The SAML reply URL exists once a name is typed, the OpenID redirect URI only after a save. Keys are
+    // literal at each tr() call so the catalog's reference scan finds them.
     const urlField = page.querySelector("#" + spec.urlId);
     const urlShown = Boolean(urlField && String(urlField.value || "").trim());
     const urlReady = tr(
@@ -3948,67 +3116,29 @@ const ssoConfigurationPage = {
           }),
     );
   },
-  // ---- The provider wizard (#1665) ----
-  //
-  // WHAT IT IS: a conductor over the editor that already exists, not a second editor. It holds no field,
-  // writes no configuration value and issues no request; the save and the test it asks for are the
-  // editor's own buttons, which already carry their late-reply guards. So the save contract, the managed
-  // freeze and the readiness rail are all untouched by it, and the one thing it adds is an ORDER with a
-  // refusal at each join.
-  //
-  // WHY THE ORDER IS THE ONE IT IS, AND IT IS NOT THE ONE A READING OF THE SCREEN SUGGESTS. Two of the
-  // five steps need the provider to exist on the SERVER before they can answer at all, and both were
-  // measured rather than assumed. `sso/OID/RedirectUri/<name>` answers 404 for a provider that has not
-  // been saved, which is why `updateRedirectUri` has a rejection arm that writes "Save this provider to
-  // see its exact redirect URI"; and `OID/Test/{provider}` reads the STORED configuration and returns
-  // 404 for anything else. So the save is inside step 2 rather than being the last thing that happens,
-  // and the last step is the ENABLE. The SAML half computes its ACS URL in the client and needs no save
-  // for step 3, which is why the refusal for that step is the one thing here that is per-protocol.
-  //
-  // WHAT THAT ORDER BUYS IS A SECURITY PROPERTY AND NOT A CONVENIENCE. A provider reaches `Enabled` only
-  // after a Test Connection that SUCCEEDED, because step 4 refuses to open step 5 otherwise, and every
-  // provider this wizard builds starts from `addProvider` or `addSamlProvider` - one opener per protocol,
-  // each resetting every toggle off - so neither half arrives already enabled. The failure it is against
-  // is the ordinary one: a provider enabled on a typo, offered on the sign-in page, and answering nobody.
-  //
-  // THE STEP IS READ FROM THE PAGE. `#sso-wizard` carries `data-step`, so two pages of one dashboard
-  // cannot share it, a reader of the DOM can see where the wizard stands, and this module keeps no state
-  // that something has to remember to reset. The PROTOCOL is not stored at all: it is `openEditorKey`,
-  // the same reading the rail uses, so an editor closed or a provider card clicked mid-wizard moves the
-  // wizard with it instead of leaving it answering for a form that is no longer on screen.
+  // The provider wizard (#1665): a conductor over the existing editor that holds no field and issues no
+  // request of its own; it adds an order with a refusal at each step.
+  // The save is inside step 2 because the redirect URI and the test need a stored provider, and Enable
+  // comes last, so a provider is enabled only after a successful test.
+  // The step is read from `data-step` on #sso-wizard; the protocol is openEditorKey.
   wizardStep: (page) => {
     const wizard = page.querySelector("#sso-wizard");
     const step = wizard ? Number(wizard.getAttribute("data-step")) : 0;
     return Number.isInteger(step) && step >= 0 ? step : 0;
   },
-  // The panels give the COUNT and the ORDER, so neither is written in this module. WHAT THAT DOES NOT
-  // BUY IS A SIXTH STEP FOR FREE, and this comment claimed it did until a probe added one panel: the
-  // stepper rows are a second population in the same markup, so a panel added without its row leaves
-  // the wizard on a step no row names and aria-current on nothing at all. The markup is where a step is
-  // added, and it is added in BOTH places; what is derived here is only that this module never holds a
-  // number to disagree with them.
+  // The wizard panels, which give the step count and order. A new step needs its stepper row too.
   wizardPanels: (page) => [...page.querySelectorAll(".sso-wizard-panel")],
-  // Whether Overview's card asked for the wizard. Read from the hash because that is where the
-  // dashboard's own route lives - the tab strip's links are `#/configurationpage?name=...` - and the
-  // Overview card is one of those links with a flag on the end, so it works before any controller runs.
+  // Whether the Overview card asked for the wizard, via a flag on the dashboard's hash route.
   wizardRequested: () => /[?&]wizard=1(?:&|$)/.test(window.location.hash || ""),
   startWizard: (page) => {
     page.querySelector("#sso-wizard").hidden = false;
     page.querySelector("#sso-wizard-start").hidden = true;
-    // STEP ONE, ALWAYS, and never where it was left. A wizard resumed at step 4 over a form somebody
-    // has since emptied would be asserting a test outcome about a provider that is no longer in front
-    // of it, and nothing on the page would say so.
+    // Always starts at step one, so no earlier test outcome is asserted about a changed form.
     ssoConfigurationPage.setWizardStep(page, 0);
   },
-  // LEAVING CHANGES NOTHING IN THE EDITOR, which is what the wizard's own lead promises. The editor
-  // stays open, its values stay where they are, and if any of them is unsaved the page is dirty and the
-  // unsaved-changes indicator above is already saying so (#1572) - this has nothing to add and must not
-  // claim the opposite by tidying up.
+  // Closes the wizard and changes nothing in the editor; unsaved edits keep the page dirty (#1572).
   closeWizard: (page) => {
-    // THE REFUSAL GOES WITH IT, and this line is not spare. Finish is reached from a step that has
-    // already refused at least once in the ordinary case - tick Enabled, press Finish, meet the
-    // unsaved refusal, save, press Finish again - so without this the wizard closes with the sentence
-    // it no longer means still sitting in the region, to be shown again by the next open.
+    // Clears any refusal, so the next open does not show a stale sentence.
     ssoConfigurationPage.renderWizardRefusal(page, "");
     page.querySelector("#sso-wizard").hidden = true;
     page.querySelector("#sso-wizard-start").hidden = false;
@@ -4017,23 +3147,10 @@ const ssoConfigurationPage = {
     page.querySelector("#sso-wizard").setAttribute("data-step", String(step));
     ssoConfigurationPage.renderWizard(page);
   },
-  // Step one's action: open the blank editor for the protocol chosen. It does NOT advance - choosing a
-  // template is the other half of this step and the picker is inside the editor that just opened, so the
-  // administrator advances when they are done with both. One advance mechanism, and it is Next.
-  //
-  // THE CONFIRMATION IS THE DATA-LOSS GUARD AND IT IS THE ONLY ONE HERE. `addProvider` blanks every
-  // field and then marks the page clean, so a protocol changed after twenty minutes of typing would take
-  // that typing with it and leave nothing behind saying it had. This is the same window.confirm idiom
-  // the delete and the profile-change paths use, and it is asked ONLY when the page actually holds an
-  // edit, so the ordinary first pick is never interrupted by it.
+  // Step one's action: opens the blank editor for the chosen protocol without advancing. Asks for
+  // confirmation first when the page holds an edit, since addProvider discards it.
   wizardPick: (page, key) => {
-    // BOTH READINGS OF 'THERE IS WORK HERE', AND NEITHER ALONE. The dirty CLASS is raised by an input
-    // or change event, and the refresh guard two hundred lines above refuses to trust it for exactly
-    // this decision, naming the path: removing a role-mapping row is a button click with no event, so
-    // the class stays off while the form has changed. The BASELINE comparison catches that, and is the
-    // one that can be true when nothing was typed, because the redirect URI arrives after the fill that
-    // took the baseline. A false question before a destructive act costs one dialog; a missing one
-    // costs the work.
+    // Checks both the dirty class and the baseline, since a removed row fires no event.
     if (
       (ssoConfigurationPage.isPageDirty(page) ||
         ssoConfigurationPage.pageDiffersFromBaseline(page)) &&
@@ -4053,30 +3170,18 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.addProvider(page);
     }
 
-    // Both openers scroll their own editor to the top of the viewport, which puts the wizard off screen
-    // above it - and the wizard is where the next instruction and the Next button are. Scrolling back
-    // leaves the editor immediately below it, so both are readable at once.
+    // Scrolls the wizard back into view above the editor the opener scrolled to.
     const wizard = page.querySelector("#sso-wizard");
     if (wizard) {
       wizard.scrollIntoView({ block: "start" });
     }
     ssoConfigurationPage.renderWizard(page);
   },
-  // What stops this step opening the next, or null when nothing does. ONE FUNCTION FOR EVERY STEP, so
-  // Next and Finish cannot disagree about whether a step is complete: Finish asks the same question of
-  // the last step that Next asks of the other four.
-  //
-  // EVERY ANSWER IS READ OUT OF THE PAGE AT THE MOMENT IT IS ASKED, and nothing is remembered from the
-  // press before. The required fields come from `readinessFieldStates`, which is the reading the rail
-  // and the Save gate already use, so the wizard cannot name a different set of missing fields than the
-  // card beside it does. The names it prints are the form's own localized labels, for the reason the
-  // aggregate check gives: a bare `OidEndpoint` in front of an administrator is an internal id and a
-  // lost translation.
+  // What stops this step opening the next, or null, shared by Next and Finish. Read from the page at the
+  // moment of asking, with the required fields from readinessFieldStates and their localized labels.
   wizardStepRefusal: (page, step) => {
     const key = ssoConfigurationPage.openEditorKey(page);
-    // NO EDITOR IS NO PROTOCOL, at every step and not only at the first. An editor closed mid-wizard
-    // leaves nothing for any later step to read, so answering "still empty" about a form that is not on
-    // screen would be the confidently-wrong direction.
+    // No open editor means no protocol, at every step.
     if (key === null) {
       return tr(
         "config.wizard_refuse_protocol",
@@ -4119,9 +3224,7 @@ const ssoConfigurationPage = {
     if (step === 3) {
       const tested = ssoConfigurationPage.readinessTestState[spec.testKey];
       if (tested === true) {
-        // A GREEN TEST IS ABOUT A PROVIDER, NOT ABOUT A PAGE. The outcome survives every keystroke,
-        // so without this an endpoint edited after the test walks through this step on the strength of
-        // a run that asked about a different address.
+        // A green test counts only while the tested fields are unchanged.
         return ssoConfigurationPage.readinessTestSubject[spec.testKey] ===
           ssoConfigurationPage.providerTestSubject(page, spec)
           ? null
@@ -4130,8 +3233,7 @@ const ssoConfigurationPage = {
               "The connection fields have changed since the last Test Connection, so that result is not about the provider this form now describes. Save, and run Test Connection again.",
             );
       }
-      // NOT TESTED AND TESTED-AND-FAILED ARE DIFFERENT SENTENCES, because they ask for different things:
-      // one is a button nobody has pressed, the other is a provider that answered wrongly.
+      // Not tested and tested-and-failed get different sentences.
       return tested === false
         ? tr(
             "config.wizard_refuse_test_failed",
@@ -4145,10 +3247,7 @@ const ssoConfigurationPage = {
 
     if (step === 4) {
       const toggle = page.querySelector("#" + spec.enabledId);
-      // A PROVIDER A CONFIGURATION SOURCE OWNS CANNOT BE TICKED HERE, and telling somebody to tick it
-      // anyway is a refusal naming an action they cannot take (#1104). The freeze writes `disabled`
-      // on every control of the form and nothing else on this page does, so the attribute is the
-      // reading; the wizard's own buttons are outside both forms, so Back and Leave stay live.
+      // A managed provider's toggle is disabled (#1104), so the refusal does not ask to tick it.
       if (toggle && toggle.disabled) {
         return tr(
           "config.wizard_refuse_managed",
@@ -4161,9 +3260,7 @@ const ssoConfigurationPage = {
           "The provider is not enabled yet. Tick Enabled in the editor below, then press Save.",
         );
       }
-      // TICKED IS NOT SAVED. The toggle is a form value until a save carries it to the server, so
-      // finishing here on the tick alone would end a wizard whose whole promise is a provider that
-      // works with a provider the server has never been told about.
+      // Ticked is not saved; the page must be clean to finish.
       return ssoConfigurationPage.isPageDirty(page)
         ? tr(
             "config.wizard_refuse_unsaved",
@@ -4175,23 +3272,8 @@ const ssoConfigurationPage = {
     // Step one. Reaching here means an editor is open, which is what this step is for.
     return null;
   },
-  /*
-   * WHAT STOPS THIS STEP, OR ANY STEP BEFORE IT. The first refusal in order, which is the difference
-   * between a wizard and five buttons that happen to be numbered.
-   *
-   * WHY IT IS CUMULATIVE, AND THE SINGLE-STEP VERSION SHIPPED FIRST. Every condition here is read off
-   * the form, and the form can change under a step that has already been passed: clicking a saved
-   * provider's card while the wizard is open reloads the editor, and `resetEditor` clears the Test
-   * Connection outcome with it. On the single-step reading the administrator was then one press of
-   * Finish away from a page that said "The provider is tested, enabled and saved" about a provider
-   * whose test this page had just forgotten - which is the confidently-wrong direction, and the exact
-   * thing the fifth step exists to prevent. Driven on the fixture rather than reasoned about, and the
-   * arm that drives it is in tools/ui-provider-wizard.js.
-   *
-   * IT COSTS NOTHING WHEN NOTHING MOVED, because the steps are walked in order and the first
-   * unsatisfied one answers: an administrator going forward through a form they are filling in meets
-   * exactly the refusal they would have met before.
-   */
+  // The first refusal of this step or any step before it. Cumulative, because the form can change under
+  // a passed step, for example a card click clearing the test outcome.
   wizardRefusal: (page, step) => {
     for (let at = 0; at <= step; at += 1) {
       const refusal = ssoConfigurationPage.wizardStepRefusal(page, at);
@@ -4201,9 +3283,7 @@ const ssoConfigurationPage = {
     }
     return null;
   },
-  // BACK IS NEVER REFUSED and never validates, which is the promise the wizard's lead makes. A step that
-  // could trap somebody who mistyped one field is worse than no wizard, and going back costs nothing:
-  // every step reads the page afresh, so nothing is carried backwards to be wrong later.
+  // Moves between steps; going back is never refused, since every step reads the page afresh.
   wizardGo: (page, delta) => {
     const step = ssoConfigurationPage.wizardStep(page);
     const last = ssoConfigurationPage.wizardPanels(page).length - 1;
@@ -4221,9 +3301,7 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.setWizardStep(page, Math.min(last, step + 1));
   },
-  // Finish asks the LAST step the same question Next asks every other one, then closes the wizard and
-  // says so where a page-level outcome belongs (#1572) - the editor's own status region is about the
-  // save, and this is about the wizard.
+  // Finishes after the last step's refusal check, reporting in the page region (#1572).
   wizardFinish: (page) => {
     const refusal = ssoConfigurationPage.wizardRefusal(
       page,
@@ -4245,11 +3323,7 @@ const ssoConfigurationPage = {
     );
   },
   renderWizard: (page) => {
-    // THE ONE GUARDED MEMBER OF THIS SECTION, and the asymmetry is the point. Everything else here is
-    // reached only from a button inside the wizard, which exists on exactly one page, so a guard there
-    // would only move a throw two lines down - and tools/ui-mock-fields.js is what holds those ids to
-    // this page. This one is different: the localization callback calls it on all five pages, four of
-    // which carry no wizard at all.
+    // Guarded because the localization callback calls this on pages without a wizard.
     if (!page.querySelector("#sso-wizard")) {
       return;
     }
@@ -4263,9 +3337,7 @@ const ssoConfigurationPage = {
       panel.hidden = index !== step;
     });
 
-    // THE STATE IS A WORD AND NOT A COLOUR (#221), and it carries the position too, so a row read on its
-    // own still says which of how many it is. `aria-current` is added beside it rather than instead of
-    // it: one is for a reader moving row by row, the other for a reader who lands on one.
+    // The state is a word, not a colour (#221), with the position; aria-current marks the current row.
     states.forEach((state, index) => {
       const word =
         index < step
@@ -4292,22 +3364,11 @@ const ssoConfigurationPage = {
     page.querySelector("#sso-wizard-next").hidden = step === total - 1;
     page.querySelector("#sso-wizard-finish").hidden = step !== total - 1;
 
-    // A REFUSAL IS ABOUT THE PRESS THAT EARNED IT. Moving to another step makes it a statement about a
-    // step nobody is on, so it is cleared here rather than left to age.
+    // A refusal is about the press that earned it, so moving steps clears it.
     ssoConfigurationPage.renderWizardRefusal(page, "");
   },
-  /*
-   * A REFUSAL IS PUT WHERE THE CONTROL IT NAMES IS.
-   *
-   * One refusal can be earned on a step whose panel does not hold the thing it asks for: the protocol
-   * sentence names the two pick buttons, which live on the FIRST panel, and every other panel hides
-   * them. An editor can close under a later step - both loaders hide it when their read fails, and a
-   * save chains a load - so that pairing is reachable rather than theoretical, and what it produced
-   * was a sentence pointing at buttons nobody could see.
-   *
-   * The step is moved BEFORE the sentence is written, because renderWizard clears the region on its
-   * way through: written first, the refusal would be wiped by its own repair.
-   */
+  // Shows a refusal on the step holding the control it names, moving there first because renderWizard
+  // clears the region.
   wizardRefuse: (page, message) => {
     if (ssoConfigurationPage.openEditorKey(page) === null) {
       ssoConfigurationPage.setWizardStep(page, 0);
@@ -4319,9 +3380,7 @@ const ssoConfigurationPage = {
     if (!box) {
       return;
     }
-    // UNHIDE FIRST, THEN WRITE, for the reason renderUnsavedNotice states at length: `hidden` takes the
-    // element out of the accessibility tree, so text written while it is hidden changes a live region
-    // nothing is watching.
+    // Unhides before writing, since text set on a hidden live region is not announced.
     if (message) {
       box.hidden = false;
       box.textContent = message;
@@ -4330,28 +3389,16 @@ const ssoConfigurationPage = {
     box.textContent = "";
     box.hidden = true;
   },
-  // ---- Aggregate configuration check (#1084) ----
-  // ONE action over every configured provider, answered by the server at `sso/Config/Check`. The evaluation
-  // is NOT the per-provider panel above: that one reads the form in front of the administrator, and there is
-  // exactly one form, so it can only ever answer about the provider currently loaded. Loading each provider
-  // into the editor in turn to read the panel would end with the last one loaded, which this issue's own
-  // acceptance forbids - a run must leave every provider's form values and toggles byte-identical. So the
-  // aggregate is asked of the configuration rather than of the DOM.
-  //
-  // What IS reused is the naming: a missing setting is reported by the id the form gives that field, and the
-  // label is read off the form through readinessFieldName, so the check speaks the page's language and a
-  // relabelled field cannot drift against it.
-  //
-  // ADVISORY. This writes into its own list and nowhere else: no provider field, no toggle, no request that
-  // changes anything. A failure leaves the page exactly as it was.
+  // Aggregate configuration check (#1084), answered by the server at sso/Config/Check so no provider is
+  // loaded into the form. Labels come from readinessFieldName. Advisory: writes only its own list.
+  // Appends one check row.
   renderCheckRow: (list, ok, label, detail) => {
     const item = document.createElement("li");
     item.classList.add("fieldDescription");
     const state = ok
       ? tr("config.readiness_ready", "Ready")
       : tr("config.readiness_attention", "Needs attention");
-    // textContent: a provider name and a server refusal message both reach this line, and neither may
-    // arrive as markup (#221).
+    // textContent, since provider names and server messages reach this line (#221).
     item.textContent = state + " - " + label + " - " + detail;
     list.appendChild(item);
   },
@@ -4361,10 +3408,8 @@ const ssoConfigurationPage = {
     item.textContent = message;
     list.appendChild(item);
   },
-  // One row's detail sentence, in the order an administrator acts on it: what is empty, then what the save
-  // path would refuse, then whether the provider is switched on at all. A provider an administrator turned
-  // off is NOT reported as needing attention - it is a deliberate state, and flagging it would train them to
-  // ignore the list - so the sentence says so and the row's own verdict is left alone.
+  // One row's detail: what is empty, what a save would refuse, then whether the provider is off. A disabled
+  // provider is stated but not flagged.
   checkRowDetail: (page, row) => {
     const parts = [];
     const missing = Array.isArray(row.MissingFields) ? row.MissingFields : [];
@@ -4422,9 +3467,7 @@ const ssoConfigurationPage = {
         const rows =
           report && Array.isArray(report.Providers) ? report.Providers : [];
         list.replaceChildren();
-        // #1543 first, because it is the reason the list below is empty. Without it this action - the one
-        // an operator clicks to find out why SSO is down - answers "nothing is configured yet" on a server
-        // whose providers are on disk in a file it refused, which is the sentence the flag exists to stop.
+        // Shown first, since an unreadable configuration is why the list is empty (#1543).
         if (report && report.ConfigurationUnreadable === true) {
           ssoConfigurationPage.renderCheckNote(
             list,
@@ -4435,9 +3478,7 @@ const ssoConfigurationPage = {
           );
         }
 
-        // Not when the reason is already on the line above (#1543): telling an operator that nothing is
-        // configured, directly under a line saying the configuration could not be read, is the sentence
-        // the flag exists to stop - printed twice over.
+        // Not when the unreadable line above already explains the empty list (#1543).
         if (
           rows.length === 0 &&
           !(report && report.ConfigurationUnreadable === true)
@@ -4461,9 +3502,7 @@ const ssoConfigurationPage = {
           );
         });
 
-        // Stated on every run rather than left out. The check makes no request to any identity provider, so
-        // a list with no "needs attention" row does not mean every provider answers - and an administrator
-        // reading silence as reachability is the one wrong conclusion this action could produce.
+        // Stated on every run: the check contacts no identity provider, so silence is not reachability.
         ssoConfigurationPage.renderCheckNote(
           list,
           tr(
@@ -4492,14 +3531,8 @@ const ssoConfigurationPage = {
     line.textContent = message;
     container.appendChild(line);
   },
-  // A verdict or fact the server names by catalogue key rather than by a sentence (#1728), rendered through
-  // the catalogue this page already holds, so a translated dashboard reads it translated. The key is DATA
-  // from the server and is looked up, never trusted as text: a key this catalogue does not carry renders as
-  // itself - visible rather than blank, and inert as textContent - which is the posture the server's own
-  // localizer takes for a missing row. A fact's value is provider data (an issuer, a subject, a key count)
-  // and fills the row's {value} slot; a fact the document did not advertise carries no value and reads as
-  // the not-advertised row instead of an empty line. Substitution is by function on both paths of tr(), so
-  // a value that itself contains a placeholder or a replacement pattern lands verbatim.
+  // Renders a server-named catalogue key (#1728) through the local catalogue; an unknown key renders as
+  // itself. A fact's value fills {value}, and a missing value reads as not advertised.
   testText: (key, value) =>
     tr(String(key), String(key), {
       value:
@@ -4512,7 +3545,7 @@ const ssoConfigurationPage = {
 
     const heading = document.createElement("p");
     heading.classList.add("fieldDescription");
-    // Boolean coercion, not string interpolation: the label is fixed text, so no server value reaches the DOM here.
+    // Boolean coercion; the label is fixed text, so no server value reaches the DOM here.
     heading.textContent =
       (result && result.Ok ? "✅ " : "⚠ ") +
       (result && result.Key
@@ -4537,10 +3570,8 @@ const ssoConfigurationPage = {
     });
     container.appendChild(list);
   },
-  // Config export (#161). Fetches the redacted export document from the elevation-gated endpoint (the
-  // server withholds every secret and account-link map) and saves it as a JSON file via a Blob download,
-  // never navigation, so the admin's auth header is sent and no secret is placed in a URL. The filename is
-  // fixed text; nothing from the document reaches the DOM as markup.
+  // Config export (#161): downloads the redacted document as a Blob, never by navigation, so no secret
+  // lands in a URL.
   exportConfig: (page) => {
     const container = page.querySelector("#ConfigTransferResult");
     ssoConfigurationPage.renderTransferMessage(
@@ -4579,11 +3610,8 @@ const ssoConfigurationPage = {
         ),
     );
   },
-  // Config import (#161). Reads the chosen file as text, parses it locally (a parse error is reported, never
-  // applied), and POSTs it to the elevation-gated import endpoint. The server validates and merges it
-  // fail-closed, keeping each unchanged provider's stored secret and links (an OpenID provider whose
-  // endpoint/client id the import changes has its links/secret cleared, the #186 repoint safety measure).
-  // On success the provider list is reloaded so the merged providers appear; the admin re-enters secrets.
+  // Config import (#161): parses locally, then posts to the elevated endpoint, which merges fail-closed
+  // (#186). Reloads the provider list on success.
   importConfig: (page, file) => {
     const container = page.querySelector("#ConfigTransferResult");
     if (!file) {
@@ -4622,8 +3650,7 @@ const ssoConfigurationPage = {
         );
       })
       .catch((e) => {
-        // A local parse failure and a server rejection (an invalid or unsupported document, an expired
-        // session) are both fail-closed here: the message is generic and never reflects a server value.
+        // Both parse and server failures show a generic message that never reflects a server value.
         const message =
           e && e.message === "not-json"
             ? tr(
@@ -4637,11 +3664,7 @@ const ssoConfigurationPage = {
         ssoConfigurationPage.renderTransferMessage(container, message);
       });
   },
-  // Account-link export (#1131). The second half of a migration: the configuration export deliberately
-  // withholds the link maps, and a rebuilt user database reissues every id the links are stored against, so
-  // the links travel in their own username-keyed file. Same Blob download as exportConfig - never
-  // navigation - so the admin's auth header is sent and nothing lands in a URL. The file is NOT redacted,
-  // and the status line says so rather than leaving the admin to infer it from the config export's wording.
+  // Account-link export (#1131) as a Blob download. The file is not redacted, and the status says so.
   exportLinks: (page) => {
     const container = page.querySelector("#LinkTransferResult");
     ssoConfigurationPage.renderTransferMessage(
@@ -4680,16 +3703,8 @@ const ssoConfigurationPage = {
         ),
     );
   },
-  // Account-link import (#1131). Parses locally first, so a file that is not JSON is reported here and
-  // never sent. The server validates the whole document before writing a single link and persists nothing
-  // when it refuses, so a rejection leaves the stored link table exactly as it was.
-  //
-  // Unlike importConfig, a refusal reports the SERVER's reason. The refusals that matter here name the
-  // entry that could not be restored - an unknown username, an absent provider, a canonical name this
-  // instance already links to a different account - and a generic message would leave an admin with a file
-  // they cannot fix. The reason is admin-supplied data (it echoes the file the admin chose) returned to
-  // that same admin, and it reaches the DOM through renderTransferMessage's textContent, so it is inert.
-  // A rejection body that cannot be read falls back to the generic message rather than showing nothing.
+  // Account-link import (#1131): parses locally, and the server writes nothing if it refuses.
+  // A refusal shows the server's reason, which names the entry to fix, through textContent.
   importLinks: (page, file) => {
     const container = page.querySelector("#LinkTransferResult");
     if (!file) {
@@ -4718,14 +3733,8 @@ const ssoConfigurationPage = {
         });
       })
       .then((answer) => {
-        // NO dataType ON THE FETCH ABOVE, AND THAT IS TWO DECISIONS RATHER THAN AN OMISSION. It would
-        // put `accept: application/json` on the REQUEST, and the refusal body is a plain string: under
-        // that header the server writes it as a JSON string, quotes included, so the sentence the toast
-        // below shows an operator would arrive wrapped in them - and those sentences are quoted verbatim
-        // by both migration pages and pinned by LinkImportTests. Without it the client hands back the
-        // Response itself, so the JSON is read HERE, and a 2xx carrying no readable JSON - a rolled-back
-        // server answering 204 to a page served from cache - reaches the uncounted branch instead of
-        // being reported as a failure that did not happen.
+        // No dataType on the fetch, so a refusal string arrives unquoted and a 2xx without JSON reaches the
+        // uncounted branch.
         return Promise.resolve(answer)
           .then((body) =>
             body && typeof body.json === "function" ? body.json() : null,
@@ -4733,12 +3742,7 @@ const ssoConfigurationPage = {
           .catch(() => null);
       })
       .then((result) => {
-        // The number comes from the ANSWER now (#1520). Until it did, one fixed sentence stood over every
-        // outcome, so a restore that rebound nothing read exactly like one that rebound everything - which
-        // is how #1517 shipped unnoticed through every beta it was in. Three states, because they are three
-        // different facts: a count, a zero worth acting on, and an answer that carried no count at all.
-        // The last one is not reported as zero: claiming a number the server did not send is the shape this
-        // whole issue is about.
+        // The restored count comes from the answer (#1520, #1517): a count, a zero, or no count at all.
         const restored =
           result && typeof result.Restored === "number"
             ? result.Restored
@@ -4774,9 +3778,7 @@ const ssoConfigurationPage = {
           return;
         }
 
-        // ApiClient.fetch rejects with the Response on a non-2xx status, so the refusal text is read off it
-        // when it is there. Anything else - an expired session, a network failure, a rejection shape this
-        // does not recognise - falls through to the generic message.
+        // A non-2xx rejects with the Response, whose text is the refusal; anything else is generic.
         const generic = tr(
           "config.link_import_failed",
           "Could not import the account links. The file was rejected by the server, or you are not signed in as an administrator.",
@@ -4800,22 +3802,12 @@ const ssoConfigurationPage = {
         );
       });
   },
-  // The admin linked-accounts panel (#1121). Read-only presentation over the elevation-gated aggregate
-  // roster (SSOController.LinkedAccountRoster, #1119), plus the per-account revoke, which reuses the
-  // EXISTING Unregister endpoint unchanged - same route, same rate-limit class, same audit line. It adds no
-  // server route.
-  //
-  // Every value on a row is attacker-influenced: a canonical name is whatever the identity provider put in
-  // its subject claim, and a provider name is admin-typed but travels through configuration import. So the
-  // whole panel renders through textContent and never innerHTML, the same line linking.js already holds for
-  // the self-service page - and this page is the higher-value target, because it is the one an
-  // administrator opens.
+  // The admin linked-accounts panel (#1121) over the elevated roster (#1119), with revoke through the
+  // existing Unregister endpoint. Every value is attacker-influenced, so it renders through textContent.
   loadLinkedAccounts: (page) => {
     const container = page.querySelector("#LinkedAccountsResult");
-    // The pending list (#1529) is a second view of the SAME roster read, never a second request: the
-    // roster is elevation-gated, and the two panels answer one question each about one
-    // document. Both containers are written on both arms, so neither panel is left showing "loading"
-    // when the other has an answer.
+    // The pending list (#1529) is a second view of the same roster read; both containers are written on
+    // both arms.
     const pending = page.querySelector("#PendingApprovalsResult");
     ssoConfigurationPage.renderTransferMessage(
       container,
@@ -4829,10 +3821,7 @@ const ssoConfigurationPage = {
       ),
     );
 
-    // Resolves to whether the roster was actually read, because a caller that re-reads after an action
-    // must not word its result off the OLD held roster when the re-read failed: the panels then show the
-    // failure sentence, and the action's own line has to agree with them rather than claim a state it
-    // could not confirm.
+    // Resolves to whether the roster was read, so an action's result never rests on a stale roster.
     return ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).then(
       (roster) => {
         ssoConfigurationPage.renderLinkedAccounts(page, container, roster);
@@ -4851,14 +3840,9 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // THE ROSTER IS KEPT so the filter can re-render without asking the server again (#1529). Held on the
-  // module rather than on the page because the page is a DOM node the client may replace, and a filter
-  // keystroke must not turn into a request: the roster is elevation-gated and read under the config lock, and typing six
-  // characters would spend six calls on data that has not changed.
+  // The last roster read, kept so the filter re-renders without a request (#1529).
   linkedAccountRoster: null,
-  // Everything on one row that a reader might search by. The Jellyfin username, the provider name, the
-  // protocol, and the identity-provider subject - which is the one an administrator usually arrives with,
-  // because it is what the provider's own console shows them.
+  // The searchable text of one row: username, provider, protocol and subject.
   linkedAccountHaystack: (account) =>
     [
       account && account.Username,
@@ -4900,8 +3884,7 @@ const ssoConfigurationPage = {
     );
     container.replaceChildren();
 
-    // The empty state is a sentence rather than an empty table: a blank panel reads as a failed fetch, and
-    // the failure branch above renders into this same region.
+    // The empty state is a sentence, so it cannot be mistaken for a failed fetch.
     if (accounts.length === 0) {
       ssoConfigurationPage.renderTransferMessage(
         container,
@@ -4913,9 +3896,7 @@ const ssoConfigurationPage = {
       return;
     }
 
-    // A FILTER THAT MATCHES NOTHING IS ITS OWN SENTENCE, and not the one above. "No account holds a link"
-    // is a statement about the server; "nothing matches what you typed" is a statement about the box. A
-    // reader who saw the first one after typing would conclude the links were gone.
+    // A filter matching nothing gets its own sentence, distinct from "no account holds a link".
     if (shown.length === 0) {
       ssoConfigurationPage.renderTransferMessage(
         container,
@@ -4952,10 +3933,7 @@ const ssoConfigurationPage = {
     table.appendChild(body);
     container.appendChild(table);
 
-    // THE COUNT LINE IS WHAT MAKES A FILTERED TABLE HONEST. Without it a narrowed table looks exactly like
-    // a complete one, and an administrator counting rows to answer "how many accounts are linked" gets the
-    // filter's answer instead of the server's. Rendered only while a filter is narrowing something, so an
-    // unfiltered table gains no furniture.
+    // The count line shows while a filter narrows the table, so a filtered table is not read as complete.
     if (shown.length !== accounts.length) {
       const count = document.createElement("div");
       count.className = "fieldDescription";
@@ -4974,9 +3952,7 @@ const ssoConfigurationPage = {
       account && account.Username ? String(account.Username) : "";
 
     const name_cell = document.createElement("td");
-    // An orphaned row is the thing this panel exists to surface, so it is named as one rather than shown as
-    // a nameless account: the roster reports it deliberately instead of dropping it, and the user id is the
-    // only identifier it has left.
+    // An orphaned row is named as one, with the user id as its only identifier.
     name_cell.textContent = exists
       ? username
       : tr("config.linked_accounts_orphan_account", "Deleted account ({id})", {
@@ -5020,9 +3996,7 @@ const ssoConfigurationPage = {
       });
       action_cell.appendChild(button);
     } else {
-      // No button rather than a disabled one: Unregister resolves the account by username, so on exactly
-      // these rows it can only answer 404. A control that is present and always fails on the case the panel
-      // was opened for is worse than none, and the row says why instead of leaving it to be discovered.
+      // No button on an orphan row, since Unregister resolves by username and would only answer 404.
       const note = document.createElement("p");
       note.classList.add("fieldDescription");
       note.textContent = tr(
@@ -5035,10 +4009,7 @@ const ssoConfigurationPage = {
 
     return row;
   },
-  // Null means exactly "no successful SSO login has been recorded through this link since the stamp
-  // existed" - never a login at an unknown time - so it renders as a word rather than as an epoch date.
-  // The stamp is coalesced rather than written on every login, so it reads as "not later than" and this
-  // panel does not present it as a session timeline.
+  // Formats the coalesced last-SSO-login stamp; null means no recorded login, rendered as a word.
   formatLastSsoLogin: (value) => {
     const never = tr("config.linked_accounts_never", "never");
     if (!value) {
@@ -5048,21 +4019,9 @@ const ssoConfigurationPage = {
     const when = new Date(value);
     return Number.isNaN(when.getTime()) ? never : when.toLocaleString();
   },
-  // The revoke (#1121). It reuses POST sso/Unregister/{username} exactly as it stands - the elevation
-  // policy, the "unregister" rate-limit class, RemoveUserEverywhere across both protocols and the token
-  // revoke are all the endpoint's, and none of them is re-implemented or bypassed here.
-  //
-  // The confirmation NAMES the consequence rather than asking a bare "are you sure": the revoke switches
-  // the account back to Jellyfin's built-in password provider, which re-opens native password login for
-  // that one account even on a server running SSO-only (#165). That was decided on #1121 - warn, name the
-  // consequence, proceed - because refusing the action on an SSO-only server would remove the control on
-  // exactly the servers where cutting one account off matters most. The server-wide setting is untouched,
-  // and the text says so, because an administrator reading "revoke" expects strictly less access.
-  //
-  // ONE ROW CAN NOW BE REFUSED (#1741): the administrator's own, where the revoke would take their last
-  // way in and no other administrator holds one. The confirmation still names the consequence of the act
-  // going through; the refusal handled below is what says it did not, and the decision of #1121 stands
-  // for every other row.
+  // Revokes an account's link through the existing POST sso/Unregister/{username} (#1121).
+  // The confirmation names the consequence: native password login reopens for that account even on an
+  // SSO-only server (#165). The server refuses an administrator's revoke of their own last way in (#1741).
   revokeLinkedAccount: (page, username) => {
     const result = page.querySelector("#LinkedAccountsRevokeResult");
     if (
@@ -5093,8 +4052,7 @@ const ssoConfigurationPage = {
       contentType: "application/json",
     }).then(
       () =>
-        // Re-read rather than editing the rendered table: the roster is the server's answer, and a panel
-        // that edits its own copy would keep showing a row the revoke did not actually remove.
+        // Re-read rather than edited, so the table shows only what the server reports.
         ssoConfigurationPage
           .loadLinkedAccounts(page)
           .then(() =>
@@ -5106,18 +4064,8 @@ const ssoConfigurationPage = {
               ),
             ),
           ),
-      // Generic and input-independent, with ONE refusal the page keys off rather than reflects (#1741).
-      // The endpoint refuses an administrator's revoke of their OWN account where no other administrator
-      // holds an SSO link that can sign them in, with a 403 whose body says so; shown as the generic
-      // failure, that refusal reads as a server that fell over and sends the reader to retry an act the
-      // server will refuse again. The sentence rendered is the catalogue's, never the server's bytes, and
-      // the test is the clause that separates this refusal from every other 403 the route can answer; a
-      // reword on the server side falls through to the generic sentence, which is the harmless direction.
-      //
-      // SOMETHING IS SAID NOW, BEFORE THE BODY IS READ, for the reason the self-service page gives: a body
-      // can stall behind a proxy after its headers arrived, and the progress line above would otherwise
-      // stand as a revoke still in flight. The generic sentence goes up first and the refusal replaces it
-      // once the body is in.
+      // Generic, except the self-revoke refusal (#1741), matched on its clause and shown in catalogue words.
+      // The generic sentence goes up before the body is read, since the body can stall.
       (rejection) => {
         ssoConfigurationPage.renderTransferMessage(
           result,
@@ -5151,25 +4099,15 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // THE BOUND on the pending list (#1529). A provider whose audience is wider than the one meant for
-  // Jellyfin - the case the feature exists for - fills this list as fast as it can log in, and a table
-  // of ten thousand rows is the page that breaks under the load it was built to absorb. So the first
-  // hundred are drawn and a line says what was cut; nothing is hidden silently.
+  // The most pending rows drawn (#1529); a line says what was cut.
   PENDING_APPROVALS_BOUND: 100,
-  // Every link the server reports as waiting, as (account, link) pairs in roster order. The SERVER
-  // decides what waiting means - this plugin's own record of having provisioned the account inert, still
-  // naming the account the link points at, on an account that is still disabled - and this reads only
-  // the one field that carries its answer. Nothing here infers a pending account from a disabled flag,
-  // because the flag does not say who set it, and the account somebody disabled on purpose is exactly
-  // the row this list must not contain.
+  // Every link the server reports as waiting, as (account, link) pairs in roster order. The server decides
+  // what waiting means; a disabled flag alone is never read as pending.
   pendingApprovals: (roster) => {
     const accounts =
       roster && Array.isArray(roster.Accounts) ? roster.Accounts : [];
     return accounts.flatMap((account) => {
-      // ONE ROW PER ACCOUNT, on its first waiting link, so the count the panel reports is a count of
-      // accounts - which is what its sentences say. An account cannot in practice carry two records,
-      // because a record is written only by the create arm and an account is created once; the dedupe
-      // is what keeps the sentence true even if that ever changed.
+      // One row per account, on its first waiting link, so the count is a count of accounts.
       const waiting = (
         account && Array.isArray(account.Links) ? account.Links : []
       ).find((link) => link && link.PendingApprovalSinceUtc);
@@ -5182,9 +4120,7 @@ const ssoConfigurationPage = {
     );
     container.replaceChildren();
 
-    // Its own sentence, and not the linked-accounts one: "no account holds a link" and "no account is
-    // waiting" are different facts about the server, and a reader who came to approve somebody must not
-    // be told the links are gone.
+    // Its own empty sentence, distinct from the linked-accounts one.
     if (waiting.length === 0) {
       ssoConfigurationPage.renderTransferMessage(
         container,
@@ -5241,8 +4177,7 @@ const ssoConfigurationPage = {
     const username =
       account && account.Username ? String(account.Username) : "";
 
-    // Every value on a row is attacker-influenced - the subject is whatever the identity provider put in
-    // its claim - so the whole row is textContent, the same line the linked-accounts table holds (#221).
+    // Every value is attacker-influenced, so the row is textContent (#221).
     const name_cell = document.createElement("td");
     name_cell.textContent = username;
     row.appendChild(name_cell);
@@ -5259,16 +4194,14 @@ const ssoConfigurationPage = {
     );
     row.appendChild(identity_cell);
 
-    // The PROVISIONING instant, which is what the column heading says: how long somebody has been
-    // waiting is the question this list is opened with.
+    // The provisioning instant, which the column heading names.
     const since_cell = document.createElement("td");
     since_cell.textContent = ssoConfigurationPage.formatLastSsoLogin(
       link && link.PendingApprovalSinceUtc,
     );
     row.appendChild(since_cell);
 
-    // Always a button: the server withholds the pending instant from an orphan row and from an account
-    // that is already enabled, so a row that reaches here is one the approve action will accept.
+    // Always a button: the server reports a pending instant only for rows approve will accept.
     const action_cell = document.createElement("td");
     const button = document.createElement("button");
     button.setAttribute("is", "emby-button");
@@ -5285,11 +4218,8 @@ const ssoConfigurationPage = {
 
     return row;
   },
-  // The approve (#1529). It drives POST sso/Links/Approve/{mode}/{provider} exactly as it stands - the
-  // elevation policy, the link rate-limit class, the record check, the administrator refusal and the
-  // audit line are all the endpoint's, and none of them is re-implemented or bypassed here. The
-  // confirmation NAMES what the button does and what it does not: the account is enabled, and nothing
-  // else about it changes.
+  // Approves a pending account through POST sso/Links/Approve/{mode}/{provider} (#1529). The confirmation
+  // says the account is enabled and nothing else changes.
   approvePendingAccount: (page, account, link) => {
     const result = page.querySelector("#PendingApprovalsActionResult");
     const username =
@@ -5315,8 +4245,7 @@ const ssoConfigurationPage = {
       }),
     );
 
-    // The route's mode token is the protocol's short name, not the roster's display name; the canonical
-    // name travels in the body because a subject may contain a slash.
+    // The mode is the protocol's short name; the canonical name travels in the body, since it may hold a slash.
     const mode = link && link.Protocol === "SAML" ? "SAML" : "OID";
     return ApiClient.fetch({
       type: "POST",
@@ -5327,12 +4256,9 @@ const ssoConfigurationPage = {
       contentType: "application/json",
     }).then(
       () =>
-        // Re-read rather than editing the rendered table: the roster is the server's answer, and the row
-        // must disappear because the server no longer reports it, not because the page assumed so.
+        // Re-read, so the row disappears because the server no longer reports it.
         ssoConfigurationPage.loadLinkedAccounts(page).then((read) => {
-          // A re-read that failed leaves the OLD roster held, and a sentence chosen from it would claim a
-          // state nobody confirmed - for a 204 that cleared a record because the account had gone, it
-          // would say a deleted account can sign in. The panels show the failure; this line agrees.
+          // A failed re-read leaves the old roster, so no sentence is chosen from it.
           if (!read) {
             ssoConfigurationPage.renderTransferMessage(
               result,
@@ -5344,9 +4270,7 @@ const ssoConfigurationPage = {
             return;
           }
 
-          // A 204 is also the endpoint's answer for a record it cleared because the account had gone,
-          // and the reader must not be told a deleted account can sign in. The re-read roster is the
-          // server's word on whether the account still exists, so the sentence is chosen from it.
+          // A 204 can also mean the account had gone, so the sentence is chosen from the re-read roster.
           const held = ssoConfigurationPage.linkedAccountRoster;
           const rows =
             held && Array.isArray(held.Accounts) ? held.Accounts : [];
@@ -5369,12 +4293,8 @@ const ssoConfigurationPage = {
           );
         }),
       (e) => {
-        // ApiClient.fetch rejects with the Response on a non-2xx status. Two refusals mean something to
-        // the reader and get their own sentence; everything else is the generic one, which never reflects
-        // a server value. The administrator refusal is told apart from an elevation refusal - both are
-        // 403 - by the sentence the endpoint writes for it, matched on its own words rather than on the
-        // bare word: an elevation refusal leaves the body empty, and a proxy's own 403 page can say
-        // "administrator" about something else entirely.
+        // A non-2xx rejects with the Response. Two refusals get their own sentence, the administrator one matched
+        // on the endpoint's own words; everything else is generic.
         const status = e && typeof e.status === "number" ? e.status : 0;
         const body =
           e && typeof e.text === "function"
@@ -5398,8 +4318,7 @@ const ssoConfigurationPage = {
                   "config.pending_approvals_failed",
                   "Could not approve the account. Make sure you are signed in as an administrator, then try again.",
                 );
-          // A stale row is re-read rather than left standing: the server no longer offers it, and a
-          // list that kept showing it would offer the same press again.
+          // A stale row is re-read so it is not offered again.
           const refresh = stale
             ? ssoConfigurationPage.loadLinkedAccounts(page)
             : Promise.resolve();
@@ -5425,16 +4344,8 @@ const ssoConfigurationPage = {
     view.appendChild(style);
   },
 
-  // Localize the page's own labels (#913). Jellyfin core serves this configuration page from its own
-  // URL base, so a relative import would not resolve to the plugin's assets; load the shared applier
-  // from its absolute SSOViews URL, the same module the linking page uses, rather than duplicating
-  // it here.
-  //
-  // Localization is strictly best-effort and must never take the page down with it: init calls this
-  // BEFORE it wires the Save/Delete/Test handlers, so an escaping error would leave a fully rendered
-  // but inert admin page. The try/catch is load-bearing and NOT redundant with the .catch below:
-  // ApiClient.getUrl throws SYNCHRONOUSLY on a missing server address, while the argument is evaluated,
-  // so no promise exists yet for .catch to see. Either way the markup keeps its built-in English.
+  // Localizes the page's labels (#913) with the shared applier, loaded from its absolute SSOViews URL.
+  // Best-effort: the try/catch covers ApiClient.getUrl throwing synchronously, the .catch the import.
   localize: (view) => {
     try {
       import(ApiClient.getUrl("SSOViews/i18n.js"))
@@ -5442,13 +4353,7 @@ const ssoConfigurationPage = {
           module.loadCatalog().then(() => {
             i18n = module;
             module.applyTo(view);
-            // THE ONE THING ON THIS SURFACE A SCRIPT WRITES BEFORE THE CATALOGUE CAN ARRIVE (#1665).
-            // `applyTo` rewrites marked markup, and the wizard's step rows are written by tr(), which
-            // returns its English default while this import is still in flight. Every other tr() on
-            // these pages is written on a press, long after this lands; the wizard's is not, because
-            // Overview's card can open it inside initProvidersPage. So the rows are painted again here,
-            // with the catalogue in hand. A no-op on the four pages that carry no wizard, and on this
-            // one until somebody opens it.
+            // Repaints the wizard rows, which tr() may have written before the catalogue arrived (#1665).
             ssoConfigurationPage.renderWizard(view);
           }),
         )
@@ -5458,10 +4363,8 @@ const ssoConfigurationPage = {
     }
   },
 
-  // ---- Provider templates (#726) ----
-  // Fill a preset picker's options from its catalog (createElement/textContent; the labels are our own
-  // fixed strings, but building them inertly keeps the one-DOM-construction idiom). The leading blank
-  // "Choose a template" option authored in the HTML is preserved.
+  // Provider templates (#726).
+  // Fills a preset picker from its catalog, keeping the authored blank option.
   populatePresetPicker: (page, selectId, presets) => {
     const select = page.querySelector("#" + selectId);
     if (!select) {
@@ -5471,14 +4374,8 @@ const ssoConfigurationPage = {
       const option = document.createElement("option");
       option.value = key;
       option.textContent = presets[key].label;
-      // A MARKER RATHER THAN A tr() CALL, and the difference is timing (#1602). This picker is filled
-      // once, during init, while the catalog is still arriving on localize()'s own promise - so a lookup
-      // here reads the English and keeps it for the life of the page, which is exactly what the first
-      // draft of this did. The marker rides the pass that retranslates the markup when the catalog lands
-      // (i18n.applyTo), which is the mechanism the rest of the page already uses, and the English sits
-      // there until it does.
-      // Only the DESCRIPTIVE labels carry a key. A product name is the same string in every language, and
-      // a catalog row saying Microsoft Entra ID in every locale is a row nobody could ever change.
+      // A marker rather than a tr() call, so the label is translated when the catalog lands (#1602). Only
+      // descriptive labels carry a key; product names do not.
       if (presets[key].labelKey) {
         option.setAttribute("data-i18n", presets[key].labelKey);
       }
@@ -5492,12 +4389,8 @@ const ssoConfigurationPage = {
       box.textContent = message || "";
     }
   },
-  // Apply an OpenID preset onto the editor. Writes ONLY into existing marker-classed fields by their id
-  // (every field key is a real OidConfig property, pinned by ProviderPresets_ReferenceOnlyRealOidcProperties)
-  // and pre-checks ONLY the listed compatibility toggles. It first clears every preset-managed toggle so
-  // switching templates cannot leave a previous preset's toggle checked, never touches the secret, and
-  // never saves. syncDependentFields then surfaces any pre-enabled insecure toggle in the auto-expanded
-  // danger zone. The provider name and client secret the admin may have typed are left untouched.
+  // Applies an OpenID preset: clears the managed toggles, fills the marked fields and pre-checks the listed
+  // toggles. Never touches the name or secret and never saves.
   applyOidcPreset: (page, key) => {
     OIDC_PRESET_MANAGED_TOGGLES.forEach((prop) => {
       const el = page.querySelector("#" + prop);
@@ -5508,8 +4401,7 @@ const ssoConfigurationPage = {
 
     const preset = OIDC_PRESETS[key];
     if (!preset) {
-      // The blank "choose a template" option: clear the note and re-sync (so a just-cleared toggle
-      // collapses its danger-zone surfacing) without altering the admin's fields.
+      // The blank option clears the note and re-syncs without touching the fields.
       ssoConfigurationPage.renderPresetNote(page, "OidPreset-note", "");
       ssoConfigurationPage.syncDependentFields(page);
       return;
@@ -5536,8 +4428,7 @@ const ssoConfigurationPage = {
       tr(preset.noteKey, preset.note),
     );
   },
-  // The SAML counterpart. Field ids are "saml-" + the SamlConfig property; toggles likewise. Same
-  // clear-then-apply discipline, and syncSamlDependentFields surfaces a pre-enabled insecure toggle.
+  // The SAML counterpart, with "saml-" prefixed ids and the same clear-then-apply order.
   applySamlPreset: (page, key) => {
     SAML_PRESET_MANAGED_TOGGLES.forEach((prop) => {
       const el = page.querySelector("#saml-" + prop);
@@ -5575,28 +4466,12 @@ const ssoConfigurationPage = {
     );
   },
 
-  // ============================================================================
-  // SAML provider workspace (#725)
-  // ----------------------------------------------------------------------------
-  // A lifecycle parallel to the OpenID one above, kept entirely separate so the OpenID workspace and its
-  // JS are untouched (there is no JS runtime test harness; the adversarial review is the primary
-  // verification, so isolation is the cheapest correctness guarantee). Every SAML persisting field id is
-  // its SamlConfig property spelled with a "saml-" PREFIX (ids must be unique across the whole document,
-  // and the OpenID fields already own the unprefixed spellings); the property is the id minus that prefix,
-  // computed by samlPropOf. ProviderFormFieldIds_MatchSamlConfigProperties fails the build if any
-  // saml-*-marked field id (after stripping the prefix) is not a real SamlConfig property, so a field that
-  // would silently never save cannot land. The generic element-argument helpers above (setFieldError,
-  // populateFolders / populateEnabledFolders / serializeEnabledFolders, populateRoleMappings /
-  // serializeRoleMappings, fillTextList / parseTextList, setCollapseExpanded, setDependent,
-  // setSectionExpanded, renderTestMessage / renderTestResult) are protocol-agnostic and reused as-is.
-  // ============================================================================
+  // SAML provider workspace (#725), a lifecycle parallel to the OpenID one and kept separate.
+  // Each persisted field id is "saml-" plus its SamlConfig property (see samlPropOf), locked by a
+  // conformance test. The element-argument helpers above are reused as they are.
 
-  // Toggles/settings whose ENABLED state is a security downgrade the admin must not miss (mirrors
-  // insecureFieldIds/sensitiveFieldIds for OpenID). DoNotValidateAudience disables the AudienceRestriction
-  // check; AllowExistingAccountLink widens account adoption. Property names (no prefix): the flag is read
-  // from the saved config (provider[prop]) and, when checking the live checkbox, queried as "#saml-"+prop.
-  // ProvisionNewUsersDisabled is deliberately NOT flagged: it is a fail-closed hardening toggle (ON is
-  // MORE secure), so surfacing it would be backwards and cause alert fatigue, exactly as for OpenID.
+  // SAML settings whose enabled state is a downgrade, as property names without the prefix.
+  // ProvisionNewUsersDisabled is hardening and not flagged.
   samlInsecureFieldIds: ["DoNotValidateAudience"],
   samlSensitiveFieldIds: ["AllowExistingAccountLink"],
   samlPropOf: (id) => id.slice("saml-".length),
@@ -5611,8 +4486,7 @@ const ssoConfigurationPage = {
     select.value = chosen;
     ssoConfigurationPage.renderSamlProviderCards(page, providers);
   },
-  // SAML provider cards, same inert createElement/textContent construction as renderProviderCards (#221):
-  // a provider name is never interpolated as markup, so a hostile name stays inert on the page.
+  // SAML provider cards, built with textContent like renderProviderCards (#221).
   renderSamlProviderCards: (page, providers) => {
     const list = page.querySelector("#saml-provider-list");
     const empty = page.querySelector("#saml-provider-empty");
@@ -5679,9 +4553,7 @@ const ssoConfigurationPage = {
   setSamlEditorTitle: (page, title) => {
     page.querySelector("#saml-editor-title").textContent = title;
   },
-  // Load a SAML card into the editor. resetSamlEditor gives a clean slate FIRST (same discipline as
-  // openProvider) so no field, toggle, or collapse state from the previously loaded provider bleeds into
-  // this one and gets silently re-saved.
+  // Loads a SAML card into a freshly reset editor, like openProvider.
   openSamlProvider: (page, provider_name) => {
     page.querySelector("#saml-selectProvider").value = provider_name;
     ssoConfigurationPage.resetSamlEditor(page);
@@ -5691,8 +4563,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.setSamlEditorTitle(page, provider_name);
     ssoConfigurationPage.showSamlEditor(page);
     ssoConfigurationPage.loadSamlProvider(page, provider_name);
-    // The same reason openProvider states: opening an editor is a read, and loadSamlProvider says so
-    // again once its own fill lands (#1572).
+    // Opening is a read; loadSamlProvider re-marks the page clean after its fill (#1572).
     ssoConfigurationPage.markPageClean(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
   },
@@ -5710,8 +4581,7 @@ const ssoConfigurationPage = {
     // Restores a form left frozen by a managed provider opened just before (#1104); a new one is never managed.
     ssoConfigurationPage.applyManagedState(page, "saml", "");
     ssoConfigurationPage.showSamlEditor(page);
-    // A blank editor holds nothing anybody typed (#1572); its Save stays closed until the four required
-    // fields carry a value.
+    // A blank editor is clean (#1572); its Save stays closed until the required fields are filled.
     ssoConfigurationPage.markPageClean(page);
     page.querySelector("#saml-editor").scrollIntoView({ block: "start" });
     page.querySelector("#saml-provider-name").focus();
@@ -5752,15 +4622,14 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.resetSamlEditorSections(page);
     ssoConfigurationPage.syncSamlDependentFields(page);
     ssoConfigurationPage.updateSamlUrls(page);
-    // Reset the template picker + its note so opening/adding a provider never shows a stale template (#726).
+    // Reset the template picker and its note so a provider never shows a stale template (#726).
     const samlPreset = page.querySelector("#saml-Preset");
     if (samlPreset) {
       samlPreset.value = "";
     }
     ssoConfigurationPage.renderPresetNote(page, "saml-Preset-note", "");
   },
-  // Return every accordion INSIDE the SAML editor to its authored default; scoped to #saml-editor so the
-  // OpenID editor and the page-level collapses are untouched.
+  // Returns every accordion inside the SAML editor to its authored default.
   resetSamlEditorSections: (page) => {
     const editor = page.querySelector("#saml-editor");
     if (!editor) {
@@ -5793,8 +4662,7 @@ const ssoConfigurationPage = {
       true,
     );
 
-    // Surface active insecure / sensitive settings behind the collapsed "Security & hardening" accordion
-    // (and, for the insecure subset, its inner list): expand-only, exactly like syncDependentFields.
+    // Expands the security accordion, and the insecure list, for active downgrades, like syncDependentFields.
     const isChecked = (id) => {
       const el = page.querySelector("#saml-" + id);
       return Boolean(el && el.checked);
@@ -5816,7 +4684,7 @@ const ssoConfigurationPage = {
 
     ssoConfigurationPage.refreshOptionFoldCounts(page);
   },
-  // The SAML half of the fold above, for the reason written there.
+  // The SAML half of setInsecureOptionsExpanded.
   setSamlInsecureOptionsExpanded: (page, expanded) => {
     const fold = page.querySelector("#saml-insecure-options");
     if (!fold) {
@@ -5824,10 +4692,7 @@ const ssoConfigurationPage = {
     }
     fold.open = expanded;
   },
-  // The SAML save contract, made explicit (mirrors listArgumentsByType): every input in
-  // #sso-new-saml-provider that persists carries an sso-* marker class AND a "saml-"+property id. The
-  // folder-list and role-map ids are the two that are not plain inputs, listed explicitly like the OpenID
-  // side. saveSamlProvider/loadSamlProvider map id->property with samlPropOf.
+  // The SAML save contract, mirroring listArgumentsByType: marked inputs with "saml-" plus property ids.
   listSamlArgumentsByType: (page) => {
     const folder_list_fields = ["saml-EnabledFolders"];
     const role_map_fields = ["saml-FolderRoleMapping"];
@@ -5863,8 +4728,7 @@ const ssoConfigurationPage = {
         ) {
           return;
         }
-        // The same reading the OpenID loader makes (#1694). The `|| {}` below no longer
-        // stands in for it: a missing member used to present a blank provider as read.
+        // The same check the OpenID loader makes (#1694).
         if (!ssoConfigurationPage.isProviderConfiguration(config, "saml")) {
           ssoConfigurationPage.hideSamlEditor(page);
           ssoConfigurationPage.reportUnrecognisedProviderConfiguration(page);
@@ -5880,9 +4744,7 @@ const ssoConfigurationPage = {
 
         form_elements.text_fields.forEach((id) => {
           const prop = ssoConfigurationPage.samlPropOf(id);
-          // The write-only signing keys (SamlSigningKeyPfx / SamlRolloverSigningKeyPfx) are serialized back
-          // as null by the server (WriteOnlySecretConverter), so provider[prop] is falsy and the field stays
-          // blank, and its "leave blank to keep" placeholder governs, exactly like the OpenID OidSecret.
+          // The write-only signing keys come back null, so the field stays blank and keeps the stored key.
           if (provider[prop]) {
             page.querySelector("#" + id).value = provider[prop];
           }
@@ -5909,9 +4771,7 @@ const ssoConfigurationPage = {
         });
 
         form_elements.check_fields.forEach((id) => {
-          // Always set from the loaded provider (not only when truthy) so a stale insecure toggle from a
-          // previously loaded provider is never left checked to be silently re-saved, the exact reason the
-          // OpenID loadProvider sets Boolean(provider[id]) unconditionally.
+          // Always set from the loaded provider, like the OpenID loader, so no stale toggle is re-saved.
           const prop = ssoConfigurationPage.samlPropOf(id);
           page.querySelector("#" + id).checked = Boolean(provider[prop]);
         });
@@ -5946,13 +4806,10 @@ const ssoConfigurationPage = {
           );
         // The panel summarises the fields and toggles this call just wrote (#1083).
         ssoConfigurationPage.refreshReadiness(page, "saml");
-        // The editor now holds the stored provider, so the page is clean and the Save gate is re-run
-        // against what was filled in rather than against what stood here before (#1572).
+        // The editor holds the stored provider, so the page is clean (#1572).
         ssoConfigurationPage.markPageClean(page);
       },
-      // The same arm the OpenID loader carries, for the same reason and written the same way (#1681).
-      // Both protocols reach this through one read of one configuration document, so a failure here is
-      // never about one of them: whichever editor was being filled is closed and the page says why.
+      // The same failure arm as the OpenID loader (#1681).
       () => {
         if (
           !ssoConfigurationPage.replyStillSpeaksFor(page, "saml", provider_name)
@@ -5971,12 +4828,8 @@ const ssoConfigurationPage = {
       ssoConfigurationPage.markPageClean(page);
     });
   },
-  // Canonical external base for the computed SAML URLs (mirrors the inline logic in computeRedirectUri,
-  // #724): the Base URL Override when set, else this server's address, normalized the way the server's
-  // CanonicalBaseUrl (System.Uri.GetLeftPart) is: origin lowercases scheme+host and elides the default
-  // port, pathname keeps any sub-path, and the trailing slash is trimmed. When the override is blank the
-  // shown URL reflects the browser's server address; the scheme/port overrides are a legacy mechanism the
-  // Base URL Override supersedes (its callout steers the admin there).
+  // The canonical external base for the SAML URLs (#724): the Base URL Override or this server's address,
+  // normalized like the server's CanonicalBaseUrl.
   samlCanonicalBase: (page) => {
     const override = page.querySelector("#saml-BaseUrlOverride").value.trim();
     const raw = override || ApiClient.serverAddress() || "";
@@ -5987,10 +4840,8 @@ const ssoConfigurationPage = {
       return raw.replace(/\/+$/, "");
     }
   },
-  // Live-update the read-only ACS + SP-metadata URLs (#725/#569). The IdP POSTs to the new-path ACS
-  // spelling the SP metadata advertises at index 0 (SamlAcsUrlBuilder.AcsUrl newPath=true => "post"); the
-  // metadata document is served at /sso/SAML/metadata/<provider>. The provider name is appended raw, as the
-  // server does (names exclude URI-reserved characters, #336). Sets .value only, never innerHTML (#221).
+  // Updates the read-only ACS and SP-metadata URLs (#725/#569) from the provider name, as the server builds
+  // them (#336). Sets .value only (#221).
   updateSamlUrls: (page) => {
     const acs = page.querySelector("#saml-AcsUrl");
     const metadata = page.querySelector("#saml-MetadataUrl");
@@ -6021,8 +4872,7 @@ const ssoConfigurationPage = {
     }
     ssoConfigurationPage.refreshReadiness(page, "saml");
   },
-  // Copy a read-only computed SAML URL to the clipboard, with the same secure-context/execCommand fallback
-  // and inert status announcement as copyRedirectUri (#724). fieldId/label identify which URL was copied.
+  // Copies a computed SAML URL to the clipboard, like copyRedirectUri (#724).
   copySamlUrl: (page, fieldId, label) => {
     const field = page.querySelector("#" + fieldId);
     const status = page.querySelector("#saml-url-copied");
@@ -6070,10 +4920,8 @@ const ssoConfigurationPage = {
           ),
     );
   },
-  // Import IdP metadata (#735) from a URL (fetched server-side through the SSRF-hardened outbound client) or
-  // pasted XML, and pre-fill the endpoint + signing certificate(s) for the admin to review and save. The
-  // server returns the parsed values; NOTHING is applied server-side by this call. The IdP EntityId is
-  // shown for reference only: it is NOT the SP SamlClientId, which the admin chooses.
+  // Imports IdP metadata (#735) from a URL or pasted XML and pre-fills the endpoint and certificates for
+  // review. Nothing is saved; the IdP EntityId is shown for reference only.
   importSamlMetadata: (page, source) => {
     const status = page.querySelector("#saml-metadata-status");
     const url =
@@ -6117,8 +4965,7 @@ const ssoConfigurationPage = {
           page.querySelector("#saml-SamlSecondaryCertificate").value =
             result.SecondaryCertificate;
         }
-        // The endpoint/certificate are now filled; re-run their on-blur validation so a bad imported value
-        // surfaces immediately rather than only on the next focus change.
+        // Re-runs validation on the imported values so a bad one shows at once.
         ssoConfigurationPage.validateSamlEndpoint(page);
         ssoConfigurationPage.validateSamlCertificate(
           page,
@@ -6172,8 +5019,7 @@ const ssoConfigurationPage = {
       box.classList.add(ok ? "sso-status-ok" : "sso-status-fail");
     }
   },
-  // Mirror the server's fail-closed provider-name checks (#336/#360) before the round-trip, keeping the
-  // source ASCII-only (control chars detected by code point, not a regex escape) as validateProviderName does.
+  // Mirrors the server's provider-name checks (#336/#360), as validateProviderName does.
   validateSamlProviderName: (page) => {
     const value = page.querySelector("#saml-provider-name").value;
     if (!value.trim()) {
@@ -6319,15 +5165,11 @@ const ssoConfigurationPage = {
     }
     ssoConfigurationPage.setFieldError(page, "saml-BaseUrlOverride", "");
   },
-  // Pre-emptive certificate shape check (WARNING only, never blocks the save; the server stays the
-  // authority, so a false positive cannot lock an admin out). Accepts an empty optional field, a PEM block,
-  // or a bare Base64 body; only an obviously malformed value (non-Base64 characters once PEM armor and
-  // whitespace are stripped) is flagged. label/id let it serve both the primary and secondary certificate.
+  // Warns on a certificate that is neither PEM nor bare Base64; never blocks the save.
   validateSamlCertificate: (page, id, label) => {
     const raw = page.querySelector("#" + id).value.trim();
     if (!raw) {
-      // Optional (the secondary) or required-checked elsewhere (the primary): an empty value is not a
-      // SHAPE error here; requiredness for the primary is enforced by the server on save.
+      // An empty value is not a shape error; the server enforces the primary's presence.
       ssoConfigurationPage.setFieldError(page, id, "");
       return;
     }
@@ -6372,16 +5214,14 @@ const ssoConfigurationPage = {
             Dashboard.processPluginConfigurationUpdateResult(result);
             ssoConfigurationPage.loadConfiguration(page);
             ssoConfigurationPage.hideSamlEditor(page);
-            // The page region, for the reason the OpenID delete states: the editor this outcome belongs
-            // to has just been closed (#1572).
+            // The page region, since this editor was just closed (#1572).
             ssoConfigurationPage.renderPageStatus(
               page,
               tr("config.provider_removed", "Provider removed."),
               true,
             );
           },
-          // The editor is still open on this arm; the outcome belongs beside the button. Same reason as the
-          // OpenID delete above.
+          // The editor is still open, so the outcome goes beside the button.
           function () {
             ssoConfigurationPage.renderSamlSaveStatus(
               page,
@@ -6394,8 +5234,7 @@ const ssoConfigurationPage = {
           },
         );
       })
-      // The same reason the OpenID delete states (#1577): the read can fail on its own and the editor is
-      // still open, so the message goes where that editor's other outcomes go.
+      // The read can fail on its own (#1577); reported in the still-open editor.
       .catch(() =>
         ssoConfigurationPage.renderSamlSaveStatus(
           page,
@@ -6487,8 +5326,7 @@ const ssoConfigurationPage = {
             },
           );
         })
-        // The same reason saveProvider states above (#1577): the arm inside belongs to the write, and a
-        // failed READ would otherwise leave this promise unsettled and the pressed Save silent.
+        // Settles a failed read so a pressed Save always reports, as in saveProvider (#1577).
         .catch(() =>
           reject(
             new Error(
@@ -6498,9 +5336,8 @@ const ssoConfigurationPage = {
         );
     });
   },
-  // Test-connection for a SAVED SAML provider (#163). Calls the elevation-gated SAML/Test endpoint, which
-  // parses the stored IdP signing certificate server-side and returns only its non-secret facts (never the
-  // SP signing key). Reuses the OpenID renderTestResult/renderTestMessage (same Ok/Message/Details shape).
+  // Tests a saved SAML provider through the elevated SAML/Test endpoint (#163), which returns only
+  // non-secret certificate facts; rendered like the OpenID test.
   testSamlProvider: (page, provider_name) => {
     const container = page.querySelector("#saml-TestResult");
     if (!provider_name) {
@@ -6542,39 +5379,18 @@ const ssoConfigurationPage = {
       },
     );
   },
-  // ---- The Overview tab (#1527) ----
-  //
-  // A STATUS VIEW THAT HOLDS NO SETTING. It writes nothing and offers nothing to save: every figure on it
-  // is read back from the server, which is why docs/ui/mock/FIELDS.md gives it none of the page's 123
-  // controls. Two sources, and each is used only for what it actually answers:
-  //
-  //   sso/Config/Check - whether a provider's configuration is complete, and whether it is switched on.
-  //     It says nothing about whether the identity provider ANSWERS, and its own document says so, so
-  //     nothing here reports a provider as reachable or as having passed a connection test. That is what
-  //     the per-provider Test Connection is for, and it is on the Providers tab.
-  //   sso/Links/Roster - the newest recorded SSO sign-in of any account linked to that provider. A
-  //     provider nobody has signed in through carries no timestamp, and the card says exactly that
-  //     rather than leaving a blank where a date belongs.
-  //
-  // Built with createElement/textContent throughout and never innerHTML (#221): a provider name reaches
-  // this view from the configuration, so it stays inert here as it does on the provider cards.
-  //
-  // A FAILED READ AND AN EMPTY SERVER ARE NEVER COLLAPSED. Reporting "nothing configured" to an
-  // administrator whose providers are all there is the one wrong answer this view can give, so a report
-  // that did not arrive is said in words and no card list is painted at all.
+  // The Overview tab (#1527), a status view that holds no setting.
+  // sso/Config/Check says whether a provider is complete and enabled, never whether it is reachable;
+  // sso/Links/Roster gives the newest sign-in per provider. Built with textContent (#221).
+  // A failed read is said in words and never shown as an empty server.
   renderOverview: (page) => {
     const cards = page.querySelector("#sso-overview-providers");
     if (!cards) {
       return Promise.resolve();
     }
 
-    // THE CONFIGURATION IS READ HERE RATHER THAN TAKEN FROM THE PAGE LOAD (#1727). loadConfiguration
-    // already fetches it on this tab and hands it to renderOverviewFrom, so this third member is a
-    // second read of one read-only document. The alternative is worse: two independent writers would
-    // paint one card region, the report's arm would draw the cards before the configuration's arm knew
-    // which of them carry a downgrade, and whichever answered second would decide what a reader sees.
-    // One round with one painter has no such ordering. A failed read answers null and the cards are
-    // drawn without the mark, which is the fail-quiet the other two arms already take.
+    // Reads the configuration here, so one painter draws the cards with their downgrade mark (#1727).
+    // A failed read answers null and the cards are drawn without the mark.
     return Promise.all([
       ApiClient.getJSON(ApiClient.getUrl("sso/Config/Check")).catch(() => null),
       ApiClient.getJSON(ApiClient.getUrl("sso/Links/Roster")).catch(() => null),
@@ -6586,10 +5402,7 @@ const ssoConfigurationPage = {
     );
   },
 
-  // One status line of an Overview card. Its own helper rather than renderCheckRow, because that one
-  // prefixes a readiness VERDICT ("Ready" / "Needs attention") and these lines are states rather than
-  // verdicts - a disabled provider is not a provider needing attention, which is the distinction
-  // ProviderCheckDocument itself insists on.
+  // One status line of an Overview card; states rather than verdicts, so not renderCheckRow.
   appendOverviewRow: (list, ok, label) => {
     const item = document.createElement("li");
     item.classList.add("fieldDescription");
@@ -6598,20 +5411,8 @@ const ssoConfigurationPage = {
     list.appendChild(item);
   },
 
-  // Which downgrade CLASSES one provider has switched on, named by the heading the Providers form
-  // gives each class (#1727). It reads the SAVED configuration through the same two id lists the
-  // Providers list's "Review" flag reads, so the two surfaces cannot disagree about what counts as a
-  // downgrade, and it answers catalogue KEYS rather than sentences, so a card and the fold it points
-  // at are one wording in every language.
-  //
-  // NO COUNT, DELIBERATELY, and this is the half to read before adding one. The editor's fold summary
-  // counts the CONTROLS INSIDE THE FOLD - the sensitive fold holds five, of which exactly one is a
-  // downgrade - so a number built from these lists and shown in that same wording would put a second
-  // population under one sentence. Which class is on is what a card owes; the count belongs where the
-  // controls are.
-  //
-  // THE SAML ADOPTION TOGGLE IS NOT BEHIND A FOLD on its own form. The heading names the CLASS, which
-  // is the same setting with the same meaning on both forms, rather than a region of that page.
+  // The downgrade classes one provider has on, as catalogue keys of the Providers form headings (#1727),
+  // read through the same id lists as the Providers "Review" flag. No count, since the fold counts differ.
   activeDowngradeClasses: (protocol, provider) => {
     if (!provider) {
       return [];
@@ -6640,9 +5441,8 @@ const ssoConfigurationPage = {
       .filter((one) => one.ids.some((id) => Boolean(provider[id])))
       .map((one) => one.name);
   },
-  // The stored configuration of the provider a report row names, or null where the configuration did
-  // not load. Keyed by the protocol spelling the REPORT uses, so a row and the record it is matched to
-  // cannot come from two different ideas of what "OpenID" is called.
+  // The stored configuration of the provider a report row names, keyed by the report's protocol spelling,
+  // or null where the configuration did not load.
   storedProviderFor: (row, config) => {
     if (!config) {
       return null;
@@ -6652,9 +5452,7 @@ const ssoConfigurationPage = {
       (row.Protocol === "SAML" ? config.SamlConfigs : config.OidConfigs) || {};
     return providers[row.Provider] || null;
   },
-  // The newest recorded SSO sign-in per "protocol/provider", from the link roster. A provider with links
-  // but no recorded sign-in yields nothing rather than a zero date, so a card can tell "nobody has signed
-  // in" from "the roster did not load" - the second is the case the caller passes null for.
+  // The newest recorded SSO sign-in per "protocol/provider"; a provider with no sign-in yields nothing.
   lastSsoLoginByProvider: (roster) => {
     const newest = {};
     const accounts = (roster && roster.Accounts) || [];
@@ -6679,10 +5477,7 @@ const ssoConfigurationPage = {
     const next = page.querySelector("#sso-overview-next");
     const state = page.querySelector("#sso-overview-state");
 
-    // ALL FOUR OR NONE. The caller gates on the card list alone, and three of these were dereferenced
-    // straight after it - so a page carrying one of the four and not the others threw here, on a render
-    // that runs on every visit. They are one region and there is no arrangement in which a subset of
-    // them is the right answer, so this asks for the region rather than for its first member.
+    // The four overview elements are one region; all or none.
     if (!cards || !empty || !next || !state) {
       return;
     }
@@ -6708,9 +5503,7 @@ const ssoConfigurationPage = {
 
     const enabled = rows.filter((row) => row.Enabled).length;
     const unready = rows.filter((row) => !row.Ready).length;
-    // Concatenated rather than substituted into a catalog string. tr() only substitutes placeholders
-    // once the catalog has loaded, and loading it is deliberately best-effort, so a "{0} of {1}" default
-    // would be shown with its braces intact on exactly the run where that fetch failed.
+    // Concatenated rather than substituted, since tr() leaves braces when the catalog failed to load.
     ssoConfigurationPage.renderTransferMessage(
       state,
       rows.length === 0
@@ -6778,16 +5571,8 @@ const ssoConfigurationPage = {
           : tr("overview.never_signed_in", "No SSO sign-in recorded yet"),
       );
 
-      // Overview is the page that answers whether sign-in works here, so a provider with a security
-      // defense switched off says so HERE and not only on the card of the tab somebody opens once they
-      // already know which provider they mean (#1727). The row appears only when a class is on: a mark
-      // every card carries is furniture, and furniture stops being read - the same reason the linked-
-      // accounts table adds its count line only when it is narrowed.
-      //
-      // The sentence is the one the Providers list's own flag carries, read from the catalogue by the
-      // same key, followed by the classes that are on. Concatenated rather than substituted, for the
-      // reason given at the state line above: a placeholder is only filled once the catalogue has
-      // loaded, and that load is deliberately best-effort.
+      // Marks a provider with a security defense off (#1727), only when a class is on. The sentence is the
+      // Providers flag's own, concatenated with the classes.
       const downgrades = ssoConfigurationPage.activeDowngradeClasses(
         row.Protocol,
         ssoConfigurationPage.storedProviderFor(row, config),
@@ -6812,9 +5597,7 @@ const ssoConfigurationPage = {
     ssoConfigurationPage.paintOverviewNextSteps(next, report, rows);
   },
 
-  // What to do next. Every entry names a condition read out of the report above, so an entry disappears
-  // exactly when the condition does and nothing here is advice nobody measured. An empty list is a
-  // sentence rather than a blank region, so it cannot be read as a panel that failed to load.
+  // Paints what to do next, each entry tied to a condition in the report; an empty list is a sentence.
   paintOverviewNextSteps: (next, report, rows) => {
     const todo = [];
 
@@ -6874,9 +5657,7 @@ const ssoConfigurationPage = {
     );
   },
 
-  // The SSO-only line rides the configuration load every page already makes rather than a second fetch,
-  // so what it says and what the Server tab's own control holds cannot come apart. A no-op on the four
-  // tabs that carry no overview.
+  // Renders the SSO-only line from the shared configuration load; a no-op on tabs without an overview.
   renderOverviewFrom: (page, config) => {
     const line = page.querySelector("#sso-overview-sso-only");
     if (!line) {
@@ -6895,39 +5676,14 @@ const ssoConfigurationPage = {
   },
 };
 
-// ---- The five page controllers (#1527) ----
-//
-// One function per registered configuration page. The object above is the shared core - the API client
-// calls, the validation, the provisioning-template controls, the presets and the renderers - and every
-// function below only WIRES the controls of the page it is named for. The partition is not a style
-// choice: a handler registered against a control that lives on another page would throw on a null and
-// take the rest of that page's wiring down with it, because none of these registrations is guarded
-// individually. What keeps them safe is that each one is reached only from the page whose markup holds
-// its control, and `docs/ui/mock/FIELDS.md` plus `tools/ui-mock-fields.js` are what hold that partition
-// to the markup: the tool refuses a control that is on no page, on two pages, or on a page the table
-// does not name.
-//
-// The three calls every page makes are the prelude below. loadConfiguration fills whatever sections the
-// page in front of it actually has and skips the rest, so one load path serves five pages.
+// The five page controllers (#1527). Each function only wires the controls of its own page, since an
+// unguarded handler on a missing control would throw. docs/ui/mock/FIELDS.md and tools/ui-mock-fields.js
+// hold that partition to the markup.
 
 /**
  * The calls every page with controls makes: the stylesheet, the configuration, the localized labels, the
- * unsaved-changes tracking, and the re-read on return to the tab.
- *
- * THE RE-READ ON `viewshow` IS HERE NOW (#1576), AND IT IS THE LOAD PATH THAT CHANGED RATHER THAN THE
- * DIRTY STATE. #1572 built the state for exactly this and the review refused the re-read, because
- * `loadConfiguration` was written to run once at construction, while the editors are still hidden, and
- * running it again emptied both library checklists, rendered a removed row back out of storage, and
- * decided on a dirty test that ran before an asynchronous fill. Each of those three now has its own
- * guard, and all three live at `refreshOnShow` and in `loadConfiguration`'s `refreshing` arm rather than
- * being restated here.
- *
- * THE LISTENER IS REGISTERED AFTER THE FIRST LOAD AND NOT INSTEAD OF IT, for the reason `initOverviewPage`
- * measured: jellyfin-web constructs the controller inside `loadView`'s own chain and dispatches
- * `viewshow` one microtask after that chain resolves, and this controller is reached through a dynamic
- * import, so the first `viewshow` is always missed. The init call covers the show that has already
- * happened; the listener covers every later show of the same cached view, when the controller does not
- * run at all.
+ * unsaved-changes tracking, and the re-read on return to the tab (#1576).
+ * The listener is registered after the first load, since the first `viewshow` fires before it exists.
  *
  * @param {Element} view The page element Jellyfin hands the controller.
  */
@@ -6944,13 +5700,7 @@ function initSharedPage(view) {
   );
 }
 
-// One registration per template-control prefix that this page actually carries, derived from the
-// prefix->form map rather than written out per form. Two of the three were once listed by hand and the
-// third - the profile editor's - was missed, which left the button rendered, styled and disabled-managed
-// while doing nothing, so a named profile could never be given a permission from the page at all. The
-// presence test is what makes the same loop correct on two different pages since #1527: the OpenID and
-// SAML forms are on Providers and the profile form is on Policies, so each page registers its own and
-// silently skips a prefix whose form is not in front of it.
+// Registers the permission adder for each template-control prefix whose form this page carries (#1527).
 function bindTemplatePermissionAdders(view) {
   Object.keys(ssoConfigurationPage.templateFormSelectors).forEach((prefix) => {
     const add = view.querySelector("#" + prefix + "Tmpl-Permissions-add");
@@ -6968,31 +5718,8 @@ function bindTemplatePermissionAdders(view) {
 
 /**
  * The Overview tab: a status view that holds no setting of its own.
- *
- * THE ONLY PAGE THAT RE-READS ON EVERY SHOW, and the asymmetry is deliberate. The dashboard keeps three
- * views alive and hands a cached one back rather than building it again - viewContainer caches by
- * pathname+search, and viewManager's onBeforeChange constructs the controller only where `initComplete`
- * is unset - so a tab returned to has NOT re-run its controller and still shows whatever it last loaded.
- * That was read out of jellyfin-web rather than assumed, and the consequence is worst exactly here: add a
- * provider on Providers, come back, and Overview goes on saying no provider is configured.
- *
- * IT LOADS TWICE OVER, AT INIT AND ON `viewshow`, AND THE BELT IS NOT THE BRACES. A first draft moved the
- * load into the listener alone, on the reading that `viewshow` fires on every show including the first.
- * The EVENT does; the LISTENER is not there to hear it. jellyfin-web constructs the controller inside
- * `loadView`'s own chain and dispatches `viewshow` in the `.then` after that chain resolves - one
- * microtask later - and this controller registers its listener only once a dynamic import of the core has
- * resolved, which is a fetch. So the first `viewshow` is always missed, and what that shipped was an
- * Overview blank on every fresh load, with the markup's own default line asserting that SSO-only was off
- * on a server where it was on. The init call covers the show that has already happened by the time the
- * core arrives; the listener covers every later show of the same cached view, when the controller does
- * not run at all. In the ordering where both fire, the page loads twice, which costs one read of a
- * read-only report and paints the same thing.
- *
- * WHY THIS ONE READS UNCONDITIONALLY AND THE OTHER FOUR ASK FIRST. Re-reading the configuration re-fills
- * form controls, and those four pages hold controls an administrator may have typed into and not yet
- * saved. Overview has no control at all - none of the page's 123 - so re-reading it can lose nothing and
- * it needs no guard. The other four go through `refreshOnShow`, which refuses while an editor is open or
- * while the page holds anything the last read did not put there (#1576).
+ * It loads at init and on every `viewshow`, since cached views do not re-run their controller and the
+ * first `viewshow` is missed. It holds no control, so the re-read needs no guard (#1576).
  */
 function initOverviewPage(view) {
   ssoConfigurationPage.addTextAreaStyle(view);
@@ -7015,12 +5742,7 @@ function initProvidersPage(view) {
   initSharedPage(view);
   bindTemplatePermissionAdders(view);
 
-  // ---- The provider wizard (#1665) ----
-  //
-  // Seven registrations and no state: every one of them hands the page to a function that reads the page
-  // back, so nothing here has to be kept in step with anything. Unguarded like the rest of this function,
-  // for the reason the partition rests on - these ids are on this page, and tools/ui-mock-fields.js is
-  // what holds that true.
+  // The provider wizard (#1665): stateless registrations whose ids tools/ui-mock-fields.js holds to this page.
   view.querySelector("#sso-wizard-start").addEventListener("click", (e) => {
     ssoConfigurationPage.startWizard(view);
     e.preventDefault();
@@ -7063,24 +5785,8 @@ function initProvidersPage(view) {
     return false;
   });
 
-  // The deep link from Overview's Add provider card, read at construction AND on every later show of
-  // this view, and acted on only while the wizard is closed.
-  //
-  // THE SECOND READ ANSWERS A QUESTION THIS COMMENT USED TO LEAVE OPEN (#1721). It said the flag was
-  // read once, here, and never again, and that whether arriving with the flag on a tab the reader had
-  // already opened CONSTRUCTS a controller at all was the walk's question (#1665, decision D4). The
-  // walk of 2026-09-13 answered it in two halves. The FIRST press of the card builds a view of its own
-  // for the flagged address, beside the plain one, and that controller reads the flag here. The SECOND
-  // press in a session - after Leave or Finish closed the wizard and Overview was visited - hands that
-  // flagged view back from the cache, no controller runs, and the wizard stayed closed. What does fire
-  // on that return is `viewshow` (#1576), so the flag is read there too.
-  //
-  // WHY THE GUARD IS THE WIZARD'S OWN STATE AND NOT THE HASH. Nothing strips the flag, so a rule on
-  // the hash alone would restart the wizard on every return to this view and throw away whatever step
-  // the administrator had reached - the reason the read used to happen once. An open wizard is left
-  // exactly where it is; only a closed one is opened. What that leaves is a return to this view through
-  // the browser's history while the address still carries the flag after Finish or Leave, which opens
-  // the wizard at step one over the editor as it stands, because the address asked for it.
+  // Opens the wizard for Overview's deep link, at construction and on every later show (#1721, #1665),
+  // but only while the wizard is closed, so an open wizard keeps its step.
   const openWizardIfRequested = () => {
     if (
       ssoConfigurationPage.wizardRequested() &&
@@ -7092,16 +5798,7 @@ function initProvidersPage(view) {
   openWizardIfRequested();
   view.addEventListener("viewshow", openWizardIfRequested);
 
-  // The aggregate configuration check (#1084). Read-only: it fetches a report and paints its own list.
-  //
-  // ON THIS TAB AND NOT ON OVERVIEW, because of what its detail lines are made of. Each row names the
-  // settings a provider is still missing and resolves each one to the form's own localized label, read
-  // off the page's `<label for>` rather than from a second copy of every label kept beside it. Overview
-  // holds no form and therefore no label, so the same report rendered there fell back to bare property
-  // ids - "Still empty: OidEndpoint, saml-SamlCertificate" where the page had said "OpenID Endpoint, IdP
-  // Signing Certificate" - putting an internal prefix in front of an administrator and losing the
-  // localization outright. The check belongs beside the labels it reads. Overview says the same thing in
-  // whole sentences that need no label, derived from the same report by paintOverviewNextSteps.
+  // The aggregate configuration check (#1084), on this tab because its rows use the form's localized labels.
   view.querySelector("#CheckAllProviders").addEventListener("click", (e) => {
     ssoConfigurationPage.checkAllProviders(view);
     e.preventDefault();
@@ -7111,19 +5808,11 @@ function initProvidersPage(view) {
   view.querySelector("#SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#OidProviderName").value;
 
-    // The outcome is rendered in the editor's own status region and nowhere else (#1572). It used to be
-    // said twice, inline and in a modal alert, and the inline half then had to point at the modal for the
-    // reason - so a reader who dismissed the alert was left with a failure and no cause. The whole
-    // sentence is here now. Handling the rejection keeps a failed save from becoming an unhandled promise
-    // rejection (the rejection still exists so callers can distinguish failure from success).
+    // The outcome is rendered in the editor's own status region (#1572); the rejection is handled here.
     ssoConfigurationPage.saveProvider(view, target_provider).then(
       (outcome) => {
         ssoConfigurationPage.setEditorTitle(view, target_provider);
-        // A SAVE THAT DROPPED THE SECRET IS NOT A PLAIN "SAVED" (#1872): which sentence, and in which
-        // colour, is decided in saveStatusFor, once, where a tool can drive it. The answer arrives
-        // from the server after the save has landed, so the sentence is rendered when it does and
-        // nothing is said in the meantime - "saved" written first and corrected a moment later is a
-        // sentence an administrator may already have acted on.
+        // The sentence waits for the secret read-back and comes from saveStatusFor (#1872).
         Promise.resolve((outcome || {}).secretDropped).then((dropped) => {
           const status = ssoConfigurationPage.saveStatusFor({
             secretDropped: dropped,
@@ -7160,8 +5849,7 @@ function initProvidersPage(view) {
     return false;
   });
 
-  // The provider LIST replaces the old select -> Load button: a click on a card loads that provider into
-  // the editor. Event delegation, because the cards are re-rendered on every configuration reload.
+  // A click on a provider card loads it, delegated because the cards are re-rendered on every reload.
   view.querySelector("#sso-provider-list").addEventListener("click", (e) => {
     const card = e.target.closest(".sso-provider-card");
     if (!card) {
@@ -7204,8 +5892,7 @@ function initProvidersPage(view) {
     current_mappings.push({ Role: "", Folders: [] });
     ssoConfigurationPage.populateRoleMappings(current_mappings, container);
   });
-  // Reveal-on-toggle dependent groups react to their controlling checkbox. syncDependentFields only toggles
-  // visibility (hide-not-remove) and never mutates a value, so nothing can be dropped from a later save.
+  // Reveal-on-toggle groups follow their checkbox; visibility only, so nothing is dropped from a save.
   ["EnableAllFolders", "EnableFolderRoles", "EnableLiveTvRoles"].forEach(
     (id) => {
       view
@@ -7258,9 +5945,7 @@ function initProvidersPage(view) {
     .querySelector("#BaseUrlOverride")
     .addEventListener("blur", () => ssoConfigurationPage.validateBaseUrl(view));
 
-  // Live-update the computed redirect URI (#724) as the provider name or the base-URL override changes, so
-  // the value shown always matches what the login will send. `input` (per-keystroke) not `blur`, since the
-  // field is purely informational: reflecting immediately is the point.
+  // Updates the computed redirect URI (#724) on every keystroke in the name or base-URL override.
   ["OidProviderName", "BaseUrlOverride"].forEach((id) => {
     view
       .querySelector("#" + id)
@@ -7277,7 +5962,7 @@ function initProvidersPage(view) {
 
   // Populate the redirect URI once at init (the blank editor shows its placeholder until a name is typed).
   ssoConfigurationPage.updateRedirectUri(view);
-  // ---- SAML workspace bindings (#725): the exact parallel of the OpenID bindings above ----
+  // SAML workspace bindings (#725), parallel to the OpenID bindings above.
   view.querySelector("#saml-SaveProvider").addEventListener("click", (e) => {
     const target_provider = view.querySelector("#saml-provider-name").value;
 
@@ -7290,9 +5975,7 @@ function initProvidersPage(view) {
         );
         ssoConfigurationPage.setSamlEditorTitle(view, target_provider);
       },
-      // The whole reason, inline, rather than a pointer at a modal the reader has already dismissed
-      // (#1572). The server refuses a save for more than one reason, so the sentence names both checks
-      // instead of blaming one.
+      // The whole reason inline (#1572), naming both server checks.
       () =>
         ssoConfigurationPage.renderSamlSaveStatus(
           view,
@@ -7416,7 +6099,7 @@ function initProvidersPage(view) {
       ssoConfigurationPage.validateSamlBaseUrl(view),
     );
 
-  // Live-update the computed ACS + SP-metadata URLs as the provider name or base-URL override changes.
+  // Live-update the computed ACS and SP-metadata URLs as the provider name or base-URL override changes.
   ["saml-provider-name", "saml-BaseUrlOverride"].forEach((id) => {
     view
       .querySelector("#" + id)
@@ -7462,15 +6145,8 @@ function initProvidersPage(view) {
   // Populate the computed URLs once at init (blank editor shows the placeholders until a name is typed).
   ssoConfigurationPage.updateSamlUrls(view);
 
-  // ---- Readiness panel (#1083), in the rail (#1664) ----
-  // Advisory and read-only: these handlers re-read the form and rebuild the panel. They set no value,
-  // check no box, and issue no request, so nothing here can change what a Save would send.
-  //
-  // NO PRIMING CALL HERE, AND THE ONE THAT STOOD HERE WAS DEAD. It rebuilt both panels at init, from a
-  // time when each editor held its own; the rail answers only for an open editor and neither is open at
-  // init, so the call returned at the gate every time. The card's starting state is the invitation the
-  // markup ships, which a conformance rule pins. Removed rather than left as a line that reads like it
-  // does something.
+  // Readiness panel (#1083), in the rail (#1664): these handlers only re-read the form and rebuild it.
+  // No priming call at init, since no editor is open then.
   [
     ["#sso-editor", "oid"],
     ["#saml-editor", "saml"],
@@ -7485,9 +6161,7 @@ function initProvidersPage(view) {
       ),
     );
   });
-  // The per-provider selectors, on both forms. The handler asks before the inline policy is discarded and
-  // then syncs the note and the disabled state, so the page reflects the choice immediately rather than
-  // only after the next load.
+  // The per-provider profile selectors: confirm before discarding the inline policy, then sync the state.
   [
     ["#ProvisioningProfile", ""],
     ["#saml-ProvisioningProfile", "saml-"],
@@ -7498,7 +6172,7 @@ function initProvidersPage(view) {
         ssoConfigurationPage.chooseProvisioningProfile(view, prefix),
       );
   });
-  // ---- Provider template pickers (#726) ----
+  // Provider template pickers (#726).
   ssoConfigurationPage.populatePresetPicker(view, "OidPreset", OIDC_PRESETS);
   ssoConfigurationPage.populatePresetPicker(view, "saml-Preset", SAML_PRESETS);
   view.querySelector("#OidPreset").addEventListener("change", (e) => {
@@ -7513,8 +6187,7 @@ function initProvidersPage(view) {
 function initAccountsPage(view) {
   initSharedPage(view);
 
-  // Account-link transfer (#1131): the exact parallel of the configuration pair above, against its own
-  // endpoints and its own status region, so one file's outcome never overwrites the other's.
+  // Account-link transfer (#1131), with its own endpoints and status region.
   view.querySelector("#ExportLinks").addEventListener("click", (e) => {
     ssoConfigurationPage.exportLinks(view);
     e.preventDefault();
@@ -7534,9 +6207,7 @@ function initAccountsPage(view) {
     ssoConfigurationPage.importLinks(view, file);
   });
 
-  // The linked-accounts panel (#1121). Read-only on arrival: the roster is fetched once when the page
-  // initialises, so an administrator sees who is linked without pressing anything, and the button re-reads
-  // it. The revoke is bound per row in renderLinkedAccountRow, because the row is what carries the username.
+  // The linked-accounts panel (#1121), read once at init and re-read by the button.
   view
     .querySelector("#RefreshLinkedAccounts")
     .addEventListener("click", (e) => {
@@ -7545,12 +6216,8 @@ function initAccountsPage(view) {
       return false;
     });
 
-  // The filter re-renders from the roster already held and asks the server for nothing (#1529). Bound on
-  // `input` rather than on `change` so the table narrows while the reader types: `change` on a search box
-  // waits for a blur or an Enter, which reads as a filter that does not work.
-  //
-  // `container` is looked up per event rather than captured, because the region is replaced on every load
-  // and a captured node would be one that is no longer in the page.
+  // The filter re-renders from the held roster on `input` (#1529). The container is looked up per event,
+  // since the region is replaced on every load.
   view.querySelector("#LinkedAccountsFilter").addEventListener("input", () => {
     ssoConfigurationPage.renderLinkedAccounts(
       view,
@@ -7560,10 +6227,7 @@ function initAccountsPage(view) {
 
   ssoConfigurationPage.loadLinkedAccounts(view);
 
-  // The roster is the one thing on this tab that a change made elsewhere - a revoke, a link import, a
-  // first sign-in - moves, and `loadConfiguration` does not fetch it (#1576). Unconditional, like
-  // Overview's read and for the same reason: it renders a read-only list and writes no control, so a
-  // re-read here can discard nothing. `refreshOnShow` still runs beside it from initSharedPage.
+  // Re-reads the roster on every show (#1576); it writes no control, so nothing can be discarded.
   view.addEventListener("viewshow", () =>
     ssoConfigurationPage.loadLinkedAccounts(view),
   );
@@ -7574,12 +6238,8 @@ function initPoliciesPage(view) {
   initSharedPage(view);
   bindTemplatePermissionAdders(view);
 
-  // ---- Provisioning profiles (#1105) ----
-  // The editor is filled by loadConfiguration, so nothing is populated here; these are the four acts and
-  // the selection. Each is its own handler against the live configuration, and every one of the four
-  // buttons is type="button" in the markup: the section sits in its own form, so a submit that reached the
-  // browser would reload the dashboard, and preventDefault runs only AFTER the act - a synchronous throw
-  // inside one would let the navigation happen.
+  // Provisioning profiles (#1105): the four acts and the selection, each against the live configuration.
+  // The buttons are type="button", so a throw before preventDefault cannot reload the dashboard.
   [
     ["#AddProvisioningProfile", "addProvisioningProfile"],
     ["#RenameProvisioningProfile", "renameProvisioningProfile"],
@@ -7604,8 +6264,7 @@ function initPoliciesPage(view) {
 function initServerPage(view) {
   initSharedPage(view);
 
-  // One Save for both switches (#1572). Two buttons became one because the two flags are members of one
-  // document and are written by one PUT; what that removes is written at saveServerSettings.
+  // One Save for both switches (#1572); see saveServerSettings.
   view.querySelector("#SaveServerSettings").addEventListener("click", (e) => {
     ssoConfigurationPage.saveServerSettings(view);
     e.preventDefault();
@@ -7636,9 +6295,7 @@ function initServerPage(view) {
 export default ssoConfigurationPage;
 
 /**
- * The controller for each registered page, keyed by the name its markup asks for. A page's own module
- * looks itself up here rather than importing a named function, so adding a tab is one entry and one
- * thin module rather than an edit spread over both.
+ * The controller for each registered page, keyed by the name its markup asks for.
  */
 export const pageControllers = {
   overview: initOverviewPage,

@@ -26,13 +26,8 @@
           </div>
 
           <!--
-            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
-            navigable before any controller runs and a page whose script failed to load still says where
-            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
-            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
-            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
-            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
-            there breaks the page.
+            The tab strip (#1527), static so the pages are navigable before any controller runs.
+            Each href uses a page name registered in SSOPlugin.GetPages; the names are part of the URL contract.
           -->
           <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="2">
             <div class="emby-tabs-slider">
@@ -85,12 +80,7 @@
             </div>
           </div>
 
-          <!--
-            The server could not read its stored configuration and is running on defaults (#1543). Hidden
-            until the server says so, and it says so until an administrator imports or saves one - so this
-            is the one statement on the page that is not about what the form in front of you contains, but
-            about whether the form is showing you your settings at all.
-          -->
+          <!-- Shown while the server runs on defaults because it could not read its stored configuration (#1543). -->
           <div
             id="sso-unreadable-config"
             class="fieldDescription sso-empty-state"
@@ -100,18 +90,9 @@
           <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
-            The linked-accounts panel (#1121). Presentation only: it reads the elevation-gated aggregate
-            roster (SSOController.LinkedAccountRoster, #1119) and drives the EXISTING elevation-gated,
-            rate-limited Unregister endpoint. It adds no server route, no second revoke path, and it does not
-            bypass the limiter. Every cell is written with textContent, never innerHTML (#221): a canonical
-            name is whatever the identity provider put in its subject claim and a username is
-            attacker-influenced, and this page is the higher-value target because an administrator opens it.
-            A row whose account no longer exists carries no Revoke button, because Unregister resolves the
-            account by username and can only answer 404 on exactly those rows; the row says so instead.
-            The revoke's confirmation names its consequence - the account is switched back to the built-in
-            password provider, so it can sign in with a password again even on an SSO-only server - which is
-            what #1121 decided, rather than refusing the action there and leaving those servers with no
-            in-dashboard route at all.
+            The linked-accounts panel (#1121, #1119): reads the elevation-gated roster and drives the existing
+            rate-limited Unregister endpoint. Cells are written with textContent (#221). A row whose account is
+            gone has no Revoke button, and the confirmation says the account returns to password sign-in.
           -->
               <form id="sso-linked-accounts" class="esqConfigurationForm">
                 <div
@@ -159,11 +140,7 @@
                     </button>
 
                     <!--
-                  The filter (#1529). NOT a persisting field: it carries no sso-* marker class and no id
-                  matching any configuration property, so listArgumentsByType never picks it up and a save
-                  cannot write it anywhere. It narrows what the roster renders, and the count line below the
-                  table says how many of how many are shown - a table that silently shows a subset is a
-                  table an administrator draws the wrong conclusion from.
+                  The roster filter (#1529): not a persisting field, and the count line says how many rows are shown.
                 -->
                     <div class="inputContainer">
                       <label
@@ -206,15 +183,9 @@
               </form>
 
               <!--
-            Pending approvals (#1529). Presentation only, over the same elevation-gated roster the panel
-            above reads: a row appears here for exactly the links the server reports as waiting - this
-            plugin's own record of having provisioned the account disabled, still naming the account the
-            link points at, on an account that is still disabled. An account somebody else disabled has no
-            record and is not here, and the help text says so, because the one mistake this panel must not
-            invite is undoing a sanction from a page about SSO. The button drives the elevation-gated,
-            rate-limited approve endpoint, which re-reads the state and enables the account and nothing
-            else. Every cell is written with textContent, never innerHTML (#221). The list is bounded and
-            says when it is cut, so a provider with a wide audience cannot make this the page that breaks.
+            Pending approvals (#1529): links the server reports as waiting on an account this plugin provisioned
+            disabled. The button drives the elevation-gated, rate-limited approve endpoint. Cells are written
+            with textContent (#221), and the list says when it is cut.
           -->
               <form id="sso-pending-approvals" class="esqConfigurationForm">
                 <div
@@ -254,17 +225,9 @@
               </form>
 
               <!--
-            Account-link transfer (#1131), on the Accounts tab since #1527. It used to sit in the same
-            section as the configuration transfer so an administrator met both together; the two are now one
-            tab apart, and this is the half that belongs beside the accounts it names. The other half stayed
-            with the rest of the server-wide settings. They are separated for the difference that matters:
-            the configuration export is redacted, this one is not. It carries usernames paired with
-            identity-provider subject identifiers, which is why the server makes an administrator ask for it
-            explicitly (SSOController.ExportLinks) rather than folding it into the configuration export. Both
-            endpoints are elevation-gated; the import is validated whole and applied atomically, and it
-            refuses a canonical name this instance already links to a different account, so a crafted file
-            cannot remap a subject onto another account. Status is rendered with textContent, never
-            innerHTML (#221).
+            Account-link transfer (#1131, #1527). Unlike the configuration export it is not redacted, so the
+            server requires an explicit request (SSOController.ExportLinks). The import is validated whole and
+            refuses to remap a subject onto another account. Status uses textContent (#221).
           -->
               <form id="sso-link-transfer" class="esqConfigurationForm">
                 <div
@@ -340,11 +303,7 @@
             </div>
             <aside class="sso-column-rail">
               <!--
-                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
-                the rest behind a fold; this is the second way to read the rest, without losing the field while
-                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
-                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
-                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+                The whole help text of the focused field (#1662), filled on focus by SSO-Auth/Web/i18n.js and hidden until then.
               -->
               <div class="verticalSection sso-help-card" hidden>
                 <h2 class="sectionTitle" data-i18n="config.help_full_text">
