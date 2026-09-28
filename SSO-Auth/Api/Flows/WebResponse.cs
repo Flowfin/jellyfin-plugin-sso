@@ -8,14 +8,11 @@ using Jellyfin.Plugin.SSO_Auth.Api.Localization;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 
-/// <summary>
-/// A helper class to return HTML for the client's auth flow.
-/// </summary>
+/// <summary>Renders the intermediate auth page the browser posts the login token from.</summary>
+/// <remarks>See <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Login-Flow#the-shape-both-flows-share"/>.</remarks>
 internal static class WebResponse
 {
-    /// <summary>
-    /// The shared HTML between all of the responses.
-    /// </summary>
+    /// <summary>The shared HTML between all of the responses.</summary>
     internal static readonly string Base = @"<!DOCTYPE html>
 <html lang='{{LANG}}'><head>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
@@ -71,11 +68,7 @@ function isWeb0s() {
         || userAgent.indexOf('web0s') !== -1;
 }
 
-// Browser detection derived from jellyfin-web's browser.js. Trimmed (#364) to only what the served
-// page reads - getDeviceName() below consumes tizen/web0s/operaTv/xboxOne/ps4/chrome/edgeChromium/
-// edge/firefox/opera/safari/ipad/iphone/android - so the mobile/keyboard/iOS-version/webOS-version/
-// CSS-animation detections and their flags are dropped. Re-sync this blob (isTv / isWeb0s / uaMatch /
-// the browser-flag assembly below) from upstream rather than editing it in place.
+// Browser detection trimmed from jellyfin-web's browser.js to what getDeviceName reads; re-sync from upstream rather than editing (#364).
 const uaMatch = function (ua) {
     ua = ua.toLowerCase();
 
@@ -229,9 +222,7 @@ const sleep = (milliseconds) => {
     return new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
-// The server id the web client in the iframe has stored for this origin, or null while it has not: a
-// missing entry, a still-empty server list and an unparseable value all read as 'not yet', so the wait
-// below keeps polling instead of dying on an exception nobody would see.
+// The server id the web client stored for this origin, or null while it has not, so the wait keeps polling.
 function storedServerId() {
     try {
         var credentials = JSON.parse(localStorage.getItem('jellyfin_credentials'));
@@ -242,10 +233,7 @@ function storedServerId() {
     }
 }
 
-// On a terminal failure the page must not dead-end (#667): offer an obvious way back to the login
-// screen. ssoBaseUrl is a JSON-encoded safe constant; the link is built via DOM APIs (never
-// innerHTML) and appended once after the status line, which carries role='status' aria-live='polite'
-// so its message swap is announced to assistive tech.
+// A terminal failure offers a way back, built through DOM APIs and never innerHTML (#667).
 function showReturnLink() {
     if (document.getElementById('sso-return-link')) return;
     const link = document.createElement('a');
@@ -257,28 +245,23 @@ function showReturnLink() {
 
 ";
 
-    /// <summary>
-    /// A generator for the web response that incorporates the data from the server.
-    /// </summary>
-    /// <param name="data">The opaque value the page posts back to the mint leg: a one-time state token for OpenID and, since #251, a one-time login-outcome token for a SAML login (a base64 assertion only on the SAML linking / pre-#251 deprecation path).</param>
+    /// <summary>Renders the auth page with the server-derived values encoded as JSON constants.</summary>
+    /// <param name="data">The opaque value the page posts back to the mint leg: a one-time token, or a base64 assertion on the SAML linking path.</param>
     /// <param name="provider">The name of the provider to callback to.</param>
     /// <param name="baseUrl">The base URL of the Jellyfin installation.</param>
     /// <param name="mode">The mode of the function; SAML or OID.</param>
     /// <param name="nonce">The per-response CSP nonce emitted on the inline script and style tags.</param>
-    /// <param name="isLinking">Whether or not this request is to link accounts (Rather than authenticate).</param>
-    /// <param name="culture">The culture the page's own text is rendered in (#913), already resolved to a loaded catalog or null for English. The server-derived data/URLs are culture-invariant.</param>
+    /// <param name="isLinking">Whether this request is to link accounts rather than authenticate.</param>
+    /// <param name="culture">The culture the page's own text is rendered in, or null for English (#913).</param>
     /// <returns>A string with the HTML to serve to the client.</returns>
     public static string Generator(string data, string provider, string baseUrl, string mode, string nonce, bool isLinking = false, string? culture = null)
     {
         System.ArgumentNullException.ThrowIfNull(baseUrl);
 
-        // Strip out the protocol (http:// or https://) and convert the domain to Punycode
+        // The domain is converted to Punycode; a base URL with no scheme separator fails closed rather than mis-splitting.
         var idnMapping = new IdnMapping();
         var protocolSeparatorIndex = baseUrl.IndexOf("//", System.StringComparison.Ordinal);
 
-        // baseUrl is server-derived and normally carries a scheme, so "//" is expected. A missing
-        // separator would otherwise silently mis-split (Substring(0, 1) / Substring(1)); fail closed
-        // instead of building a corrupt ssoBaseUrl the whole page then posts back to.
         if (protocolSeparatorIndex < 0)
         {
             throw new System.ArgumentException("baseUrl must contain a protocol separator ('//').", nameof(baseUrl));
@@ -289,11 +272,7 @@ function showReturnLink() {
         var punycodeDomain = idnMapping.GetAscii(domain);
         var punycodeBaseUrl = protocol + punycodeDomain;
 
-        // The page's own text (#913) is substituted per-culture: HTML-context strings are HTML-encoded,
-        // and strings injected into the inline script are emitted through JsonSerializer.Serialize - the
-        // same safe JS-string-literal encoding used for the server-derived constants below (System.Text.Json
-        // escapes '<', '>' and '&' to \u00XX, so a value can never terminate the <script> element). The
-        // catalog values are first-party, so this encoding is defense-in-depth over an already-trusted source.
+        // HTML-context strings are HTML-encoded and script-context strings JSON-encoded, so no value can end the script element (#913).
         string Localize(string key) => SsoLocalizer.GetString(key, culture);
         var head = Base
             .Replace("{{NONCE}}", nonce, System.StringComparison.Ordinal)
@@ -302,10 +281,7 @@ function showReturnLink() {
             .Replace("{{ENABLE_JS}}", HtmlEncoder.Default.Encode(Localize("page.enable_javascript")), System.StringComparison.Ordinal)
             .Replace("{{RETURN_LINK_JS}}", JsonSerializer.Serialize(Localize("error.return_to_login")), System.StringComparison.Ordinal);
 
-        // Emit the server-derived values as JSON-encoded JS constants so they cannot break out of
-        // the script context, then build every URL from these constants rather than interpolating
-        // raw. punycodeBaseUrl derives from the request host, and provider from the route, so both
-        // are treated as untrusted here (defense-in-depth); mode is a fixed literal.
+        // The base URL and the provider derive from the request, so both are treated as untrusted.
         return head + @"
 const ssoBaseUrl = " + JsonSerializer.Serialize(punycodeBaseUrl) + @";
 const ssoProvider = " + JsonSerializer.Serialize(provider) + @";
@@ -343,13 +319,7 @@ async function link(jfCredentials, request) {
 }
 
 async function main() {
-    // #self-link-credential-race: capture the CURRENT tab's session BEFORE anything below touches
-    // localStorage. The link leg authenticates as the user who is already signed in (that's how they
-    // reached /SSOViews/linking), so it needs THIS session's token. Wiping credentials first - as the
-    // login leg does below, to force a clean iframe bootstrap for a brand-new session - destroys the
-    // one thing the link leg needs, and the iframe-reload race that follows may or may not repopulate
-    // an authenticated (non-anonymous) session before the wait loop moves on, silently sending the
-    // request down the wrong leg (Auth instead of Link) when it doesn't.
+    // The link leg needs the current tab's session, captured before the login leg's credential wipe below.
     var preLinkCredentials = null;
     if (" + (isLinking ? "true" : "false") + @") {
         var preLinkCredentialsString = localStorage.getItem(""jellyfin_credentials"");
@@ -361,9 +331,7 @@ async function main() {
     var data = " + JsonSerializer.Serialize(data) + @";
 
     if (preLinkCredentials != null && preLinkCredentials['Servers']?.[0]?.['UserId'] != null) {
-        // Fast path: a live session for the account being linked is already in hand, so skip the
-        // wipe-and-reload dance below entirely - it exists to bootstrap a FRESH session for the login
-        // leg, which is not what linking needs and only risks losing the session linking depends on.
+        // A live session is in hand, so the wipe-and-reload the login leg needs is skipped.
         while (localStorage.getItem(""_deviceId2"") == null) {
             await sleep(100);
         }
@@ -373,16 +341,7 @@ async function main() {
         var linkDeviceName = getDeviceName();
         var linkRequest = {deviceId: linkDeviceId, appName: linkAppName, appVersion: linkAppVersion, deviceName: linkDeviceName, data};
 
-        // Linking is NOT a login round-trip, so a DEFINITIVE link outcome is terminal here - the page does
-        // NOT go on to post to .../Auth (#614). The Link leg one-time-consumes the assertion / state token,
-        // so the old unconditional follow-on Auth post could never redeem it: it fail-closed at the mint leg
-        // and rendered a misleading 'Login failed. Please try again.' even though the link itself had already
-        // succeeded on its own leg.
-        //   - A 2xx is a completed link: show success and stop (do not attempt a login).
-        //   - A non-2xx is a rejected link (#344): the provider is disabled (#343), the caller is not
-        //     allowed, or the request is throttled - surface it and stop, never fall through to a login.
-        //   - A missing status (undefined: a network error) keeps the prior behavior of proceeding to the
-        //     auth leg, since that outcome cannot be told apart from success.
+        // A definitive link outcome is terminal, because the Auth leg could never redeem the consumed token; only a network error falls through (#614).
         var linkStatus = await link(preLinkCredentials, linkRequest);
         if (linkStatus !== undefined) {
             const linked = linkStatus >= 200 && linkStatus < 300;
@@ -399,18 +358,12 @@ async function main() {
         }
     }
 
-    // The wait below ends only once the web client inside the iframe has written THIS page's localStorage,
-    // which it shares only at the same origin. A page opened at one address while the server built the
-    // login for another - a TLS-terminating proxy the server is not told about, a second hostname, an
-    // unset Base URL Override - would otherwise show 'Logging in...' forever. So the two origins are
-    // compared first (the URL parser normalizes case and default ports on both sides), and a mismatch is
-    // terminal: the page names both addresses, because no amount of waiting can end it.
+    // The iframe shares localStorage only at the same origin, so a mismatched origin is terminal rather than an endless wait.
     var pageOrigin = location.origin;
     var serverUrl = null;
     try { serverUrl = new URL(ssoBaseUrl); } catch (e) { serverUrl = null; }
     if (serverUrl === null || serverUrl.origin !== pageOrigin) {
-        // Both addresses are shown as base URLs: the page's origin carries the server's path base, if any,
-        // so the override the message suggests keeps a /jellyfin prefix instead of dropping it.
+        // The page's origin carries the server's path base, so the suggested override keeps its prefix.
         var pageBase = pageOrigin + (serverUrl === null ? '' : serverUrl.pathname.replace(/\/+$/, ''));
         document.querySelector('p').textContent = " + JsonSerializer.Serialize(Localize("page.address_mismatch")) + @"
             .split('{page}').join(pageBase).split('{server}').join(ssoBaseUrl);
@@ -421,10 +374,7 @@ async function main() {
     localStorage.removeItem('jellyfin_credentials');
     document.getElementById('iframe-main').src = ssoBaseUrl + '/web/index.html';
 
-    // The web client normally settles within a few seconds (about twelve on a cold Jellyfin 12 server;
-    // longer on a TV browser). After twenty the status line says what the page is waiting for and where,
-    // says that the wait goes on, and offers the way back - and the loop is not left, so a slow client
-    // still completes rather than being cut off.
+    // After twenty seconds the status line says what is being waited for and offers the way back, without leaving the loop.
     var waitingSince = Date.now();
     var waitNoticeShown = false;
     while (localStorage.getItem(""_deviceId2"") == null || storedServerId() == null) {
@@ -466,8 +416,7 @@ async function main() {
         responseJson = undefined;
     }
     if (!responseJson) {
-        // A throttled (429) or failed authentication must surface as text instead of leaving the
-        // page stuck on 'Logging in...' forever (reloading only adds rate-limit hits).
+        // A throttled or failed authentication surfaces as text rather than an endless wait.
         document.querySelector('p').textContent =
             response && response.status === 429
                 ? " + JsonSerializer.Serialize(Localize("error.login_rate_limited")) + @"

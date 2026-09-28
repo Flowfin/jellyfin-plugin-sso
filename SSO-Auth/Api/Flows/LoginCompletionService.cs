@@ -19,20 +19,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Flows;
 
-/// <summary>
-/// The one shared completion path both protocols funnel into once their validation has produced a
-/// <see cref="VerifiedIdentity"/> (#473): resolve-or-create the account, build the session parameters, and
-/// mint the session under the in-flight revocation gate, then audit and map to a <see cref="LoginOutcome"/>.
-/// Extracting it here (#160, #318 step 11) leaves the controller's two callbacks a single delegation each,
-/// and keeps the whole tail - every decision from a resolved identity to a minted session - in one flow-tier
-/// collaborator rather than inline on the controller.
-/// </summary>
+/// <summary>The one completion path both protocols funnel into once validation has produced a <see cref="VerifiedIdentity"/>: resolve the account, mint the session, audit (#473).</summary>
 /// <remarks>
-/// The entrypoint takes a <see cref="VerifiedIdentity"/> and nothing rawer, so the compile-time "no mint
-/// without validation" property the keystone establishes is preserved across the extraction: there is no
-/// overload that accepts an unvalidated response. This flow tier holds no <c>HttpContext</c> dependency -
-/// the controller passes the normalized client remote endpoint in as a resolver (#177), exactly as it does
-/// for <see cref="SessionMinter"/>.
+/// It takes a <see cref="VerifiedIdentity"/> and nothing rawer, so a mint without validation is a compile error, and it
+/// holds no <c>HttpContext</c>. See <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Login-Flow#the-shape-both-flows-share"/>.
 /// </remarks>
 internal sealed class LoginCompletionService
 {
@@ -43,15 +33,12 @@ internal sealed class LoginCompletionService
     private readonly ISessionManager _sessionManager;
     private readonly ILogger _logger;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="LoginCompletionService"/> class, wiring the account-
-    /// linking, session-minting, SSO-only-enforcement and configuration collaborators the login tail needs.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="LoginCompletionService"/> class.</summary>
     /// <param name="canonicalLinks">The account-linking workflow (resolve/adopt/create).</param>
     /// <param name="sessionMinter">The session minter run under the in-flight revocation gate.</param>
     /// <param name="ssoOnly">The SSO-only login enforcement service.</param>
     /// <param name="configStore">The provider configuration store.</param>
-    /// <param name="sessionManager">Jellyfin session manager, used to revoke an account's live tokens when the account-expiry gate disables it (#1144); without it a token minted before the deadline would outlive it.</param>
+    /// <param name="sessionManager">Jellyfin's session manager, which revokes an expired account's live tokens (#1144).</param>
     /// <param name="logger">The logger.</param>
     internal LoginCompletionService(CanonicalLinkService canonicalLinks, SessionMinter sessionMinter, SsoOnlyLoginService ssoOnly, ProviderConfigStore configStore, ISessionManager sessionManager, ILogger logger)
     {
@@ -63,22 +50,13 @@ internal sealed class LoginCompletionService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Completes a login from its fully-verified identity: resolve-or-create the account, build the session
-    /// parameters, and mint the session under the in-flight revocation gate. Taking a
-    /// <see cref="VerifiedIdentity"/> - the only type either protocol can produce, and only after full
-    /// validation - is what makes minting from a raw, unvalidated response a compile error: there is no
-    /// overload that accepts anything else. The only per-protocol input left is the adoption gate (OpenID may
-    /// require a verified email #218; SAML passes <see cref="AdoptionGate.None"/>), so it is a parameter;
-    /// every other divergence collapsed into the identity's own fields (its link namespace, audit label,
-    /// subject, username, privileges).
-    /// </summary>
+    /// <summary>Completes a login from its verified identity: resolve or create the account, build the session parameters, and mint under the revocation gate.</summary>
     /// <param name="identity">The fully-verified login identity and privileges (#473).</param>
     /// <param name="response">The client's auth request context (app/device), carried into the session mint.</param>
     /// <param name="config">The provider configuration governing authorization/folder/default-provider grants.</param>
-    /// <param name="adoptionGate">The extra proof a same-named adoption must clear (#218).</param>
-    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log (#177); the controller reads it from <c>HttpContext</c> and passes it in so this tier stays HttpContext-free. Evaluated at the original point inside the minter - after avatar/persistence, and not at all on the fail-closed path.</param>
-    /// <param name="logoutContext">The optional Single Logout material captured at the callback (the OpenID id_token/sid or the SAML SessionIndex, #727); persisted after the mint only when <c>EnableSingleLogout</c> is on. Null (the default) skips the capture.</param>
+    /// <param name="adoptionGate">The extra proof a same-named adoption must clear; the one per-protocol input (#218).</param>
+    /// <param name="remoteEndPointResolver">Resolves the normalized client IP for the activity log, evaluated inside the minter (#177).</param>
+    /// <param name="logoutContext">The Single Logout material captured at the callback, persisted after the mint only when the feature is on (#727).</param>
     /// <returns>The HTTP result for the completed (or refused) login.</returns>
     internal async Task<ActionResult> CompleteAsync(
         VerifiedIdentity identity,
@@ -100,21 +78,10 @@ internal sealed class LoginCompletionService
                 adoptionGate,
                 identity.Issuer,
                 config.ProvisionNewUsersDisabled,
-                // The role-mapped access duration (#1146), handed down so the create arm can anchor a
-                // deadline to the exact moment it writes the link. THE RESOLUTION ORDER IS STATED HERE, once
-                // and in one expression: an absolute instant the identity provider emitted (#1143) wins, so
-                // the relative source is passed only when the login carried none. Passing both and letting a
-                // later write overwrite the earlier one would put the same rule in two places and make the
-                // outcome depend on their order.
+                // An absolute instant from the provider wins over the role-mapped duration, stated once here (#1143, #1146).
                 identity.ExpiresAtUtc is null ? identity.GuestAccessDuration : null,
-                // Follow the identity provider's username on an already-linked account (#1138). Read off the
-                // provider configuration rather than off the identity, because it is the administrator's
-                // policy and not something the login gets to assert.
                 config.SyncUsernameFromProvider,
-                // The role-selected provisioning profile (#1106), handed down as a NAME so the create arm
-                // resolves it against the profile set inside its own locked configuration read. Null when the
-                // provider configures no role rows or this login matched none, and the create arm then falls
-                // to the provider's own default resolution (#1105) - which is every login before this existed.
+                // Handed down as a name, so the create arm resolves it inside its own locked read (#1106).
                 identity.ProvisioningProfile).ConfigureAwait(false);
         }
         catch (AccountLinkForbiddenException)
@@ -122,10 +89,7 @@ internal sealed class LoginCompletionService
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccountLinkForbidden));
         }
 
-        // Account-expiry gate (#1144), ahead of the pending-approval gate so an account this path already
-        // disabled is refused under its own reason rather than reported as awaiting an approval nobody is
-        // waiting to give. Opt-in: with no AccountExpiryClaim configured for the provider, nothing here runs
-        // and the login takes byte-for-byte its pre-#1144 path.
+        // Ahead of the approval gate, so an account this path disabled is refused under its own reason (#1144).
         if (!string.IsNullOrWhiteSpace(config.AccountExpiryClaim))
         {
             var expiryRefusal = await EnforceAccountExpiryAsync(identity, userId).ConfigureAwait(false);
@@ -135,29 +99,13 @@ internal sealed class LoginCompletionService
             }
         }
 
-        // Pending-approval gate (#737): a resolved account that is disabled - a brand-new user just
-        // provisioned inert under ProvisionNewUsersDisabled, OR any account an administrator disabled - must
-        // not be issued a session. This single read-only check fails closed for both the first login (the
-        // account was just created disabled above) and every later login of a still-pending account, and it
-        // fires BEFORE any SSO-only repoint or mint side effect. It never disables an account; it only refuses
-        // to mint for one already disabled. The provisioning event itself is audited at its source
-        // (CanonicalLinkService), so this uniform gate refuses silently rather than mislabelling an
-        // admin-disabled account's refused login as a fresh provisioning.
+        // A disabled account gets no session, before any repoint or mint side effect; nothing here disables one (#737).
         if (_canonicalLinks.IsAccountAwaitingApproval(userId))
         {
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AwaitingApproval));
         }
 
-        // SSO-only re-assertion on the login path (#165, criterion 5 / T-S1, Findings A/B/H1). While
-        // DisablePasswordLogin is on, an SSO login must not leave the account's provider routing in a state
-        // that undermines the mode: a non-exempt account is forced onto the SSO (non-password) provider so no
-        // residual password door survives, and the break-glass admin is PINNED to the built-in password
-        // provider so an SSO login can never strip its own password door (which would risk a total lockout
-        // once the IdP fails). The single decision is derived from the RESOLVED account (by userId), not the
-        // mutable IdP-supplied identity.Username, so it matches the enable sweep's break-glass basis exactly;
-        // it also tracks a first-time non-exempt repoint (so the off-switch/boot reconcile can restore it) and
-        // returns whether this is the break-glass admin so the mint can keep it admin/enabled. When the mode
-        // is off (the default), the provider's own DefaultProvider is used unchanged and nothing is tracked.
+        // Decided on the resolved account rather than the provider-supplied username, so it matches the sweep (#165).
         var configuredDefaultProvider = config.DefaultProvider?.Trim();
         var enforcement = _ssoOnly.ResolveLoginEnforcement(userId, configuredDefaultProvider);
 
@@ -180,28 +128,13 @@ internal sealed class LoginCompletionService
             Avatar = identity.Avatar,
         };
 
-        // Mint under the in-flight revocation gate (#232): the minter re-checks the link is still live both
-        // before any user side effect and again as the last act before AuthenticateDirect. The remote-endpoint
-        // resolver is passed rather than the value so the minter evaluates it at the exact original point.
+        // The minter re-checks the link before any side effect and again last before the mint (#232).
         var authenticationResult = await _sessionMinter.MintAsync(
             sessionParameters,
             remoteEndPointResolver,
             () => _canonicalLinks.IsIdentityStillLinked(identity.LinkMode, identity.Provider, identity.Subject, userId)).ConfigureAwait(false);
-        // #1551: the line names the account the HOST is about to name in its own AuthenticationSuccess
-        // event, so an operator can line the two up. AuthenticateDirect builds that event's payload from
-        // THIS result - it publishes the same instance it returns - so User.Name is the host's own value
-        // rather than a second derivation of it that could drift. The provider-presented name is passed
-        // beside it and is logged only where the two differ, which happens for more than one reason: an
-        // existing link resolves an account under its own name with SyncUsernameFromProvider off, a created
-        // account was provisioned through Jellyfin's name allowlist, or a requested rename was declined. The
-        // fallback is reached only when the host returned no usable name; the line then names what it always
-        // named, and an audit line is never worth throwing a completed login away for.
-        // #1554: the PRIVILEGE field is read off the same result for the same reason the name is, and the two
-        // arms it closes are the ones the MINT decides on its own - the whole permission block is behind
-        // EnableAuthorization, which is off by default, and the break-glass administrator is never demoted.
-        // identity.Admin is passed beside the outcome as what it is, the role mapping's verdict, and is named
-        // only where the two disagree. Both are named arguments: they are adjacent booleans of opposite
-        // meaning, and transposing them would invert exactly what this issue fixed.
+
+        // The name and the privilege are the host's own from the same result it publishes; named arguments because the two booleans are opposites (#1551, #1554).
         var mintedUsername = MintedUsername(authenticationResult, identity);
         SsoAudit.LoginSucceeded(
             _logger,
@@ -212,24 +145,13 @@ internal sealed class LoginCompletionService
             mappedAdmin: identity.Admin,
             presentedUsername: identity.Username);
 
-        // #1139: counted beside the audit line rather than at a new hook point, so the counter and the trail
-        // cannot come apart. Here rather than in the status mapper because a success reaches the mapper too,
-        // and counting at both would double every login.
+        // Counted beside the audit line, so the counter and the trail cannot come apart (#1139).
         SsoMetrics.LoginSucceeded(identity.Provider);
 
-        // Stamp the link the login resolved (#1120), at the one point that knows both that the mint succeeded
-        // and which link carried it. Placed AFTER the mint on purpose: a refused or failed login must leave no
-        // trace in a field the roster presents as "last SSO login", and a stamp written before the mint would
-        // record attempts. Bounded and coalesced inside the service - see RecordLastSsoLogin - so an
-        // established user's repeat login still pays no configuration persist.
+        // After the mint, so a refused login leaves no trace in a field the roster shows as the last login (#1120).
         _canonicalLinks.RecordLastSsoLogin(identity.LinkMode, identity.Provider, identity.Subject);
 
-        // And drop any pending-approval record this link still carries (#1529, #1637). A session was minted,
-        // so the account is past the pending-approval gate above and is demonstrably not inert - the record
-        // is false, and this is the only moment this plugin ever learns that an account it provisioned
-        // disabled was enabled somewhere else. Left standing it would keep a working account on the approval
-        // list, and would offer it again if an administrator later disabled that account deliberately.
-        // Bounded the same way the stamp above is: no record, no write.
+        // A minted session proves the account is not inert, and this is the only moment the plugin learns it (#1529, #1637).
         _canonicalLinks.ClearPendingApprovalAfterLogin(identity.LinkMode, identity.Provider, identity.Subject);
 
         CaptureLogoutState(identity, userId, logoutContext, authenticationResult);
@@ -237,22 +159,7 @@ internal sealed class LoginCompletionService
         return LoginStatusMapper.ToActionResult(new LoginOutcome.Success(authenticationResult));
     }
 
-    // Enforces a configured account-expiry deadline against the resolved account (#1144). Returns the
-    // refusal to send, or null to let the login continue.
-    //
-    // THE GUARD (T-D1, mass-lockout defence): an administrator is exempt from the whole gate, not merely
-    // from the disable. An identity provider that starts emitting a past instant - or a claim mapped to the
-    // wrong attribute - must be able to strand at most the non-admin accounts, so an administrator both
-    // stays enabled and stays able to log in and repair the configuration. That is why the exemption is read
-    // from the RESOLVED account before anything else happens rather than inferred from a disable that
-    // declined to act; the two are not the same, and only the first keeps the recovery door open. The basis
-    // is the account, never identity.Admin, which is the identity provider's own say-so.
-    //
-    // A configured claim that produced no readable instant refuses the login and disables nothing. Granting
-    // unlimited access on a claim the reader could not parse would make a transient identity-provider change
-    // indistinguishable from an unlimited account, and disabling on it would make that same transient change
-    // indistinguishable from a real expiry - so the fail-closed answer is to refuse this login and leave the
-    // account exactly as it was.
+    // An administrator is exempt from the whole gate, read off the resolved account, so a bad claim can strand at most the non-admin accounts (#1144).
     private async Task<ActionResult?> EnforceAccountExpiryAsync(VerifiedIdentity identity, Guid userId)
     {
         if (_canonicalLinks.IsAccountAdministrator(userId))
@@ -260,6 +167,7 @@ internal sealed class LoginCompletionService
             return null;
         }
 
+        // A configured claim with no readable instant refuses the login and disables nothing.
         if (identity.ExpiresAtUtc is not { } deadline)
         {
             return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccessExpired));
@@ -267,41 +175,24 @@ internal sealed class LoginCompletionService
 
         if (deadline > DateTime.UtcNow)
         {
-            // Persist the still-future deadline beside the link (#1145). This is the ONLY writer of that
-            // map, and it is what makes the deadline enforceable between logins: the gate above only fires
-            // when the expired user comes back, so a guest who simply stops logging in would otherwise keep
-            // an enabled account and any long-lived token for as long as those tokens happen to live. It is
-            // deliberately not reached for an administrator, who returned above - the mass-lockout exemption
-            // (T-D1) is stated once, and an account the sweep may not act on is one it should not carry a
-            // deadline for.
+            // The only writer of the deadline map, which is what makes the deadline enforceable between logins (#1145).
             _canonicalLinks.RecordAccountDeadline(identity.LinkMode, identity.Provider, identity.Subject, deadline);
             return null;
         }
 
-        // Fired at the transition only. A second expired login finds the account already disabled, the
-        // disable returns false, and neither the audit line nor the revocation runs again - so a login loop
-        // against an expired identity cannot flood the trail or mass-revoke on every attempt.
+        // At the transition only, so a login loop against an expired identity cannot flood the trail.
         if (await _canonicalLinks.DisableExpiredAccountAsync(identity.LinkMode, identity.Provider, identity.Subject, identity.Issuer).ConfigureAwait(false))
         {
             SsoAudit.AccountExpired(_logger, identity.AuditProtocol, identity.Provider);
 
-            // Without this, "time-limited" means only that no NEW session is minted while a token issued
-            // before the deadline keeps working until it expires on its own. Scoped strictly to this one
-            // user id, which is what separates it from the per-provider disable that deliberately does not
-            // revoke (#468): there the id is one of many behind a provider and revoking would be an
-            // unscoped mass-logout, here it is the single subject whose access just ended. Runs after the
-            // disable is persisted, so a revoke that throws leaves the account already disabled rather than
-            // the pair half-done.
+            // Scoped to the one account whose access ended, after the disable is persisted (#468).
             await _sessionManager.RevokeUserTokens(userId, null).ConfigureAwait(false);
         }
 
         return LoginStatusMapper.ToActionResult(new LoginOutcome.Rejected(PublicReason.AccessExpired));
     }
 
-    // Persist the per-session Single Logout state (#727, SLO-1b), only when the feature is on. Runs AFTER a
-    // successful mint and is fully fail-safe: the session is already live, so a capture problem must never
-    // turn a good login into a failure - any error is logged and swallowed. Keyed by the minted session id
-    // (never a secret); a missing session id or logout context simply skips capture.
+    // Fail-safe after a successful mint: a capture problem must never turn a live session into a failed login (#727).
     private void CaptureLogoutState(VerifiedIdentity identity, Guid userId, LogoutContext? logoutContext, AuthenticationResult authenticationResult)
     {
         if (logoutContext is not { } context)
@@ -342,28 +233,11 @@ internal sealed class LoginCompletionService
         }
     }
 
-    // The name the host is about to publish for this mint (#1551). AuthenticateDirect sets the result's User
-    // from the account it minted for and publishes the SAME instance as its AuthenticationSuccess event, so
-    // reading it here is reading the host's own value rather than deriving a second one beside it. The
-    // parameter is nullable and the presented name is the fallback because a name is all this line can
-    // correlate on: without one there is nothing to line the two records up by, so the pre-#1551 value is
-    // no worse than a blank, and an audit line is never worth throwing a completed login away for. Empty
-    // counts as absent for the same reason. The host publishes its event BEFORE returning, so a missing
-    // name does not mean a missing event - it means the correlation cannot be made from this end.
+    // The host's own published name, with the presented name as the fallback because an audit line is never worth failing a login (#1551).
     private static string MintedUsername(AuthenticationResult? authenticationResult, VerifiedIdentity identity)
         => string.IsNullOrEmpty(authenticationResult?.User?.Name) ? identity.Username : authenticationResult.User.Name;
 
-    // The administrator right the mint GRANTED (#1554), read off the same result and for the same reason as
-    // the name above: the host builds that user from the account as it stands after the permission write, so
-    // this is the state it published rather than a second reading of the account that could disagree with it.
-    //
-    // ABSENT AND THE FALLBACK ABOVE ARE ONE PRECONDITION, not two. A UserDto carries a UserPolicy whether or
-    // not one was assigned - measured, in the row that had to stop using `new UserDto { Name = "alice" }` to
-    // reach the absent arm - so the only way through the ?. chain is a result with no User at all, which is
-    // the same condition MintedUsername falls back on. Jellyfin's AuthenticateDirect always sets one, so the
-    // word this prints is what an unexpected host answer reads as rather than a state a login produces.
-    // Guessing false instead would report such a login as a non-administrator one, which is the
-    // under-reporting direction this issue exists to remove.
+    // Null rather than a guessed false when the host returned no user, which is the under-reporting direction (#1554).
     private static bool? GrantedAdmin(AuthenticationResult? authenticationResult)
         => authenticationResult?.User?.Policy?.IsAdministrator;
 }

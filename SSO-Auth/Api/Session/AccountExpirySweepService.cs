@@ -13,23 +13,11 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Session;
 
-/// <summary>
-/// Drives <see cref="AccountExpirySweep"/> on a timer for as long as the server runs (#1145). An
-/// <see cref="IHostedService"/> rather than an <c>IScheduledTask</c>, matching the plugin's two existing
-/// background components (<see cref="SsoOnlyReconciliationService"/> and the login-button manager) - the
-/// plugin has no scheduled task and this is not the change that introduces one.
-/// <para>
-/// Fail-safe throughout: a tick that throws is logged and swallowed, and the loop keeps its cadence, because
-/// an expiry sweep is enforcement of a deadline that has already passed and must never be able to take the
-/// server down or stop itself permanently over one bad pass.
-/// </para>
-/// </summary>
+/// <summary>Drives <see cref="AccountExpirySweep"/> on an hourly timer for as long as the server runs (#1145).</summary>
+/// <remarks>A hosted service like the plugin's other background components, and fail-safe: one bad tick never ends the loop.</remarks>
 internal sealed class AccountExpirySweepService : IHostedService, IDisposable
 {
-    // Hourly. The deadline it enforces is an account-lifetime instant configured by an administrator, so the
-    // meaningful resolution is hours rather than seconds, and the login path already covers the case where
-    // the expired user comes back before the next tick. A shorter period would buy nothing an operator can
-    // perceive and would walk the config maps sixty times as often.
+    // Hours are the meaningful resolution of an account lifetime, and the login path covers an earlier return.
     private static readonly TimeSpan Period = TimeSpan.FromHours(1);
 
     private readonly IUserManager _userManager;
@@ -39,9 +27,7 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
     private readonly CancellationTokenSource _stopping = new();
     private Task? _loop;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AccountExpirySweepService"/> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="AccountExpirySweepService"/> class.</summary>
     /// <param name="userManager">The Jellyfin user manager, resolved from the host DI container.</param>
     /// <param name="sessionManager">The Jellyfin session manager, used to revoke a disabled account's tokens.</param>
     /// <param name="cryptoProvider">The Jellyfin crypto provider the canonical-link store is built with; the sweep itself mints nothing.</param>
@@ -54,10 +40,7 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Starts the periodic sweep. Returns as soon as the loop is running; the first tick fires after one
-    /// period rather than at boot, so a restart cannot add a sweep to whatever else start-up is doing.
-    /// </summary>
+    /// <summary>Starts the periodic sweep; the first tick fires after one period rather than at boot.</summary>
     /// <param name="cancellationToken">The host's start token.</param>
     /// <returns>A completed task.</returns>
     public Task StartAsync(CancellationToken cancellationToken)
@@ -66,9 +49,7 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Signals the loop to stop and waits for the in-flight tick to finish.
-    /// </summary>
+    /// <summary>Signals the loop to stop and waits for the in-flight tick to finish.</summary>
     /// <param name="cancellationToken">The host's shutdown token, which bounds the wait.</param>
     /// <returns>A task that completes when the loop has stopped.</returns>
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -76,8 +57,7 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_loop is { } loop)
         {
-            // Never let shutdown hang on the sweep: the host's own token bounds the wait, and the tick is
-            // idempotent, so a pass abandoned here is simply redone after the next start.
+            // The host's token bounds the wait, and an abandoned pass is redone after the next start.
             await loop.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
@@ -85,19 +65,10 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
     /// <inheritdoc />
     public void Dispose() => _stopping.Dispose();
 
-    /// <summary>
-    /// One tick, separated from the loop so the suite can run it without waiting out a period.
-    /// </summary>
-    /// <remarks>
-    /// Nothing is reported here on success. Every account the pass disables already writes its own
-    /// <c>[SSO Audit]</c> line, and a second count line beside them would say nothing an operator cannot
-    /// read off those.
-    /// </remarks>
+    /// <summary>One tick, separated from the loop so the suite can run it without waiting out a period.</summary>
     /// <returns>A task that completes when the pass has finished or has been logged as failed.</returns>
     internal async Task TickAsync()
     {
-        // No configuration to sweep. Skip this tick rather than throw; the plugin is constructed during
-        // plugin load, so this is normally set well before the first period elapses.
         if (SSOPlugin.Instance is not { } plugin)
         {
             return;
@@ -110,8 +81,6 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            // Fail-safe: one bad pass must not end the loop. The next tick retries from the persisted state,
-            // and the deadlines it enforces are still on disk.
             _logger.LogError(ex, "Account-expiry sweep tick failed; no account was disabled by it. The next tick retries.");
         }
     }
@@ -125,8 +94,7 @@ internal sealed class AccountExpirySweepService : IHostedService, IDisposable
         }
     }
 
-    // The cancellation of a PeriodicTimer surfaces as an exception rather than as a false, and a shutdown is
-    // not an error; this turns it back into the loop-ending false the caller reads.
+    // A cancelled PeriodicTimer throws, and a shutdown is not an error.
     private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken cancellationToken)
     {
         try
