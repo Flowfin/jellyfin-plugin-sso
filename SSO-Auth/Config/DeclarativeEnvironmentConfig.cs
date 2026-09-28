@@ -14,121 +14,24 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// The environment half of the declarative provider configuration (#1097): the same document
-/// <see cref="DeclarativeProviderConfig"/> reads from a mounted file, expressed as environment variables
-/// and applied through the same <see cref="DeclarativeProviderConfig.ApplyDocument"/>. It ships alone - a
-/// deployment that sets variables and mounts no file is fully configured, and one that sets none is
-/// byte-identical to an installation built before this existed.
-/// </summary>
+/// <summary>The environment half of the declarative provider configuration: the same document as the mounted file, spelled as variables (#1097).</summary>
 /// <remarks>
-/// <para>
-/// A variable names a path into the document, with <c>__</c> between the steps, which is the hierarchy
-/// separator ASP.NET Core's own environment configuration provider uses and the one an operator writing a
-/// compose file or a Kubernetes manifest already knows:
-/// </para>
-/// <code>
-/// JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__OidClientId=jellyfin
-/// JELLYFIN_SSO_CONFIG__OidConfigs__keycloak__Roles__0=media
-/// JELLYFIN_SSO_CONFIG__SamlConfigs__idp__Enabled=true
-/// </code>
-/// <para>
-/// EVERY LINE OF THAT EXAMPLE NAMES A PATH INSIDE ONE OF THE TWO PROVIDER MAPS, which is a correctness
-/// requirement rather than a preference. A variable naming a member of the configuration itself is refused
-/// by the two-provider-maps rule below, and a refusal takes the WHOLE source down with it, so an operator who
-/// copied an example carrying one would get no declarative configuration at all - not the provider lines
-/// applied and the offending one ignored. The third line read <c>EnableRateLimit</c> until #1116, which is
-/// that mistake standing in the canonical statement of the scheme, contradicting the paragraph that refuses
-/// it. <c>ASettingTheApplyDoesNotReach_IsRefusedRatherThanDropped</c> pins the refusal and
-/// <c>ASamlProviderSpelledInVariables_IsApplied</c> pins that the replacement line is a shape this source
-/// accepts, so the example is exercised rather than asserted.
-/// </para>
-/// <para>
-/// The steps are resolved against the configuration model itself rather than against a hand-written table
-/// of field names, so a field cannot be silently unconfigurable: a property added to
-/// <see cref="OidConfig"/> or <see cref="SamlConfig"/> is addressable the day it is added, under its own
-/// name, without an edit here. A step names a property (matched without regard to case, like the file
-/// source), a dictionary key (taken verbatim, so a provider may be called anything), or a list index (from
-/// zero). That the whole settable provider surface really is reachable is not a claim made here - it is
-/// derived by walking the model in
-/// <c>EveryProviderFieldTheModelCarries_IsReachableFromTheEnvironment</c>.
-/// </para>
-/// <para>
-/// The surface is the two provider maps and nothing else, which is exactly what a declarative apply reaches:
-/// <see cref="ConfigImport"/> deliberately leaves the rate-limit tuning and the SSO-only globals to the
-/// settings page. A variable naming one of those is REFUSED rather than accepted and dropped, so the
-/// environment never looks applied where it changed nothing.
-/// </para>
-/// <para>
-/// A PROVIDER IS DECLARED WHOLE, exactly as it is in the mounted file, because the apply merges by provider
-/// and not by field. Naming one field of a provider that already exists therefore leaves its other fields at
-/// their defaults rather than at what was there before - and on an OpenID provider a blanked endpoint or
-/// client id is a repoint, which clears that provider's account links and stored secret through the belt
-/// <see cref="ServerManagedFields"/> already carries (#186). Declare every field of a provider the
-/// environment owns. What is left alone is a provider the environment does not name at all.
-/// </para>
-/// <para>
-/// THE WHOLE SOURCE IS REFUSED AS A UNIT, and an unrecognised variable under the prefix is a refusal rather
-/// than something skipped. A typo is the ordinary failure here - the names are long and nothing completes
-/// them - and a skipped variable leaves a provider carrying half of what the deployment asked for, which is
-/// worse than one that does not start at all. So a step that names no property, a property withheld from
-/// this boundary, an index that leaves a hole in a list, and a value that is not of the field's type each
-/// reject everything and leave the stored configuration untouched.
-/// </para>
-/// <para>
-/// A property the JSON boundary withholds (<c>[JsonIgnore]</c>: the canonical link maps, the issuer
-/// bindings, the SSO-only bookkeeping) is refused by name instead of being accepted and dropped. Those are
-/// server-managed and are re-injected by <see cref="ServerManagedFields"/> on every write path, so a
-/// variable aimed at one would otherwise be accepted, written into the document, and silently discarded by
-/// the deserializer - the exact shape of a configuration that looks applied and is not.
-/// </para>
-/// <para>
-/// A secret IS spelled out here, unlike in the mounted file. #1096 refuses a value in the file and takes a
-/// reference instead, because the file is an artefact a deployment keeps beside its other tracked
-/// configuration, and one of the two reference forms that rule points at is an environment variable. This
-/// IS that environment variable, so requiring a reference from a variable to another variable would buy
-/// nothing.
-/// </para>
-/// <para>
-/// PRECEDENCE: the environment is applied after the mounted file, so where both name the same field the
-/// environment wins, and both win over what is stored. It is a merge on the same terms the file source
-/// already carries - a provider neither source names is left exactly as it is - because both go through one
-/// <see cref="ConfigImport"/>. The two are applied separately rather than merged into one document, so a
-/// refused environment leaves an accepted file standing rather than taking it down with it; each source is
-/// atomic in itself and neither is half-applied.
-/// </para>
-/// <para>
-/// Nothing here throws. This runs while the plugin is being constructed, where a throw takes the plugin, and
-/// with it every SSO login on the server, offline over a configuration mistake.
-/// </para>
-/// <para>
-/// One shape is out of reach and is stated rather than worked around: a provider whose NAME contains a
-/// double underscore cannot be addressed, because the name would be indistinguishable from two steps. Such
-/// a provider is configured from the mounted file or from the settings page.
-/// </para>
+/// A variable names a path into the two provider maps with <c>__</c> between the steps, resolved against the model
+/// itself; the whole source is refused as a unit on any step it cannot place, and it is applied after the file. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code#the-same-example-as-environment-variables"/>.
 /// </remarks>
 internal static class DeclarativeEnvironmentConfig
 {
-    /// <summary>
-    /// The prefix every variable of this source carries. Deliberately not a prefix of
-    /// <see cref="DeclarativeProviderConfig.SourcePathVariable"/> and not prefixed BY it: that variable ends
-    /// in a single underscore before <c>FILE</c>, this one in the double underscore that starts a path, so
-    /// neither can ever be read as the other.
-    /// </summary>
+    /// <summary>The prefix every variable of this source carries; its double underscore keeps it from ever reading as <see cref="DeclarativeProviderConfig.SourcePathVariable"/>.</summary>
     internal const string Prefix = "JELLYFIN_SSO_CONFIG__";
 
     /// <summary>The separator between the steps of a path, and the same one ASP.NET Core uses.</summary>
     internal const string Separator = "__";
 
-    /// <summary>
-    /// The only two members of the configuration a declarative apply reaches, read straight off
-    /// <see cref="ConfigImport"/>'s own behaviour rather than restated from it in prose.
-    /// </summary>
+    /// <summary>The only two members of the configuration a declarative apply reaches.</summary>
     internal static readonly string[] DeclaredSurface = [nameof(PluginConfiguration.OidConfigs), nameof(PluginConfiguration.SamlConfigs)];
 
-    /// <summary>
-    /// Reads the process environment and applies whatever it declares to <paramref name="store"/>.
-    /// </summary>
+    /// <summary>Reads the process environment and applies whatever it declares to <paramref name="store"/>.</summary>
     /// <param name="store">The configuration store to apply through.</param>
     /// <param name="logger">The logger a rejection is reported on.</param>
     /// <param name="revealStoredSecret">Recovers the plaintext of a secret as the store holds it (#1096); null skips that comparison.</param>
@@ -146,11 +49,7 @@ internal static class DeclarativeEnvironmentConfig
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            // The same instrument, and for the same reason, as the file source's outer catch: this is called
-            // from the plugin's constructor, so anything escaping fails the plugin load and takes every SSO
-            // login on the server offline. The typed refusals inside Apply name what was reasoned about;
-            // this names what was not, and refuses to let a configuration source decide whether the plugin
-            // exists.
+            // Called from the plugin constructor, where an escaping exception takes every SSO login offline.
             if (logger?.IsEnabled(LogLevel.Error) == true)
             {
                 logger.LogError(
@@ -162,10 +61,7 @@ internal static class DeclarativeEnvironmentConfig
         }
     }
 
-    /// <summary>
-    /// Applies what <paramref name="environment"/> declares, reading the variables from a supplied map so the
-    /// outcome can be driven without touching the process environment.
-    /// </summary>
+    /// <summary>Applies what <paramref name="environment"/> declares, reading the variables from a supplied map.</summary>
     /// <param name="store">The configuration store to apply through.</param>
     /// <param name="environment">The variables, including ones this source does not own.</param>
     /// <param name="logger">The logger a rejection is reported on.</param>
@@ -180,8 +76,7 @@ internal static class DeclarativeEnvironmentConfig
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(environment);
 
-        // Ordinal ordering, so two runs of the same environment build the same document and a rejection names
-        // the same variable each time. A dictionary's enumeration order is not a promise anybody made.
+        // Ordinal ordering, so two runs build the same document and a rejection names the same variable.
         var declared = environment
             .Where(entry => entry.Key.StartsWith(Prefix, StringComparison.Ordinal))
             .OrderBy(entry => entry.Key, StringComparer.Ordinal)
@@ -213,10 +108,7 @@ internal static class DeclarativeEnvironmentConfig
         }
         catch (JsonException)
         {
-            // The reason is deliberately not the exception's own message. Every leaf above was written as the
-            // JSON kind its field is, so reaching here is a fault in this file rather than in the operator's
-            // variables - and a deserializer message can quote the document, which on this source is where the
-            // secrets are. The refusal says which source refused and nothing about what it held.
+            // Not the exception's message: a deserializer message can quote the document, which here holds the secrets.
             return DeclarativeProviderConfig.Reject(logger, Prefix, "the variables did not describe a configuration this plugin can read");
         }
         catch (NotSupportedException)
@@ -237,11 +129,7 @@ internal static class DeclarativeEnvironmentConfig
             revealStoredSecret);
     }
 
-    /// <summary>
-    /// Resolves one step of a path against the type it is being read out of, which is the whole of the naming
-    /// scheme. Public to the tests so the reachability of every field the model carries is derived rather
-    /// than asserted.
-    /// </summary>
+    /// <summary>Resolves one step of a path against the type it is read out of, which is the whole of the naming scheme.</summary>
     /// <param name="container">The type the step is resolved inside.</param>
     /// <param name="step">The step: a property name, a dictionary key, or a list index.</param>
     /// <param name="addressed">The type the step addresses, with any nullable wrapper removed.</param>
@@ -257,8 +145,7 @@ internal static class DeclarativeEnvironmentConfig
 
         if (ValueTypeOfDictionary(container) is { } value)
         {
-            // A dictionary key is taken verbatim and is never matched against anything, because it names a
-            // provider the operator chose and this source has no opinion about what those are called.
+            // A dictionary key names a provider the operator chose, so it is taken verbatim.
             addressed = Unwrap(value);
             return true;
         }
@@ -277,13 +164,7 @@ internal static class DeclarativeEnvironmentConfig
 
         if (container == typeof(PluginConfiguration) && !DeclaredSurface.Contains(step, StringComparer.OrdinalIgnoreCase))
         {
-            // The declarative apply reaches the two provider maps and nothing else. ConfigImport deliberately
-            // leaves the rate-limit tuning and the SSO-only globals alone - instance-local operational state
-            // with no blank-means-keep signal, and the SSO-only mode additionally needs a user manager to
-            // prove a surviving password door. A variable naming one of them would be accepted, written into
-            // the document and then dropped by the apply, which is the silently-unconfigurable field this
-            // source exists to make impossible. So it is refused, and the refusal says where the setting does
-            // live.
+            // A variable the apply would drop is refused rather than left looking applied, and the refusal says where the setting lives.
             rejection = $"'{step}' is not applied by the declarative configuration; only {string.Join(" and ", DeclaredSurface)} are, and the rate-limit and SSO-only settings are changed on the settings page";
             return false;
         }
@@ -300,23 +181,19 @@ internal static class DeclarativeEnvironmentConfig
 
         if (property.GetCustomAttribute<JsonIgnoreAttribute>() is not null)
         {
-            // Refused by name rather than accepted and dropped. These are the server-managed fields, and a
-            // variable aimed at one would otherwise look applied and change nothing at all.
+            // A server-managed field is refused by name rather than accepted and dropped.
             rejection = $"'{property.Name}' is managed by the server and cannot be set from the environment";
             return false;
         }
 
         addressed = Unwrap(property.PropertyType);
 
-        // The property's OWN casing reaches the document, not the operator's. A variable may be spelled in
-        // any case, exactly like a member of the mounted file, and what is built is spelled once.
+        // The property's own casing reaches the document, whatever case the variable used.
         canonical = property.Name;
         return true;
     }
 
-    // Walks the path and writes the value at its end, creating the objects and lists it passes through. The
-    // walk and the type resolution are the same ones the reachability test drives, so what the test proves is
-    // reachable is what this places.
+    // Walks the path and writes the value at its end, creating the objects and lists it passes through.
     private static bool TryPlace(JsonObject root, string variable, string? value, out string rejection)
     {
         rejection = string.Empty;
@@ -366,9 +243,7 @@ internal static class DeclarativeEnvironmentConfig
         return false;
     }
 
-    // A list built out of indices can be given 2 without 0 and 1. Deserializing that would hand the model a
-    // list with nulls in it, which is a different configuration from the one the operator wrote and reads as
-    // an empty role rather than as a mistake, so the hole is a refusal.
+    // An index given without its predecessors would deserialize to a list with nulls in it, so the hole is a refusal.
     private static string? FirstHoleInAList(JsonNode node, string path)
     {
         switch (node)
@@ -405,9 +280,7 @@ internal static class DeclarativeEnvironmentConfig
         }
     }
 
-    // The value at the end of a path, turned into the JSON kind the field is. A string that does not spell a
-    // number or a boolean is refused here rather than reaching the deserializer, so the message names the
-    // variable instead of a JSON path nobody wrote.
+    // The value at the end of a path as the JSON kind its field is, refused here so the message names the variable.
     private static bool TryLeaf(Type addressed, string? value, out JsonNode? leaf, out string rejection)
     {
         leaf = null;
@@ -443,8 +316,7 @@ internal static class DeclarativeEnvironmentConfig
             return true;
         }
 
-        // No other leaf kind exists in the model today, and the reachability test fails the build if one
-        // arrives, so this is a refusal rather than a silent pass.
+        // No other leaf kind exists in the model, and the reachability test fails when one arrives.
         rejection = $"a {addressed.Name} cannot be written as a single variable";
         return false;
     }

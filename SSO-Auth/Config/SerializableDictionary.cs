@@ -6,10 +6,8 @@ using System.Xml.Serialization;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// For some reason, the generic Dictionary in .net 2.0 is not XML serializable. The following code snippet is a xml serializable generic dictionary. The dictionary is serializable by implementing the IXmlSerializable interface.
-/// Also see https://weblogs.asp.net/pwelter34/444961 for additional information.
-/// </summary>
+/// <summary>An XML-serializable dictionary, which the generic <see cref="Dictionary{TKey,TValue}"/> is not.</summary>
+/// <remarks>See <see href="https://weblogs.asp.net/pwelter34/444961"/>.</remarks>
 /// <typeparam name="TKey">Type of the dictionary key.</typeparam>
 /// <typeparam name="TValue">Type of the dictionary value.</typeparam>
 [XmlRoot("dictionary")]

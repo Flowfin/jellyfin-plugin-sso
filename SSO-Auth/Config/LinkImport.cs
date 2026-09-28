@@ -9,70 +9,28 @@ using Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// How many links one provider got back from an import (#1129), for the audit line. The protocol is part
-/// of the identity because the two protocols keep separate provider namespaces.
-/// </summary>
+/// <summary>How many links one provider got back from an import, for the audit line (#1129).</summary>
 /// <param name="Protocol">The protocol the provider speaks.</param>
 /// <param name="Provider">The provider the links were written on.</param>
 /// <param name="Links">How many links were written.</param>
 internal readonly record struct LinkImportCount(string Protocol, string Provider, int Links);
 
-/// <summary>
-/// Restores the portable account-link snapshot (<see cref="LinkExportDocument"/>) onto this instance
-/// (#1129), rebinding every link to the user id this server holds TODAY. The export keys on the username
-/// because a rebuilt user database issues new ids; this is the half that resolves those usernames back to
-/// ids, and it is the half with the security weight, because writing a link is granting future login
-/// capability to an identity-provider subject.
-/// </summary>
+/// <summary>Restores the portable account-link snapshot onto this instance, rebinding every link to the user id this server holds today (#1129).</summary>
 /// <remarks>
-/// Two properties make it safe to hand an administrator a file and let them apply it.
-/// <list type="bullet">
-/// <item>Validate first, mutate second. Every entry is checked before a single link is written, and the
-/// first failure rejects the WHOLE document. Called inside <c>MutateConfiguration</c>, which persists only
-/// when the mutation returns without throwing AND rolls the change back out of the live configuration when
-/// the write itself fails (#1521), so a rebuilt server either gets its complete link table back or is left
-/// exactly as it was. A half-applied link table is the worst outcome available here: it looks restored and
-/// silently is not.</item>
-/// <item>No silent repoint. A canonical name this instance already links to a DIFFERENT account is
-/// refused rather than overwritten, because otherwise a crafted backup file is a primitive for remapping
-/// an identity-provider subject onto an administrator's account. An administrator unlinks first and then
-/// re-imports, which is one deliberate act rather than a side effect of a restore.</item>
-/// <item>No new binding onto an administrator. The repoint rule above compares the file against something
-/// this instance ALREADY HOLDS, and a rebuilt migration target holds nothing - so on the server this whole
-/// helper exists for, that rule does not fire at all (#1559). An entry naming an administrator account and
-/// a canonical name this instance does not already link to it is refused, whatever else it carries. What
-/// it would otherwise write is future login capability for a subject the operator never chose, buried in
-/// one row of a file they were handed.</item>
-/// </list>
-/// The import never creates a Jellyfin account, never creates a provider, and never invents a user id. It
-/// only rebinds what both sides already hold, which is what keeps a backup file from being a way to bring
-/// new principals into existence.
+/// Every entry is validated before one link is written, a link this instance already holds for a different account
+/// is refused, and no new binding is written onto an administrator (#1559). Nothing is created, only rebound. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Server-Migration"/>.
 /// </remarks>
 internal static class LinkImport
 {
-    // How many offending entries a refusal names before it stops. A document can carry thousands of
-    // links, and a message enumerating every bad one is unreadable in a dashboard toast and pointless in
-    // a log line; the count that follows says how many more there were.
+    // A refusal names this many entries and then the count of the rest, so a toast stays readable.
     private const int MaxReportedEntries = 10;
 
-    /// <summary>
-    /// Validates and applies the link document onto <paramref name="live"/>. Throws before any mutation
-    /// when the document is unsupported or any entry is unrestorable, so the caller's
-    /// <c>MutateConfiguration</c> persists nothing.
-    /// </summary>
+    /// <summary>Validates and applies the link document onto <paramref name="live"/>, throwing before any mutation when an entry cannot be restored.</summary>
     /// <param name="live">The live configuration to restore into (mutated in place).</param>
     /// <param name="document">The link document to restore.</param>
-    /// <param name="resolveUserId">
-    /// Resolves a Jellyfin username to the id this instance holds for it, or null when no such account
-    /// exists. The controller supplies one backed by <c>IUserManager</c>.
-    /// </param>
-    /// <param name="isAdministrator">
-    /// Whether an account holds administrator rights. A separate seam rather than a property of the
-    /// resolver, so this helper keeps knowing nothing about Jellyfin's user types, and REQUIRED rather
-    /// than optional with a permissive default: a security rule that quietly does nothing when a caller
-    /// forgets it is worse than no rule, because the tests still pass (#1559).
-    /// </param>
+    /// <param name="resolveUserId">Resolves a Jellyfin username to the id this instance holds for it, or null when no such account exists.</param>
+    /// <param name="isAdministrator">Whether an account holds administrator rights; required rather than defaulted, so a forgotten caller fails loudly (#1559).</param>
     /// <returns>How many links each provider got back, for the audit line. Empty when the document carried none.</returns>
     /// <exception cref="ArgumentException">The document version is unsupported, or an entry names a protocol, provider, canonical name or username this instance cannot restore, or the document contradicts itself or the stored link table.</exception>
     internal static IReadOnlyList<LinkImportCount> Apply(
@@ -92,10 +50,7 @@ internal static class LinkImport
                 $"Unsupported link export format version {document.FormatVersion.ToString(CultureInfo.InvariantCulture)}; this plugin imports version {LinkExport.FormatVersion.ToString(CultureInfo.InvariantCulture)}.");
         }
 
-        // An empty document is applied rather than refused, and it restores nothing. The rejection rules
-        // below are about entries that cannot be restored; a document with no entries contradicts nothing
-        // and leaves nothing half-done, and the count the caller audits says plainly that zero links came
-        // back - which an operator who applied the wrong file reads immediately.
+        // An empty document restores nothing and is applied, and the audited count says so.
         var resolved = Resolve(live, document, resolveUserId, isAdministrator);
         return Write(resolved);
     }
@@ -109,16 +64,10 @@ internal static class LinkImport
         var refusals = new List<string>();
         var resolved = new List<ResolvedLink>();
 
-        // What this document itself has already claimed, so two entries mapping ONE identity to two
-        // different accounts are caught. Without it the document's own order would decide which of the
-        // two won, silently, and a restore would be non-deterministic in exactly the case that matters.
+        // What the document itself has claimed, so two entries mapping one identity to two accounts are caught.
         var claimed = new Dictionary<(string Protocol, string Provider, string CanonicalName), Guid>();
 
-        // The issuer verdict depends on the PROVIDER and the value, and on nothing else about the entry, so
-        // it is computed once per distinct pair. This whole walk runs inside the configuration store's
-        // exclusive lock, which every login also takes to read, and a document restoring one provider carries
-        // one issuer for thousands of entries - so recomputing the policy and the authority per entry would
-        // multiply a hold time this repository publishes a measurement for, to buy an answer it already has.
+        // One verdict per (provider, issuer) pair, because this walk runs under the lock every login reads through.
         var issuerVerdicts = new Dictionary<(ProviderConfigBase Config, string Issuer), string?>();
 
         for (var index = 0; index < document.Links.Count; index++)
@@ -148,9 +97,7 @@ internal static class LinkImport
                 continue;
             }
 
-            // The import never creates an account. A username this server does not hold is refused rather
-            // than provisioned, because a backup file that could bring principals into existence is a
-            // different and much larger primitive than one that restores links between things that exist.
+            // The import never creates an account; a file that could would be a much larger primitive.
             if (resolveUserId(entry.Username) is not { } userId)
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, $"no Jellyfin account is named '{entry.Username.ReplaceLineEndings(string.Empty).Replace('[', '(')}' on this instance"));
@@ -164,48 +111,21 @@ internal static class LinkImport
                 continue;
             }
 
-            // The rule that makes a hostile backup file useless as a takeover primitive: an identity this
-            // instance already links to somebody ELSE is refused, and the stored link stays as it is. A
-            // restore onto a server that still holds the same mapping is not a repoint and stays a
-            // success, so re-running an import after a partial migration is safe.
+            // An identity already linked to somebody else is refused, so a crafted file is no takeover primitive.
             if (config.CanonicalLinks.TryGetValue(entry.CanonicalName!, out var held) && held != userId)
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, "this instance already links that identity to a different account; unlink it first"));
                 continue;
             }
 
-            // DIRECTLY BEHIND THE RULE WHOSE GAP IT CLOSES (#1559). The repoint rule above compares the
-            // file against a link this instance already holds, and a rebuilt migration target - the server
-            // this whole helper exists for - holds none, so on that server it does not fire. Neither does
-            // the issuer guard, which keys off a field the entry can simply omit. What is left is an entry
-            // naming an administrator account and any canonical name at all, and writing it grants that
-            // subject the administrator's account at its next login: the resolve arm that consumes a stored
-            // link carries no administrator gate, unlike the adoption and legacy-migrate arms beside it.
-            //
-            // Refused rather than gated at login, because the file is the untrusted thing and the import is
-            // where a human is present to read why. The rule is "not already linked to that account", not
-            // "no administrator", so re-running an import onto a server that still holds the same mapping
-            // stays a success and a partial migration can be repeated - the same shape the repoint rule
-            // takes, for the same reason.
-            //
-            // The deliberate act it names exists and is one call: Links/Preprovision binds a canonical name
-            // to an account explicitly, under elevation, with the operator choosing that pairing on its own
-            // rather than finding it in row 4,001 of a file somebody sent them. After it, this rule sees a
-            // link this instance already holds and the import passes.
+            // A rebuilt target holds no links, so the rule above never fires there; an administrator binding needs a deliberate pre-provision first (#1559).
             if (isAdministrator(userId) && !config.CanonicalLinks.ContainsKey(entry.CanonicalName!))
             {
                 refusals.Add(Describe(index, entry.Protocol, entry.Provider, "that account is an administrator and this instance does not already link that identity to it; pre-provision the link deliberately, then import"));
                 continue;
             }
 
-            // The same rule one level down, for the issuer binding (#186). A document naming a DIFFERENT
-            // issuer for a link this instance already holds is a contradiction between the backup and the
-            // server, and quietly overwriting the stored binding would rewrite a security decision as a
-            // side effect of a restore. Its immediate consequence is only fail-closed - that link's next
-            // login is refused for a mismatch - but a restore that silently changes what a link is bound
-            // to is the same shape as the repoint above, and it is refused for the same reason. An entry
-            // carrying no issuer overwrites nothing, so a document from before the binding existed
-            // restores against a bound link without relaxing it.
+            // The same rule for the issuer binding (#186); an entry carrying no issuer overwrites nothing.
             if (!string.IsNullOrWhiteSpace(entry.Issuer)
                 && config is OidConfig existing
                 && existing.CanonicalLinkIssuers.TryGetValue(entry.CanonicalName!, out var boundTo)
@@ -215,17 +135,7 @@ internal static class LinkImport
                 continue;
             }
 
-            // The issuer an operator's file names is checked against what the provider is CONFIGURED to
-            // issue, and a mismatch is refused here rather than stored (#1518). Stored verbatim it is
-            // terminal, not degrading: the binding it writes makes ClassifyIssuer return Mismatch on every
-            // login for that link, the trust-on-first-use arm applies only to an ABSENT binding, and there
-            // is no path back through a login - so the ordinary migration where the identity provider moves
-            // behind TLS or a new hostname at the same time as the server restores its links and locks the
-            // whole userbase out at once, discovered by the users rather than by the operator. Refusing at
-            // import moves that failure to the moment the operator is still holding the file and can act on
-            // it, and the message names both issuers so the choice is made in the open: re-point the
-            // provider, or re-key the links deliberately. The anti-mix-up reason the exported issuer
-            // carries is kept rather than given up, which is what the decision of 2026-09-09 chose.
+            // An issuer the provider cannot issue is refused here, because stored it would refuse every later login for that link (#1518).
             if (!string.IsNullOrWhiteSpace(entry.Issuer)
                 && config is OidConfig oidConfig
                 && IssuerRefusal(issuerVerdicts, oidConfig, entry.Issuer!) is { } unissuable)
@@ -251,8 +161,6 @@ internal static class LinkImport
         return resolved;
     }
 
-    // The verdict for one (provider, issuer) pair, computed once. The dictionary is per Apply call and never
-    // outlives it, so a provider edited between two imports is never answered from a stale entry.
     private static string? IssuerRefusal(
         Dictionary<(ProviderConfigBase Config, string Issuer), string?> verdicts,
         OidConfig config,
@@ -274,11 +182,7 @@ internal static class LinkImport
         {
             link.Config.CanonicalLinks[link.CanonicalName] = link.UserId;
 
-            // The issuer binding travels with the link (#186). Restoring the link without it would leave
-            // the restored account on trust-on-first-use, so the first login after a migration would
-            // stamp whatever issuer answered - which is precisely the repoint the binding exists to
-            // refuse. SAML carries no binding, so an issuer on a SAML entry is dropped rather than
-            // written into a map that protocol does not have.
+            // The issuer binding travels with the link, or the first login after a migration would stamp whatever answered (#186).
             if (link.Config is OidConfig oid && !string.IsNullOrWhiteSpace(link.Issuer))
             {
                 oid.CanonicalLinkIssuers[link.CanonicalName] = link.Issuer!;
@@ -293,11 +197,7 @@ internal static class LinkImport
             .ToList();
     }
 
-    // The protocol name is matched case-insensitively while the provider name is matched exactly, and the
-    // difference is deliberate. The protocol is a two-value vocabulary this plugin writes itself, so
-    // accepting "openid" costs nothing and refuses nothing real; the provider name is a key in a map the
-    // rest of the plugin looks up ordinally, so matching it loosely here would restore links onto a
-    // provider no login would ever resolve.
+    // The protocol is matched loosely and the provider name exactly, because logins look the name up ordinally.
     private static bool TryResolveProvider(
         PluginConfiguration live,
         string? protocol,
@@ -328,8 +228,7 @@ internal static class LinkImport
         return false;
     }
 
-    // A provider stored with a null config object is reachable through a null-bodied add (#350). It is
-    // treated as absent here, exactly as every read of these maps treats it, rather than dereferenced.
+    // A null-bodied add can store a null provider (#350), which every read treats as absent.
     private static bool TryGetConfig<TConfig>(
         SerializableDictionary<string, TConfig> configs,
         string provider,
@@ -346,23 +245,11 @@ internal static class LinkImport
         return true;
     }
 
-    // A refusal names WHICH entry and WHY, and never the canonical name. The subject is the one field in
-    // the document that identifies a real person at the identity provider, and the audit trail already
-    // carries no raw subject value (T-I1); echoing it into an HTTP error body and from there into
-    // whatever logs that body would widen where it travels for no gain an operator could use. The index
-    // into the document they are holding is what lets them find the entry.
-    //
-    // The document's own values - protocol, provider, and the username the caller above interpolates - are
-    // stripped of line endings and have their record-marker bracket substituted HERE, where they enter the
-    // sentence (#1566). The sentence is then the plugin's own, and the log line that carries it applies the
-    // line-ending strip alone: substituting the composed sentence whole rewrote the plugin's own
-    // "[truncated]" marker in the log while the answer on the wire kept it.
+    // Names the entry by index and never by canonical name, and sanitizes the document's values where they enter the sentence (#1566).
     private static string Describe(int index, string? protocol, string? provider, string reason) =>
         $"entry #{index.ToString(CultureInfo.InvariantCulture)} ({protocol?.ReplaceLineEndings(string.Empty).Replace('[', '(') ?? "no protocol"}/{provider?.ReplaceLineEndings(string.Empty).Replace('[', '(') ?? "no provider"}): {reason}";
 
-    // One validated entry: the map it belongs in, and everything needed to write it. Nothing is written
-    // while this list is being built, which is the whole of the fail-closed property - the first refusal
-    // throws out of Apply with the live configuration untouched.
+    // One validated entry; nothing is written while the list is being built, which is the fail-closed property.
     private readonly record struct ResolvedLink(
         string Protocol,
         string Provider,

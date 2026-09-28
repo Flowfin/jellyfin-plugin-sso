@@ -8,58 +8,23 @@ using System.Reflection;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// Answers, for every configured provider at once, whether a login against it would get past the
-/// configuration (#1084). Restores the aggregate "Configuration check" the redesigned settings page dropped,
-/// and does it on the server so the answer is the same one the save path would give.
-/// </summary>
+/// <summary>Answers, for every configured provider at once, whether a login against it would get past the configuration (#1084).</summary>
 /// <remarks>
-/// <para>
-/// REUSES THE SAVE GATE RATHER THAN RESTATING IT. The invalid-value half of a row is
-/// <see cref="ProviderConfigValidator.Validate"/> run over a snapshot holding that one provider, so a rule
-/// added to the save path is reported here on the same commit and a rule this file does not know about is
-/// still caught. Nothing here re-implements a predicate.
-/// </para>
-/// <para>
-/// One message per provider, because that is all the save gate produces: it refuses on the first invalid
-/// rule it meets. A row saying "and three more" would be claiming a completeness the refusal does not have.
-/// </para>
-/// <para>
-/// THE PROFILE SET IS CONFIGURATION-WIDE AND IS REPORTED ON EVERY PROVIDER. The snapshot carries the real
-/// <see cref="PluginConfiguration.ProvisioningProfiles"/>, both because a provider naming a profile is only
-/// valid if that profile exists, and because a broken profile set refuses every provider's save until it is
-/// fixed. Reporting it once per provider is that state stated rather than softened.
-/// </para>
-/// <para>
-/// The empty-required-field half is not the save gate's, because the save gate does not have one: a
-/// half-filled provider persists fine and fails at login instead. That is exactly the failure this check
-/// exists to surface before a user meets it.
-/// </para>
+/// The invalid-value half of a row is the save gate run over a snapshot holding that one provider, so a rule added
+/// there is reported here; the empty-field half is this check's own, because a half-filled provider saves fine. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference#configuration-check-admin"/>.
 /// </remarks>
 internal static class ProviderCheck
 {
-    /// <summary>
-    /// The OpenID settings without which a login cannot start, by property name. Each name is ALSO the id
-    /// the settings page gives that field, which is what lets the page resolve a reported name to its own
-    /// localized label; <c>ArchitectureConformanceTests</c> pins both halves of that agreement.
-    /// </summary>
+    /// <summary>The OpenID settings without which a login cannot start, by property name, which is also the settings page's field id.</summary>
     internal static readonly string[] OidRequiredFields = { "OidEndpoint", "OidClientId" };
 
-    /// <summary>
-    /// The SAML settings without which a login cannot start or its response be verified. The settings page
-    /// prefixes each of these ids with <c>saml-</c>; that prefix is the page's, not the property's.
-    /// </summary>
+    /// <summary>The SAML settings without which a login cannot start or its response be verified; the page prefixes each id with <c>saml-</c>.</summary>
     internal static readonly string[] SamlRequiredFields = { "SamlEndpoint", "SamlClientId", "SamlCertificate" };
 
-    /// <summary>
-    /// Builds the aggregate report over a configuration snapshot.
-    /// </summary>
+    /// <summary>Builds the aggregate report over a configuration snapshot.</summary>
     /// <param name="config">The configuration to evaluate; never modified.</param>
-    /// <param name="configurationUnreadable">
-    /// Whether the stored configuration could not be read at start, so these rows describe a default one
-    /// (#1543). Required rather than defaulted: the reassuring value is the wrong one to reach by
-    /// forgetting, and a caller that omitted it would silently report a damaged server as healthy.
-    /// </param>
+    /// <param name="configurationUnreadable">Whether the stored configuration could not be read at start, so these rows describe a default one (#1543).</param>
     /// <returns>One row per configured provider, OpenID first, in configuration order.</returns>
     internal static ProviderCheckDocument Build(PluginConfiguration config, bool configurationUnreadable)
     {
@@ -80,10 +45,7 @@ internal static class ProviderCheck
         return new ProviderCheckDocument { Providers = rows, ConfigurationUnreadable = configurationUnreadable };
     }
 
-    // A configuration carrying exactly one provider plus the shared profile set, so the whole-config
-    // validator can be asked about that provider alone. It is passed as its own `live` argument on purpose:
-    // that makes every provider here an EXISTING one, which is what it is, so the new-name rule stays off a
-    // name the identity provider already has registered - the same exemption a real save gets.
+    // One provider plus the shared profile set, passed as its own live argument so the new-name rule stays off an existing name.
     private static PluginConfiguration Snapshot(
         PluginConfiguration config,
         KeyValuePair<string, OidConfig>? oid = null,
@@ -126,11 +88,7 @@ internal static class ProviderCheck
         };
     }
 
-    // The value of a required setting, read by the name the list above declares. Reflection rather than a
-    // switch: the declared names are what the page resolves to labels and what the conformance test compares
-    // against the form, so a name nobody reads through would be free to be wrong. A name that resolves to no
-    // string property throws here rather than silently reporting the field as filled in - fail closed, and
-    // pinned by a test so the throw is never met at runtime.
+    // Reflection, so the declared names the page resolves to labels are the names read; an unknown name throws rather than reads as filled.
     private static string? Read(ProviderConfigBase config, string field)
     {
         var property = config.GetType().GetProperty(field, BindingFlags.Public | BindingFlags.Instance)
@@ -140,14 +98,7 @@ internal static class ProviderCheck
             : throw new InvalidOperationException($"{config.GetType().Name}.{field} is not a string setting.");
     }
 
-    // What the save path would say about this provider, or null where it would say nothing.
-    //
-    // The message is taken WHOLE and unedited, tail included. ArgumentException.Message appends
-    // "(Parameter 'x')" wherever a parameter name was given, which is not pretty in front of an
-    // administrator - and the admin write paths already answer a refused save with exactly that string
-    // (SSOController's BadRequest(ex.Message) arms). Tidying it here would make the check and the save
-    // disagree about one provider in the one respect this report exists to get right, so the tidying, if it
-    // is wanted, belongs at the message rather than at one of its two readers.
+    // The save path's message, taken whole, so the check and the save cannot disagree about one provider.
     private static string? Refusal(PluginConfiguration snapshot)
     {
         try

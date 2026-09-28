@@ -13,10 +13,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// What one declarative load did, so the caller and the tests observe an outcome instead of inferring it
-/// from a log line (#1095).
-/// </summary>
+/// <summary>What one declarative load did, so a caller observes an outcome instead of inferring it from a log line (#1095).</summary>
 internal enum DeclarativeLoadOutcome
 {
     /// <summary>No source path is configured, so the plugin behaves exactly as it does without this feature.</summary>
@@ -32,96 +29,24 @@ internal enum DeclarativeLoadOutcome
     Rejected,
 }
 
-/// <summary>
-/// Applies a provider configuration document mounted into the container over the stored configuration at
-/// startup (#1095), so a deployment can describe its identity providers in a file it owns rather than by
-/// clicking through the settings page. The foundation of #828; the secrets it carries are references rather
-/// than values and are resolved by <see cref="DeclarativeSecretReference"/> (#1096), while the
-/// environment-variable source (#1097), the read-only admin surface (#1104) and the documentation (#1116)
-/// are siblings and are deliberately not here.
-/// </summary>
+/// <summary>Applies the provider configuration document a mounted file names over the stored configuration at startup (#1095).</summary>
 /// <remarks>
-/// <para>
-/// ONE setting names the source: the <see cref="SourcePathVariable"/> environment variable, holding the path
-/// of the document. An environment variable rather than a field in the plugin configuration, because the
-/// source that MANAGES the stored configuration cannot itself be stored there - a fresh install has no
-/// configuration yet, and the deployment shape this exists for points a mount at a path from its own
-/// environment. When the variable is absent or blank nothing is read, nothing is written and nothing is
-/// logged, so an installation that never sets it is byte-identical to one built before this existed.
-/// </para>
-/// <para>
-/// The document is the same shape <c>GET /sso/Config/Export</c> produces and <c>POST /sso/Config/Import</c>
-/// accepts, and it is applied through the same <see cref="ConfigImport"/>. That is the whole of the
-/// precedence rule, and it is a MERGE rather than a replace: a provider the document names wins over the
-/// stored one of that name, a provider the document does not name is left exactly as it is, and the
-/// server-managed link maps and issuer bindings survive the apply because
-/// <see cref="ServerManagedFields"/> re-injects them. A blank secret in the document keeps the stored
-/// secret, so a document that carries none does not blank one out.
-/// </para>
-/// <para>
-/// A secret is never written into the document. <see cref="DeclarativeSecretReference"/> resolves the
-/// <c>Env</c> and <c>File</c> reference forms into it just before it is deserialized (#1096), and refuses a
-/// document that spells a secret out, so the file this loader reads can live wherever the deployment keeps
-/// the rest of its configuration without carrying a client secret or a signing key there. A reference that
-/// cannot be resolved rejects the whole document exactly like any other fault; nothing falls back to a blank
-/// secret, because a blank one is KEPT rather than applied and would leave the server running on its
-/// previous secret with nothing said about it.
-/// </para>
-/// <para>
-/// A resolved secret the store already holds is put back to blank before the merge, so the encrypted value
-/// at rest survives untouched. Without that the restart-loop promise below would not survive the first
-/// reference: what is stored is an envelope and what a reference resolves to is the plaintext inside it, so
-/// the two never compare equal and every boot would rewrite <c>config.xml</c>.
-/// </para>
-/// <para>
-/// The link maps survive with ONE exception, inherited whole from the import path rather than invented
-/// here: <see cref="ServerManagedFields"/>'s repoint belt (#186) treats a changed discovery endpoint or
-/// client id on an EXISTING OpenID provider as a repoint to a possibly different identity provider, and
-/// clears that provider's links, issuer bindings and stored secret. So editing an endpoint in the mounted
-/// file unlinks every account on that provider, exactly as editing it on the settings page does. It is the
-/// behaviour that stops a foreign identity provider inheriting the old one's account mappings, and it is
-/// stated here because a file edit is a quieter act than a form save.
-/// </para>
-/// <para>
-/// Fail-closed in one direction only: a document that cannot be read, cannot be parsed, carries a version
-/// this plugin does not import, or carries a provider <see cref="ProviderConfigValidator"/> refuses is
-/// rejected AS A UNIT, logged at Error, and leaves the stored configuration byte-identical. It is never
-/// half-applied, because the document is applied to a detached copy first and only reaches the live
-/// configuration once that copy has taken it whole. Nothing here throws: this runs while the plugin is
-/// being constructed, and a throw would take the plugin - and with it every SSO login on the server -
-/// offline over a configuration file. A rejected document is a loud log line and a server that keeps
-/// running on what it already had.
-/// </para>
-/// <para>
-/// Applying the identical document twice persists nothing the second time. The comparison is made against
-/// the detached copy before the live configuration is touched, so a restart loop against an unchanged mount
-/// cannot rewrite <c>config.xml</c> on every boot.
-/// </para>
+/// The document is the export shape, merged through <see cref="ConfigImport"/> onto a detached copy first, so a
+/// fault rejects it as a unit and an unchanged document persists nothing. Secrets arrive as references (#1096).
+/// See <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Config-as-code"/>.
 /// </remarks>
 internal static class DeclarativeProviderConfig
 {
-    /// <summary>
-    /// The one setting that names the declarative document. Reserved by this loader: the naming scheme for
-    /// expressing the document's own FIELDS in the environment is #1097's, and must not reuse this name.
-    /// </summary>
+    /// <summary>The environment variable that names the declarative document.</summary>
     internal const string SourcePathVariable = "JELLYFIN_SSO_CONFIG_FILE";
 
-    // The document is hand-written as often as it is exported, so a property spelled in another case is
-    // matched rather than silently dropped. Unknown properties are still ignored, which is the default and
-    // is disclosed rather than claimed away: a misspelled field name is a no-op here, and refusing one is
-    // the sibling rule #1097 states for its own source.
+    // Hand-written as often as exported, so a member in another case is matched; an unknown member is still ignored.
     private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
 
-    /// <summary>
-    /// Reads the document named by <see cref="SourcePathVariable"/> and applies it to <paramref name="store"/>.
-    /// </summary>
+    /// <summary>Reads the document named by <see cref="SourcePathVariable"/> and applies it to <paramref name="store"/>.</summary>
     /// <param name="store">The configuration store to apply the document through.</param>
     /// <param name="logger">The logger a rejection is reported on.</param>
-    /// <param name="revealStoredSecret">
-    /// Recovers the plaintext of a secret as the store holds it, so a reference resolving to what is already
-    /// stored leaves the at-rest envelope alone (#1096). Null skips that comparison, which costs a rewrite
-    /// rather than correctness.
-    /// </param>
+    /// <param name="revealStoredSecret">Recovers the plaintext of a stored secret (#1096); null skips the comparison that keeps an unchanged envelope.</param>
     /// <returns>What the load did.</returns>
     internal static DeclarativeLoadOutcome ApplyFromEnvironment(
         ProviderConfigStore store,
@@ -144,11 +69,7 @@ internal static class DeclarativeProviderConfig
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            // The one place a broad catch is the correct instrument. This is called from the plugin's
-            // constructor, so anything that escapes fails the plugin load and takes every SSO login on the
-            // server offline - over a configuration file. The typed catches inside Apply name the failures
-            // that were reasoned about; this names the ones that were not, and refuses to let a
-            // configuration source decide whether the plugin exists.
+            // Called from the plugin constructor, where an escaping exception takes every SSO login offline.
             if (logger?.IsEnabled(LogLevel.Error) == true)
             {
                 logger.LogError(
@@ -160,10 +81,7 @@ internal static class DeclarativeProviderConfig
         }
     }
 
-    /// <summary>
-    /// Applies the document at <paramref name="sourcePath"/>, reading the filesystem through the supplied
-    /// delegates so the outcome can be driven without one.
-    /// </summary>
+    /// <summary>Applies the document at <paramref name="sourcePath"/>, reading the filesystem through the supplied delegates.</summary>
     /// <param name="store">The configuration store to apply the document through.</param>
     /// <param name="sourcePath">The document's path, or null/blank when no source is configured.</param>
     /// <param name="exists">Answers whether the path names a readable document.</param>
@@ -171,10 +89,7 @@ internal static class DeclarativeProviderConfig
     /// <param name="logger">The logger a rejection is reported on.</param>
     /// <param name="readEnvironmentVariable">Reads a variable a secret reference names; the process environment by default.</param>
     /// <param name="readReferenceFile">Reads a file a secret reference names, null when it cannot be read; the filesystem by default.</param>
-    /// <param name="revealStoredSecret">
-    /// Recovers the plaintext of a secret as the store holds it (#1096). Null skips the comparison that keeps
-    /// an unchanged secret's at-rest envelope, which costs a rewrite rather than correctness.
-    /// </param>
+    /// <param name="revealStoredSecret">Recovers the plaintext of a stored secret (#1096); null skips the comparison that keeps an unchanged envelope.</param>
     /// <returns>What the load did.</returns>
     internal static DeclarativeLoadOutcome Apply(
         ProviderConfigStore store,
@@ -224,11 +139,7 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, ex.Message);
         }
 
-        // Screened before it is deserialized, over EVERY object scope. A member named twice makes the
-        // document say two things and lets the deserializer pick one silently, which on this surface decides
-        // a client id, an endpoint or a secret - and the whole document is handed to a deserializer whose
-        // indexed member set this caller does not narrow, so there is no smaller set of scopes to name. It
-        // is refused rather than resolved, which is the same posture the discovery read takes.
+        // A member named twice would let the deserializer pick one silently, so it is refused like the discovery read does.
         var screened = StrictJson.Inspect(text, out var repeatedMember);
         if (screened != StrictJson.Verdict.Clean)
         {
@@ -238,9 +149,7 @@ internal static class DeclarativeProviderConfig
             return Reject(logger, sourcePath, reason);
         }
 
-        // The secrets arrive as references and are resolved into the document HERE, after the repeated-member
-        // screen and before the deserializer, so the pass that decides a secret reads the same bytes the
-        // screen just cleared and hands the deserializer a document with no reference left in it (#1096).
+        // Resolved after the screen and before the deserializer, so the deserializer sees no reference (#1096).
         if (!DeclarativeSecretReference.TryResolve(
             text,
             readEnvironmentVariable ?? Environment.GetEnvironmentVariable,
@@ -269,16 +178,8 @@ internal static class DeclarativeProviderConfig
         return ApplyDocument(store, document, sourcePath, logger, revealStoredSecret);
     }
 
-    /// <summary>
-    /// Applies an already-parsed document to <paramref name="store"/>, which is everything the two
-    /// declarative sources do identically once each has produced a document (#1097).
-    /// </summary>
-    /// <remarks>
-    /// The whole of the atomicity, the merge precedence, the restart-loop promise and the insecure-option
-    /// audit live here rather than at either caller, so the mounted file and the environment cannot come to
-    /// disagree about them. What each caller owns is only the way it turns its own source into a document
-    /// and refuses one it cannot.
-    /// </remarks>
+    /// <summary>Applies an already-parsed document to <paramref name="store"/>, shared by the file and the environment source (#1097).</summary>
+    /// <remarks>The atomicity, the merge precedence, the restart-loop promise and the insecure-option audit live here so the two sources cannot disagree.</remarks>
     /// <param name="store">The configuration store to apply the document through.</param>
     /// <param name="document">The parsed document.</param>
     /// <param name="sourcePath">What names the source in a log line: the document's path, or the variable prefix.</param>
@@ -295,10 +196,7 @@ internal static class DeclarativeProviderConfig
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(document);
 
-        // Applied to a DETACHED COPY of the live configuration first. That is what makes the whole document
-        // validate before anything is mutated, and it is also the comparison that keeps a restart loop from
-        // rewriting config.xml: the copy either refuses the document or shows exactly what the live
-        // configuration would become, and both answers are reached without touching it.
+        // A detached copy validates the whole document and detects a no-op before the live configuration is touched.
         string? rejection = null;
         var changed = store.Read(live =>
         {
@@ -307,10 +205,7 @@ internal static class DeclarativeProviderConfig
             var candidate = live.DetachedCopy();
             try
             {
-                // No break-glass resolver: this runs during plugin construction, where no user manager
-                // exists, so a document asserting SSO-only login cannot prove a surviving admin password
-                // path and the whole document is refused. That mode is turned on through the elevated,
-                // audited SSO-Only endpoints, never by a file.
+                // No break-glass resolver exists during construction, so a document asserting SSO-only login is refused whole.
                 ConfigImport.Apply(candidate, document);
             }
             catch (ArgumentException ex)
@@ -329,11 +224,7 @@ internal static class DeclarativeProviderConfig
 
         if (!changed)
         {
-            // Recorded on this arm too (#1102). A document that changed nothing still decided the providers
-            // it names - it agrees with the store rather than being absent from it - so releasing those
-            // providers to the config page whenever a restart happens to find the mount already applied
-            // would make the freeze depend on whether anything moved. Nothing is written here, so there is
-            // no write for the record to wait on.
+            // A document that changed nothing still decided the providers it names, so the freeze is recorded here too (#1102).
             store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
 
             if (logger?.IsEnabled(LogLevel.Debug) == true)
@@ -352,28 +243,11 @@ internal static class DeclarativeProviderConfig
         }
         catch (ArgumentException ex)
         {
-            // The live configuration moved between the copy and this apply (a login writing a canonical
-            // link is the ordinary way). ConfigImport validates before it mutates, so the refusal happened
-            // before anything was written and the store persisted nothing.
+            // The live configuration moved between the copy and this apply; ConfigImport validates before it mutates.
             return Reject(logger, sourcePath, ex.Message);
         }
 
-        // Recorded only once the write has landed, and the ORDER is the whole of #1534. It used to be taken
-        // before the mutation, and the two agreed until the rollback arrived: a persist failure at boot - a
-        // read-only volume, a full disk - now undoes the document out of the running configuration (#1521)
-        // while the freeze it had already recorded stayed, so Reinject spent the rest of that process
-        // reverting an administrator's config-page edits back to values in effect nowhere, with the boot log
-        // saying nothing had changed. A persist failure escapes past this line - the catch above names
-        // ArgumentException only - so a document that never reached the file freezes nothing.
-        //
-        // WHAT THIS ORDER RESTS ON, so that removing it is a decision rather than an accident: the freeze
-        // is now conditional on the rollback in ProviderConfigStore.Mutate actually undoing a failed write,
-        // and that rollback is allowed to give up - its snapshot may be null and its restore swallows. What
-        // keeps it from giving up here is the DetachedCopy above, which is the same persisted-form round
-        // trip on the same live object under the same lock, moments earlier: a configuration the round trip
-        // cannot survive throws there and never reaches Mutate. That call exists for change detection, not
-        // as a pre-flight for the undo, so an optimisation that replaces it with a cheaper predicate brings
-        // the fail-open back - the document live in memory, its providers editable from the settings page.
+        // Recorded only after the write landed, so a persist failure the store rolls back freezes nothing (#1534).
         store.RecordDeclarativelyManaged(document.Configuration, sourcePath);
 
         if (logger?.IsEnabled(LogLevel.Information) == true)
@@ -387,10 +261,7 @@ internal static class DeclarativeProviderConfig
         return DeclarativeLoadOutcome.Applied;
     }
 
-    // The filesystem behind a secret reference. A path that cannot be read is null rather than an exception,
-    // because every way of failing to read one is the same answer to the only question the resolver asks -
-    // "does this reference produce a secret" - and the resolver turns that answer into a refusal naming the
-    // path. The document's own read keeps its typed catches: there the reason reaches the operator.
+    // Every failure to read a referenced file is the same answer, and the resolver turns it into a refusal naming the path.
     private static string? ReadReferenceFile(string path)
     {
         try
@@ -415,12 +286,7 @@ internal static class DeclarativeProviderConfig
         }
     }
 
-    // A resolved secret that is ALREADY the stored one is put back to blank, so the merge keeps the encrypted
-    // value at rest instead of writing the plaintext over it. Without this the loader's restart-loop promise
-    // dies at the first reference: what is stored is an ssoenc: envelope, what a reference resolves to is the
-    // plaintext inside it, the two never compare equal, and every boot rewrites config.xml with a freshly
-    // nonced envelope. Blank means keep, which is the rule ServerManagedFields already carries for every
-    // other write path, so this reaches the outcome through that rule rather than beside it.
+    // A resolved secret the store already holds is blanked, so blank-means-keep leaves the at-rest envelope untouched.
     private static void KeepWhatIsAlreadyStored(PluginConfiguration? incoming, PluginConfiguration live, Func<string?, string?>? reveal)
     {
         if (incoming is null || reveal is null)
@@ -440,9 +306,7 @@ internal static class DeclarativeProviderConfig
                     continue;
                 }
 
-                // Only while the provider's identity is unchanged. On a repoint ServerManagedFields drops the
-                // stored secret ON PURPOSE (#186), so blanking here would hand that provider no secret at all
-                // - the one case where "already stored" is true and keeping it is still wrong.
+                // On a repoint ServerManagedFields drops the stored secret on purpose (#186), so blanking would leave none.
                 if (!string.Equals(kvp.Value.OidEndpoint, stored.OidEndpoint, StringComparison.Ordinal)
                     || !string.Equals(kvp.Value.OidClientId, stored.OidClientId, StringComparison.Ordinal))
                 {
@@ -465,8 +329,7 @@ internal static class DeclarativeProviderConfig
                     continue;
                 }
 
-                // No identity guard on this arm, because ServerManagedFields has none either: a SAML signing
-                // key is never transmitted, so blank-means-keep holds for it whatever else the document moved.
+                // No identity guard here, because ServerManagedFields has none for a SAML signing key either.
                 if (IsAlreadyStored(reveal, stored.SamlSigningKeyPfx, kvp.Value.SamlSigningKeyPfx))
                 {
                     kvp.Value.SamlSigningKeyPfx = null;
@@ -493,17 +356,12 @@ internal static class DeclarativeProviderConfig
         }
         catch (CryptographicException)
         {
-            // A stored envelope this instance can no longer read - the key file is gone. Answering "not the
-            // same" hands that case to the merge and the persist boundary, which already fail closed on
-            // exactly that pairing, rather than deciding it here on a comparison that could not be made.
+            // An envelope this instance cannot read is handed to the merge and the persist boundary, which fail closed on it.
             return false;
         }
     }
 
-    // A mounted file that turns off a default-on protection has to leave the same [SSO Audit] trace a form
-    // save and a config import already leave (#140/#672). Without this the quietest way to disable audience
-    // validation on this server would be the one route that wrote nothing about it, and the declarative
-    // source is the route an operator is least likely to be watching at the moment it applies.
+    // A file that turns off a default-on protection leaves the same audit trace a form save does (#140, #672).
     private static void AuditInsecureOptions(ILogger? logger, PluginConfiguration? applied)
     {
         if (logger is null || applied is null)
@@ -536,16 +394,8 @@ internal static class DeclarativeProviderConfig
         }
     }
 
-    /// <summary>
-    /// Reports a rejection and answers <see cref="DeclarativeLoadOutcome.Rejected"/>, shared by both
-    /// declarative sources so a refused file and a refused environment read identically in the log.
-    /// </summary>
-    /// <remarks>
-    /// Error rather than Warning: the operator asked for this source to decide the providers, and the server
-    /// is now running on something else. The reason is echoed with its line endings stripped at the emission
-    /// point, because it can quote a provider name that came out of the source (cs/log-forging is sanitized
-    /// inline, never behind a helper).
-    /// </remarks>
+    /// <summary>Reports a rejection and answers <see cref="DeclarativeLoadOutcome.Rejected"/>, shared by both declarative sources.</summary>
+    /// <remarks>Error rather than Warning, because the operator asked for this source to decide the providers and the server now runs on something else.</remarks>
     /// <param name="logger">The logger the rejection is reported on.</param>
     /// <param name="sourcePath">What names the source: the document's path, or the variable prefix.</param>
     /// <param name="reason">Why the source was refused.</param>
