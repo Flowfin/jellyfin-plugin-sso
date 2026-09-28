@@ -77,26 +77,8 @@ internal static class RequestHelpers
         return auth?.User is { } authenticatedUser && authenticatedUser.HasPermission(PermissionKind.IsAdministrator);
     }
 
-    /// <summary>
-    /// Whether the caller behind the request IS the account being acted on (#1732), read from the resolved
-    /// caller and never from the route value alone.
-    /// </summary>
-    /// <remarks>
-    /// The fact that separates an administrator tidying up somebody else's link from one removing their
-    /// own. <see cref="AssertCanUpdateUser"/> already admits a non-administrator only for their own id, so
-    /// this only ever adds information about an administrator. Fail-closed on an unresolved caller, for the
-    /// same reason its two neighbours are: the answer narrows an exemption, so an ambiguous caller is
-    /// treated as the one acting on itself rather than as the one the exemption was written for.
-    /// <para>
-    /// AN API KEY IS NOT THE HOLDER OF ANY ACCOUNT, and it is not an unresolved caller either (#1741). The
-    /// host admits a dashboard API key through the elevation policy with no user behind it, and the
-    /// administrator revoke is the one route here an API key reaches with no earlier refusal of a
-    /// user-less caller. Reading it as unresolved made it the holder of every account it revoked, which
-    /// refused the documented automation path on any server whose administrators sign in by password. An
-    /// API key has no account to strand, so it answers false; the host says which it is, and the answer is
-    /// read from that rather than inferred from the missing user.
-    /// </para>
-    /// </remarks>
+    /// <summary>Whether the caller behind the request is the account being acted on (#1732), read from the resolved caller and never from the route value alone.</summary>
+    /// <remarks>It separates an administrator tidying somebody else's link from one removing their own, and fails closed on an unresolved caller because the answer narrows an exemption. An API key is not the holder of any account and not an unresolved caller either (#1741): the host admits it with no user behind it, and reading it as unresolved refused the documented automation path.</remarks>
     /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
     /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
     /// <param name="userId">The account the request acts on.</param>
@@ -117,73 +99,15 @@ internal static class RequestHelpers
         return auth?.User is not { } authenticatedUser || authenticatedUser.Id.Equals(userId);
     }
 
-    /// <summary>
-    /// Whether the caller behind the request has no password to sign in with (#1720/#1733), read from the
-    /// resolved account. It asks for the POSITIVE evidence - the account routes to Jellyfin's built-in
-    /// password provider AND holds a password this plugin did not mint for it - and answers true for
-    /// everything else.
-    /// </summary>
+    /// <summary>Whether the caller behind the request has no password to sign in with (#1720, #1733): it asks for the positive evidence, an account on Jellyfin's built-in password provider holding a password this plugin did not mint, and answers true for everything else.</summary>
     /// <remarks>
-    /// THE CALLER'S OWN ACCOUNT IS THE SUBJECT, and on the route that reads this it is also the account
-    /// being changed: <see cref="AssertCanUpdateUser"/> admits a non-administrator only for their own
-    /// user id, and an administrator is exempt from the rule this answers. Reading the caller rather than
-    /// looking the target id up again means there is no unresolved-account case to decide - the caller is
-    /// resolved or the request was already refused.
-    /// <para>
-    /// THE TEST IS FOR THE ONE PROVIDER THAT DEFINITELY TAKES A PASSWORD, NOT AGAINST THE ONE THAT
-    /// DEFINITELY DOES NOT, and the difference is the whole reach of this rule. Asking whether the id
-    /// equals this plugin's would answer "has a password" for every OTHER id as well - and an id naming
-    /// no registered provider is exactly the state that refuses every password, which core substitutes
-    /// its <c>InvalidAuthenticationProvider</c> for. A provider's free-text <c>DefaultProvider</c> is
-    /// written verbatim onto the account at every login, so a typo, a plugin somebody uninstalled, or any
-    /// hand-set value produces that state without anybody choosing it.
-    /// </para>
-    /// <para>
-    /// WHAT IT COSTS IS A REFUSAL AND NOT A LOCKOUT, stated rather than hidden: an account routed to a
-    /// THIRD-PARTY password provider - an LDAP plugin, say - reads here as having no password door and
-    /// has its last-link self-unlink refused although its password works. The way out is one call (link
-    /// another provider first, or ask an administrator), and the refusal says so. The other direction
-    /// costs the account.
-    /// </para>
-    /// <para>
-    /// THE SECOND ARM IS THE ACCOUNT ON THE PASSWORD PROVIDER WHOSE PASSWORD NOBODY HOLDS (#1733). This
-    /// plugin mints an unguessable password onto every account it provisions - never displayed, never
-    /// stored anywhere else, never recoverable - so a stored hash used to be a credential somebody has or
-    /// a seal nobody can open, and the two were the same bytes. Where a provider's <c>DefaultProvider</c>
-    /// names the built-in password provider, which the settings page offers as a common choice, EVERY
-    /// account that provider creates lands in exactly that state, and the first arm answers "has a door"
-    /// for all of them - so on those servers this rule did not reach the population it was written for.
-    /// The plugin records which passwords it minted now, and <paramref name="holdsOnlyAMintedPassword"/>
-    /// is that record being read: an account holding nothing but a minted password has no door, whatever
-    /// its provider id says.
-    /// </para>
-    /// <para>
-    /// THE THIRD READING - count no stored password as a way in at all - WAS DECLINED ON #1733 and is
-    /// worth naming, because the neighbouring guard takes it. The administrator-stranding guard in
-    /// <c>CanonicalLinkService</c> refuses to count a stored password as a way in, and says why in its
-    /// own words: its subject is a mass action an administrator takes, where a refusal costs one call.
-    /// This rule sits on the only control a user has over their own links, and the same reading here
-    /// would refuse every last-link self-unlink on every server - including the ordinary one where the
-    /// user set their own password and knows it. A rule that refuses to see a password somebody chose is
-    /// not being careful about that user, it is being wrong about them.
-    /// </para>
-    /// <para>
-    /// WHAT THE RECORD CANNOT SEE, stated rather than hidden: an account provisioned by a plugin version
-    /// that did not keep the record and whose password was never re-minted since. The boot-time sweep
-    /// mints and records for every linked account holding NO password, so the population left is the one
-    /// sealed by an earlier version of this plugin - those read as having a door, exactly as every
-    /// account did before this change. The direction is the safe one: a refusal that does not fire costs
-    /// a user nothing they had, where a wrong refusal costs them their own control.
-    /// </para>
-    /// <para>
-    /// Fail-closed on an unresolved caller, for the same reason <see cref="IsAdministrator"/> is: the
-    /// answer gates a removal that can leave an account unreachable, and an ambiguous caller is treated
-    /// as the case that costs the account rather than the one that costs a call.
-    /// </para>
+    /// The test is for the one provider that definitely takes a password, because an id naming no registered
+    /// provider refuses every password too; an account on a third-party password provider is refused although its
+    /// password works, a refusal rather than a lockout, and an account sealed by a version that kept no record reads as having a door.
     /// </remarks>
     /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
     /// <param name="requestContext">The <see cref="HttpRequest"/>.</param>
-    /// <param name="holdsOnlyAMintedPassword">Reads the minted-password record for a resolved account (#1733). Passed in rather than reached for here, so this helper stays a reading of the request and the test can hand it either answer.</param>
+    /// <param name="holdsOnlyAMintedPassword">Reads the minted-password record for a resolved account (#1733); passed in so this helper stays a reading of the request and a test can hand it either answer.</param>
     /// <returns>True when the caller's account accepts no password, or when the caller cannot be resolved.</returns>
     internal static async Task<bool> CallerHasNoPasswordDoor(IAuthorizationContext authContext, HttpRequest requestContext, Func<User, bool> holdsOnlyAMintedPassword)
     {
