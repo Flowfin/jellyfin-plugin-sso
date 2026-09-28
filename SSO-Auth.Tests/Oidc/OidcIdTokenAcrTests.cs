@@ -38,15 +38,10 @@ public class OidcIdTokenAcrTests
     {
         // The same shape as the sid row, on the claim the step-up gate compares (#757): an array-valued acr
         // reaches this reader as two claims of the same type, and which one is taken decides whether the
-        // session satisfies the requirement. OIDC Core gives acr as one string, so a provider sending an
-        // array is already outside the spec.
-        //
-        // This is the reader where a refusal would have been the fail-closed answer, since refusing an
-        // ambiguous assurance level denies rather than grants. It is still pinned to the last element, so all
-        // three readers say the same thing about the same shape, and the row exists so that turning acr into
-        // the exception is a deliberate change with a red test rather than a silent divergence. Nothing here
-        // asserts that last-wins is the RIGHT answer for a gate - only that it is the answer, and that it can
-        // no longer change unnoticed.
+        // session satisfies the requirement, while OIDC Core gives acr as one string. This is the reader where
+        // a refusal would have been the fail-closed answer, and it is still pinned to the last element so all
+        // three readers say the same thing; the row exists so that making acr the exception is a deliberate
+        // change with a red test. Nothing here asserts that last-wins is the right answer for a gate.
         Assert.Equal("acr-b", OidcIdTokenAcr.Read(TokenWithArray("acr", "acr-a", "acr-b")));
     }
 

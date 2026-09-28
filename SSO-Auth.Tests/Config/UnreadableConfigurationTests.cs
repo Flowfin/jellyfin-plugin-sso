@@ -14,17 +14,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Cover for #1543: what happens to <c>SSO-Auth.xml</c> when it cannot be read. The host answers that by
-/// building a default configuration and writing it back over the file, so every provider, canonical link
-/// and at-rest secret envelope is gone AND the only artefact a repair could work on is overwritten in the
-/// same act. What is pinned here is the window this plugin has before that: the file is copied aside, the
-/// state is recorded, and it is recorded in the direction that refuses logins rather than serving them.
-/// <para>
-/// In the <c>SSOController</c> collection because constructing a plugin sets the static
-/// <see cref="SSOPlugin.Instance"/> every other test in that collection reads.
-/// </para>
-/// </summary>
+/// <summary>Cover for #1543: what happens to <c>SSO-Auth.xml</c> when it cannot be read.</summary>
+/// <remarks>
+/// The host answers that by building a default configuration and writing it back over the file, so every
+/// provider, link and secret envelope is gone and the only artefact a repair could work on is overwritten in
+/// the same act. What is pinned is the window this plugin has before that: the file is copied aside, the state
+/// is recorded, and it is recorded in the direction that refuses logins. In the <c>SSOController</c>
+/// collection, because constructing a plugin sets the static <see cref="SSOPlugin.Instance"/>.
+/// </remarks>
 [Collection("SSOController")]
 public class UnreadableConfigurationTests
 {
@@ -157,18 +154,12 @@ public class UnreadableConfigurationTests
     [Fact]
     public void ARepeatBootWhoseBytesCannotBeRead_KeepsTheRecordedCopyRatherThanLosingIt()
     {
-        // A COMPARISON THAT COULD NOT BE MADE DECIDES NOTHING, which is the rule the undecidable-read arm
-        // already states one level up. Verifying the recorded copy is right; answering "not the same" when
-        // the files could not be compared AT ALL is not, and what it costs is the record: no second copy is
-        // possible on that fault either, so rewriting the marker with an empty copy line only erases the
-        // pointer to the copy that already exists, and the next boot tells an operator nothing was kept
-        // while it sits beside the configuration.
-        //
-        // WHAT MAKES THIS UNDECIDABLE AND NOT MERELY UNREAD is that the lengths still match and it is the
-        // DAMAGED file that cannot be opened; a length that differs is refused on its own, and a candidate
-        // that is what cannot be opened is refused too, which the two tests below pin. A share-denying
-        // handle on the configuration produces the pair here: the serializer reports damage about the
-        // CONTENT while the file itself cannot be opened for the compare.
+        // A comparison that could not be made decides nothing. Verifying the recorded copy is right; answering
+        // not the same when the files could not be compared at all is not, and it costs the record, because no
+        // second copy is possible on that fault either and rewriting the marker erases the pointer to the copy
+        // that exists. What makes it undecidable rather than merely unread is that the lengths still match and
+        // it is the damaged file that cannot be opened; a differing length and an unopenable candidate are
+        // each refused on their own, which the two tests below pin.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
         var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         Assert.NotNull(first.PreservedCopyPath);
@@ -809,17 +800,12 @@ public class UnreadableConfigurationTests
     [Fact]
     public void AMarkerThatCannotBeRead_StillCopiesOnceAndOnlyOnce()
     {
-        // The only unbounded path this screen had, and the bound must not be "stop copying". A marker
-        // that is THERE and cannot be read - held open by another process, an ACL a restore left behind,
-        // an IO error on the volume - answers "no record", which is read everywhere else here as a new
-        // incident, so every restart would take another full copy into the directory the whole server
-        // needs writable, on the disk that caused the damage.
-        //
-        // Declining to copy would bound it and is the wrong trade: the conditions that stop a marker
-        // being READ are the conditions that stop it being DELETED, so an unreadable marker and one that
-        // outlived its incident are one fault - and on that fault a genuinely new damage would go
-        // unpreserved for good. So the bound is asked of the copies instead: the same bytes are already
-        // kept, whatever the marker can or cannot say.
+        // The only unbounded path this screen had, and the bound must not be to stop copying. A marker that is
+        // there and cannot be read answers no record, which is read everywhere else as a new incident, so
+        // every restart would take another full copy onto the disk that caused the damage. Declining to copy
+        // is the wrong trade, because the conditions that stop a marker being read are the conditions that
+        // stop it being deleted, so a genuinely new damage would go unpreserved. The bound is asked of the
+        // copies instead: the same bytes are already kept, whatever the marker can say.
         var (path, damaged) = Stored("<PluginConfig", readable: false);
         var first = UnreadableConfiguration.Preserve(path, damaged, Logger(), new DateTime(2026, 9, 6, 1, 2, 3, DateTimeKind.Utc));
         Assert.Single(Copies(path));

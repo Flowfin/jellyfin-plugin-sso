@@ -98,18 +98,12 @@ public class SsoLoginEventsTests
     [Fact]
     public async Task PublishRoleDenied_WhenTheBusNeverReturns_GivesUpWithinItsBudget()
     {
-        // The case a catch cannot reach. The webhook consumer makes an outbound HTTP call to an
-        // operator-configured destination on a client the host gives no timeout, and PublishAsync awaits
-        // every consumer in turn - so a black-holed destination would hold a refusal that was already
-        // decided. The budget is what keeps the 401 prompt; without it this test never returns.
-        //
-        // THE PATH IS WALKED ONCE BEFORE THE CLOCK STARTS AND THE WARM-UP IS NOT TIMED (#1591). The clock
-        // reads wall time, so whatever the first call in a process touches for the first time - the event
-        // argument types, the substituted bus, the logger's formatter - is charged to the budget under
-        // assertion. On a cold process here that first touch reached 25.7 seconds against a 50 ms budget,
-        // and the row failed on the first invocation and passed on the next one with nothing else changed.
-        // The warm-up spends it outside the measurement. The five-second bound stays where it was, because
-        // a row that answered a cold process by widening its own bound would stop proving what it names.
+        // The case a catch cannot reach: the webhook consumer calls an operator-configured destination on a
+        // client the host gives no timeout, and PublishAsync awaits every consumer in turn, so a black-holed
+        // destination would hold a refusal that was already decided. The path is walked once before the clock
+        // starts, because the clock reads wall time and a cold first touch reached 25.7 seconds against a
+        // 50 ms budget (#1591); the warm-up spends that outside the measurement and the bound stays where it
+        // was, since a row that widened its own bound would stop proving what it names.
         var warmUpBus = Substitute.For<IEventManager>();
         warmUpBus.PublishAsync(Arg.Any<AuthenticationRequestEventArgs>()).Returns(new TaskCompletionSource().Task);
         await new SsoLoginEvents(warmUpBus, new CapturingLogger(), TimeSpan.FromMilliseconds(50)).PublishRoleDeniedAsync("keycloak", "203.0.113.9");

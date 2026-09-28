@@ -9,16 +9,11 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The aggregate configuration check (#1084) against the three things its acceptance asks of it: it names
-/// exactly the provider that would fail and why, it answers an empty configuration as a report rather than
-/// as an error, and it changes nothing while doing either.
-/// </summary>
+/// <summary>The aggregate configuration check (#1084) against the three things its acceptance asks of it: it names exactly the provider that would fail and why, it answers an empty configuration as a report rather than an error, and it changes nothing while doing either.</summary>
 /// <remarks>
-/// These run against <see cref="ProviderCheck"/> directly rather than through a browser, which is where the
-/// button lives. That is deliberate: the evaluation was put on the server precisely so it could be executed
-/// by a test, and the alternative shape - reading each provider's readiness out of the settings page's own
-/// DOM - is unreachable from any suite here and would have left every clause below unproven.
+/// These run against <see cref="ProviderCheck"/> directly rather than through a browser. The evaluation was
+/// put on the server precisely so it could be executed by a test, and reading each provider readiness out of
+/// the settings page DOM is unreachable from any suite here and would have left every clause unproven.
 /// </remarks>
 public class ProviderCheckTests
 {

@@ -267,20 +267,12 @@ public partial class ArchitectureConformanceTests
     [InlineData("saveSamlProvider: (page, provider_name) => {", "\"saml-\"")]
     public void ProvisioningTemplateSave_NeverSendsATemplateBesideANamedProfile(string opener, string prefix)
     {
-        // The other half of the same refusal, one level up. ProviderConfigValidator refuses a provider that
-        // names a profile AND carries an inline template, on the object being PRESENT, so this save must
-        // never post both - otherwise a profile-using provider is unsaveable from this page, client id and
-        // secret included, over a section the administrator never opened.
-        //
-        // WHAT THIS RULE PINNED UNTIL #1105 WAS THE SPELLING, AND THE SPELLING HAD TO CHANGE. It required
-        // the write to sit inside `if (!current_config.ProvisioningProfile)`, so that a named profile left
-        // the stored member exactly as it was. That was correct while the page could not SET the name: a
-        // provider already naming a profile stored no template, so leaving it alone and writing null were
-        // the same act. #1105 put the name on the form, so a provider carrying an inline template can now
-        // acquire one, and "leave it alone" then posts both members and is refused by the server on every
-        // save, with no way back from this page. The property the rule is actually about is unchanged and
-        // is what is checked now: an assembled template reaches the configuration ONLY where no profile is
-        // named, and the other branch sends null.
+        // ProviderConfigValidator refuses a provider that names a profile and carries an inline template, so
+        // this save must never post both; otherwise a profile-using provider is unsaveable from this page over
+        // a section the administrator never opened. The rule pinned the spelling until #1105 put the profile
+        // name on the form, at which point leaving the member alone started posting both. What is checked is
+        // the property itself: an assembled template reaches the configuration only where no profile is named,
+        // and the other branch sends null.
         var save = ProvisioningTemplateFunctionBody(ProvisioningTemplateScript(), opener);
 
         var guard = save.IndexOf("current_config.ProvisioningProfile === null", StringComparison.Ordinal);

@@ -5,18 +5,12 @@ using System;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Reads one value out of an <c>application/x-www-form-urlencoded</c> sequence, for tests asserting on a
-/// redirect URL the plugin built. It exists once so that two tests asserting on the same parameter cannot
-/// be asserting under different decoding rules, which is what the nine hand-written copies of this loop
-/// allowed (#1046): they disagreed about how the sequence was reached out of the URL, and about what an
-/// absent name means.
-///
-/// The sequence is sliced by hand rather than through <see cref="Uri"/>, so a relative or otherwise
-/// malformed redirect fails the assertion the test was written for instead of throwing inside the parse.
-/// Nothing here folds <c>+</c> to a space: no call site parses a form body today, and a decoding rule that
-/// no caller asks for is one a later caller can inherit by accident.
-/// </summary>
+/// <summary>Reads one value out of an <c>application/x-www-form-urlencoded</c> sequence, for the tests asserting on a redirect URL the plugin built.</summary>
+/// <remarks>
+/// It exists once so two tests asserting on the same parameter cannot be under different decoding rules, which the nine hand-written copies it replaced allowed
+/// (#1046). The sequence is sliced by hand rather than through <see cref="Uri"/>, so a malformed redirect fails the assertion instead of throwing inside the parse,
+/// and <c>+</c> is not folded to a space, because no call site parses a form body.
+/// </remarks>
 internal static class UrlEncodedQuery
 {
     /// <summary>

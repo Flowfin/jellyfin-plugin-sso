@@ -15,17 +15,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of what the link-import endpoint ANSWERS (#1520). The importer's own rules are covered
-/// in <see cref="LinkImportTests"/>; what these pin is the property that surface had none of - a restore
-/// that rebound nothing must not be indistinguishable from one that rebound everything.
-///
-/// It stood indistinguishable long enough to matter. The endpoint answered <c>204 No Content</c> whatever
-/// the number was, so #1517 - a document arriving with its entries dropped - restored nothing, answered
-/// success and left every account unlinked from <c>4.3.0-beta.43</c> onward, with the count reaching only
-/// an audit line nobody reads mid-migration. These assertions are on the answer for that reason: an
-/// operator holding the backup file must be able to see the number without the server log.
-/// </summary>
+/// <summary>In-process tests of what the link-import endpoint answers (#1520): a restore that rebound nothing must not be indistinguishable from one that rebound everything.</summary>
+/// <remarks>
+/// The importer own rules are covered in <see cref="LinkImportTests"/>. The endpoint answered 204 whatever
+/// the number was, so a document arriving with its entries dropped (#1517) restored nothing, answered success
+/// and left every account unlinked, with the count reaching only an audit line nobody reads mid-migration.
+/// These assertions are on the answer, so an operator holding the backup file sees the number without the
+/// server log.
+/// </remarks>
 [Collection("SSOController")]
 public class SSOControllerImportLinksTests
 {

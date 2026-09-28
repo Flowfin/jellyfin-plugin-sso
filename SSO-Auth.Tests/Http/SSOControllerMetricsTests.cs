@@ -18,21 +18,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// In-process tests of the auth-path counters and the exposition they are served as (#1139), through
-/// <see cref="SsoControllerHarness"/> so the endpoint reads the real store rather than a stand-in.
-/// </summary>
+/// <summary>In-process tests of the auth-path counters and the exposition they are served as (#1139), through <see cref="SsoControllerHarness"/> so the endpoint reads the real store.</summary>
 /// <remarks>
-/// <para>
-/// What is pinned here is what an operator's alerting rests on and what a disclosure review rests on: the
-/// counters move when the thing they name happens, no label carries an identity, the label vocabularies are
-/// the closed ones, the series count is bounded, and the exposition parses.
-/// </para>
-/// <para>
-/// The counters are process-wide statics, so every test starts by clearing them. That is also why this class
-/// is in the non-parallel controller collection: a login driven by a sibling test running at the same time
-/// would land in this one's assertion.
-/// </para>
+/// What is pinned is what operator alerting and a disclosure review rest on: the counters move when the thing
+/// they name happens, no label carries an identity, the label vocabularies are closed, the series count is
+/// bounded, and the exposition parses. The counters are process-wide statics, so every test clears them
+/// first and the class sits in the non-parallel controller collection.
 /// </remarks>
 [Collection("SSOController")]
 public class SSOControllerMetricsTests

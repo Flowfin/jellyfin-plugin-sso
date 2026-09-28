@@ -8,18 +8,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins <see cref="EntryPointInventory"/>, the substrate the per-field route rules consume (#1159). It is
-/// built and proved first for one reason: every rule built on it asserts something about EVERY route a field
-/// arrives on, so an inventory that quietly stops seeing a route does not make those rules fail. It makes
-/// them pass, over a smaller surface, in silence. That is the failure this file exists to make loud.
-/// <para>
-/// Three kinds of assertion, and they are not interchangeable. The fixture pair pins what the walk must and
-/// must not report, over test-local controllers whose whole content is visible here. The sentinel pins the
-/// walk against the REAL assembly, so a walk that matches fixtures and nothing else fails. The pinned
-/// examples name actions and parameters that exist today, so a rename is caught rather than absorbed.
-/// </para>
-/// </summary>
+/// <summary>Pins <see cref="EntryPointInventory"/>, the substrate the per-field route rules consume (#1159).</summary>
+/// <remarks>
+/// Every rule built on it asserts something about every route a field arrives on, so an inventory that
+/// quietly stops seeing a route makes those rules pass over a smaller surface rather than fail. Three kinds
+/// of assertion, not interchangeable: the fixture pair pins what the walk must and must not report over
+/// test-local controllers, the sentinel pins the walk against the real assembly, and the pinned examples name
+/// actions and parameters that exist today, so a rename is caught rather than absorbed.
+/// </remarks>
 public class EntryPointInventoryTests
 {
     // The must-catch fixture. Both parameters of Get are shapes an attribute-only reader gets wrong: one is

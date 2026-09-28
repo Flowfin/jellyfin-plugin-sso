@@ -10,26 +10,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Holds the shipped plugin to ONE hardened <c>TokenValidationParameters</c>, and pins what that one basis
-/// is allowed to accept (#1004). Both halves are the rule. A second basis built somewhere else could omit
-/// <c>ValidAlgorithms</c>, which lets the handler take the algorithm from the token header; and the one
-/// basis that exists could have <c>HS256</c> added to its allowlist, which turns the client secret every
-/// provider already holds into a token-signing key.
-/// <para>
-/// The property was true before this file existed and nothing refused a change to it.
-/// <see cref="OidcSignatureKeys"/>' own summary says there is "provably no second, laxer verification
-/// path"; until now the proof was a reader's grep, and a second builder would have landed green.
-/// </para>
-/// <para>
-/// WHAT THIS SCAN CANNOT SEE, stated so the rule is not read as exhaustive. It judges which FILES name the
-/// type on a code line, so a second construction added inside the file already on the table is invisible to
-/// it - the standing limit of this rule family. It reads source, so it cannot see a returned basis being
-/// mutated by its caller either; that window was a code change rather than a rule (#1176), and this scan
-/// was named in that issue as the thing that could not catch it. And a caller that passes a target-typed
-/// <c>new()</c> straight into a handler never names the type at all. Review owns all three.
-/// </para>
-/// </summary>
+/// <summary>Holds the shipped plugin to one hardened <c>TokenValidationParameters</c> and pins what that basis may accept (#1004).</summary>
+/// <remarks>
+/// Both halves are the rule: a second basis built elsewhere could omit <c>ValidAlgorithms</c>, which lets the
+/// handler take the algorithm from the token header, and the one basis that exists could have <c>HS256</c>
+/// added, which turns the client secret into a token-signing key. The property was true before this file and
+/// nothing refused a change to it. What the scan cannot see: a second construction inside a file already on
+/// the table, a returned basis mutated by its caller (#1176), and a target-typed <c>new()</c> passed straight
+/// into a handler. Review owns all three.
+/// </remarks>
 public class TokenValidationBasisConformanceTests
 {
     // The type whose construction is being held to one place. Scanning for the NAME rather than for

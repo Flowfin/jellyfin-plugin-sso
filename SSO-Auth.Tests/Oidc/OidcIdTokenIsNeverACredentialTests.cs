@@ -24,34 +24,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The id_token is evidence about who the caller is, and nothing else. It is verified, its claims are read,
-/// and the credential the caller leaves with is a Jellyfin session this server minted (#1004). Nothing in the
-/// tree asserted that until now, so a change that echoed the token back to the browser, handed it to the
-/// session mint, or wrote it into the persisted configuration would have been caught by nobody.
-///
-/// It matters because the token is a bearer artefact signed by someone else. Anywhere it comes to rest is a
-/// place a reader of that store, or of that response, holds an assertion the provider minted for this server -
-/// and the plugin has no way to revoke one. A locally minted session is revocable and is bound to this
-/// server's own session state, which is the whole reason the exchange happens.
-///
-/// Proven over a real round trip rather than by scanning source for a variable name: the challenge, callback
-/// and redeem legs run against the in-test provider, and the artefacts the flow actually produced are searched
-/// for the exact token that provider issued. A source scan would go green on a rename; this goes green only
-/// when the token is genuinely absent from the things the flow hands out and keeps.
-///
-/// Two controls stand behind the absences, because an absence proves nothing on its own. The needle is shown
-/// to be findable, by searching a body that really does carry it. And the flow is shown to have completed on
-/// the strength of that token, so the artefacts searched are the artefacts of a successful login rather than
-/// of a login that never got a token to leak.
-///
-/// One retention is deliberate and is measured rather than excluded. With Single Logout on, the token is kept
-/// as the later RP-initiated logout's <c>id_token_hint</c>, so the third case asserts what is actually owed
-/// there: the entry exists, and nothing readable holds the token. Without that case the other two would be
-/// measuring a configuration with nothing to keep and would read as a guarantee about the feature that keeps
-/// it. What is NOT established here is any property of the token once it leaves this server as an
-/// <c>id_token_hint</c> on a logout redirect, which is a different path and is not searched.
-/// </summary>
+/// <summary>The id_token is evidence about who the caller is and nothing else: it is verified, its claims are read, and the credential the caller leaves with is a Jellyfin session this server minted (#1004).</summary>
+/// <remarks>
+/// The token is a bearer artefact signed by someone else, so anywhere it comes to rest is a place a reader
+/// holds an assertion the plugin cannot revoke, while a locally minted session is revocable. It is proven over
+/// a real round trip rather than by scanning source for a variable name, so a rename cannot make it green, and
+/// two controls stand behind the absences: the needle is shown to be findable, and the flow is shown to have
+/// completed on the strength of that token. One retention is deliberate and measured, the
+/// <c>id_token_hint</c> kept for RP-initiated logout; what happens to the token after it leaves on that
+/// redirect is a different path and is not searched.
+/// </remarks>
 [Collection("SSOController")]
 public class OidcIdTokenIsNeverACredentialTests
 {

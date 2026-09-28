@@ -72,23 +72,12 @@ public sealed record HttpEntryPoint(
         $"{Method} {Template} -> {Controller}.{Action}({string.Join(", ", Parameters)})";
 }
 
-/// <summary>
-/// The plugin's HTTP entry-point surface, derived by reflection from the controller types rather than from a
-/// hand-written list (#1159), so an endpoint added later is seen without editing any rule built on this.
-/// <para>
-/// Every rule that asks "does every route a given field arrives on run the same validator" needs the set of
-/// routes first. Getting that set from a literal list is the failure mode those rules exist to prevent: the
-/// route somebody forgot to add to the list is exactly the route that skipped the validator. So the set is
-/// walked, and the walk is sentinel-guarded by <see cref="EntryPointInventoryTests"/> against passing empty.
-/// </para>
-/// <para>
-/// Implicit binding is the part a naive inventory gets wrong. <c>string provider</c> on <c>OidChallenge</c>
-/// and <c>SamlChallenge</c> carries no attribute at all and binds from the route, so an inventory that reads
-/// only <c>[From*]</c> attributes would miss a large share of the provider-id surface - the single most
-/// route-multiplied field in this plugin. <see cref="ImplicitSourceOf"/> reproduces ASP.NET's default rule
-/// instead of ignoring it.
-/// </para>
-/// </summary>
+/// <summary>The plugin HTTP entry-point surface, derived by reflection from the controller types rather than from a hand-written list (#1159).</summary>
+/// <remarks>
+/// A rule asking whether every route a field arrives on runs the same validator needs the route set first, and the route somebody forgot to add to a literal list is
+/// the one that skipped the validator; <see cref="EntryPointInventoryTests"/> guards the walk against passing empty. <see cref="ImplicitSourceOf"/> reproduces
+/// the ASP.NET default binding rule, because route-bound parameters carrying no attribute are most of the provider-id surface.
+/// </remarks>
 public static class EntryPointInventory
 {
     /// <summary>

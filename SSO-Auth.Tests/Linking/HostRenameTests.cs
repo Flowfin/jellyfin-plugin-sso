@@ -9,22 +9,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Binding <c>RenameUser</c> against whichever shape the loaded server exposes (#1138).
-/// </summary>
+/// <summary>Binding <c>RenameUser</c> against whichever shape the loaded server exposes (#1138).</summary>
 /// <remarks>
-/// <para>
-/// `IUserManager.RenameUser` changed arity inside the supported range. Measured against the tags:
-/// v10.11.0 to v10.11.8 declare <c>RenameUser(User, string)</c>, and v10.11.9 onwards
-/// <c>RenameUser(Guid, string, string)</c>. The repository declares <c>targetAbi: "10.11.0.0"</c>, so a
-/// source reference to either shape breaks one of the two builds.
-/// </para>
-/// <para>
-/// WHY THESE ROWS USE HAND-WRITTEN TYPES RATHER THAN A FAKE IUserManager. A substitute for the interface can
-/// only ever carry the shape this assembly compiled against, which is the arm that was never in doubt. The
-/// arm that matters is the one on a server this build cannot see, and the only way to hand the resolver that
-/// shape is to declare it here.
-/// </para>
+/// The method changed arity inside the supported range, measured against the tags: v10.11.0 to v10.11.8
+/// declare the two-argument shape and v10.11.9 onwards the three-argument one, while the repository declares
+/// <c>targetAbi 10.11.0.0</c>, so a source reference to either breaks one build. The rows use hand-written
+/// types rather than a fake user manager, because a substitute can only carry the shape this assembly
+/// compiled against, which is the arm that was never in doubt.
 /// </remarks>
 public class HostRenameTests
 {

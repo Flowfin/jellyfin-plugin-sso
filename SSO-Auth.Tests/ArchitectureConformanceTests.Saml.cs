@@ -39,36 +39,14 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void SamlSignaturePath_UsesOneXmlStackEndToEnd()
     {
-        // #1003. XML signature wrapping against a SAML assertion is a full authentication bypass, and the way
-        // it becomes reachable is ALWAYS the same: the document that gets VERIFIED and the document that gets
-        // CONSUMED stop being the same object graph. Every library in the 2025/26 wave that fell - ruby-saml
-        // (CVE-2025-25291/25292, then CVE-2025-66567/66568 as incomplete fixes), samlify (CVE-2025-47949),
-        // authentik (CVE-2026-47201) - had two views of the same bytes; the ones that held had one.
-        //
-        // The surviving stack here is System.Xml: an XmlDocument loaded through a hardened XmlReader
-        // (DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument, PreserveWhitespace), navigated
-        // with namespace-bound XPath through an XmlNamespaceManager, and verified by SignedXml over THAT SAME
-        // XmlDocument instance - SignedXml resolves Reference/@URI against the very instance it was
-        // constructed with, which is what makes "verified" and "consumed" the same graph by construction.
-        // Nothing else can hold the whole path: XDocument, XPathDocument and XmlSerializer cannot verify a
-        // signature at all, so reaching for one necessarily introduces a second parse of the same bytes.
-        //
-        // All three parsers already use only that stack; this rule is the ratchet that keeps it true. It is a
-        // source-text scan (like the controller rules above) because the property is about which types a call
-        // site reaches for, not about a type's shape. It is NOT a proof of current correctness - the negative
-        // tests in SamlAttackShapeTests / SamlLogoutAttackShapeTests carry that load.
-        //
-        // Scoping the scan to the module IS scoping it to the signature path, but not because the bytes are
-        // seen once: SamlResponse.Xml exposes the document's OuterXml, and the LINKING leg re-serializes it
-        // into the served page, which the browser posts back. That round-trip re-enters through the SAME
-        // SamlAssertionValidator.TryValidate - full signature, time, audience and recipient re-validation plus
-        // its own one-time replay consume - so the second parse is the same hardened seam under the same rules,
-        // not a second view of a once-verified document; the login leg no longer ships the XML at all (#251).
-        // The module scope holds because EVERY parse of a SAML document, first or repeat, happens inside it:
-        // the only two entry points are SamlAssertionValidator and SamlLogoutValidator, and no file outside the
-        // module references System.Xml except the unrelated config serializer. If a future consumer ever reads
-        // OuterXml/InnerXml and parses it somewhere else, that file becomes part of this surface and must be
-        // brought into the scan.
+        // #1003. XML signature wrapping is a full authentication bypass, and it becomes reachable the same way
+        // every time: the document that is verified and the document that is consumed stop being one object
+        // graph. The surviving stack is System.Xml, because SignedXml resolves Reference/@URI against the very
+        // XmlDocument instance it was constructed with, while XDocument, XPathDocument and XmlSerializer
+        // cannot verify a signature at all and so force a second parse. This rule is the ratchet rather than a
+        // proof of correctness, which the negative tests carry. The module scope holds because the only two
+        // entry points are the two SAML validators and the linking round-trip re-enters the same one; a
+        // future consumer that parses OuterXml elsewhere joins this surface.
         var samlSources = SamlModuleSourceFiles();
 
         // A comment can mention any of these without introducing anything, so comment/XML-doc lines are out of
@@ -84,17 +62,11 @@ public partial class ArchitectureConformanceTests
             stackOffenders.Count == 0,
             "The SAML module must read and navigate a SAML document through ONE XML stack (XmlDocument/XmlReader/XmlNamespaceManager + SignedXml). A second stack gives the verifier and the consumer different views of the same bytes - the 2025/26 SAML bypass wave's root cause (#1003). Offending lines: " + string.Join(" | ", stackOffenders));
 
-        // The other way to grow a second view is string surgery on the markup - scraping an ID, a Reference
-        // URI, or an element name out of the raw text instead of resolving it through the DOM. Scoped to the
-        // files that actually parse an inbound document (SamlResponse, SamlLogoutRequest, SamlMetadataParser
-        // today), discovered by their XmlDocument construction rather than hardcoded, so a NEW parser is
-        // covered the moment it is written; the outbound BUILDERS in the same module legitimately assemble XML
-        // from strings and are therefore out of scope by construction. The discovery keys on `new XmlDocument`
-        // rather than on the hardened-reader call, because a parser written as `doc.LoadXml(raw)` would use the
-        // same allowlisted stack and so trip no ban - it would simply be INVISIBLE to a reader-keyed discovery,
-        // while the non-empty sentinel stayed green on the three existing files. Keying on the document itself
-        // makes that seam impossible to write without entering this scan, and
-        // SamlSignaturePath_ParsesOnlyThroughTheHardenedReader then forces it through the hardened reader.
+        // The other way to grow a second view is string surgery on the markup instead of resolving through the
+        // DOM. Scoped to the files that parse an inbound document, discovered by their XmlDocument
+        // construction rather than hardcoded, so a new parser is covered the moment it is written and the
+        // outbound builders are out of scope. Keying on the document rather than on the hardened-reader call
+        // is what makes such a seam impossible to write without entering this scan.
         var inboundParsers = XmlDocumentConstructingFiles(samlSources);
 
         var stringOperations = new[] { "IndexOf(", "Substring(", "Contains(", "Split(", "Replace(", "StartsWith(", "EndsWith(" };
@@ -126,26 +98,13 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void SamlSignaturePath_ParsesOnlyThroughTheHardenedReader()
     {
-        // #1003. The companion to the one-stack rule: staying on System.Xml is worth nothing if the document
-        // is loaded with the hardening switched off. Every one of those settings is load-bearing and named as
-        // such by the production code's own comments, yet until now nothing in the suite required any of them:
-        //
-        //  - DtdProcessing.Prohibit - XmlResolver alone blocks only EXTERNAL entities, while an internal DTD
-        //    still expands (billion laughs). It is also the actual control behind the standing CodeQL
-        //    cs/xml/missing-validation dismissal on this parser, so a silent removal would invalidate that
-        //    dismissal as well as the defence.
-        //  - XmlResolver = null on BOTH the document and the reader settings - no external-entity fetch (XXE,
-        //    SSRF from an unauthenticated callback).
-        //  - MaxCharactersInDocument - bounds the DOM on the pre-signature path, which the DTD prohibition
-        //    does not (it bounds entities, not bulk).
-        //  - PreserveWhitespace = true, required wherever the document is signature-verified: exclusive
-        //    canonicalization is whitespace-sensitive, so loading without it changes the octets the digest is
-        //    computed over. Not required of the metadata parser, which verifies no signature.
-        //
-        // And the seam itself is pinned: an XmlDocument in this module may be populated ONLY through
-        // XmlReader.Create + Load(reader). A bare LoadXml(raw) or Load(stream) would bypass every setting above
-        // while still using the allowlisted stack, so it is banned outright. SignedXml.LoadXml is explicitly
-        // allowed - it takes an XmlElement already inside the verified DOM and parses no text.
+        // #1003. Staying on System.Xml is worth nothing if the document is loaded with the hardening switched
+        // off, so each setting is required here: DtdProcessing.Prohibit, which is also the control behind the
+        // standing CodeQL dismissal on this parser; XmlResolver null on both the document and the reader
+        // settings; MaxCharactersInDocument, which bounds bulk where the DTD prohibition bounds only entities;
+        // and PreserveWhitespace wherever a signature is verified, because exclusive canonicalization is
+        // whitespace-sensitive. The seam itself is pinned: an XmlDocument here is populated only through
+        // XmlReader.Create and Load(reader), and SignedXml.LoadXml is allowed because it parses no text.
         var samlSources = SamlModuleSourceFiles();
         var parsers = XmlDocumentConstructingFiles(samlSources);
         var offenders = new List<string>();
@@ -223,23 +182,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void SamlDocumentParsing_HappensOnlyInsideTheSamlModule()
     {
-        // #1003. The hardened-reader rule and the one-stack rule are both scoped to Api/Saml, and that scope
-        // is only sound while nothing OUTSIDE the module can parse a SAML document. That was previously
-        // asserted in prose - true when written, mechanically checkable, so now checked: no file under
-        // SSO-Auth/ outside Api/Saml may name ANY XML document, reader or navigator type.
-        //
-        // The banned set is the SHARED SecondXmlStackTypes list plus the stack the module itself is allowed to
-        // use, rather than a hand-rolled subset. A hand-rolled list is how this rule fails silently: the first
-        // draft omitted XElement, so `using System.Xml.Linq; XElement.Parse(samlResponse.Xml);` in a flow
-        // service - a complete parse seam - named none of its tokens and passed the rule written to stop
-        // exactly that. Sharing the list also stops the two rules drifting apart as either is extended.
-        //
-        // Two config files are allowlisted, and neither can reach the signature path: the plugin configuration
-        // and the serializable dictionary are the Jellyfin-side persistence model, driven by the host's
-        // IXmlSerializer over the plugin's OWN configuration file, never over an inbound assertion. They are
-        // matched by exact repo-relative path, not by suffix - a suffix match would exempt any file with one
-        // of those names in any Config/ directory anywhere under SSO-Auth/, and an allowlist is the last place
-        // to be approximate about identity.
+        // #1003. The two rules above are scoped to Api/Saml, and that scope is sound only while nothing
+        // outside the module can parse a SAML document, so no file under SSO-Auth outside Api/Saml may name
+        // any XML document, reader or navigator type. The banned set is the shared list plus the stack the
+        // module may use, rather than a hand-rolled subset: the first draft omitted XElement, and an XElement
+        // parse in a flow service named none of its tokens. Two config files are allowlisted by exact
+        // repo-relative path, because a suffix match would exempt any file of those names anywhere.
         var offenders = Directory
             .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !IsBuildOutput(path))
@@ -392,20 +340,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void SamlSignaturePath_ResolvesElementsNamespaceAware()
     {
-        // #1003. The second half of "one view of the bytes": within a single stack, a namespace-AGNOSTIC
-        // lookup reintroduces the same ambiguity a second parser would. GetElementsByTagName("Assertion")
-        // matches an Assertion in ANY namespace, so an attacker-declared foreign-namespace look-alike becomes
-        // a second candidate for an element the namespace-bound signature check never covered; the same holds
-        // for SelectNodes/SelectSingleNode called without an XmlNamespaceManager, where an unprefixed XPath
-        // name matches only no-namespace elements and so silently selects NOTHING in a namespaced SAML
-        // document - a lookup that fails open into "absent" instead of "present but unverified".
-        //
-        // Every such call in the module must therefore carry its namespace argument. Checked by extracting the
-        // call's balanced argument list and requiring a top-level comma, not by matching the line text, so a
-        // wrapped or nested call cannot slip through. XmlElement.GetAttribute(string) is deliberately NOT in
-        // scope: its single-argument overload matches the attribute's QUALIFIED name, so a foreign-namespaced
-        // evil:ID can never alias an unprefixed ID - that property is pinned behaviourally by
-        // SamlAttackShapeTests.IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates.
+        // #1003. Within one stack a namespace-agnostic lookup reintroduces the ambiguity a second parser would:
+        // GetElementsByTagName matches any namespace, and an unprefixed XPath without a namespace manager
+        // silently selects nothing in a namespaced document, which fails open into absent. Every such call
+        // carries its namespace argument, checked by extracting the balanced argument list rather than by
+        // matching line text. The single-argument GetAttribute is out of scope, because it matches the
+        // qualified name, which SamlAttackShapeTests pins behaviourally.
         var samlSources = SamlModuleSourceFiles();
         var inspected = 0;
         var offenders = new List<string>();

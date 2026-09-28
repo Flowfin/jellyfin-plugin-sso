@@ -7,24 +7,12 @@ using System.Runtime.CompilerServices;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The repository root, for the source-scanning rules that need the tree rather than the assembly (#1189).
-/// <para>
-/// Every such rule used to carry its own walk-up, and the count only ever went up: six copies across the
-/// test project on the day this landed. Each one counted the levels between its own file and the root by
-/// hand - one for a file at the test-project root, two for a file in a subfolder - so the copies were not
-/// interchangeable, and a rule file moved between folders would resolve a root one level off and scan a
-/// tree that is not the repository. Nothing catches that, in either direction: a scan over the wrong root
-/// reports the same all-clear as a scan that found nothing wrong.
-/// </para>
-/// <para>
-/// So the root is not counted here, it is SEARCHED for, by walking up until the solution file appears. The
-/// search starts from this file rather than from the caller's, which is why moving a rule file cannot move
-/// the answer: no rule contributes a path any more. A checkout with no solution file at any level throws
-/// rather than returning a directory that is not the root, because the wrong root is the failure this type
-/// exists to remove and returning one silently would reintroduce it in a new place.
-/// </para>
-/// </summary>
+/// <summary>The repository root, for the source-scanning rules that need the tree rather than the assembly (#1189).</summary>
+/// <remarks>
+/// The root is searched for by walking up until the solution file appears, rather than counted in levels from the caller, so moving a rule file cannot move the
+/// answer; the six hand-written walk-ups this replaced were not interchangeable. A checkout with no solution file at any level throws, because a scan over the wrong
+/// root reports the same all-clear as a scan that found nothing wrong.
+/// </remarks>
 internal static class RepoTree
 {
     // Searched for rather than counted, so the answer does not depend on how deep this file sits. The call

@@ -240,18 +240,11 @@ public class StrictJsonTests
     public void WhatAdmittingACaseVariantPairLeavesOpen_IsMeasuredRatherThanAssumed()
     {
         // The cost of that decision, measured on the exact bytes rather than asserted about consumers in
-        // general - the earlier comment here claimed every consumer compares ordinally, which is not
-        // established and is false for the case-folding shape below.
-        //
-        // One document, three readers, three answers. An indexing reader takes the lowercase value; a
-        // deserializer configured case-insensitively - which is what JsonSerializerDefaults.Web gives you,
-        // and what any PropertyNameCaseInsensitive = true option carries - resolves both spellings onto one
-        // property and keeps the LAST, so it takes the other one; a case-sensitive deserializer with no
-        // naming policy matches neither spelling and reads nothing at all.
-        //
-        // No reader on the plugin's current login path is the second kind, which is why the pair is
-        // admitted. This row is what makes that a bounded claim instead of a hope: if a future reader on
-        // this path folds case, the divergence it would inherit is already written down here.
+        // general. One document, three readers, three answers: an indexing reader takes the lowercase value, a
+        // case-insensitive deserializer resolves both spellings onto one property and keeps the last, and a
+        // case-sensitive one with no naming policy matches neither and reads nothing. No reader on the current
+        // login path is the second kind, which is why the pair is admitted, and this row is what makes that a
+        // bounded claim rather than a hope.
         using var document = JsonDocument.Parse(CaseVariantIssuers);
         Assert.Equal("https://good.example", document.RootElement.GetProperty("issuer").GetString());
 
@@ -372,19 +365,12 @@ public class StrictJsonTests
     [Fact]
     public void ThePresetSignalsARepeatAndAnUnreadableDocumentTheSameWay()
     {
-        // The signalling, which costs a wrapper rather than a behaviour. This walk answers in three
-        // verdicts and never throws, and its callers act on the difference: RepeatedMemberScreen reports
-        // RepeatedMember or Uninspectable as separate refusals that reach the operator and the admin
-        // probe, and OidcRoleExtractor separates RepeatedMember from Unreadable in its audit trail. The
-        // preset carries one channel for both, so a caller keeping that distinction has to read the
-        // framework's own English message - and the same goes for the member name, which arrives inside
-        // that sentence and nowhere else.
-        //
-        // What this row is honest about: unlike the ones beside it, it does NOT redden a swap on its own.
-        // A wrapper that catches both throw types and cuts the name out of the message satisfies every
-        // assertion here, which was measured by writing that wrapper. The gap it records is the wrapper
-        // itself - a screen whose verdict and whose logged member name are recovered from prose the
-        // framework may reword.
+        // The signalling, which costs a wrapper rather than a behaviour. This walk answers in three verdicts
+        // and never throws, and its callers act on the difference, while the preset carries one channel for
+        // both, so a caller keeping that distinction has to read the framework own English message, and the
+        // member name arrives inside that sentence and nowhere else. What this row is honest about: unlike the
+        // ones beside it, it does not redden a swap on its own, because a wrapper that catches both throw
+        // types and cuts the name out of the message satisfies every assertion here.
         var repeat = Assert.Throws<JsonException>(
             () => JsonSerializer.Deserialize<JsonElement>("{\"a\":1,\"a\":2}", JsonSerializerOptions.Strict));
         var malformed = Assert.Throws<JsonException>(
@@ -434,25 +420,13 @@ public class StrictJsonTests
     [Fact]
     public void NamesDifferingOnlyInAnInvalidEscape_AreNeverFoldedIntoOne()
     {
-        // The decision of #1197, and the direction matters: this is the FALSE-REFUSAL side. A verdict of
-        // Repeated on a document whose two members are not the same name is an accusation against a
-        // provider, and Unreadable is a refusal too - both cost the provider its login - so the choice is
-        // between two refusals and is made on which one is honest about the bytes.
-        //
-        // An invalid escape establishes no name at all. Spelled raw, the char has no UTF-8 encoding and the
-        // encoder refuses the document before the walk starts; spelled as an escape, the decoder inside
-        // GetString refuses the name it cannot complete. Either way the walk never holds two names to
-        // compare, so it reports that nothing was established rather than that a member was named twice.
-        //
-        // The alternative - decoding leniently, which is what the platform default does - is what makes the
-        // fold: every unpaired surrogate becomes U+FFFD, so two different names collapse to one key and the
-        // walk reports Repeated for a document that has no repeat. That is the false accusation, and it is
-        // the reason the strict encoder is here rather than a tidier default.
-        //
-        // The cost of the decision, stated rather than implied: a provider whose document names a member
-        // with an unpaired surrogate is refused, and a lenient reader downstream would have read that
-        // document. It is refused because no verdict about its members would be a verdict about the bytes
-        // its consumers see.
+        // The decision of #1197, and the direction matters: this is the false-refusal side, so the choice is
+        // between two refusals and is made on which one is honest about the bytes. An invalid escape
+        // establishes no name at all, spelled raw or spelled as an escape, so the walk never holds two names to
+        // compare and reports that nothing was established. The alternative is lenient decoding, where every
+        // unpaired surrogate becomes one replacement character and two different names collapse to one key, so
+        // the walk reports a repeat in a document that has no repeat. The cost is that such a document is
+        // refused, because no verdict about its members would be a verdict about the bytes its consumers see.
         foreach (var json in new[] { TwoEscapedLoneSurrogateNames, TwoRawLoneSurrogateNames })
         {
             var verdict = StrictJson.Inspect(json, out var repeated);

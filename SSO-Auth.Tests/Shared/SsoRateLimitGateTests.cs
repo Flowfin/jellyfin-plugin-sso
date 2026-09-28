@@ -14,20 +14,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="SsoRateLimitGate"/> - the shared per-client gate the rate-limited SSO endpoints
-/// front themselves with (#128, #382, #516). These pin the gate's OWN behavior over the
-/// <see cref="Jellyfin.Plugin.SSO_Auth.Api.SsoRateLimiter"/> it wraps: it reads the live config through
-/// <see cref="Jellyfin.Plugin.SSO_Auth.SSOPlugin.Instance"/>, folds the endpoint class into the key so each
-/// class carries an independent budget, and - this is the load-bearing availability invariant - never
-/// throttles an unattributable or non-public client (fail open, availability over throttling), so a reverse
-/// proxy's private/loopback peer address or a null connection address can never mass-lock-out the userbase.
-///
-/// The gate owns ONE process-wide <see cref="Jellyfin.Plugin.SSO_Auth.Api.SsoRateLimiter"/> static and reads
-/// the process-wide <see cref="Jellyfin.Plugin.SSO_Auth.SSOPlugin.Instance"/>, so these run in the
-/// non-parallel <c>SSOController</c> collection and each test uses a UNIQUE endpoint-class prefix, guaranteeing
-/// its per-client counters cannot collide with a sibling test's (the gate keys on <c>class:client</c>).
-/// </summary>
+/// <summary>Tests for <see cref="SsoRateLimitGate"/>, the shared per-client gate the rate-limited SSO endpoints front themselves with (#128, #382, #516).</summary>
+/// <remarks>
+/// They pin the own behaviour of the gate over the limiter it wraps: it reads the live configuration, folds
+/// the endpoint class into the key so each class carries an independent budget, and never throttles an
+/// unattributable or non-public client, which is the load-bearing availability invariant, because a reverse
+/// proxy private peer address must not mass-lock-out the userbase. It owns one process-wide limiter and reads
+/// the process-wide plugin instance, so these run in the non-parallel <c>SSOController</c> collection and
+/// each test uses a unique endpoint-class prefix.
+/// </remarks>
 [Collection("SSOController")]
 public class SsoRateLimitGateTests
 {

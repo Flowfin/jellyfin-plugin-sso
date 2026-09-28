@@ -14,21 +14,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// RFC 7515 §4.1.11 on both token paths (#1038): a JWS whose header carries <c>crit</c> is refused,
-/// because this plugin implements no JWS extension and therefore understands and processes none of them.
-/// <para>
-/// Every token below is GENUINELY SIGNED by the key the JWKS advertises and is otherwise valid, and each
-/// rejection test is paired with the same token minus the header. Without that pairing a rejection proves
-/// nothing about <c>crit</c> - a fixture the code cannot parse is refused by the signature check and the
-/// test passes for a reason it does not name.
-/// </para>
-/// <para>
-/// The two paths are asserted against ONE predicate on purpose. The handler ignores <c>crit</c> outright,
-/// so this is the plugin's own rule, and a rule the id_token path holds while the anonymous back-channel
-/// logout endpoint does not is the drift <see cref="OidcSignatureKeys"/> exists to prevent.
-/// </para>
-/// </summary>
+/// <summary>RFC 7515 4.1.11 on both token paths (#1038): a JWS whose header carries <c>crit</c> is refused, because this plugin implements no JWS extension and therefore processes none of them.</summary>
+/// <remarks>
+/// Every token is genuinely signed by the key the JWKS advertises and is otherwise valid, and each rejection
+/// is paired with the same token minus the header, because without that pairing a fixture the code cannot
+/// parse is refused by the signature check and the test passes for a reason it does not name. The two paths
+/// are asserted against one predicate, because a rule the id_token path holds while the anonymous
+/// back-channel endpoint does not is the drift <see cref="OidcSignatureKeys"/> exists to prevent.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class OidcCriticalHeaderTests : IDisposable
 {
@@ -44,19 +37,13 @@ public sealed class OidcCriticalHeaderTests : IDisposable
 
     public OidcCriticalHeaderTests() => OidcLogoutTokenValidator.ResetReplaysForTests();
 
-    /// <summary>
-    /// The shapes a <c>crit</c> member can arrive in. All are refused, and the refusal is one rule rather
-    /// than six: the plugin processes no extension, so no value could make the header acceptable and the
-    /// malformed shapes §4.1.11 forbids need no branch of their own.
-    /// <para>
-    /// The <c>json-string</c>, <c>number</c> and <c>bool</c> rows are the near-miss this file is built
-    /// around. They are what a <c>crit</c> written by hand rather than by a library looks like, and they
-    /// are the rows that die if the guard reads the member as a TYPE instead of asking whether it is
-    /// there: <c>JsonWebToken.TryGetHeaderValue&lt;JsonElement&gt;("crit", out _)</c> returns FALSE for
-    /// each of them - measured, not assumed - so a typed read reports the member absent and admits the
-    /// token. Every other row here survives that mistake, which is why it needs its own rows.
-    /// </para>
-    /// </summary>
+    /// <summary>The shapes a <c>crit</c> member can arrive in, all refused by one rule rather than six: the plugin processes no extension, so no value could make the header acceptable.</summary>
+    /// <remarks>
+    /// The <c>json-string</c>, <c>number</c> and <c>bool</c> rows are the near-miss this file is built around,
+    /// because they are what a <c>crit</c> written by hand looks like and they are the rows that die if the
+    /// guard reads the member as a type instead of asking whether it is there: a typed read returns false for
+    /// each of them, measured rather than assumed, and so reports the member absent and admits the token.
+    /// </remarks>
     public static TheoryData<string, object> CriticalHeaderShapes => new()
     {
         { "named-extension", new[] { UnknownExtension } },

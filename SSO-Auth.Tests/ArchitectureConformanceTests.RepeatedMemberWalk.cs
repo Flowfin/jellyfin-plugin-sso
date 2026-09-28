@@ -40,22 +40,11 @@ public partial class ArchitectureConformanceTests
     // frameworks. Declared as a path rather than found by name so a rename has to come past this rule.
     private const string RepeatedMemberWalk = "SSO-Auth/Api/Oidc/StrictJson.cs";
 
-    // Spellings that would move the duplicate-member decision off this walk and onto the System.Text.Json
-    // the HOST binds - .NET 10's, now that the Jellyfin 12.0 line is the one target (#1770). Each was
-    // checked to exist rather than assumed, in the reference assemblies this repository
-    // restores against:
-    //
-    //   grep -a -c AllowDuplicateProperties <NETCore.App.Ref>/10.0.9/ref/net10.0/System.Text.Json.dll   -> 1
-    //   grep -a -c get_Strict               <NETCore.App.Ref>/10.0.9/ref/net10.0/System.Text.Json.dll   -> 1
-    //   grep -a -c DuplicatePropertyNameHandling <newtonsoft.json>/13.0.4/lib/netstandard2.0/…dll       -> 1
-    //
-    // A name nothing implements would be dead weight in a denylist, which is why a fourth candidate,
-    // JsonDuplicatePropertyHandling, is absent: the same grep answered 0 for it.
-    //
-    // All four compile on net10.0, so this rule is the only thing that refuses any of them. While the net9.0
-    // leg existed the two System.Text.Json spellings were refused by its compiler before this rule saw them
-    // (writing the first one into the walk failed that leg with CS1061, measured); the Newtonsoft one is
-    // netstandard2.0 and compiled on both legs, which is why it is the row the guard was proven against.
+    // Spellings that would move the duplicate-member decision off this walk and onto the System.Text.Json the
+    // host binds (#1770). Each was checked to exist in the reference assemblies this repository restores
+    // against rather than assumed, which is why JsonDuplicatePropertyHandling is absent: nothing implements
+    // it, and a name nothing implements is dead weight in a denylist. All four compile on the one target, so
+    // this rule is the only thing that refuses any of them.
     private static readonly string[] FrameworkDuplicatePolicies =
     {
         "AllowDuplicateProperties",
@@ -64,24 +53,14 @@ public partial class ArchitectureConformanceTests
         "DuplicatePropertyNameHandling",
     };
 
-    /// <summary>
-    /// The repeated-member walk decides duplicates itself and never delegates that decision to the host's
-    /// JSON stack (#1189, carried from the review of #1061).
-    /// <para>
-    /// The failure this refuses is not a build break. With one target (#1770) every spelling below compiles,
-    /// so nothing but this rule stands between the walk and the host's duplicate policy. The edit worth
-    /// catching is the walk handing its verdict to whichever System.Text.Json the host binds, while every
-    /// test in this project - which loads its own System.Text.Json, never the host's - kept reporting the
-    /// verdict of the runtime it ran on. A screen whose answer depends on the host is the
-    /// interoperability-unsafe document problem moved one layer down.
-    /// </para>
-    /// <para>
-    /// #1043 measured the preset against the walk's own corpus and kept the walk, so this rule does not
-    /// retire with it. What that measurement found is in <c>StrictJsonTests</c>; the short of it is that
-    /// the denylist is refusing a delegation nothing is going to make on purpose, which is the case a
-    /// denylist is for. It retires the day that measurement is re-taken and comes out the other way.
-    /// </para>
-    /// </summary>
+    /// <summary>The repeated-member walk decides duplicates itself and never delegates that decision to the JSON stack of the host (#1189).</summary>
+    /// <remarks>
+    /// With one target every spelling below compiles, so nothing but this rule stands between the walk and the
+    /// duplicate policy of the host, and every test here loads its own System.Text.Json rather than that one,
+    /// so a delegated verdict would be reported as the verdict of the runtime the suite ran on. #1043 measured
+    /// the preset against the corpus of the walk and kept the walk, so the rule retires the day that
+    /// measurement is re-taken and comes out the other way: see <c>StrictJsonTests</c>.
+    /// </remarks>
     [Fact]
     public void TheRepeatedMemberWalk_TakesTheDuplicateDecisionItself()
     {
@@ -172,19 +151,14 @@ internal static class StrictJson
     private static readonly string CallerPathMarker =
         "[" + nameof(CallerFilePathAttribute).Replace("Attribute", string.Empty, StringComparison.Ordinal) + "]";
 
-    /// <summary>
-    /// One repository-root resolver in the test project, in <c>_Support/RepoTree.cs</c> (#1189).
-    /// <para>
-    /// Six copies of a hand-rolled walk-up existed on the day this rule landed, and the count had gone up at
-    /// every measurement rather than down, because each new source-scanning rule needs the tree and the old
-    /// helper was private to the file next to it. The copies were not interchangeable: each counted the
-    /// levels between its own file and the root by hand, one for a file at the test-project root and two for
-    /// a file in a subfolder. Move such a file between folders and it resolves a root one level off, and its
-    /// scan then covers a tree that is not the repository while reporting the same all-clear as a scan that
-    /// found nothing wrong. Nothing catches that in either direction, which is why deleting the copies is not
-    /// enough on its own and this rule stops the seventh.
-    /// </para>
-    /// </summary>
+    /// <summary>One repository-root resolver in the test project, in <c>_Support/RepoTree.cs</c> (#1189).</summary>
+    /// <remarks>
+    /// Six copies of a hand-rolled walk-up existed on the day this rule landed and the count had only ever
+    /// gone up. They were not interchangeable, because each counted the levels to the root by hand, so a rule
+    /// file moved between folders resolves a root one level off and scans a tree that is not the repository
+    /// while reporting the all-clear. Deleting the copies is not enough on its own; this rule stops the
+    /// seventh.
+    /// </remarks>
     [Fact]
     public void EveryRepoRootWalkUp_GoesThroughTheSharedHelper()
     {

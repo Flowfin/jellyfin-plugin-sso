@@ -16,25 +16,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The per-provider provisioning template (#1099): a static policy written onto a BRAND-NEW SSO account at
-/// creation and never re-applied.
-/// <para>
-/// "Never re-applied" is the whole contract and the reason this is a separate mechanism from the role
-/// mappings rather than another entry in them. Those are authoritative and re-asserted every login, because
-/// a role the identity provider withdrew has to withdraw its permission. A template is a starting point, so
-/// an administrator's later per-user edit has to survive;
-/// <see cref="ASecondLogin_LeavesAnAdministratorsLaterEdit_Intact"/> is what would go red if the write ever
-/// moved onto a path that runs more than once.
-/// </para>
-/// <para>
-/// The second thing pinned here is what a template may NOT write.
-/// <see cref="ATemplateNamingADedicatedPermission_IsRefusedAtSaveAndWritesNothing"/> covers both halves,
-/// because a config file edited by hand around the validator still reaches the writer, and a template that
-/// could grant IsAdministrator or set IsDisabled would be a second, unaudited route to the two permissions
-/// the plugin guards hardest.
-/// </para>
-/// </summary>
+/// <summary>The per-provider provisioning template (#1099): a static policy written onto a brand-new SSO account at creation and never re-applied.</summary>
+/// <remarks>
+/// Never re-applied is the whole contract and the reason this is not another entry in the role mappings,
+/// which are authoritative and re-asserted every login; a template is a starting point, so an administrator
+/// later edit has to survive, which
+/// <see cref="ASecondLogin_LeavesAnAdministratorsLaterEdit_Intact"/> holds. The second property is what a
+/// template may not write: a config file edited by hand around the validator still reaches the writer, and a
+/// template granting IsAdministrator or setting IsDisabled would be a second unaudited route to the two
+/// permissions the plugin guards hardest.
+/// </remarks>
 public class ProvisioningPolicyTemplateTests
 {
     private static readonly Guid Created = Guid.Parse("33333333-3333-3333-3333-333333333333");

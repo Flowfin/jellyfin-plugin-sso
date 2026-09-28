@@ -16,24 +16,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Between-logins enforcement of a persisted account-expiry deadline (#1145): a sweep tick disables every
-/// SSO-linked account whose stored deadline has passed and revokes that account's tokens, so access ends on
-/// the deadline for a user who never attempts another login.
-/// <para>
-/// This is the half login-time enforcement (#1144) cannot reach. That gate only fires when the expired user
-/// comes back; a guest who simply stops logging in keeps an enabled account, any long-lived token and - with
-/// <c>DisablePasswordLogin</c> off - a password door, for as long as those happen to last. Deleting the
-/// sweep call in <see cref="AccountExpirySweep.SweepAsync"/> reddens most of this file.
-/// </para>
-/// <para>
-/// THE GUARD is the point of <see cref="AnAdministratorPastItsDeadline_IsLeftEnabled"/> and it matters more
-/// here than on the login path, because nobody is watching. An identity provider that started emitting a
-/// past instant has, by the time a tick runs, already had every affected deadline written to disk, so the
-/// tick is where a mass lockout would actually land. Deleting the administrator check inside the shared
-/// disable body turns that row red.
-/// </para>
-/// </summary>
+/// <summary>Between-logins enforcement of a persisted account-expiry deadline (#1145): a sweep tick disables every SSO-linked account whose stored deadline has passed and revokes its tokens.</summary>
+/// <remarks>
+/// This is the half login-time enforcement (#1144) cannot reach, because that gate only fires when the
+/// expired user comes back, while a guest who stops logging in keeps an enabled account and any long-lived
+/// token. The administrator guard matters more here than on the login path, because nobody is watching: a
+/// provider that started emitting a past instant has had every affected deadline written to disk by the time
+/// a tick runs, so the tick is where a mass lockout would land.
+/// </remarks>
 public class AccountExpirySweepTests
 {
     private static readonly Guid Linked = Guid.Parse("11111111-1111-1111-1111-111111111111");

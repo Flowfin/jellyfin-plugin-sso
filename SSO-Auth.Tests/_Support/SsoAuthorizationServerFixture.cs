@@ -53,27 +53,12 @@ public static class TestRoles
     public const string Admin = "admin";
 }
 
-/// <summary>
-/// Hosts the real <see cref="SSOController"/> in an in-process Kestrel server so the
-/// <c>[Authorize(Policy = Policies.RequiresElevation)]</c> attributes on the production endpoints are
-/// enforced by the genuine ASP.NET Core routing + authentication + authorization middleware - the same
-/// pipeline that runs inside Jellyfin - rather than merely asserted present by reflection.
-///
-/// What is REAL here (not mocked away):
-///   * the production controller type, loaded via <c>AddApplicationPart</c> over the shipped assembly;
-///   * its <c>[Authorize]</c> / <c>[Authorize(RequiresElevation)]</c> attributes;
-///   * ASP.NET Core's attribute routing, authentication challenge, and the authorization middleware that
-///     reads those attributes and rejects a caller (401/403) BEFORE the action body (and its model binding)
-///     ever runs.
-///
-/// What the FIXTURE supplies (the host's responsibility inside Jellyfin, not the plugin's):
-///   * a test authentication scheme keyed off the <see cref="TestRoles.Header"/> header, and
-///   * the <see cref="Policies.RequiresElevation"/> policy registered to require an authenticated caller
-///     in the "Administrator" role - mirroring Jellyfin's own RequiresElevation handler
-///     (<c>context.User.IsInRole(UserRoles.Administrator)</c>). The plugin's contract is only that it marks
-///     these endpoints with the attribute and relies on the host to enforce it; this fixture stands in for
-///     that host so the enforcement path is exercised end to end.
-/// </summary>
+/// <summary>Hosts the real <see cref="SSOController"/> in an in-process Kestrel server, so the authorization attributes on the production endpoints are enforced by the genuine ASP.NET Core pipeline rather than asserted present by reflection.</summary>
+/// <remarks>
+/// Real here: the shipped controller assembly loaded through <c>AddApplicationPart</c>, its authorization attributes, and the routing, authentication and
+/// authorization middleware that rejects a caller before the action body runs. Supplied here, because inside Jellyfin it is the responsibility of the host: a test
+/// authentication scheme keyed off <see cref="TestRoles.Header"/>, and <see cref="Policies.RequiresElevation"/> registered to require the Administrator role.
+/// </remarks>
 public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
 {
     private readonly WebApplication _app;
@@ -187,28 +172,12 @@ public sealed class SsoAuthorizationServerFixture : IAsyncDisposable
     /// <summary>The role name Jellyfin grants administrators; the elevation policy requires it.</summary>
     internal const string AdministratorRole = "Administrator";
 
-    /// <summary>
-    /// Resolves the caller to a real host user so the bare-<c>[Authorize]</c> canonical-link endpoints, which
-    /// run an in-body owner check (<see cref="Jellyfin.Plugin.SSO_Auth.Api.Http.RequestHelpers.AssertCanUpdateUser"/>),
-    /// pass that check and reach their action bodies. That check is orthogonal to the MIDDLEWARE authorization
-    /// stage these tests target: it is covered directly by <c>RequestHelpersTests</c>. Leaving the caller
-    /// unresolved would make the helper deny (a clean 403) and make an in-body denial indistinguishable from a
-    /// mistaken elevation-gate; seeding an administrator with preference access isolates these tests to the
-    /// middleware so any remaining 401/403 is genuinely the attribute pipeline's doing.
-    /// <para>
-    /// IT ANSWERS PER REQUEST, AND THAT IS WHAT MAKES A ROUTE WITHOUT AN ATTRIBUTE TESTABLE HERE. It returned
-    /// one fixed resolved administrator for every request regardless of what the request carried, which was
-    /// harmless while every endpoint this host is walked over sat behind an attribute: the middleware refused
-    /// a credential-less caller before any action body could consult this collaborator. It stopped being
-    /// harmless when a route began refusing in its own body - a credential-less request at such a route was
-    /// handed a resolved administrator and ran to completion, so the suite reported the in-body gate open and
-    /// could not have reported anything else. Measured before this changed: an unauthenticated
-    /// <c>GET /SSO/OID/logout/{provider}</c> through this pipeline answered 302, and deleting the route's
-    /// refusal altogether reddened no row in this class. The credential a request carries here is the
-    /// <see cref="TestRoles.Header"/> header the scheme below reads, so this mirrors the host in the one
-    /// respect that matters: no credential resolves no user.
-    /// </para>
-    /// </summary>
+    /// <summary>Resolves the caller to a real host user, so the bare-<c>[Authorize]</c> canonical-link endpoints reach their action bodies instead of failing an in-body owner check.</summary>
+    /// <remarks>
+    /// That check is the subject of <c>RequestHelpersTests</c>, and leaving the caller unresolved would make an in-body denial indistinguishable from a mistaken
+    /// elevation gate. It answers per request rather than handing out one fixed administrator, because a route that refuses in its own body would otherwise be
+    /// reported open and could not be reported otherwise. The credential here is the <see cref="TestRoles.Header"/> header, so no credential resolves no user.
+    /// </remarks>
     private static IAuthorizationContext BuildAuthorizationContext()
     {
         var hostUser = new User("test-caller", "SSO-Auth", "Default") { EnableUserPreferenceAccess = true };

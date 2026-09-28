@@ -20,25 +20,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Named provisioning profiles (#1105): a provisioning template (#1099/#1100) stops being one inline block
-/// per provider and can instead live in the configuration under a name that several providers point at.
-/// <para>
-/// Two properties are what make this safe rather than merely convenient, and both are pinned here. The first
-/// is that a profile is judged by exactly the checks an inline template is - a profile naming
-/// <c>IsDisabled</c> or <c>IsAdministrator</c> is refused at save, so the new surface is not a second,
-/// unaudited route to the permissions the plugin guards hardest. The second is that the resolution is
-/// one-way: a name that resolves to nothing writes NO policy and does not fall back to the inline template,
-/// so a configuration edited by hand around the validator can never hand a brand-new account the very
-/// permission set the administrator replaced.
-/// </para>
-/// <para>
-/// The third is a compatibility one. A provider that names no profile keeps its inline template, which is
-/// every provider written before this existed, and
-/// <see cref="AConfigWrittenBeforeProfilesExisted_LoadsAndProvisionsUnchanged"/> is what would go red if
-/// that stopped being true.
-/// </para>
-/// </summary>
+/// <summary>Named provisioning profiles (#1105): a provisioning template stops being one inline block per provider and can live in the configuration under a name that several providers point at.</summary>
+/// <remarks>
+/// A profile is judged by exactly the checks an inline template is, so the new surface is not a second
+/// unaudited route to the permissions the plugin guards hardest, and the resolution is one-way, so a name
+/// that resolves to nothing writes no policy rather than falling back to the template the administrator
+/// replaced. A provider that names no profile keeps its inline template, which
+/// <see cref="AConfigWrittenBeforeProfilesExisted_LoadsAndProvisionsUnchanged"/> holds.
+/// </remarks>
 public class ProvisioningProfileTests
 {
     private static readonly Guid Created = Guid.Parse("44444444-4444-4444-4444-444444444444");

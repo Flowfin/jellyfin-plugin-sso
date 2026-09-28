@@ -14,19 +14,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins what every id_token read route does with a payload that names one claim TWICE (#1192). The plugin
-/// reads four claims out of the raw, signature-verified id_token through their own readers -
-/// <see cref="OidcResponseIssuer.IdTokenIssuer"/> for <c>iss</c>, <see cref="OidcIdTokenSid"/>,
-/// <see cref="OidcIdTokenAcr"/> and <see cref="OidcIdTokenAuthTime"/> - while the validated principal is
-/// built from the same bytes by the JWT library. Each reader takes the LAST match out of a claim
-/// collection it did not build, so whether the routes can be made to disagree is a property of that
-/// library and not of any code here. It is read rather than assumed.
-///
-/// Nothing in this file guards anything. It records the posture, so that a dependency bump that changes
-/// how a repeated member is folded fails here, at a row that says what the old behaviour was, rather than
-/// showing up as a step-up gate and a logout key that disagree about which session was authenticated.
-/// </summary>
+/// <summary>Pins what every id_token read route does with a payload that names one claim twice (#1192).</summary>
+/// <remarks>
+/// Four claims are read out of the raw, signature-verified token through their own readers, while the
+/// validated principal is built from the same bytes by the JWT library; each reader takes the last match out
+/// of a collection it did not build, so whether the routes can be made to disagree is a property of that
+/// library and is read rather than assumed. Nothing here guards anything: it records the posture, so a
+/// dependency bump that changes the folding fails at a row that says what the old behaviour was, rather than
+/// showing up as a step-up gate and a logout key disagreeing about which session was authenticated.
+/// </remarks>
 public sealed class OidcIdTokenDuplicateClaimTests : IDisposable
 {
     private const string Issuer = "https://idp.example.test";

@@ -26,22 +26,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The provisioning half of guest/trial access (#1146): a role-mapped duration becomes a deadline on the
-/// canonical link, stamped ONCE, at the moment the account is created, and never again.
-/// <para>
-/// The stamped-once rule carries the whole feature. A deadline re-anchored on every login would move forward
-/// faster than it is reached for anyone who keeps using their account, so a "24-hour trial" would in practice
-/// be unlimited access for exactly the users a time limit exists to bound - and nothing would look wrong:
-/// the account stays enabled, the map stays populated, and the sweep simply never finds a due entry.
-/// <see cref="ASecondLoginDaysLater_LeavesTheRecordedDeadlineExactlyWhereItWas"/> is the row that refuses it.
-/// </para>
-/// <para>
-/// Enforcement is deliberately absent from this file. The deadline this writes is read by the between-logins
-/// sweep (#1145) and by the login-time gate (#1144), both already covered by their own suites; what is new
-/// here is only where the instant comes from.
-/// </para>
-/// </summary>
+/// <summary>The provisioning half of guest and trial access (#1146): a role-mapped duration becomes a deadline on the canonical link, stamped once at account creation and never again.</summary>
+/// <remarks>
+/// A deadline re-anchored on every login would move forward faster than it is reached for anyone who keeps
+/// using the account, so a day-long trial would be unlimited access for exactly the users a time limit
+/// bounds, and nothing would look wrong;
+/// <see cref="ASecondLoginDaysLater_LeavesTheRecordedDeadlineExactlyWhereItWas"/> refuses it. Enforcement is
+/// deliberately absent here, because the sweep (#1145) and the login-time gate (#1144) have their own suites.
+/// </remarks>
 public class GuestAccessDurationProvisioningTests
 {
     private const string Subject = "sub-guest";

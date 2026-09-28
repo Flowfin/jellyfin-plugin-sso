@@ -363,23 +363,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void ProfileFillGuard_IsWrittenOnlyWhereAFillIsActuallyStarted()
     {
-        // The guard the rule below pins is a field on ONE shared object, and since #1527 that object serves
-        // five pages of a single-page application rather than one page: it is created when the core module
-        // is first imported and it outlives every tab change. So the question "does the save wait on it" is
-        // no longer the whole property - "who may write it" is the other half, and the rule below cannot
-        // see that half because it reads only the two functions it is about.
-        //
-        // WHAT WENT WRONG WHILE THAT HALF WAS UNREAD. populateProvisioningProfiles runs on every page, and
-        // its no-editor branch set the guard to a resolved TRUE, reasoning that a page with no editor has
-        // no fill in flight. Four pages that can never save a profile were therefore overwriting the guard
-        // of the one page that can, always toward "go ahead": open Policies while another tab's
-        // configuration fetch is still outstanding, let that fetch land after Policies has assigned its own
-        // fill, and a Save in that window writes the profile with its permission rows not yet re-rendered -
-        // every grant and deny gone, under a success message.
-        //
-        // The rule is therefore about the COUNT of writers rather than their content: exactly one
-        // assignment in the function that fills the editor, and it must sit after the presence check that
-        // establishes there is an editor to fill.
+        // The guard is a field on one shared object that outlives every tab change since #1527, so who may
+        // write it is half the property and the rule below reads only the two functions it is about. The
+        // no-editor branch of populateProvisioningProfiles set the guard to a resolved true on four pages that
+        // can never save a profile, so a Save could land with the permission rows not yet re-rendered and
+        // every grant gone under a success message. The rule is therefore about the count of writers: exactly
+        // one assignment, in the function that fills the editor, after the presence check.
         var js = ProvisioningTemplateScript();
         var body = ProvisioningTemplateFunctionBody(js, "populateProvisioningProfiles: (page, config) => {");
 

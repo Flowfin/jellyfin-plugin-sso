@@ -24,22 +24,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The bounded last-SSO-login stamp (#1120): where it is written, that it stays one entry per existing link
-/// rather than becoming an event log, that it is erased by every route that erases the link, and that the
-/// roster can tell "never" from an instant.
-/// <para>
-/// The boundedness is the whole review. The acceptance criterion this issue inherits is "no new unbounded PII
-/// store", and the design that satisfies it is one entry beside a link that already exists - so the tests
-/// below assert the cardinality directly (N logins, one entry) rather than trusting the shape of the code.
-/// </para>
-/// <para>
-/// The second property is a cost one, and it is a security property here rather than a performance nicety: an
-/// established user's repeat login pays no configuration persist today, and the file this would write on every
-/// login carries every provider secret envelope and every link map. <see cref="ASecondLoginInsideTheWindow_WritesNothing"/>
-/// is what refuses a write-through stamp sneaking back in.
-/// </para>
-/// </summary>
+/// <summary>The bounded last-SSO-login stamp (#1120): where it is written, that it stays one entry per existing link rather than becoming an event log, that every route erasing the link erases it, and that the roster tells never from an instant.</summary>
+/// <remarks>
+/// The acceptance criterion this inherits is no new unbounded PII store, so the tests assert the cardinality
+/// directly rather than trusting the shape of the code. The second property is a cost one and is a security
+/// property here: a repeat login pays no configuration persist, and the file this would write on every login
+/// carries every provider secret envelope and every link map, which
+/// <see cref="ASecondLoginInsideTheWindow_WritesNothing"/> refuses a write-through stamp for.
+/// </remarks>
 public class LastSsoLoginStampTests
 {
     private static readonly Guid User = Guid.Parse("22222222-2222-2222-2222-222222222222");

@@ -19,26 +19,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// End-to-end OpenID round-trip tests (#192, layer 3) that drive the FULL plugin login flow -
-/// <c>OidChallenge</c> → <c>OidCallback</c> → <c>OidAuth</c> - against a self-consistent in-test identity
-/// provider, with NO test-seeded state. Unlike <see cref="SSOControllerOidAuthTests"/> (which seeds a
-/// Ready state directly) and <see cref="SSOControllerOidPostTests"/> (whose callback tests seed the
-/// Pending state via <c>ArrangeCallback</c>), here the state token, the PKCE <c>code_verifier</c>, and the
-/// browser-binding cookie are all minted by the real challenge leg and carried through the redeem - so the
-/// test proves those three legs agree on the exact values that pass between them, browser aside.
-///
-/// The fake IdP is the existing <see cref="OidcTokenFixture"/> (discovery document + JWKS + token endpoint
-/// returning a real signed id_token), served in-process through <see cref="SsoControllerHarness"/>'s stub
-/// HTTP responder - no new provider fake is introduced, since that fixture already IS a complete,
-/// self-consistent OIDC provider surface.
-///
-/// The happy path asserts a valid signed id_token yields a logged-in outcome (an <see cref="OkObjectResult"/>
-/// with the account provisioned exactly once). The negative round-trip signs the id_token with a key that
-/// does NOT match the JWKS the same IdP advertises, so the real <see cref="OidcIdTokenValidator"/> rejects
-/// it on signature - the callback fails closed with a 400 and the state is never promoted, so the redeem
-/// mints nothing.
-/// </summary>
+/// <summary>End-to-end OpenID round-trip tests (#192) that drive the full login flow against a self-consistent in-test identity provider with no test-seeded state.</summary>
+/// <remarks>
+/// The state token, the PKCE verifier and the browser-binding cookie are all minted by the real challenge leg
+/// and carried through the redeem, so the three legs are proven to agree on the values that pass between
+/// them; the neighbouring suites seed one of those states directly. The provider is the existing
+/// <see cref="OidcTokenFixture"/> served in process. The negative round trip signs the id_token with a key
+/// the same provider does not advertise, so the callback fails closed and the state is never promoted.
+/// </remarks>
 [Collection("SSOController")]
 public class OidcRoundTripTests
 {
@@ -365,26 +353,13 @@ public class OidcRoundTripTests
     [Fact]
     public async Task Challenge_SendsNoNonce_AndBindsTheCodeWithPkceS256()
     {
-        // The recorded answer to #1157, held by a test rather than by a sentence, because the two halves
-        // only mean something together.
-        //
-        // This plugin's code flow sends NO authentication-request nonce. Every nonce in the source is a
-        // different thing - the CSP nonce on the interstitial page, the AES-GCM nonce in the secret
-        // envelope, and the logout_token's PROHIBITION under OIDC Back-Channel Logout 2.4 - and none of
-        // them is this one. The authorize request is built by the pinned Duende.IdentityModel.OidcClient,
-        // so what it emits is a property of that package rather than of this repository, and this row
-        // measures it on the real challenge leg instead of quoting a plan comment about the version.
-        //
-        // OIDC Core 1.0 3.1.3.7 rule 11 requires nonce validation only when a nonce was sent, so with none
-        // sent, "missing nonce", "echoed-but-unbound nonce" and "nonce from another request" are assertions
-        // with no subject. What binds the code to this browser instead is PKCE S256 (RFC 9700 2.1.1), which
-        // is the second half asserted here: the pair is the guard, and a row asserting only the absence
-        // would be satisfied by a challenge that bound the code with nothing at all.
-        //
-        // WHAT MAKES THIS WORTH ITS LINE is the day it fails. A nonce appearing on the authorize request
-        // with no validator on the callback is the roadiz shape (CVE-2026-42206): generated, never checked,
-        // and worse than absent because it reads as a control. This row goes red on that day, and its
-        // failure is the signal to build the negatives rather than to relax the assertion.
+        // The recorded answer to #1157, held by a test rather than by a sentence, because the two halves only
+        // mean something together. This code flow sends no authentication-request nonce: every nonce in the
+        // source is a different thing, and the authorize request is built by the pinned client library, so
+        // this row measures what it emits on the real challenge leg. OIDC Core requires nonce validation only
+        // when a nonce was sent, so the nonce assertions have no subject; what binds the code to this browser
+        // is PKCE S256, which is the second half asserted here. The day a nonce appears with no validator on
+        // the callback, this row goes red, and that is the signal to build the negatives.
         using var fixture = new OidcTokenFixture(Authority, "jf");
         var harness = OidcRoundTrip.BuildHarness(fixture, request => OidcRoundTrip.ServeIdp(fixture, request, fixture.IdToken("sub-1", "alice")));
 

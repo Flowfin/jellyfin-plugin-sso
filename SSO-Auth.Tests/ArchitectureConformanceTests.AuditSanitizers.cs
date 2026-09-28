@@ -20,17 +20,9 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </content>
 public partial class ArchitectureConformanceTests
 {
-    // The values a line prints EXACTLY on purpose, because the plugin composed them for itself and the exact
-    // text is the actionable content of the entry. The unreadable-configuration lines tell an operator which
-    // file to move out of the way, and the declarative-write lines tell them which mounted document to edit;
-    // a data directory whose name carries a bracket would otherwise be named as a path that does not exist,
-    // in the one line written for a total lockout. No untrusted party can write any of them, so the bracket
-    // substitution buys nothing here and costs the whole point of the line.
-    //
-    // composedRefusal is the one value of a different kind (#1566): a sentence this plugin composed whose
-    // foreign parts were substituted where they entered it, in LinkImport.Describe and
-    // OidcConfiguredIssuer.Echo. Substituting the sentence whole rewrote the plugin's own "[truncated]"
-    // marker, so the log disagreed with the answer on the wire about one refusal.
+    // Lines this plugin composed for itself, where the exact text is the actionable content and no untrusted
+    // party can write it; composedRefusal is the sentence whose foreign parts were already substituted where
+    // they entered it, so substituting it whole would rewrite the plugin own truncation marker (#1566).
     private static readonly string[] AuditValuesPrintedExactly =
     {
         "configurationFilePath",
@@ -48,18 +40,10 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void EveryForeignValueTheAuditTrailPrints_CarriesBothInlineSanitizers()
     {
-        // The property this locks in is #1555's, and the reason it is a conformance rule rather than a row
-        // per emitter is the count: the trail has ~30 entries and around 68 sanitized arguments, of which a
-        // test driving a forging payload can realistically cover two or three. Everything else could lose
-        // the substitution - or arrive without it, in an entry added next month - with the whole suite
-        // green, which is precisely the state the issue found the file in for the line-ending strip's
-        // younger sibling.
-        //
-        // It reads the SOURCE rather than reflecting over the assembly on purpose. The rule is about the
-        // expression being written inline at the logging call, because the sanitizer that CodeQL's
-        // cs/log-forging taint tracking can see is the one in the argument list; a compiled method body
-        // cannot answer that question, and a helper doing the same work would satisfy reflection while
-        // breaking the property the repo keeps this shape for.
+        // A conformance rule rather than a row per emitter, because a payload-driven test reaches two or three
+        // of around 68 sanitized arguments and the rest could lose the substitution with the suite green
+        // (#1555). It reads the source, because the sanitizer cs/log-forging can see is the one written inline
+        // in the argument list, and a helper doing the same work would satisfy reflection while breaking that.
         var path = Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Audit", "SsoAudit.cs");
         var offenders = new List<string>();
 
@@ -120,36 +104,13 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void EveryForeignValueAnyPluginLogLinePrints_CarriesBothInlineSanitizers()
     {
-        // #1557. The emitter rule above makes the audit trail's OWN entries sound and stops there; the thing an
-        // operator actually searches is the whole log file, and an ordinary plugin line carrying a foreign
-        // value under the line-ending strip alone still hands an unanchored search a record the emitter never
-        // wrote. The OpenID callback error is the one reachable without any credential: `error_description`
-        // is attacker-chosen on a crafted redirect, and it was rendered verbatim on one physical line.
-        //
-        // The rule therefore holds over EVERY logging call in the plugin, not one file: inside a
-        // `.Log<Level>(...)` argument list, each line-ending strip carries the bracket substitution right
-        // behind it, so no line can be added next month with the older sibling alone. The population is
-        // derived from the source rather than listed, and the exact-print exemption is the same list the
-        // emitter rule uses, for the same reason: those are paths this server composed for itself.
-        //
-        // WHAT THE RULE CAN SEE IS THE VALUE ALREADY MARKED FOREIGN BY THE STRIP. A value logged with no
-        // sanitizer at all is not this rule's subject and never was: that is CodeQL's cs/log-forging query,
-        // which is why both sanitizers stay spelled out inline at the call rather than behind a helper.
-        //
-        // WHY THAT RESIDUAL IS NOT CLOSED BY WIDENING THIS RULE (#1564), measured rather than supposed. On 4.4
-        // at 0c32770c the tree held 127 logging calls with 219 arguments past the template: 128 carried both
-        // sanitizers, 16 the strip alone (every one of them named in AuditValuesPrintedExactly), and 71 neither.
-        // Of the 71, every string-typed value is the plugin's own - a protocol label, a reason code, an enum
-        // token, a constant sentence, an embedded resource path, a record whose ToString redacts itself - and
-        // the rest are counts, booleans, Guids and durations. The one foreign value among them is the repeated
-        // JSON member name in RepeatedMemberScreen, neutralised by hand and pinned by its own payload row. What
-        // separates a constant label from a foreign name is the value's type and where it came from, and
-        // neither is in the text of one argument, so a widened text rule would refuse the 71 and pass the
-        // seventy-second the moment it looked like a label. A semantic pass could tell them apart, at the
-        // cost of compiling the plugin inside this test; the population it would guard is a dozen
-        // string-valued arguments, and that price was not paid. The census is reproduced by counting the
-        // arguments inside LoggingCallSpans the way this rule does and sorting them by whether they contain
-        // LineEndingSanitizer and RecordMarkerSanitizer; the classification of the 71 was by hand.
+        // #1557. The emitter rule above makes the audit entries sound; an ordinary plugin line carrying a
+        // foreign value under the line-ending strip alone still hands an unanchored search a forged record, and
+        // the OpenID callback error_description is reachable with no credential. So the rule holds over every
+        // logging call: each strip carries the bracket substitution behind it, the population is derived from
+        // the source, and the exact-print exemption is the emitter list. A value logged with no sanitizer at
+        // all is cs/log-forging subject rather than this rule. Why the residual is not closed by widening it,
+        // with the census: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/issues/1564"/>.
         var offenders = new List<string>();
         var strips = 0;
 

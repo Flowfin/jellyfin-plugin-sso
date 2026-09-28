@@ -6,19 +6,11 @@ using System.IO;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// One directory per test run, owned by the suite, for the tests that write real files - today the
-/// secret-store key blobs (#1218). They used to be written straight into <c>Path.GetTempPath()</c>, which
-/// every process on the machine shares and several things sweep; a key file removed between the write and
-/// the read that follows it produced eighteen red tests in two of five consecutive runs of one unchanged
-/// binary, all of them in the classes whose purpose is to prove secrets fail closed.
-/// <para>
-/// A suite-owned subdirectory does not make the files un-deletable, and nothing here claims it does: what
-/// it removes is the exposure to a sweep aimed at the SHARED directory, and it makes the lifetime the
-/// suite's own - the directory is created once per process and removed when the process ends, rather than
-/// leaving a key blob per test behind for something else to tidy up.
-/// </para>
-/// </summary>
+/// <summary>One directory per test run, owned by the suite, for the tests that write real files (#1218).</summary>
+/// <remarks>
+/// Key blobs written straight into the shared <c>Path.GetTempPath()</c> were swept between a write and the read after it. A suite-owned subdirectory does not make
+/// the files un-deletable; it removes the exposure to a sweep aimed at the shared directory and makes the lifetime that of the suite.
+/// </remarks>
 internal static class SuiteTempFiles
 {
     // Created on first use rather than in a static constructor, so a run that touches none of these tests

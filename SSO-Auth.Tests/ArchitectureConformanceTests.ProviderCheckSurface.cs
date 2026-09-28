@@ -138,17 +138,11 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void TheReadinessRail_IsAddressedByIdsTheProvidersPageCarries()
     {
-        // The readiness panel used to be a section inside each provider form and is now one list in the
-        // rail (#1664), so ONE id carries what two used to. sso-core.js reaches it through a named
-        // constant rather than a literal selector, which is deliberate - both protocol specs point at the
-        // same list and a second spelling would be a second place for them to disagree - and it is exactly
-        // the shape tools/ui-mock-fields.js refuses to read: that reader skips a concatenated selector on
-        // purpose, so nothing else in this tree names the id at all.
-        //
-        // WHAT THAT COSTS IF NOBODY PINS IT. railReadiness returns at its own guard when the list is
-        // missing, and the forms no longer carry panels to fall back on, so renaming the element takes
-        // readiness off the page in silence - no error, no empty panel, just a card that never answers.
-        // The rule above exists for the same failure on the aggregate check and says why in full.
+        // The readiness panel is one list in the rail since #1664, reached through a named constant rather
+        // than a literal selector, so the two protocol specs cannot disagree about its spelling; that shape is
+        // also the one tools/ui-mock-fields.js skips, so nothing else names the id. Renaming the element would
+        // take readiness off the page in silence, because railReadiness returns at its own guard and no form
+        // carries a panel to fall back on.
         var js = ConfigJs();
         var providers = WebAssets.Page("providersPage.html");
 

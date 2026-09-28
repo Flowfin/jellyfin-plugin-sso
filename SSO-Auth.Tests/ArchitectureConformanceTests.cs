@@ -31,29 +31,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Architecture-conformance fitness functions for the target architecture planned in #318. These run as
-/// part of the ordinary test suite, so every PR is checked - a change that drifts from the agreed
-/// structure fails CI. The rules encode structural invariants that hold today and are part of the target;
-/// as each migration step lands a new structural property, add the rule that locks it in here so it
-/// cannot regress. Most rules are type-level (reflection over the production assembly); call-level
-/// invariants otherwise stay guarded by CodeQL and the pinning tests. Two call-level
-/// properties are locked in as source scans - the CONTROLLER touches no provider link map directly
-/// (<see cref="Controller_NeverTouchesProviderLinkMaps"/>) and no raw socket/DNS surface
-/// (<see cref="Controller_NeverTouchesRawSocketsOrDns"/>) - because the #372 extraction confines
-/// link-map access to CanonicalLinkService (the login/admin workflow) and ServerManagedFields.Preserve
-/// (the #157 server-managed re-injection the config tier owns), a boundary worth failing CI on, not just
-/// review; #383 retired the controller's last two inline re-injection sites into that shared Preserve, so
-/// the scan is now a plain zero-occurrence invariant on the controller. Both source scans discover EVERY
-/// controller source file from reflection (<see cref="ControllerSourceFiles"/>) rather than one hardcoded
-/// path, so the planned #318 controller split - into partial-class files or several controllers - cannot
-/// hide an endpoint from them, and each is sentinel-guarded against a vacuous pass: the file set must be
-/// non-empty, and the link-map scan pins its target property by reflection so a rename fails loudly (#388).
-/// The socket/DNS scan's markers are BCL identifiers rather than a token this codebase owns, so its
-/// sentinel instead pins the marker SET against the surface's legitimate home - AvatarService,
-/// AvatarUrlValidator, SsoRateLimiter - asserting at least one marker still matches real usage there,
-/// so a marker set that stops matching anything real fails loudly too (#444).
-/// </summary>
+/// <summary>Architecture-conformance fitness functions for the target architecture of #318, run as part of the ordinary suite so a change that drifts from the agreed structure fails CI.</summary>
+/// <remarks>
+/// Most rules are reflection over the production assembly; the call-level ones are source scans, because a
+/// call site is not visible in a compiled member. Every source scan discovers the controller files from
+/// reflection rather than a hardcoded path and is sentinel-guarded against a vacuous pass, by pinning either
+/// the scanned property or the marker set against its legitimate home (#388, #444). What each rule locks in
+/// is on the issue it names: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/issues/318"/>.
+/// </remarks>
 public partial class ArchitectureConformanceTests
 {
     private const string Root = "Jellyfin.Plugin.SSO_Auth";

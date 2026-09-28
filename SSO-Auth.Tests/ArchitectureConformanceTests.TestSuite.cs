@@ -52,21 +52,11 @@ public partial class ArchitectureConformanceTests
     // here, and the entry is spelled exactly as a call site spells it.
     private const string ScaffoldDoor = "OidcRoundTrip.BuildHarness";
 
-    // The third support type that swaps SSOPlugin.Instance, and the one this rule was blind to. The
-    // authorization fixture assigns the process-wide singleton in its constructor - `_ = new SSOPlugin(...)`
-    // in SsoAuthorizationServerFixture, which its own comment names as process-wide - without going through
-    // the harness, so neither seed above covers it and no `ForTests(` declaration in the production tree
-    // could ever produce it.
-    //
-    // What made it invisible is that a class picks the fixture up as a TYPE ARGUMENT rather than by calling
-    // anything: `IClassFixture<SsoAuthorizationServerFixture>` opens the door for that class, and the string
-    // it spells is the bare type name. So the entry is the type name, which is exactly how a call site
-    // spells this door, and it is why the ScaffoldDoor comment's reasoning applies here one step further out
-    // - the construction is not merely behind a support method, it is behind xUnit's own activation.
-    //
-    // Found while auditing the third cause #1444's Done-when names, state shared with another test. The
-    // suite is clean today: the fixture has exactly one user and that user is serialized. This entry is what
-    // keeps a second user from arriving unserialized without anything refusing it.
+    // The third support type that swaps SSOPlugin.Instance, and the one this rule was blind to: the
+    // authorization fixture assigns the process-wide singleton in its constructor without going through the
+    // harness, so no seed above covers it. It is invisible because a class picks the fixture up as a type
+    // argument rather than by calling anything, which is why the entry is the bare type name. The suite is
+    // clean today; the entry is what keeps a second unserialized user from arriving unrefused (#1444).
     private const string FixtureDoor = "SsoAuthorizationServerFixture";
 
     // A door no test names because it sits behind another one: a production reset hook opens it, so every
@@ -91,28 +81,15 @@ public partial class ArchitectureConformanceTests
         ["LogoutTicketService.ResetForTests"] = HarnessDoor,
     };
 
-    /// <summary>
-    /// Every test class that can reach a process-wide static sits in the serialized <c>SSOController</c>
-    /// collection. What it stops: two test classes outside that collection clearing the same static under
-    /// each other's one-time-use assertion, so a replay a validator must refuse is instead refused because a
-    /// neighbouring class had just cleared the cache, or accepted because it had just repopulated it. That
-    /// failure is intermittent, it lands on whichever class the runner happened to schedule alongside, and it
-    /// reads as flakiness rather than as a lost guard (#928 U4, #1171).
-    /// <para>
-    /// The set of doors is DERIVED from the production tree - every <c>internal static ... ForTests(</c>
-    /// declaration, keyed by the qualified name a call site spells, plus the harness type - so adding a hook
-    /// under <c>SSO-Auth/</c> adds a door here with no edit to this rule. Keying on the qualified name is not
-    /// cosmetic: three types declare <c>ResetReplaysForTests</c>, and a key of the bare method name would
-    /// collapse them into one door whose floor clears on any one of the three.
-    /// </para>
-    /// <para>
-    /// Each door carries its OWN floor. A single combined count is the conjunction defect this rule class
-    /// keeps reproducing: it clears on one door's population while another door is blind. The scan reads
-    /// <see cref="CodeLines(string)"/> only, so a door named in a comment is not a use, and it is sound to
-    /// read each file alone only because a test class cannot inherit its setup -
-    /// <see cref="NoTestClass_DeclaresABaseClass"/> is what holds that (#1172).
-    /// </para>
-    /// </summary>
+    /// <summary>Every test class that can reach a process-wide static sits in the serialized <c>SSOController</c> collection (#928 U4, #1171).</summary>
+    /// <remarks>
+    /// What it stops is two classes outside that collection clearing the same static under the one-time-use
+    /// assertion of the other, which lands on whichever class the runner scheduled alongside and reads as
+    /// flakiness rather than as a lost guard. The doors are derived from the production tree and keyed by the
+    /// qualified name a call site spells, because three types declare <c>ResetReplaysForTests</c> and a bare
+    /// method name would collapse them. Each door carries its own floor, and reading each file alone is sound
+    /// only because <see cref="NoTestClass_DeclaresABaseClass"/> holds (#1172).
+    /// </remarks>
     [Fact]
     public void EveryTestClassOpeningAProcessWideDoor_IsInTheNonParallelControllerCollection()
     {
@@ -176,19 +153,13 @@ public partial class ArchitectureConformanceTests
         }
     }
 
-    /// <summary>
-    /// The per-file decision of the rule above, fed synthetic source: one must-catch fixture and three
-    /// must-not-catch twins, each a single edit away from it and each falsifying a DIFFERENT conjunct of
-    /// the decision. Without the pair the rule is only ever observed passing on a clean tree, which is
-    /// indistinguishable from a scan that has gone blind (#1173).
-    /// <para>
-    /// Which twin moves under which mutation is not symmetric, and it follows from what the decision does.
-    /// It reports a file that is test-bearing, names a door, and is NOT serialized, so deleting the
-    /// collection check can only make it report MORE files: the offender was reported before that deletion
-    /// and still is, while the SERIALIZED twin goes from silent to reported. A mutation aimed at the
-    /// offender row would therefore change nothing observable and read as if the check had been proved.
-    /// </para>
-    /// </summary>
+    /// <summary>The per-file decision of the rule above, fed synthetic source: one must-catch fixture and three must-not-catch twins, each a single edit away and each falsifying a different conjunct (#1173).</summary>
+    /// <remarks>
+    /// Without the pair the rule is only ever observed passing on a clean tree, which is indistinguishable
+    /// from a scan that has gone blind. Which twin moves under which mutation is not symmetric: deleting the
+    /// collection check can only report more files, so a mutation aimed at the offender row would change
+    /// nothing observable and read as if the check had been proved.
+    /// </remarks>
     [Fact]
     public void NonParallelRule_PerFileDecision_ReportsTheOffenderAndSparesEachTwin()
     {
@@ -229,18 +200,13 @@ public partial class ArchitectureConformanceTests
         Assert.Empty(DoorsOpenedUnserialized(Fixture(string.Empty, call), doors));
     }
 
-    /// <summary>
-    /// The fixture door, proven on the shape it is actually opened in. The pair above drives the decision
-    /// through a door spelled as a CALL; this one is spelled as a TYPE ARGUMENT on a class declaration, and
-    /// the difference is the whole reason the seed was missing - a reader looking for the door hunts for a
-    /// statement inside a method and finds none.
-    /// <para>
-    /// The must-catch here is the change that was possible until this seed landed: a second class picking up
+    /// <summary>The fixture door, proven on the shape it is actually opened in: a type argument on a class declaration rather than a call inside a method.</summary>
+    /// <remarks>
+    /// The must-catch is the change that was possible until this seed landed, a second class picking up
     /// <see cref="SsoAuthorizationServerFixture"/> and forgetting the collection attribute, which puts two
-    /// classes in parallel over one <c>SSOPlugin.Instance</c> with nothing refusing it. Its twin is the same
-    /// class with the attribute, so what the assertion pair isolates is the serialization and not the naming.
-    /// </para>
-    /// </summary>
+    /// classes in parallel over one <c>SSOPlugin.Instance</c>. Its twin is the same class with the attribute,
+    /// so the pair isolates the serialization rather than the naming.
+    /// </remarks>
     [Fact]
     public void NonParallelRule_ReportsAClassTakingTheAuthorizationFixtureWithoutTheCollection()
     {

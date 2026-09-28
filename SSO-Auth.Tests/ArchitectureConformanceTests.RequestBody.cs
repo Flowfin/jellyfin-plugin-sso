@@ -46,32 +46,15 @@ public partial class ArchitectureConformanceTests
         "Request.Body", "EnableBuffering", "Request.Form", "ReadFormAsync",
     };
 
-    /// <summary>
-    /// The duplicate-key posture of the ASP.NET request-body boundary (#1033), and the artefact that holds
-    /// it: a request body is read ONCE, by the host's binder, and nothing in the plugin reads those bytes
-    /// again.
-    /// <para>
-    /// The plugin does not own the input formatter behind <c>[FromBody]</c>, so it does not get to decide
-    /// how a body naming one property twice is bound - every parser in the dependency set keeps the LAST
-    /// occurrence. What makes that safe is not the formatter. A repeated name becomes a vulnerability when
-    /// a validator reads one occurrence and a consumer reads another, and that split needs two readers of
-    /// one body. With one reader there is no second occurrence for anything to reach, whichever one the
-    /// formatter kept, so the posture holds without the plugin knowing which that is.
-    /// </para>
-    /// <para>
-    /// Rejecting a repeat at this boundary instead would ADD the second reader the defect needs, and it
-    /// could not be proved here: no test in this project loads the <c>System.Text.Json</c> the plugin binds
-    /// in production - the test process loads a 10.x on both target legs while the plugin binds the host's
-    /// copy - so an assertion about the formatter's behaviour would be measuring an assembly that never
-    /// runs. The property below needs no such assertion. It is a fact about this tree's source, and a
-    /// source scan decides it.
-    /// </para>
-    /// <para>
-    /// Stated at the boundary rather than per route, deliberately. The controller binds a body at ten
-    /// actions and <c>AuthResponse</c> at three of them; a posture written per route has to be restated
-    /// ten times and drifts, and deciding for three leaves the same crack open next door.
-    /// </para>
-    /// </summary>
+    /// <summary>The duplicate-key posture of the ASP.NET request-body boundary (#1033): a request body is read once, by the binder of the host, and nothing in the plugin reads those bytes again.</summary>
+    /// <remarks>
+    /// A repeated name becomes a vulnerability when a validator reads one occurrence and a consumer reads
+    /// another, and that split needs two readers, so with one reader the posture holds whichever occurrence
+    /// the formatter kept. Rejecting a repeat here would add the second reader the defect needs and could not
+    /// be proved, because no test in this project loads the System.Text.Json the plugin binds in production.
+    /// Stated at the boundary rather than per route, because ten actions bind a body and a per-route posture
+    /// drifts.
+    /// </remarks>
     [Fact]
     public void RequestBodies_AreReadOnceByTheHostBinder()
     {
@@ -146,34 +129,15 @@ internal static class Whatever
         Assert.False(HoldsASecondBodyRead(Source));
     }
 
-    /// <summary>
-    /// Every property of a type the host binds from a request body must be assignable by that binder
-    /// (#1517). A property the binder cannot set is not an error and not a warning: System.Text.Json skips
-    /// it and hands the action a document with that member missing, so the endpoint acts on less than was
-    /// posted and answers as though it acted on all of it.
-    /// <para>
-    /// This is the rule the account-link restore was missing. `LinkExportDocument.Links` was a get-only
-    /// collection, the whole payload was dropped, and `POST /sso/Config/Links/Import` answered 204 while
-    /// restoring nothing - a migration that looked complete and left every account unlinked. Nothing
-    /// caught it because every test of the importer built its document in process; the boundary the
-    /// operator posts across was crossed by no test at all.
-    /// </para>
-    /// <para>
-    /// A source scan decides this, like its neighbour above, rather than an assertion about the
-    /// formatter: the test process does not load the System.Text.Json the plugin binds in production. What
-    /// is checked is a fact about this tree - the reflected shape of the bound types - and it holds
-    /// whichever serializer the host brings, because no serializer can assign a property with no setter.
-    /// </para>
-    /// <para>
-    /// ONE DECLARED EXEMPTION, and it is narrower than "get-only". A member derived from the type's own
-    /// state carries nothing a poster could supply, so the binder skipping it drops nothing that was
-    /// posted: `OidConfig.OidSecretStored` says whether a secret is stored without carrying it (#1872), and
-    /// a posted value for it has no meaning the endpoint could act on. Such a member declares itself with
-    /// <see cref="System.ComponentModel.ReadOnlyAttribute"/> set to true, and only a member so declared is
-    /// passed over. A get-only member without the declaration is still the #1517 shape and is still refused,
-    /// which <see cref="UnassignableProperties_PassOverOnlyTheDeclaredReadOnlyMember"/> proves on a fixture.
-    /// </para>
-    /// </summary>
+    /// <summary>Every property of a type the host binds from a request body has to be assignable by that binder (#1517).</summary>
+    /// <remarks>
+    /// A property the binder cannot set is skipped rather than refused, so the endpoint acts on less than was
+    /// posted and answers as though it acted on all of it: a get-only <c>LinkExportDocument.Links</c> made the
+    /// link import answer 204 while restoring nothing. A source scan decides it, because the reflected shape
+    /// holds whichever serializer the host brings. One exemption, narrower than get-only: a member derived
+    /// from the own state of the type carries nothing a poster could supply and declares itself with
+    /// <see cref="System.ComponentModel.ReadOnlyAttribute"/> (#1872).
+    /// </remarks>
     [Fact]
     public void RequestBodyTypes_HaveNoPropertyTheBinderCannotAssign()
     {

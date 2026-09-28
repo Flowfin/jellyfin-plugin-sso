@@ -13,23 +13,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// End-to-end cover for #1521, one level above <see cref="ProviderConfigStoreTests"/>: those exercise the
-/// store against a persist delegate a test wrote, and these run the real one, so what is pinned here is
-/// the whole road to disk - <c>MutateConfiguration</c>, the store, the secret-protection bridge and the
-/// plugin base class - rather than the store's half of it.
-/// <para>
-/// The failure is the one a migration produces and nothing else does: the mutation is valid, the write is
-/// not. Measured on 2026-09-05, <c>BasePlugin&lt;T&gt;.UpdateConfiguration</c> assigns
-/// <c>Configuration</c> BEFORE it serializes, so a write that threw left the plugin running on settings
-/// that are not on disk - the live configuration ahead of the file that both imports promise is atomic.
-/// The plugin now writes through <c>SaveConfiguration</c>, which is the write alone.
-/// </para>
-/// <para>
-/// In the <c>SSOController</c> collection because constructing a plugin sets the static
-/// <see cref="SSOPlugin.Instance"/> every other test in that collection reads.
-/// </para>
-/// </summary>
+/// <summary>End-to-end cover for #1521, one level above <see cref="ProviderConfigStoreTests"/>: the whole road to disk rather than the half of it the store owns.</summary>
+/// <remarks>
+/// The failure is the one a migration produces and nothing else does, a valid mutation and a failed write.
+/// <c>BasePlugin.UpdateConfiguration</c> assigns the configuration before it serializes, so a write that threw
+/// left the plugin running on settings that are not on disk; the plugin now writes through
+/// <c>SaveConfiguration</c>, which is the write alone. In the <c>SSOController</c> collection, because
+/// constructing a plugin sets the static <see cref="SSOPlugin.Instance"/> that collection reads.
+/// </remarks>
 [Collection("SSOController")]
 public class FailedPersistTests
 {

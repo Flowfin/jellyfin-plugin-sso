@@ -9,30 +9,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The account-link backup crosses a JSON boundary that no other test in this suite crosses. Every
-/// <see cref="LinkImportTests"/> case hands <c>LinkImport.Apply</c> a document built in process, so the
-/// importer's refusals are all proven against an object that never went over the wire - while the endpoint
-/// an operator actually posts to receives one that did, bound by the host's serializer.
-///
-/// The two are not the same document. A get-only collection property is dropped by System.Text.Json, which
-/// turns the restore into a success that restores nothing: an audit line reading `0 link(s) rebound`, and
-/// an empty link table on a server whose administrator has just been told the migration worked. Silence is
-/// the whole danger here, so the property is pinned where the bytes are. The success that hid it was an
-/// HTTP 204 saying nothing at all; since #1520 it is a 200 carrying `"Restored": 0`, which is the same
-/// defect with one surface that would now show it.
-///
-/// <para>
-/// WHAT THIS BOUNDARY IS NOT is the endpoint's, and the difference is measured rather than assumed.
-/// These cases deserialize with <c>JsonDefaults.Options</c>, which is where Jellyfin declares its
-/// serializer defaults; the MVC input formatter the endpoint is actually bound by is configured FROM
-/// those and is not identical to them. A member spelled <c>links</c> binds nothing here and binds fine at
-/// the endpoint, read off a running 10.11.11 with this build installed - so the formatter is
-/// case-insensitive where these options are not. The property below survives that difference, because a
-/// property no serializer can assign is dropped by every one of them, and the endpoint behaviour itself
-/// was verified against a real server rather than inferred from here.
-/// </para>
-/// </summary>
+/// <summary>The account-link backup crosses a JSON boundary no other test in this suite crosses: every <see cref="LinkImportTests"/> case hands the importer a document built in process, while the endpoint an operator posts to receives one bound by the serializer of the host.</summary>
+/// <remarks>
+/// A get-only collection property is dropped by System.Text.Json, which turns the restore into a success that
+/// restores nothing, so the property is pinned where the bytes are; since #1520 the answer carries the count
+/// that would show it. This is not the endpoint boundary, measured rather than assumed: the MVC input
+/// formatter is configured from <c>JsonDefaults.Options</c> and is case-insensitive where these are not. The
+/// property survives that difference, because no serializer can assign a property with no setter.
+/// </remarks>
 public class LinkExportDocumentJsonTests
 {
     private static readonly Guid SourceBob = Guid.Parse("b0b00000-0000-0000-0000-000000000002");

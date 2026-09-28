@@ -92,21 +92,13 @@ public class SsoOnlyConfigImportTests
     [Fact]
     public async Task Import_RunsTheRealResolverInsideTheMutation_AndStillRefusesASealedBreakGlassAccount()
     {
-        // THE ONLY READ-INSIDE-A-MUTATION IN THE TREE, and every other case in this file stubs the resolver
-        // past it. The controller hands `DescribeBreakGlass` to `Apply` from inside `MutateConfiguration`,
-        // and since #1746 that resolver takes the configuration lock itself to ask whether the named
-        // account's password is one this plugin minted. The lock is reentrant today, so the nesting is an
-        // ordinary call - but a store that ever swapped it for a non-reentrant primitive would hang this
-        // route while holding the lock every login takes, and nothing else in the suite drives the real
-        // resolver through a real mutation.
-        //
-        // THE WAIT IS BOUNDED SO THAT REGRESSION ARRIVES AS A RED AND NOT AS A STALLED SUITE. A test that
-        // detects a deadlock by deadlocking reports it as the whole in-process run hanging until whatever
-        // is above it gives up, which names nothing; the bound turns it into one failing test naming a
-        // TimeoutException where an ArgumentException was expected. The budget is far above the work - the
-        // same body takes well under a second - so a loaded machine does not turn it into a flake. The
-        // mutation runs on another thread on purpose: what is being proved is that ONE thread may re-enter
-        // the lock, and a bounded wait is only possible from a thread that is not the one waiting.
+        // The only read-inside-a-mutation in the tree, and every other case in this file stubs the resolver
+        // past it: the controller hands the resolver to Apply from inside MutateConfiguration, and since #1746
+        // it takes the configuration lock itself. The lock is reentrant today, so a store that swapped it for
+        // a non-reentrant primitive would hang this route while holding the lock every login takes. The wait
+        // is bounded so a regression arrives as one failing test rather than as a stalled suite, the budget is
+        // far above the work, and the mutation runs on another thread, because a bounded wait is only possible
+        // from a thread that is not the one waiting.
         var root = new User("root", "SSO-Auth", "Default") { Id = RootId, Password = "hash-root" };
         root.AuthenticationProviderId = SsoAuthenticationProviders.DefaultPasswordProviderId;
         root.SetPermission(PermissionKind.IsAdministrator, true);

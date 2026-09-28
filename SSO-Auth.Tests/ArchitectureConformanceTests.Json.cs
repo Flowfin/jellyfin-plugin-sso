@@ -129,21 +129,14 @@ public partial class ArchitectureConformanceTests
         // unscreened read has a table to land in instead of a decision to re-open.
     };
 
-    /// <summary>
-    /// Holds the shipped plugin's JSON parse sites to a declared list, so a new one cannot appear without a
-    /// decision about the bytes it reads (#1005, #1187). Every site under <c>SSO-Auth/</c> is named in
-    /// exactly one of three tables: the reads reached only through the repeated-member screen, the reads
-    /// over bytes the plugin itself owns, and the reads that are neither - untrusted input parsed with no
-    /// screen in front of it. That third table is the point of the rule. A scan that only asked "is this
-    /// site allowlisted" would let an unscreened untrusted read be written into the trusted list and
-    /// disappear; here it has its own table, its own name and the issue that owes the decision.
-    /// <para>
-    /// The scan reads CODE lines only, through the same <see cref="CodeLinesOf"/> every other rule in this
-    /// file uses. The likeliest edit that defeats a call-site rule is removing the call and describing the
-    /// removal in a comment that still names it, which reads as diligence and would keep a whole-file text
-    /// search green (#1122).
-    /// </para>
-    /// </summary>
+    /// <summary>Holds the shipped plugin JSON parse sites to a declared list, so a new one cannot appear without a decision about the bytes it reads (#1005, #1187).</summary>
+    /// <remarks>
+    /// Every site is named in exactly one of three tables: the reads behind the repeated-member screen, the
+    /// reads over bytes the plugin owns, and the unscreened untrusted reads. The third table is the point,
+    /// because a plain allowlist would let such a read be written into the trusted list and disappear. The
+    /// scan reads code lines only, since the likeliest defeating edit removes the call and keeps its name in a
+    /// comment (#1122).
+    /// </remarks>
     [Fact]
     public void UntrustedJson_IsParsedOnlyThroughTheScreenedSeam()
     {

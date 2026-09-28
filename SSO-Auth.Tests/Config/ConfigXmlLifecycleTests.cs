@@ -14,18 +14,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Lifecycle coverage for the whole <see cref="PluginConfiguration"/> on-disk XML, through the same
-/// <see cref="XmlSerializer"/> the Jellyfin plugin base uses to persist and load config: a legacy config
-/// that predates newer elements loads with safe defaults, a config carrying UNKNOWN (forward-version)
-/// elements loads without failing, a populated multi-provider config round-trips losslessly, and a legacy
-/// plaintext secret survives the full deserialize → protect → serialize → deserialize → reveal disk cycle.
-/// The existing suites cover adjacent-but-different ground: <see cref="SerializableDictionarySerializationTests"/>
-/// pins the bare dictionary format, <see cref="ConfigPreservationTests"/> round-trips the individual
-/// SamlConfig/OidConfig types and their legacy element ORDER, and <see cref="ConfigSecretProtectionTests"/>
-/// pins the in-memory plaintext→envelope migration; none exercise the whole-configuration document nor the
-/// missing/unknown-element tolerance pinned here.
-/// </summary>
+/// <summary>Lifecycle coverage for the whole <see cref="PluginConfiguration"/> on-disk XML, through the same <see cref="XmlSerializer"/> the Jellyfin plugin base uses.</summary>
+/// <remarks>
+/// A legacy config loads with safe defaults, one carrying unknown forward-version elements loads without
+/// failing, a populated multi-provider config round-trips losslessly, and a legacy plaintext secret survives
+/// the full disk cycle. The adjacent suites cover the bare dictionary format, the individual provider types
+/// and their legacy element order, and the in-memory secret migration; none exercises the whole document.
+/// </remarks>
 public class ConfigXmlLifecycleTests
 {
     private static readonly Guid UserA = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -281,23 +276,13 @@ public class ConfigXmlLifecycleTests
     [Fact]
     public void GuestAccessDurationMappings_SurviveTheDiskCycle_AndStayVisibleToTheAdminSurface()
     {
-        // Two properties of the #1146 mapping, both of which fail SILENTLY if they are wrong, which is why
-        // they are pinned rather than read off the attributes.
-        //
-        // The first is that a populated mapping list survives the disk cycle at all, nested inside a
-        // provider inside the configuration document, rather than coming back null or empty.
-        //
-        // WHAT THIS DOES NOT COVER, measured rather than assumed: renaming the XmlArrayItem element does not
-        // redden it. Both halves of a round-trip read the same attribute, so a rename is self-consistent
-        // here and only breaks against a document written by an EARLIER build. That risk is nil while the
-        // element has never shipped, and it is the reason the comment on the neighbouring dictionary calls
-        // its element name load-bearing; nothing in this file can stand in for that.
-        //
-        // The second is the config-page save. The admin page rebuilds a provider from the object it fetched
-        // and overwrites only the fields it knows, so a field it does not know survives a save - but only
-        // while the server actually serializes it out. A [JsonIgnore] added here by analogy with the
-        // server-managed maps beside it would make the page fetch a provider without the mappings and post
-        // that back, erasing them on the next unrelated settings change.
+        // Two properties of the #1146 mapping, both of which fail silently if they are wrong. The first is
+        // that a populated mapping list survives the disk cycle nested inside a provider inside the document.
+        // Renaming the XmlArrayItem element does not redden that, measured rather than assumed, because both
+        // halves of a round-trip read the same attribute and only a document from an earlier build would
+        // disagree. The second is the config-page save: the page overwrites only the fields it knows, so a
+        // [JsonIgnore] added here by analogy with the server-managed maps would erase the mappings on the
+        // next unrelated settings change.
         var original = new PluginConfiguration();
         original.OidConfigs["kc"] = new OidConfig
         {

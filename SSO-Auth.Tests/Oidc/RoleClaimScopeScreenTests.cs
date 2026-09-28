@@ -16,25 +16,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The repeated-member screen on the role-claim path (#1324), phase 2 of #1053. That issue settled what an
-/// unreadable role claim means - it establishes nothing, so nothing the document says is used - and left the
-/// code to this one. The substance is the clause about the second parser: the round-2 finding on PR #1032 was
-/// not that an unreadable document produced no roles, it was that it produced "proceed" and the walk then fell
-/// through to Newtonsoft, which granted the attacker's last-occurrence roles.
-/// <para>
-/// The screen is narrowed to the object scopes the configured path enters, and that narrowing is an
-/// availability decision with a security bound. Every member of an entered scope is still compared, because
-/// which members the reader indexes inside a scope is not something the screen can know; but a repeat in a
-/// sibling the reader never opens is admitted, because it changes nothing the reader reads and refusing it
-/// would let an unrelated vendor extension in the provider's own claim deny every login.
-/// </para>
-/// <para>
-/// Every refusing row here has a control beside it - the same document without the repeat, resolving to a
-/// named role set. A screen that refused everything would satisfy the refusals on their own, and the price of
-/// this change is paid in logins, so a false refusal is the failure to guard against as much as a false pass.
-/// </para>
-/// </summary>
+/// <summary>The repeated-member screen on the role-claim path (#1324, phase 2 of #1053).</summary>
+/// <remarks>
+/// The substance is the clause about the second parser: an unreadable document produced proceed, and the walk
+/// then fell through to Newtonsoft, which granted the last-occurrence roles of the attacker. The screen is
+/// narrowed to the object scopes the configured path enters, which is an availability decision with a
+/// security bound: every member of an entered scope is compared, because which members the reader indexes is
+/// not something the screen can know, while a repeat in a sibling the reader never opens is admitted. Every
+/// refusing row has a control beside it, because the price of this change is paid in logins.
+/// </remarks>
 public class RoleClaimScopeScreenTests
 {
     // The paths the rows are read along. Segment 0 names the claim; the rest is the walk into its value.

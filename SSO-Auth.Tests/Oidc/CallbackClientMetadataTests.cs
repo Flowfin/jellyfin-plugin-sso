@@ -8,27 +8,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Binds the repeated-member screen to the transport rather than to a call site (#1067).
-///
-/// Assigning <c>ProviderInformation</c> before <c>new OidcClient(options)</c> is what sets the library's
-/// internal use-discovery flag to false. A client built without it keeps discovery ENABLED and fetches the
-/// discovery document and the JWKS itself, through <c>options.HttpClientFactory</c> - which the screen is not
-/// on, because the screen lives inside <c>OidcDiscoveryReader.ReadAsync</c>. So the pre-assignment is not a
-/// performance detail: it is the only thing keeping the callback leg off an unscreened fetch. The same flag
-/// disables the library's <c>invalid_signature</c> JWKS-refresh-and-retry, so a second unscreened key fetch
-/// sits behind it.
-///
-/// The shape decided for this was to keep the screen where it is and require every construction site to
-/// pre-assign, rather than to move the screen onto <c>options.HttpClientFactory</c>. That factory also
-/// carries the token and UserInfo legs, and whether the screen belongs on those is an open scope question
-/// (#1069); moving it there would answer that question as a side effect of a bug fix.
-///
-/// What makes the decision hold is this rule and not the line it protects. One unconditional assignment is
-/// true of the code that exists; a rule is true of the code that arrives next. The behavioural half - that
-/// the callback leg performs no discovery of its own - is
-/// <c>OidcRoundTripTests.TheCallbackLegFetchesNoDiscoveryOfItsOwn</c>, on the real round trip.
-/// </summary>
+/// <summary>Binds the repeated-member screen to the transport rather than to a call site (#1067).</summary>
+/// <remarks>
+/// Assigning <c>ProviderInformation</c> before the client is constructed is what sets the internal
+/// use-discovery flag to false; a client built without it fetches discovery and the JWKS through a factory
+/// the screen is not on, and the same flag disables the JWKS-refresh retry behind it. The screen stays where
+/// it is and every construction site pre-assigns, rather than moving the screen onto that factory, which
+/// also carries the token and UserInfo legs and is an open scope question (#1069). The behavioural half is
+/// <c>OidcRoundTripTests.TheCallbackLegFetchesNoDiscoveryOfItsOwn</c>.
+/// </remarks>
 public class CallbackClientMetadataTests
 {
     [Fact]

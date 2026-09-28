@@ -37,54 +37,23 @@ namespace Jellyfin.Plugin.SSO_Auth.Tests;
 /// </content>
 public partial class ArchitectureConformanceTests
 {
-    // Routes whose action MUST call RateLimitCheck (#928 U2): the anonymous login-path endpoints
-    // (challenge / callback / auth for both protocols, SP metadata, inbound SAML logout) and the
-    // admin endpoints that drive an OUTBOUND fetch (the OpenID connection tester and SAML metadata
-    // import - an authenticated admin must not be able to spin the outbound probe unthrottled), plus
-    // the account-link and unregister mutations. Adding a route here without wiring the gate fails the
-    // test; the reverse - an unclassified NEW route - fails EverySensitiveRoute_IsClassified below.
-    // OID/logout/{provider} MOVED HERE FROM THE EXEMPT LIST IN #1768, and the move is the point rather
-    // than bookkeeping. That route lost its [Authorize] so a top-level navigation could reach it with a
-    // one-time ticket, so it calls the gate now, and the exempt entry that described it as "[Authorize]
-    // user logout" described neither half of it any more. IT IS NOT THE ONLY ROUTE HERE REACHABLE WITH NO
-    // CREDENTIAL THAT ENDS A SESSION, WHICH IS WHAT THIS COMMENT SAID: the inbound back-channel OpenID
-    // logout and the inbound SAML LogoutRequest are both on the roster above and both end sessions.
-    // WHERE the call sits is the half a membership
-    // list cannot say: the gate is charged on a FAILED redeem rather than at the head of the route, so a
-    // legitimate sign-out is never throttled while a failed redeem is charged for. The reason that
-    // asymmetry is load-bearing is at the call site: the limiter keys on the client ADDRESS, the default
-    // window equals the ticket lifetime, and a throttle at the head would let one source deny the ticket
-    // sign-out to everybody behind one public address with no credential at all.
+    // Routes whose action has to call RateLimitCheck (#928 U2): the anonymous login-path endpoints, the admin
+    // endpoints that drive an outbound fetch, and the account-link and unregister mutations. Adding a route
+    // here without wiring the gate fails this test, and an unclassified new route fails
+    // EverySensitiveRoute_IsClassified below. OID/logout/{provider} moved here from the exempt list in #1768
+    // when it lost its [Authorize]. Where the call sits is the half a membership list cannot say: that route
+    // charges on a failed redeem rather than at its head, because the limiter keys on the client address and a
+    // head throttle would deny the ticket sign-out to everybody behind one public address.
     private static readonly string[] MustThrottleRoutes =
     {
         "OID/logout/{provider}",
-        // The logout-ticket mint (#1768) MOVED HERE FROM THE EXEMPT LIST ON THE DECISION OF #1796, and the
-        // cost record the exemption carried moved with it rather than being deleted. The reason the exemption
-        // first gave was the self-logout's - a throttled sign-out is a session left live - and it was never
-        // this route's: a mint ends nothing, and a refused mint leaves nothing live. What the exemption then
-        // rested on was the ticket store's per-account sub-cap, which is an OCCUPANCY bound and not a rate:
-        // past its share an account may keep asking and each ask is still served, so the sub-cap protects the
-        // store and never this endpoint's cost. The decision puts a rate bound in front of that, in the
-        // Logout class the route it serves already charges, so a client in a loop is answered 429 before it
-        // has filled its own share with tickets nobody redeems. The gate sits after the authorization check,
-        // as the link surface's does, so a request the attribute refuses charges nothing.
-        //
-        // WHAT THE OCCUPANCY BOUND ACTUALLY BUYS, IN ITS OWN NUMBERS, because the rate bound is defence in
-        // depth and this is the hard limit behind it: the limiter is off unless EnableRateLimit is set, which
-        // a stock install does not set, and it keys on a public peer only, so behind an unresolved reverse
-        // proxy it makes no bucket, and on the shipped default this arithmetic is the whole statement of
-        // cost. The global ceiling is LogoutTicketStore.DefaultMaxEntries and one account's share is a
-        // PerClientBudgetLimiter.ShareDivisor-th of it, so it takes that many accounts holding a full share
-        // to fill the store, and while it is full every other account's mint is refused and their sign-out
-        // degrades to the local one, which leaves the provider session alive. A ticket lives for
-        // LogoutTicketStore.DefaultLifetime and the sweep that frees its slot runs at most once per
-        // LogoutTicketStore.DefaultPruneInterval, so a slot comes back within the sum of the two - as long
-        // as some request arrives to drive the sweep, because it is driven by a mint or a redeem and by no
-        // timer. Where the limiter IS on and the peer is public, the shipped budget closes before the share
-        // fills: the default RateLimitMaxAttempts is below the per-account share and the default window is
-        // the ticket lifetime, so the 429 arrives inside the minute the share would have taken. The row
-        // TheLogoutTicketCostRecord_ArithmeticIsWhatTheConstantsSay re-derives every figure named here, so a
-        // constant that moves reddens this paragraph instead of outliving it.
+        // The logout-ticket mint moved here from the exempt list on the decision of #1796, because the reason
+        // the exemption gave was the self-logout one and a refused mint leaves nothing live, while the store
+        // per-account sub-cap it then rested on is an occupancy bound rather than a rate. The gate sits after
+        // the authorization check, so a request the attribute refuses charges nothing. What the occupancy
+        // bound buys in its own numbers, and why the rate bound is defence in depth in front of it, is
+        // re-derived by TheLogoutTicketCostRecord_ArithmeticIsWhatTheConstantsSay, so a constant that moves
+        // reddens the row rather than outliving a paragraph: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/issues/1796"/>.
         "OID/logout-ticket/{provider}",
         "OID/r/{provider}", "OID/redirect/{provider}", "OID/p/{provider}", "OID/start/{provider}",
         "OID/Test/{provider}", "OID/Auth/{provider}", "OID/backchannel-logout/{provider}",
@@ -165,17 +134,11 @@ public partial class ArchitectureConformanceTests
         "i18n", // SSOViewsController: anonymous read-only UI-string catalog (#913), in-memory, no I/O, no login path
     };
 
-    // The SSO SIGN-IN routes, and only those: the two challenges, the two callbacks and the two
-    // authenticate legs. Each must refuse with 503 while the stored configuration could not be read
-    // (#1543), because a default configuration holds no provider and every one of them would otherwise
-    // answer that the provider is unknown - a true sentence about the wrong thing, which sends an operator
-    // hunting a deleted provider instead of a damaged file.
-    //
-    // What is NOT here is the boundary of the decision rather than an oversight. Logout must keep working
-    // (ending a session is safe with no configuration and is what a stranded user needs), the SP metadata
-    // and the admin doors must keep answering (they are how an administrator diagnoses and repairs this),
-    // and local Jellyfin sign-in is not this plugin's at all - which is what leaves a way in to repair,
-    // T-D1 on this surface.
+    // The SSO sign-in routes, and only those, refuse with 503 while the stored configuration could not be read
+    // (#1543): a default configuration holds no provider, so each would otherwise answer that the provider is
+    // unknown and send an operator hunting a deleted provider instead of a damaged file. What is absent is the
+    // boundary of the decision rather than an oversight: logout, the SP metadata and the admin doors keep
+    // answering, because they are how a stranded user ends a session and an administrator repairs the file.
     private static readonly string[] SignInRoutes =
     {
         "OID/p/{provider}", "OID/start/{provider}",
@@ -341,17 +304,12 @@ public partial class ArchitectureConformanceTests
             "These routes are listed in a rate-limit classification list but no longer exist on the controller - remove them: " + string.Join(", ", stale));
     }
 
-    // Every controller action as (its route templates, its method-body text): the body runs from an action's
-    // HTTP-attribute cluster to the next action's cluster, which is enough to see whether a RateLimitCheck
-    // statement is present ANYWHERE in the action. It read "the (always-first) RateLimitCheck statement"
-    // until #1768, and that stopped being true: OID/logout/{provider} charges the gate on each of its two
-    // anonymously reachable REFUSAL arms rather than at its head, because a head throttle there is spent by
-    // any request carrying any ticket string and would deny the ticket sign-out to everybody behind one
-    // public address. So the rule this feeds proves the wiring EXISTS and no longer proves WHERE; what
-    // holds the placement is SSOControllerLogoutTicketTests and the argument written at the call site.
-    // Stacked route attributes on one method (consecutive lines) are one
-    // action. Route-template source scan, in the ControllerSourceFiles idiom (#388) so a controller split
-    // cannot hide an endpoint.
+    // Every controller action as its route templates and its method-body text, the body running from one
+    // HTTP-attribute cluster to the next, which is enough to see whether a RateLimitCheck statement is present
+    // anywhere in the action. It proves the wiring exists and no longer proves where, because since #1768
+    // OID/logout/{provider} charges on its refusal arms rather than at its head; the placement is held by
+    // SSOControllerLogoutTicketTests and by the argument at the call site. Stacked route attributes on one
+    // method are one action, and the scan uses the ControllerSourceFiles idiom so a split hides no endpoint.
     private static IReadOnlyList<(IReadOnlyList<string> Routes, string Body)> ControllerActionBlocks()
     {
         var attr = new Regex(

@@ -8,19 +8,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// What happens to a login disclaimer that already holds an opening fence this version no longer writes
-/// (#1344). The fence is written into every installation's disclaimer and found again by an exact search on
-/// the next sync, so an edit to the literal that is MATCHED stops the plugin recognising its own region: it
-/// appends a second block beside the first, and no later action removes the first, because content outside
-/// the fences is an admin's own disclaimer and is preserved on purpose. A typographic pass over this tree
-/// made that edit and it shipped, so the state these tests describe can exist on disk.
-///
-/// The repair is that recognition reads only the stable token and never the parenthetical, so these tests
-/// pin BOTH directions: an old fence is still recognised, and a fence whose parenthetical is something
-/// nobody has written yet is recognised too. The second is what stops the next edit to that prose from
-/// costing another release.
-/// </summary>
+/// <summary>What happens to a login disclaimer that already holds an opening fence this version no longer writes (#1344).</summary>
+/// <remarks>
+/// The fence is written into every installation disclaimer and found again by an exact search on the next
+/// sync, so an edit to the matched literal stops the plugin recognising its own region: it appends a second
+/// block, and no later action removes the first, because content outside the fences is the own disclaimer of
+/// an administrator. The repair is that recognition reads only the stable token, so both directions are
+/// pinned: an old fence is still recognised, and so is one whose parenthetical nobody has written yet.
+/// </remarks>
 public class LoginButtonFenceUpgradeTests
 {
     // The literal as it stood before the typographic pass, with the one character that changed built from its

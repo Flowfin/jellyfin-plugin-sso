@@ -11,27 +11,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Drives the RP-initiated OpenID logout route over the wire, through the real ASP.NET Core routing,
-/// authentication and authorization pipeline hosted by <see cref="SsoAuthorizationServerFixture"/> (#1768).
-/// <para>
-/// WHY THESE ROWS ARE NOT THE ONES IN <c>SSOControllerLogoutTicketTests</c>. Those call the action in
-/// process with <c>IAuthorizationContext</c> substituted per row, which is the right shape for the ticket
-/// store's own properties and the wrong shape for the one property this route acquired when
-/// <c>[Authorize]</c> came off it. The attribute was enforced by middleware, ahead of the method; what
-/// replaced it runs inside the method and depends on what the host's authorization context answers for a
-/// request that carried nothing. A row that programs that answer itself has assumed the thing under test.
-/// Here the request is an HTTP request at a listening socket, routing selects the action, and the
-/// authorization context answers from what the request carried.
-/// </para>
-/// <para>
-/// WHAT WAS MEASURED BEFORE THESE ROWS EXISTED, because it is the reason they do. An unauthenticated
-/// GET at this route through this pipeline answered 302 - the action ran to completion for a request that
-/// carried nothing - and deleting the route's refusal reddened nothing in the suite that walks this host.
-/// The fixture's authorization context handed every request one fixed resolved administrator; it reads the
-/// request now, and the reason is written where it is built.
-/// </para>
-/// </summary>
+/// <summary>Drives the RP-initiated OpenID logout route over the wire, through the real routing, authentication and authorization pipeline of <see cref="SsoAuthorizationServerFixture"/> (#1768).</summary>
+/// <remarks>
+/// The rows in <c>SSOControllerLogoutTicketTests</c> call the action in process with the authorization
+/// context substituted per row, which is the right shape for the ticket store properties and the wrong shape
+/// for the property this route acquired when <c>[Authorize]</c> came off it: a row that programs that answer
+/// has assumed the thing under test. Before these rows existed, an unauthenticated GET here answered 302 and
+/// deleting the refusal of the route reddened nothing, because the fixture handed every request one fixed
+/// resolved administrator.
+/// </remarks>
 [Collection("SSOController")]
 public sealed class SSOControllerLogoutRoutingTests : IClassFixture<SsoAuthorizationServerFixture>
 {

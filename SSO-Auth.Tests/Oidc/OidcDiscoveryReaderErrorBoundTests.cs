@@ -15,24 +15,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Pins the bound on the provider-authored text in <see cref="OidcDiscoveryReader"/>'s fail-closed warning
-/// (#1194).
-///
-/// The value under test is NOT the plugin's. The library's error text quotes the URL it was connecting to,
-/// and on the JWKS leg the provider chose that URL: the discovery document named it in <c>jwks_uri</c>. So a
-/// hostile authorization server writes as much log as it likes, once per anonymous challenge, with nothing
-/// but the 1 MB response cap in the way. Measured before the bound existed: a document advertising a 200 KB
-/// <c>jwks_uri</c> produced a 205,042-character entry.
-///
-/// The screen's own refusal entry is a different call with its own bound, which is why the one here is not
-/// also applied there: it carries the repeated member name, cut at that call and neutralised there (#1195).
-/// The row below is this file's check that the two do not leave a gap between them.
-///
-/// Both directions are pinned, because a ceiling-only test passes against a bound tightened to a stub, and a
-/// stub would throw away the endpoint an operator reads the entry to find. The mutation each test kills is
-/// named on the test.
-/// </summary>
+/// <summary>Pins the bound on the provider-authored text in the fail-closed warning of <see cref="OidcDiscoveryReader"/> (#1194).</summary>
+/// <remarks>
+/// The value is not the own text of the plugin: the library error quotes the URL it was connecting to, and on
+/// the JWKS leg the provider chose that URL, so a hostile authorization server writes as much log as it
+/// likes, once per anonymous challenge, with only the response cap in the way; measured before the bound, a
+/// document advertising a 200 KB endpoint produced a 205,042-character entry. The own refusal entry of the
+/// screen is a different call with its own bound (#1195), and the row below checks the two leave no gap. Both
+/// directions are pinned, because a ceiling-only test passes against a bound tightened to a stub.
+/// </remarks>
 public class OidcDiscoveryReaderErrorBoundTests
 {
     private const string Authority = "https://idp-bound.example.com";

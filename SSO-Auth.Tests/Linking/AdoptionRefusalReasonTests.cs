@@ -10,23 +10,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="CanonicalLinkService.DescribeAdoptionRefusal"/> - the reason phrase the refusal
-/// line carries when a first SSO login is not allowed to adopt a same-named account (#218, #1765).
-/// <para>
-/// The administrator arm is the one that costs when it is vague. The rule it states is right and is not
-/// in question: an administrator account is never adopted by name, so a first SSO login cannot turn into
-/// administrator access. What the reader needs after it is a way in, and the phrase pointed at "the admin
-/// endpoints" - an API, named as a category - so the reporter on #1762 searched the documentation before
-/// finding the page that does it.
-/// </para>
-/// <para>
-/// These are contract tests on a message rather than on behaviour, and that is what they are for: the
-/// wording IS the deliverable of #1765, and nothing else in the suite would notice it changing back. The
-/// rule at the bottom binds the phrase to the log line an operator reads, so the contract cannot be kept
-/// while the line stops carrying it.
-/// </para>
-/// </summary>
+/// <summary>Tests for <see cref="CanonicalLinkService.DescribeAdoptionRefusal"/>, the reason phrase the refusal line carries when a first SSO login may not adopt a same-named account (#218, #1765).</summary>
+/// <remarks>
+/// The administrator arm is the one that costs when it is vague: the rule is right and not in question, but
+/// the reader needs a way in, and the phrase named an API as a category, so the reporter searched the
+/// documentation before finding the page that does it (#1762). These are contract tests on a message rather
+/// than on behaviour, because the wording is the deliverable and nothing else would notice it changing back;
+/// the rule at the bottom binds the phrase to the log line an operator reads.
+/// </remarks>
 public class AdoptionRefusalReasonTests
 {
     [Fact]

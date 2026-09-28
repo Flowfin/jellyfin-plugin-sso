@@ -12,19 +12,14 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// The logout/SLO twin of <see cref="SamlAttackShapeTests"/> (#1003). <c>SamlLogoutRequest</c> runs its OWN
-/// <see cref="System.Security.Cryptography.Xml.SignedXml"/> verification against a different document shape
-/// (the signed element is the <c>samlp:LogoutRequest</c> root; there is no assertion, no bearer confirmation,
-/// no audience), so the login path's hardening is not automatically the logout path's hardening - the two can
-/// drift silently. This battery re-runs the 2025/26 vectors against it so a divergence fails here rather than
-/// on an unauthenticated, session-destructive endpoint: void canonicalization, whole-document / detached
-/// digest, signed-element-is-not-the-processed-element, Id/ID resolution pollution and namespace confusion.
-///
-/// Every shape must be REJECTED - either at parse (<c>TryParse</c> false) or at validation
-/// (<c>IsValid</c> false) - and the honest baseline ACCEPTED, all against the real signature-validation path,
-/// never a mock of the crypto.
-/// </summary>
+/// <summary>The logout twin of <see cref="SamlAttackShapeTests"/> (#1003), re-running the same vectors against the separate verification <c>SamlLogoutRequest</c> runs.</summary>
+/// <remarks>
+/// That path verifies a different document shape, where the signed element is the request root and there is
+/// no assertion, no bearer confirmation and no audience, so the hardening of the login path is not
+/// automatically the hardening of this one and the two can drift silently. Every shape is rejected at parse
+/// or at validation and the honest baseline accepted, against the real validation path, so a divergence
+/// fails here rather than on an unauthenticated, session-destructive endpoint.
+/// </remarks>
 public class SamlLogoutAttackShapeTests
 {
     private const string SamlNs = "urn:oasis:names:tc:SAML:2.0:assertion";

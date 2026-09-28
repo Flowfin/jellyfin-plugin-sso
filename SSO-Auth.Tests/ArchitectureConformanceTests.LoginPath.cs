@@ -86,22 +86,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void IsDisabledIsWrittenOnlyOnTheNewAccountProvisioningArm()
     {
-        // Locked in by #737. IsDisabled is a lockout vector: the plugin deliberately never disabled an
-        // account until the pending-approval provisioning feature, and it is barred from SSO role mapping
-        // (PermissionRolePolicy) so no login can disable an EXISTING account. The sanctioned writes must
-        // stay confined to CanonicalLinkService (the single seam that owns the flag). A source scan pins
-        // that: any future SetPermission(PermissionKind.IsDisabled, ...) elsewhere (a mint path, a role
-        // mapper, a controller) would reopen the "an SSO login disabled my account" surface and fails here
-        // instead of shipping.
-        //
-        // THE COUNT IS PART OF THE RULE since #1529 put the first ENABLING write on that seam. Two writes
-        // set the flag - the arm that provisions a brand-new account inert (#737), and the one shared
-        // disable that login-time deprovisioning (#831) and account expiry (#1144) both call, which carries
-        // the administrator exemption (T-D1) they depend on. Exactly one write clears it: the approve path,
-        // which acts on this plugin's own record of having provisioned the account inert. A further write of
-        // either value is what this pins - another disabler would be another lockout vector, and another
-        // enabler would be a second route by which an account can be admitted without passing the record
-        // check that keeps an administrator's sanction out of reach.
+        // IsDisabled is a lockout vector, barred from SSO role mapping, and its sanctioned writes stay
+        // confined to CanonicalLinkService, so a SetPermission on it anywhere else fails here (#737). The
+        // count is part of the rule since #1529: two writes set the flag, the inert-provision arm and the one
+        // shared disable that deprovisioning (#831) and expiry (#1144) call with the administrator exemption,
+        // and exactly one clears it. Another disabler is another lockout vector, and another enabler is a
+        // second route by which an account is admitted without passing the record check.
         var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
         var seam = Path.Combine("Linking", "CanonicalLinkService.cs");
         var offenders = new List<string>();
@@ -146,19 +136,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void OidcRedirectUriField_IsReadOnly_AndIsFilledFromTheServerRatherThanComposedInThePage()
     {
-        // #724 put the exact redirect_uri on the config page so an admin registers it verbatim (a mismatch is
-        // the most common OIDC setup failure). #1303 moved WHO computes it. The page used to compose the
-        // canonical base and the path spelling itself, which made it a second producer of bytes an identity
-        // provider compares literally - and a divergence between the two producers never fails here, it fails
-        // at the identity provider. Structural properties a JS runtime test cannot pin (no JS harness exists),
-        // locked as a source scan:
-        //  - the field is READ-ONLY and carries NO sso-* marker class, so it never becomes a persisting field
-        //    (it is not an OidConfig property; ProviderFormFieldIds_MatchOidConfigProperties stays green);
-        //  - its value is set via .value, never innerHTML (#221);
-        //  - the page FETCHES the value from the elevation-gated endpoint and composes no OIDC redirect path
-        //    of its own, not even as a fallback - a fallback runs exactly when nobody is watching, so the
-        //    second producer would come back at the worst moment;
-        //  - the copy confirmation is announced through an aria-live region (not colour-only).
+        // The config page shows the exact redirect_uri so an administrator registers it verbatim (#724), and
+        // since #1303 it fetches that value instead of composing one, because a second producer of bytes the
+        // identity provider compares literally diverges at the provider rather than here. No JS harness
+        // exists, so the source scan pins the four structural halves: the field is read-only and carries no
+        // sso- marker class, its value is set through .value rather than innerHTML (#221), the page composes
+        // no path of its own even as a fallback, and the copy confirmation is announced through aria-live.
         var html = WebAssets.Markup();
         var js = WebAssets.Script();
 
@@ -200,21 +183,12 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void OidcAuthorizeState_IsKeyedOnUtc_NotMachineLocalTime()
     {
-        // Locked in by #676: the in-flight OpenID authorize-state store keys its lifetime/expiry on the
-        // instant the challenge stamps (the Pending's Created) and the callback/redeem legs compare against
-        // (PruneExpired / PeekCurrent / TryRedeem). That instant MUST be UTC (DateTime.UtcNow), never
-        // machine-LOCAL wall-clock (DateTime.Now): on a DST transition or a clock step local time jumps, so
-        // a machine-local basis can expire a valid authorize state early - or shift its window - and
-        // spuriously fail an otherwise-valid login. The SAML flow already keeps a UTC basis; this pins the
-        // OpenID side to the same one. Call-level property, so it is a source scan like the controller /
-        // SessionMinter rules above - the store TAKES `now` as a parameter, so the clock choice lives
-        // entirely at these call sites and is invisible to a store-level unit test (which injects its own
-        // clock and so passes with EITHER basis). The production code passes the clock inline at each site.
-        //
-        // Deliberately NOT in scope: the _newPathPersistGate.TryEnter(DateTime.Now) throttle in the same
-        // file (and its SAML twin) - a best-effort config-persist throttle, not the authorize-state
-        // lifetime; its clock jitter is harmless and it stays symmetric with the SAML side. The markers
-        // below are scoped to the store's clock-bearing calls, so that line is out of scope by construction.
+        // The in-flight OpenID authorize-state store keys its expiry on a UTC instant rather than machine-local
+        // wall-clock, because a DST transition or a clock step can expire a valid state early and fail an
+        // honest login (#676). A source scan rather than a unit test: the store takes now as a parameter, so
+        // the clock choice lives at the call sites and a store-level test passes with either basis. The
+        // config-persist throttle in the same file is out of scope by construction, because the markers are
+        // scoped to the clock-bearing store calls and its jitter is harmless.
         var oidcSource = SourceFilesDeclaring(new[] { typeof(OidcLoginService) });
         Assert.True(
             oidcSource.Count == 1,

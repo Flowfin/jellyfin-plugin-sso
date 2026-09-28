@@ -398,17 +398,12 @@ public class LogoutTicketStoreTests
     [Fact]
     public void TheMintedTicketIsAnswered_UnderOneDeclaredWireName()
     {
-        // The mint's response body is what a client integrator reads, and without a declared name the JSON
-        // key is whichever naming policy the host serializer happens to carry. Measured on the shipped type
-        // before the attribute existed: the same record answered {"Ticket":...} under the default options
-        // and {"ticket":...} under the web defaults - two contracts from one type, and the suite pinned
-        // neither because it asserted on the OBJECT rather than on its serialization.
-        //
-        // NEWTONSOFT IS THE THIRD SHAPE AND IT WAS NOT PINNED, which is the same blind spot the session
-        // token's redaction row had before it was widened - this row iterated the two System.Text.Json
-        // options while the record it judges is serialized by a library that honours only its own
-        // attributes. Measured before the second attribute existed: {"Ticket":"DEADBEEF"} under Newtonsoft
-        // while the two rows above were green.
+        // The mint response body is what a client integrator reads, and without a declared name the JSON key
+        // is whichever naming policy the host serializer carries: measured on the shipped type before the
+        // attribute existed, the same record answered two different keys under the two option sets, and the
+        // suite pinned neither, because it asserted on the object rather than on its serialization. Newtonsoft
+        // is the third shape and was not pinned, which is the blind spot the session-token redaction row had
+        // before it was widened.
         var body = new LogoutTicketResponse("DEADBEEF");
 
         foreach (var options in new[] { new JsonSerializerOptions(), new JsonSerializerOptions(JsonSerializerDefaults.Web) })

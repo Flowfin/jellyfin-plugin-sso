@@ -9,17 +9,12 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Tests for <see cref="GuestAccessDurationPolicy"/> - the role → fixed access duration reducer (#1146).
-/// Fail closed toward the SHORTER outcome: when several mappings match, the smallest duration wins, so a
-/// user who happens to hold a second, looser group never has their deadline pushed out by it.
-/// <para>
-/// The skip rows are the ones worth reading twice. Every one of them is a value the save-time validator
-/// refuses, so the only way it reaches here is a config XML edited by hand - and the answer to all of them
-/// is to map NOTHING rather than to throw, because throwing on this path would turn a bad line in a config
-/// file into a failed login for a provider that is otherwise fine.
-/// </para>
-/// </summary>
+/// <summary>Tests for <see cref="GuestAccessDurationPolicy"/>, the role to fixed access duration reducer (#1146), which fails closed toward the shorter outcome so a second looser group never pushes a deadline out.</summary>
+/// <remarks>
+/// Every skip row is a value the save-time validator refuses, so the only way it reaches here is a config XML
+/// edited by hand, and the answer to all of them is to map nothing rather than to throw: throwing would turn
+/// a bad line in a config file into a failed login for a provider that is otherwise fine.
+/// </remarks>
 public class GuestAccessDurationPolicyTests
 {
     private static OidConfig Config(params GuestAccessDurationRoleMap[] maps) => new OidConfig

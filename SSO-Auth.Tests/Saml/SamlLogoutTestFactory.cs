@@ -22,19 +22,7 @@ internal static class SamlLogoutTestFactory
 {
     private const string TimeFormat = "yyyy-MM-ddTHH:mm:ssZ";
 
-    /// <summary>
-    /// Produces a self-signed certificate plus a signed LogoutRequest for the given subject/session indexes.
-    /// </summary>
-    /// <param name="nameId">The value placed in saml:NameID.</param>
-    /// <param name="includeNameId">When false, the saml:NameID element is omitted entirely.</param>
-    /// <param name="sessionIndexes">Zero or more samlp:SessionIndex values; null emits none.</param>
-    /// <param name="notOnOrAfter">When set, emits the request's NotOnOrAfter attribute.</param>
-    /// <param name="issuer">The saml:Issuer value.</param>
-    /// <param name="requestId">The request ID attribute (defaults to a fresh one); reuse a fixed value for the replay test.</param>
-    /// <param name="sign">When false, the request is left unsigned.</param>
-    /// <param name="signWithSha1">When true, sign with RSA-SHA1/SHA1 digest (the weak-algorithm case).</param>
-    /// <param name="wrapSignature">When true, sign a smuggled sibling element and move the (valid) signature to the root - the XML-signature-wrapping case.</param>
-    /// <param name="signingKeyBits">RSA signing-key size in bits; defaults to 2048.</param>
+    /// <summary>Produces a self-signed certificate plus a signed LogoutRequest for the given subject and session indexes; the flags select the unsigned, weak-algorithm, signature-wrapped and short-key cases the batteries need.</summary>
     /// <returns>A fixture exposing the certificate and the signed document.</returns>
     internal static SamlLogoutFixture Create(
         string nameId = "alice",

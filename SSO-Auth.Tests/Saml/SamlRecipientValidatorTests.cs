@@ -49,20 +49,15 @@ public class SamlRecipientValidatorTests
         Assert.False(SamlRecipientValidator.IsBound(recipient!, null, AcsUrls));
     }
 
-    /// <summary>
-    /// The near-miss families (#1182), each spelled against the "post" ACS URL above. Every row is a string
-    /// an identity provider - or somebody who controls one, or who registered a neighbouring host - can echo
-    /// back, and the set membership must refuse all of them on both legs.
-    /// <para>
-    /// The prefix and suffix families run in BOTH directions on purpose, because each direction falsifies a
-    /// different weakening. The rows where the echo is longer kill a match written as
-    /// <c>echo.StartsWith(expected)</c> or <c>echo.EndsWith(expected)</c>; the rows where the echo is shorter
-    /// kill <c>expected.StartsWith(echo)</c>, <c>expected.EndsWith(echo)</c> and <c>expected.Contains(echo)</c>.
-    /// A table that only grows the echo leaves those three passing, so it would let a truncated echo, or the
-    /// bare origin, bind an assertion.
-    /// </para>
-    /// </summary>
-    /// <returns>The family name (for the failure message and the test display name) and the near-miss URL.</returns>
+    /// <summary>The near-miss families (#1182), each spelled against the post assertion-consumer URL above; every row is a string an identity provider can echo back, and the set membership refuses all of them on both legs.</summary>
+    /// <remarks>
+    /// The prefix and suffix families run in both directions, because each direction falsifies a different
+    /// weakening: the longer echoes kill a match written as a starts-with or ends-with on the echo, and the
+    /// shorter ones kill the same tests written the other way round and a contains. A table that only grows
+    /// the echo leaves those three passing, so it would let a truncated echo or the bare origin bind an
+    /// assertion.
+    /// </remarks>
+    /// <returns>The family name, for the failure message and the display name, and the near-miss URL.</returns>
     public static TheoryData<string, string> NearMissAcsUrls()
     {
         var data = new TheoryData<string, string>
@@ -119,40 +114,16 @@ public class SamlRecipientValidatorTests
             { "url equivalence: dot segment", "https://jf.example/sso/SAML/post/../post/idp" },
             { "url equivalence: percent-encoded provider segment", "https://jf.example/sso/SAML/post/%69dp" },
 
-            // case, and this is the family that carries a decision rather than an attack. The three rows are
-            // below this block, in the order host, path segment, provider segment.
-            //
-            // Only the provider row is a plain security refusal. The provider segment is route-decoded input
-            // that keys a byte-exact dictionary, so "idp" and "IDP" are two different providers with
-            // independent role and admin mappings, and binding an assertion across that boundary is what this
-            // predicate exists to stop.
-            //
-            // The host row and the path row are the deliberate ones, and they are the same decision. DNS host
-            // names are case-insensitive and ASP.NET attribute routing is case-insensitive, so
-            // "https://JF.EXAMPLE/sso/SAML/post/idp" and "https://jf.example/sso/saml/post/idp" both name the
-            // endpoint the assertion was meant for. Refusing them refuses a well-behaved identity provider,
-            // usually one whose ACS URL was typed into a console rather than echoed from the AuthnRequest.
-            // Both are refused anyway, fail closed, and these rows pin that as intended.
-            //
-            // What a reader meeting this cold needs to know before "fixing" it:
-            //
-            // 1. Moving the comparison to StringComparer.OrdinalIgnoreCase is the wrong repair. The compared
-            //    value is one string, so the same edit also case-folds the provider segment, and the provider
-            //    row below would go red for a reason. Accepting a re-cased host or path means normalising
-            //    those parts alone before the compare, which is a production change and its own issue.
-            // 2. For an operator whose whole SAML userbase is locked out, in order: turn ValidateRecipient
-            //    off, which restores logins immediately because the binding is opt-in and off by default;
-            //    then pin BaseUrlOverride (#139); then re-register the ACS URL at the identity provider in
-            //    the exact spelling this server publishes, which after step two is a lowercase host.
-            // 3. Why step two is not enough on its own. The expected bytes are not a constant. With
-            //    BaseUrlOverride set, CanonicalBaseUrl.Resolve puts the value through Uri, which lowercases
-            //    the host, so the expected set is stable AND lowercase; an identity provider echoing an
-            //    uppercase host stays refused, which is what step three is for. With no override the base URL
-            //    is built by UriBuilder from the request Host header, which keeps whatever case the proxy
-            //    forwarded, so the expected host case can differ between the challenge and the callback, and
-            //    the same header is the one CanonicalBaseUrl documents as influenceable through an unfiltered
-            //    X-Forwarded-Host. Pinning the override is therefore the fix for the expected side of this,
-            //    not a nicety.
+            // case, and this is the family that carries a decision rather than an attack; the three rows are
+            // below, in the order host, path segment, provider segment. Only the provider row is a plain
+            // security refusal, because the provider segment keys a byte-exact dictionary and two spellings
+            // are two providers with independent mappings. The host and path rows are the deliberate ones and
+            // are one decision: host names and attribute routing are both case-insensitive, so refusing a
+            // re-cased spelling refuses a well-behaved identity provider, and they are refused anyway, fail
+            // closed. Moving to an ignore-case comparer is the wrong repair, because the compared value is one
+            // string and the same edit case-folds the provider segment. What an operator whose SAML userbase
+            // is locked out does, in order, and why pinning BaseUrlOverride is part of it rather than a
+            // nicety: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/issues/1182"/>.
             { "case: host in a different case", "https://JF.EXAMPLE/sso/SAML/post/idp" },
             { "case: path segment in a different case", "https://jf.example/sso/saml/post/idp" },
             { "case: provider segment in a different case", "https://jf.example/sso/SAML/post/IDP" },
@@ -203,17 +174,12 @@ public class SamlRecipientValidatorTests
     [InlineData("\u00A0")]
     public void RecipientWithNonSpaceWhitespace_IsTrimmedAndBound(string pad)
     {
-        // Where the trimming stops, pinned because #1182's boundary is a byte comparison and Trim() is the
-        // one thing that runs before it. Trim() strips every Unicode whitespace category, not just spaces,
-        // so a tab, a CRLF or a no-break space around the echo still binds. Each of these normalises to the
-        // exact expected URL, so none of them binds a DIFFERENT endpoint.
-        //
-        // The asymmetry is worth knowing and cannot be pinned from here: only the ECHO is trimmed, never the
-        // expected set, and provider names may legally carry leading or trailing whitespace because
-        // ProviderNameValidator permits it and SamlAcsUrlBuilder appends the name raw. So a provider named
-        // with edge whitespace publishes an ACS URL this predicate can never match once the identity provider
-        // echoes it back, and in the other direction two providers whose names differ only by edge whitespace
-        // are not told apart. Both are production questions, reported on #1182 rather than repaired here.
+        // Where the trimming stops, pinned because the #1182 boundary is a byte comparison and Trim is the one
+        // thing that runs before it: it strips every Unicode whitespace category, so a tab, a CRLF or a
+        // no-break space around the echo still binds, and each of these normalises to the exact expected URL.
+        // The asymmetry cannot be pinned from here: only the echo is trimmed, and provider names may legally
+        // carry edge whitespace, so such a provider publishes a URL this predicate can never match and two
+        // names differing only by edge whitespace are not told apart. Both are reported on #1182.
         Assert.True(SamlRecipientValidator.IsBound(pad + "https://jf.example/sso/SAML/post/idp" + pad, null, AcsUrls));
     }
 

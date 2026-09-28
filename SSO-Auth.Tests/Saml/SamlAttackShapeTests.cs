@@ -14,70 +14,16 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// Characterization/regression tests pinning the SAML core's defenses against the known
-/// 2025-2026 SAML attack shapes (#153). They complement <see cref="SamlResponseTests"/>
-/// (which already pins SHA-1 downgrade, DOCTYPE/XXE, missing time-bounds, audience/recipient
-/// confusion, plain two-assertion wrapping and relocated-signature) by adding the shapes that
-/// were not yet pinned:
-///
-/// <list type="bullet">
-///   <item>comment-truncation of NameID (CVE-2017-11428 - https://nvd.nist.gov/vuln/detail/CVE-2017-11428),</item>
-///   <item>an unsigned assertion injected BEFORE the signed one,</item>
-///   <item>duplicate and foreign-namespaced ID-attribute pollution (PortSwigger 'The Fragile Lock', 2025 -
-///         https://portswigger.net/research/the-fragile-lock; GHSL-2024-329/330),</item>
-///   <item>a ds:Signature relocated into a decoy wrapper outside the element its Reference covers,</item>
-///   <item>assertion/advice confusion (a decoy assertion smuggled into saml:Advice).</item>
-/// </list>
-///
-/// #1003 adds the three families published in December 2025 (PortSwigger, 'The Fragile Lock',
-/// https://portswigger.net/research/the-fragile-lock; the ruby-saml chain CVE-2025-25291/25292 and its
-/// incomplete fixes CVE-2025-66567/66568; samlify CVE-2025-47949; authentik CVE-2026-47201), each mapped to
-/// the test that pins it:
-///
-/// <list type="bullet">
-///   <item>VOID CANONICALIZATION - <see cref="IsValid_ReferenceUriIsUnresolvedRelativeUri_ReturnsFalse"/>,
-///         <see cref="IsValid_ReferenceUriIsEmptyStringWithDetachedDigest_ReturnsFalse"/>,
-///         <see cref="IsValid_ReferenceUriIsWholeDocument_ReturnsFalse"/>,
-///         <see cref="IsValid_ReferenceUriIsAnXPointer_ReturnsFalse"/>.</item>
-///   <item>REFERENCE / ID CONFUSION - <see cref="IsValid_SignedElementIsNotTheProcessedElement_ReturnsFalse"/>,
-///         <see cref="IsValid_MoreThanOneAssertionInResponse_ReturnsFalse"/>,
-///         <see cref="IsValid_IdAttributeCaseVariantDecoy_ReturnsFalse"/>.</item>
-///   <item>ATTRIBUTE POLLUTION - <see cref="IsValid_AttributePollutionSameLocalNameDifferentNamespace_ReturnsFalse"/>,
-///         <see cref="GetCustomAttributes_AttributePollutionOnAttributeName_ReadsSignedValueOnly"/>,
-///         <see cref="IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates"/>.</item>
-///   <item>NAMESPACE CONFUSION - <see cref="IsValid_ReservedXmlAttributeUsedAsOrdinaryAttribute_ReturnsFalse"/>,
-///         <see cref="IsValid_NamespaceConfusedDecoySignature_ReturnsFalse"/>,
-///         <see cref="IsValid_NamespaceConfusedDecoyAssertion_IsInert_ReadsSignedAssertionOnly"/>.</item>
-/// </list>
-///
-/// Two controls keep the negatives honest, because a fixture that is merely broken would make them pass for
-/// the wrong reason forever: <see cref="CraftedSignature_IsCryptographicallySoundOverItsSignedInfo"/> proves
-/// the hand-assembled signatures really do sign their own canonical SignedInfo, and
-/// <see cref="HonestReferenceForm_IsAcceptedByTheBclSignatureCheck"/> proves the non-shorthand reference
-/// forms are accepted by the BCL verifier outright - so those rejections are the repo's rule, not the
-/// platform's.
-///
-/// Two of those vectors are INERT rather than rejected (the two named ..._IsInert_...): a foreign-namespaced
-/// ID outside the signed content, and a decoy Assertion in a foreign namespace, are both invisible to a
-/// namespace-aware resolver, so the honest response keeps validating and every reader keeps returning the
-/// SIGNED values. That is the correct outcome, not a gap - rejecting spec-legal foreign-namespace content
-/// would be an availability regression with no security gain - and each is pinned with the signed value it
-/// must still read, so it flips to red the day a namespace-agnostic lookup is introduced. The structural
-/// counterpart is <c>ArchitectureConformanceTests.SamlSignaturePath_UsesOneXmlStackEndToEnd</c> /
-/// <c>SamlSignaturePath_ParsesOnlyThroughTheHardenedReader</c> /
-/// <c>SamlSignaturePath_ResolvesElementsNamespaceAware</c>, which forbid the second XML stack, the
-/// unhardened parse seam, and the namespace-agnostic lookup that would turn these inert shapes into live
-/// ones. The logout/SLO twin of this
-/// battery lives in <see cref="SamlLogoutAttackShapeTests"/>.
-///
-/// Every malicious shape must be REJECTED (or, for comment-truncation, must NOT be truncatable)
-/// and the honest baseline ACCEPTED - all against the real signature-validation path in
-/// <see cref="SamlResponse"/>, never a mock of the crypto. These are TESTS ONLY: they pin existing
-/// fail-closed behavior; no production change is expected while that behavior holds. A shape that
-/// turns out to be ACCEPTED is a real defect to be filed as its own security finding, not papered
-/// over here.
-/// </summary>
+/// <summary>Characterization tests pinning the SAML core defences against the known 2025 and 2026 attack shapes (#153, #1003), complementing <see cref="SamlResponseTests"/> with the shapes it does not pin.</summary>
+/// <remarks>
+/// The families are void canonicalization, reference and ID confusion, attribute pollution, namespace
+/// confusion, comment truncation of the NameID and assertion-advice confusion; the published cases are named
+/// on <see href="https://github.com/Flowfin/jellyfin-plugin-sso/issues/1003"/>. Two controls keep the
+/// negatives honest, because a merely broken fixture would make them pass for the wrong reason forever. Two
+/// vectors are inert rather than rejected, because a foreign-namespaced decoy is invisible to a
+/// namespace-aware resolver, and each is pinned with the signed value it must still read. A shape that turns
+/// out to be accepted is a security finding to file rather than something to paper over here.
+/// </remarks>
 public class SamlAttackShapeTests
 {
     private const string SamlNs = "urn:oasis:names:tc:SAML:2.0:assertion";
@@ -451,19 +397,13 @@ public class SamlAttackShapeTests
     [InlineData(SamlReferenceForm.XPointerId)]
     public void IsValid_ReferenceUriIsAnXPointer_ReturnsFalse(SamlReferenceForm form)
     {
-        // The one reference spelling that gets PAST the "#..." gate and that .NET genuinely honours. Its
-        // resolver understands two XPointer forms beyond the SAML shorthand pointer: "#xpointer(/)" is the
-        // whole document, and "#xpointer(id('x'))" is unwrapped to the plain id "x". Both are signed correctly
-        // by SignedXml and accepted by CheckSignature - the id() form covers the very assertion the readers
-        // consume - so nothing cryptographic rejects them.
-        //
-        // What rejects them today is that the validator hands GetIdElement the RAW remainder after the "#",
-        // which is not an ID, so the lookup returns null. That is an implicit BCL behaviour, not a rule this
-        // repo states: a future BCL change, or any replacement of the ID lookup with something that unwraps
-        // XPointer the way Reference.CalculateHashValue does, would open it silently. SAML 2.0 mandates the
-        // shorthand "#id" form, so rejecting these is the fail-closed posture - pinned here so it stays a
-        // decision rather than an accident. The companion control asserts CheckSignature really does accept
-        // them, so this cannot pass because the fixture is broken.
+        // The one reference spelling that gets past the fragment gate and that .NET genuinely honours: its
+        // resolver understands two XPointer forms beyond the SAML shorthand pointer, both signed correctly and
+        // accepted by CheckSignature, so nothing cryptographic rejects them. What rejects them today is that
+        // the validator hands the raw remainder to the ID lookup, which returns null; that is an implicit BCL
+        // behaviour rather than a rule this repository states, so a change there would open it silently. SAML
+        // mandates the shorthand form, so rejecting these is the fail-closed posture, and the companion
+        // control asserts CheckSignature really does accept them.
         var fixture = SamlCraftedSignatureFactory.CreateResponseWithHonestReference(form);
 
         Assert.False(Load(fixture).IsValid());
@@ -574,17 +514,12 @@ public class SamlAttackShapeTests
     [Fact]
     public void IsValid_ForeignNamespacedIdOutsideSignedContent_IsInert_HonestAssertionStillValidates()
     {
-        // Pins the BCL's ID-resolution semantics, which the whole reference binding rests on: .NET tries the
-        // unprefixed Id, then id, then ID, and each probe is an XPath attribute test in the NULL namespace. A
-        // decoy sibling carrying the signed assertion's ID value through a foreign-namespaced evil:ID is
-        // therefore invisible to all three probes - the reference keeps binding to the real assertion and the
-        // honest login still succeeds. It sits outside the signed content, so no digest is what makes this
-        // pass; only the resolution semantics do.
-        //
-        // The load-bearing assertions are the SIGNED values that survive: the subject, and GetAssertionId(),
-        // which is what the one-time replay key is derived from. If a .NET upgrade ever made a namespaced
-        // attribute a resolution candidate, GetIdElement would see two matches and throw, or bind to the
-        // decoy - either way this flips, and the replay key would be the first thing to move.
+        // Pins the BCL ID-resolution semantics the whole reference binding rests on: .NET tries the three
+        // unprefixed spellings, each as an attribute test in the null namespace, so a decoy sibling carrying
+        // the signed ID value through a foreign-namespaced attribute is invisible to all three and the honest
+        // login still succeeds. The load-bearing assertions are the signed values that survive, the subject
+        // and the assertion id the replay key is derived from: if an upgrade ever made a namespaced attribute
+        // a candidate, the lookup would see two matches or bind to the decoy, and the replay key would move.
         var fixture = SamlTestFactory.Create(nameId: "alice", scope: SamlTestFactory.SignatureScope.Assertion);
         var doc = fixture.Document;
         var decoy = doc.CreateElement("saml", "AuthnStatement", SamlNs);

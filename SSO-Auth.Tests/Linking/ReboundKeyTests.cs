@@ -14,21 +14,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Tests;
 
-/// <summary>
-/// A canonical key that changes hands forgets its previous holder (#1638). The two server-managed maps
-/// beside the links - the provisioned access deadlines (#1146) and the last-SSO-login stamps (#1120) - were
-/// pruned on every route that removes a link and by none of the routes that write one over a key already
-/// holding an entry. A key can change hands without ever being removed: a link whose target account was
-/// deleted counts as absent, so the next login for that subject writes the key again at a different
-/// account, and what the key held before followed it there.
-/// <para>
-/// The deadline is the one with teeth. The sweep reads a deadline's account off the CURRENT link map, so an
-/// inherited past deadline disables the account that just arrived, for an expiry nobody granted it. The
-/// stamp is one account's data on another's roster row. Each write route is driven below rather than read,
-/// because a removal-only rule looks correct right up to the write that inherits, which is how the first
-/// version of the pending-approval record shipped and was caught (#1529).
-/// </para>
-/// </summary>
+/// <summary>A canonical key that changes hands forgets its previous holder (#1638).</summary>
+/// <remarks>
+/// The two server-managed maps beside the links were pruned on every route that removes a link and by none
+/// that writes one over a key already holding an entry, and a key can change hands without being removed,
+/// because a link whose target account was deleted counts as absent. The deadline is the one with teeth: the
+/// sweep reads its account off the current link map, so an inherited past deadline disables the account that
+/// just arrived. Each write route is driven rather than read, because a removal-only rule looks correct right
+/// up to the write that inherits (#1529).
+/// </remarks>
 public class ReboundKeyTests
 {
     private static readonly Guid Deleted = Guid.Parse("55555555-5555-5555-5555-555555555555");
