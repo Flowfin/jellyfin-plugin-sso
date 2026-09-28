@@ -7,31 +7,13 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Reduces a login's roles to the NAME of the provisioning profile (#1105) its brand-new account is created
-/// from (#1106). The configured rows are ordered and the FIRST one whose roles the login holds wins; a login
-/// matching no row resolves null, which leaves the provider's own default resolution (#1105) exactly as it
-/// was.
-/// </summary>
+/// <summary>Reduces a login's roles to the name of the provisioning profile (#1105) its brand-new account is created from (#1106); the first configured row whose roles the login holds wins, and no match resolves null.</summary>
 /// <remarks>
-/// First-row-wins rather than any reduction over the matches, because the alternatives all need a comparison
-/// this map has no basis for. Two profiles are two permission sets, not two points on a scale, so there is no
-/// "most restrictive" to pick the way <see cref="GuestAccessDurationPolicy"/> picks the shortest duration.
-/// The administrator states the precedence by ordering the rows, and the order they wrote is the order that
-/// runs.
-/// <para>
-/// It returns a NAME rather than a template because the profile set lives on the plugin configuration while
-/// this sees only the provider, and because the name has to be resolved inside the same locked read that
-/// resolves the provider - otherwise a concurrent save could be observed half-applied. Turning the name into
-/// a policy is <see cref="ProvisioningPolicy.TemplateFor(PluginConfiguration, ProviderConfigBase, string)"/>'s
-/// job, one layer down, and a name that resolves to nothing writes NO policy there rather than falling back.
-/// </para>
-/// <para>
-/// The roles are the ones the login already produced - the same values <see cref="PermissionRolePolicy"/>,
-/// <see cref="ParentalRatingPolicy"/> and <see cref="GuestAccessDurationPolicy"/> are handed - so no second
-/// role read is added to either protocol, and a role claim the extractor refused (#216) reaches here as an
-/// empty set and selects nothing.
-/// </para>
+/// First row wins because two profiles are two permission sets and not two points on a scale, so the
+/// administrator states the precedence by ordering the rows. It returns a name rather than a template, because the
+/// profile set lives on the plugin configuration and has to be resolved inside the same locked read that resolves
+/// the provider, which is <see cref="ProvisioningPolicy.TemplateFor(PluginConfiguration, ProviderConfigBase, string)"/>'s
+/// job. The roles are the ones the login already produced, so a refused role claim (#216) selects nothing.
 /// </remarks>
 internal static class ProvisioningProfilePolicy
 {

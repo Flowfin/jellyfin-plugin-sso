@@ -28,14 +28,7 @@ internal static class AvatarUrlValidator
     /// <returns>True when the URL is allowed to be fetched.</returns>
     internal static bool IsAllowedUrl(string url, [NotNullWhen(true)] out Uri? uri) => IsAllowedUrl(url, AddressPolicy.Strict, out uri);
 
-    /// <summary>
-    /// The same check under a named address tier (#1764). Only the address-literal arm moves with the tier:
-    /// under <see cref="AddressPolicy.PrivateNetworkPermitted"/> a private literal on the origin that earned
-    /// the tier is admitted, so a provider on the administrator's own network that publishes its picture by
-    /// address is treated like one that publishes it by name. The scheme, the localhost names, and the
-    /// never-relaxable ranges (loopback, link-local, cloud metadata) are refused under both tiers, and the
-    /// connect-time guard re-checks the resolved address under the same tier.
-    /// </summary>
+    /// <summary>The same check under a named address tier (#1764): only the address-literal arm moves with the tier, while the scheme, the localhost names and the never-relaxable ranges are refused under both, and the connect-time guard re-checks the resolved address under the same tier.</summary>
     /// <param name="url">The candidate avatar URL.</param>
     /// <param name="policy">The address tier the URL is judged under.</param>
     /// <param name="uri">The parsed URI when allowed; otherwise null.</param>

@@ -13,36 +13,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Linking;
 
-/// <summary>
-/// Takes a deleted Jellyfin account's links with it, the moment the host reports the deletion (#1649).
-/// </summary>
+/// <summary>Takes a deleted Jellyfin account's links with it, the moment the host reports the deletion (#1649).</summary>
 /// <remarks>
-/// <para>
-/// A link whose target account was deleted counts as absent everywhere in this plugin, so the next login
-/// for the same subject writes the key again at another account. That dangling link was the root under
-/// three things found on one day: a pending-approval record that followed the key (#1637), a deadline that
-/// disabled the account that inherited it (#1638), and the first step of a guest's exit from their own
-/// limit (#1647). Each map now guards itself on rebind; this removes the state that made a rebind possible.
-/// </para>
-/// <para>
-/// The host publishes <see cref="UserDeletedEventArgs"/> from its own delete, and its event manager hands it
-/// to every registered consumer of that closed type - the same mechanism the webhook plugin listens on.
-/// Enabling or disabling an account publishes nothing (checked against the host's source), which is why
-/// this is the one transition the plugin can observe and the enable is not.
-/// </para>
-/// <para>
-/// WHAT IT COSTS is the roster's orphan row: a link whose account is gone was kept on purpose (#1119) so an
-/// administrator could find it. Pruned here, that row does not appear for an account deleted while the
-/// plugin was loaded; the fact goes to the audit trail instead, one line per deleted account naming the
-/// protocol and provider of every link removed and the account id, never the subject (T-I1). An account
-/// deleted while the plugin was not loaded still leaves an orphan, and the roster still shows it.
-/// </para>
-/// <para>
-/// NOTHING HERE MAY REACH THE HOST'S DELETE. The host's event manager catches a consumer's exception, but
-/// the rule is kept on this side as well: a failure to prune is logged at Warning and swallowed, because a
-/// deletion that already happened must not be reported as failed over bookkeeping the next login would
-/// otherwise have to clean up on its own.
-/// </para>
+/// A link whose target was deleted counts as absent everywhere, so the next login for the same subject would
+/// rebind the key at another account, which was the root under #1637, #1638 and #1647. The host publishes
+/// <see cref="UserDeletedEventArgs"/> from its own delete and publishes nothing on enable or disable, so this is
+/// the one transition the plugin can observe. The cost is the roster's orphan row (#1119); the fact goes to the
+/// audit trail instead, naming protocol, provider and account id and never the subject. A failure to prune is
+/// logged and swallowed, because a deletion that already happened must not be reported as failed.
 /// </remarks>
 internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEventArgs>
 {
@@ -91,26 +69,11 @@ internal sealed class DeletedAccountLinkPruner : IEventConsumer<UserDeletedEvent
                 return Task.CompletedTask;
             }
 
-            // The read before the removal is the no-write guard and nothing more: the revoke seam persists
-            // the configuration whenever it runs, and most deleted accounts never had an SSO link -
-            // including the one this plugin's own create arm rolls back when a login fails after creating
-            // it, where a persist on a full disk would otherwise warn that links stayed which never existed.
-            // The names the audit line carries are not taken from that read. The removal is the existing
-            // revoke seam, in its own transaction, which prunes every map that hangs off the links it
-            // removes and collects the providers it removed from inside that same lock - so the line says
-            // what this removal removed, whatever moved between the guard and the removal. A link that
-            // arrives after an empty read is left to the next login of its subject, which treats a dangling
-            // link as absent, exactly as before this consumer existed.
-            // ONE READ ANSWERS BOTH QUESTIONS (#1733), which is what keeps the accounting above true after
-            // a second thing was given to this consumer to clean up. The minted-password record is keyed on
-            // the ACCOUNT rather than on a link, so an account whose last link was removed before it was
-            // deleted holds the record and no link at all - precisely the account the early return below
-            // walks away from, which is why the record is dropped on both sides of that return. A record
-            // outliving its account would go on describing whichever account a recycled id names next.
-            //
-            // AND ONE WRITE ANSWERS BOTH WHEREVER ONE WRITE CAN. An account that holds a link as well rides
-            // the removal's own transaction instead of paying a second whole-configuration persist for the
-            // same event, which also closes the window where the record was gone and the links were not.
+            // The read before the removal is only the no-write guard: most deleted accounts never held a link, and
+            // the removal itself is the revoke seam in its own transaction, which reports what it removed whatever
+            // moved in between. One read answers both questions (#1733), because the minted-password record is keyed
+            // on the account rather than a link and is dropped on both sides of the early return below; an account
+            // that also holds a link rides the removal's own transaction rather than paying a second persist.
             var footprint = links.DeletionFootprint(user.Id);
 
             if (!footprint.HoldsLink)

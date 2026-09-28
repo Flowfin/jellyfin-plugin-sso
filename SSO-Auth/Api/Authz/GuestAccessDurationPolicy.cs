@@ -7,23 +7,8 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Reduces a login's roles to a fixed access duration (#1146), the relative counterpart of the absolute
-/// expiry claim read by <c>AccountExpiryInstant</c>. Each configured mapping whose roles the login holds
-/// contributes its duration, and the MOST RESTRICTIVE (shortest) wins - never the longest. A login that
-/// matches no mapping yields null, so nothing is stamped and the account has no deadline at all.
-/// </summary>
-/// <remarks>
-/// It returns a DURATION rather than an instant on purpose: the deadline is anchored to the moment the
-/// account is actually provisioned, which this pure function has no business knowing and which is decided
-/// one layer down, inside the same locked transaction that writes the link. Resolving an instant here would
-/// anchor it to whenever the protocol layer happened to run instead.
-/// <para>
-/// The roles are the ones the login already produced - the same values <see cref="PermissionRolePolicy"/>
-/// and <see cref="ParentalRatingPolicy"/> are handed - so no second role read is added to either protocol,
-/// and a role claim the extractor refused (#216) reaches here as an empty set and maps nothing.
-/// </para>
-/// </remarks>
+/// <summary>Reduces a login's roles to a fixed access duration (#1146), the relative counterpart of the absolute expiry claim; the shortest matching duration wins, and no match yields null so nothing is stamped.</summary>
+/// <remarks>It returns a duration rather than an instant, because the deadline is anchored to the moment the account is provisioned, inside the locked transaction that writes the link. The roles are the ones the login already produced, so no second role read is added and a refused role claim (#216) arrives as an empty set.</remarks>
 internal static class GuestAccessDurationPolicy
 {
     /// <summary>

@@ -11,46 +11,14 @@ using MediaBrowser.Controller;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Seeds the web client's home-screen layout from a provisioning template onto a BRAND-NEW account (#1101),
-/// once, at creation, into the display-preferences document the web client reads.
-/// </summary>
+/// <summary>Seeds the web client's home-screen layout from a provisioning template onto a brand-new account (#1101), once, at creation.</summary>
 /// <remarks>
-/// <para>
-/// Where the layout lives was read out of the host rather than assumed, because the two candidates look
-/// equally plausible from this side and only one of them is ever read. The web client asks the server for
-/// one display-preferences document per user - the item <c>usersettings</c> for the client <c>emby</c> -
-/// and reads its sections out of that document's custom-preference bag as <c>homesection0..9</c>. The
-/// server does not STORE them there: on write it lifts every <c>homesection</c> key into the typed
-/// <see cref="DisplayPreferences.HomeSections"/> collection, and on read it rebuilds the keys from that
-/// collection (Jellyfin.Api's DisplayPreferencesController, the same on the 10.11 and 12.0 lines). So the
-/// typed collection is the only persisted home and is what this writes; a row put into the custom bag
-/// instead would be shadowed by the rebuilt keys and never read.
-/// </para>
-/// <para>
-/// The client key is fixed to the web client rather than templated. The section vocabulary and the ten-slot
-/// layout are the web client's own; the other clients keep layouts of their own that read none of this, so
-/// a second key would seed a layout for a client whose vocabulary nobody here knows.
-/// </para>
-/// <para>
-/// The layout is written the way the web client's own home-screen settings page writes it: all
-/// <see cref="SlotCount"/> slots, the configured sections first and <see cref="HomeSectionType.None"/> in
-/// the rest. The client fills an ABSENT slot with its default for that position, so a list written short
-/// would render the configured sections followed by defaults nobody configured.
-/// </para>
-/// <para>
-/// This is a second persistence surface beside the account row <see cref="ProvisioningPolicy"/> writes, with
-/// its own store. The caller writes it after that row is persisted and isolates a failure, so a layout can
-/// never fail a login or leave an account half-provisioned.
-/// </para>
-/// <para>
-/// One property of the host to know before reading a seeded account's rows: its update attaches the document
-/// to a fresh context as modified and never deletes a section row the collection no longer holds, so the
-/// user's own later save adds its rows beside the seeded ten rather than replacing them, and the read
-/// projection is last-wins by row order. That is how every user's second save already behaves on the host;
-/// the seed only moves it to the first. Measured against both host lines with an in-memory database during
-/// review (#1101): the user's later layout wins on every slot, and the growth is the ten rows, once.
-/// </para>
+/// The layout is written into the typed <see cref="DisplayPreferences.HomeSections"/> collection of the web
+/// client's <c>usersettings</c> document, because the host lifts the <c>homesection</c> keys into that collection
+/// on write and rebuilds them on read, so a row put into the custom bag would never be read. All
+/// <see cref="SlotCount"/> slots are written with <see cref="HomeSectionType.None"/> in the rest, the way the
+/// client's own settings page writes them. The caller writes it after the account row is persisted and isolates a
+/// failure, so a layout can never fail a login; the user's later save adds rows beside the seeded ten and wins.
 /// </remarks>
 internal static class HomeScreenPolicy
 {
@@ -79,18 +47,10 @@ internal static class HomeScreenPolicy
     /// <returns>True when there is a layout to write.</returns>
     internal static bool NamesLayout(ProvisioningPolicyTemplate? template) => template?.HomeSections is { Count: > 0 };
 
-    /// <summary>
-    /// Parses a configured section list, refusing a name that is not a DECLARED member of
-    /// <see cref="HomeSectionType"/> spelled exactly, and a list longer than the web client has slots.
-    /// One parse for the validator and the writer, so the save refuses exactly what the create arm would
-    /// otherwise skip - the rule <see cref="ProvisioningPolicy.TryParseSubtitleMode"/> already follows.
-    /// </summary>
+    /// <summary>Parses a configured section list, refusing a name that is not a declared <see cref="HomeSectionType"/> member spelled exactly and a list longer than the web client has slots; one parse for the validator and the writer.</summary>
     /// <param name="names">The configured section names, top slot first.</param>
     /// <param name="sections">The parsed sections in order; empty when the list was refused.</param>
-    /// <param name="refusedName">
-    /// The first name that did not parse, or <see langword="null"/> when every name parsed - including
-    /// when the list was refused for its length alone.
-    /// </param>
+    /// <param name="refusedName">The first name that did not parse, or <see langword="null"/> when every name parsed, including when the list was refused for its length alone.</param>
     /// <returns>True when every name parsed and the list fits the slots.</returns>
     internal static bool TryParseHomeSections(IReadOnlyList<string?> names, out IReadOnlyList<HomeSectionType> sections, out string? refusedName)
     {

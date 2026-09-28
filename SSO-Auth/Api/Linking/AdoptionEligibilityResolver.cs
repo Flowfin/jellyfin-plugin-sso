@@ -33,26 +33,15 @@ internal readonly record struct AdoptionGate(bool RequireVerifiedEmail, bool? Em
     internal static AdoptionGate None => new AdoptionGate(false, null);
 }
 
-/// <summary>
-/// Decides whether an SSO login may adopt the pre-existing, unlinked Jellyfin account that merely shares
-/// its name. Adoption keys on the mutable display name (<c>GetUserByName</c>), so on its own it trusts the
-/// identity provider to make usernames unique and non-reassignable (#218). Two protocol-agnostic gates
-/// raise that bar, both fail closed:
-/// <list type="bullet">
-/// <item>An administrator account is NEVER adopted by name-matching - it is the highest-value takeover
-/// target, so the operator must link it explicitly through the admin link endpoint. This holds regardless
-/// of the verified-email gate or protocol.</item>
-/// <item>When the provider sets <c>RequireVerifiedEmailForAdoption</c>, the login must additionally carry
-/// <c>email_verified == true</c>; an absent or false claim is refused. Jellyfin accounts store no email to
-/// cross-check against, so this proves the principal holds a provider-verified email rather than matching
-/// it to the target account - it does not replace the IdP's unique-username assumption, it narrows who can
-/// exploit it. Off by default so a conformant deployment that already relies on name-based adoption is not
-/// silently locked out on upgrade; opt in once the provider is confirmed to emit <c>email_verified</c>
-/// (which needs the <c>email</c> scope).</item>
-/// </list>
-/// Pure so the whole matrix is unit-testable; the caller resolves the target's admin flag and supplies the
-/// gate, then maps a refusal to <see cref="AccountLinkForbiddenException"/> (the existing 403).
-/// </summary>
+/// <summary>Decides whether an SSO login may adopt the pre-existing, unlinked Jellyfin account that merely shares its name (#218).</summary>
+/// <remarks>
+/// Adoption keys on the mutable display name, so on its own it trusts the identity provider to make usernames
+/// unique. Two fail-closed gates raise that bar: an administrator account is never adopted by name and must be
+/// linked explicitly, and under <c>RequireVerifiedEmailForAdoption</c> the login must carry
+/// <c>email_verified == true</c>, off by default so an existing deployment is not locked out on upgrade. Pure,
+/// so the caller supplies the target's admin flag and maps a refusal to <see cref="AccountLinkForbiddenException"/>:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#identity-binding-anti-account-takeover"/>.
+/// </remarks>
 internal static class AdoptionEligibilityResolver
 {
     /// <summary>

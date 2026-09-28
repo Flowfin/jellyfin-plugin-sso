@@ -7,17 +7,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 
-/// <summary>
-/// Mints and redeems the one-time logout tickets the RP-initiated OpenID logout route accepts in place of a
-/// session (#1768). It owns the process-wide <see cref="LogoutTicketStore"/> as its own static, the way the
-/// login flows own the authorize-state and outcome stores, so the controller keeps no mutable static state
-/// of its own; it is constructed per request like the other collaborators.
-/// </summary>
-/// <remarks>
-/// The whole of the policy is here rather than at the endpoint, so the mint and the redeem cannot drift
-/// apart: a mint refuses an unauthenticated or session-less caller and fails closed at the cap, and a redeem
-/// is one-time, provider-scoped and time-bounded. What the endpoint decides is what to DO with the answer.
-/// </remarks>
+/// <summary>Mints and redeems the one-time logout tickets the RP-initiated OpenID logout route accepts in place of a session (#1768), owning the process-wide <see cref="LogoutTicketStore"/> the way the login flows own their stores.</summary>
+/// <remarks>The whole of the policy is here rather than at the endpoint, so the mint and the redeem cannot drift apart: a mint refuses an unauthenticated or session-less caller and fails closed at the cap, and a redeem is one-time, provider-scoped and time-bounded.</remarks>
 internal sealed class LogoutTicketService
 {
     // Process-wide, like OidcLoginService's authorize-state store and SamlLoginService's outcome store. A
@@ -72,23 +63,12 @@ internal sealed class LogoutTicketService
     internal static bool AdmitRefusalLine(DateTime nowUtc, out long notRecorded) =>
         _refusalLines.TryEnter(nowUtc, out notRecorded);
 
-    /// <summary>
-    /// Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot,
-    /// saying in <paramref name="outcome"/> which class of answer that was.
-    /// </summary>
-    /// <remarks>
-    /// THE CLASS IS REPORTED BECAUSE THE FOUR REFUSALS ARE NOT ONE EVENT (#1796). Three of them are
-    /// permanent for the request that met them - a caller with no user, no access token or no provider name
-    /// retries into exactly the same refusal - and only the capacity bound clears on its own. The route
-    /// answered all four with the status that means "try again later", so the one caller who could never
-    /// succeed was the one being told to keep asking, at an endpoint that carried no rate bound then and
-    /// carries one that is off on a stock install now. The policy stays here and the route maps the class
-    /// onto a status.
-    /// </remarks>
-    /// <param name="userId">The authenticated caller's user id. <see cref="Guid.Empty"/> is refused: it is what an unauthenticated request resolves to, and a ticket carrying it would name no user.</param>
+    /// <summary>Mints a ticket bound to one caller's user, session and provider, or returns null when it cannot, saying in <paramref name="outcome"/> which class of answer that was.</summary>
+    /// <remarks>The class is reported because the four refusals are not one event (#1796): three are permanent for the request that met them and only the capacity bound clears on its own, so the route maps the class onto a status rather than inviting every caller to retry.</remarks>
+    /// <param name="userId">The authenticated caller's user id; <see cref="Guid.Empty"/>, what an unauthenticated request resolves to, is refused.</param>
     /// <param name="provider">The provider the ticket may be spent at, and at no other.</param>
-    /// <param name="sessionToken">The caller's own access token, so the redeem ends that session. An empty token is refused rather than minting a ticket that could end nothing.</param>
-    /// <param name="nowUtc">The current UTC time (supplied so the lifetime is deterministic in tests).</param>
+    /// <param name="sessionToken">The caller's own access token, so the redeem ends that session; an empty token is refused.</param>
+    /// <param name="nowUtc">The current UTC time, supplied so the lifetime is deterministic in tests.</param>
     /// <param name="outcome">Which class of answer this was; <see cref="MintOutcome.Issued"/> exactly when a token is returned.</param>
     /// <returns>The ticket token to hand the caller, or null when the mint was refused.</returns>
     internal string? Mint(Guid userId, string provider, string? sessionToken, DateTime nowUtc, out MintOutcome outcome)

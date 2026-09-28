@@ -10,46 +10,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Events;
 
-/// <summary>
-/// Publishes the one SSO login moment Jellyfin's own event bus can carry (#1142): a login the role
-/// allow-list refused. The host raises its authentication-failed event only from
-/// <c>SessionManager.AuthenticateNewSessionInternal</c>, on the arm where no user resolved, and an SSO
-/// login denied by role mapping never reaches that method - it returns before the mint - so nothing
-/// delivers that denial today.
-/// </summary>
+/// <summary>Publishes the one SSO login moment Jellyfin's own event bus can carry (#1142): a login the role allow-list refused, which never reaches the host's own authentication-failed arm.</summary>
 /// <remarks>
-/// <para>
-/// The event type is the HOST's <see cref="AuthenticationRequestEventArgs"/> rather than one this plugin
-/// declares, because a plugin-declared type reaches no consumer: <c>jellyfin-plugin-webhook</c> implements
-/// twenty closed <c>IEventConsumer&lt;T&gt;</c> over Jellyfin's own types and no open or non-generic one, so
-/// a foreign argument type has no method to be handed to. Publishing the host type is what makes the denial
-/// arrive at a configured destination as <c>AuthenticationFailure</c> with no change on that side.
-/// </para>
-/// <para>
-/// The payload carries the provider, a fixed reason and the client address, and nothing that names the
-/// person: no username, no subject, no claim value. That is the same T-I1 rule the audit trail is written
-/// under, applied harder because a webhook payload leaves the machine; the address is the one field kept,
-/// because it is what Jellyfin already sends for a password failure and it is what makes the notification
-/// actionable. Each reason is a constant on this class and a call site picks a METHOD rather than passing
-/// text, so a caller structurally cannot put request- or provider-derived text into the field.
-/// </para>
-/// <para>
-/// A denial's response must not depend on a notification, so every failure here is swallowed and logged
-/// and the wait is BOUNDED. Jellyfin's own <c>EventManager</c> already catches each consumer's exception,
-/// so the catch below is for the publish itself - but a consumer that neither returns nor throws is the
-/// case a catch cannot reach: the webhook plugin's consumer makes an outbound HTTP call to a destination
-/// an operator configured, on a client the host gives no timeout, and <c>PublishAsync</c> awaits every
-/// consumer in turn with no cancellation anywhere in its signature. Unbounded, a black-holed destination
-/// would hold a refusal that was already decided for as long as that socket takes to give up. So the wait
-/// is capped at <see cref="PublishBudget"/> and the cap is the thing that keeps the 401 prompt; the
-/// publish itself is left running, because abandoning the wait is all that is needed and the event has no
-/// cancellation to hand it.
-/// </para>
-/// <para>
-/// The budget is deliberately short. This is a notification about a login that is being refused either
-/// way, so nothing is lost by giving up on a destination that is not answering promptly, and a delivery
-/// that needs longer than this is one the operator wants to fix rather than one the login should wait for.
-/// </para>
+/// The event type is the host's <see cref="AuthenticationRequestEventArgs"/>, because the webhook plugin consumes
+/// only closed host types, so the denial arrives at a configured destination as <c>AuthenticationFailure</c>. The
+/// payload carries the provider, a fixed reason picked by method rather than passed as text, and the client
+/// address, and nothing that names the person. Every failure is swallowed and logged, and the wait is capped at
+/// <see cref="PublishBudget"/>, because a consumer that neither returns nor throws, a webhook to a black-holed
+/// destination, would otherwise hold a refusal that was already decided; the publish itself is left running.
 /// </remarks>
 internal sealed class SsoLoginEvents
 {

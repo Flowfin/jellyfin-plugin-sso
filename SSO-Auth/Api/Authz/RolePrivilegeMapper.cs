@@ -79,15 +79,8 @@ internal static class RolePrivilegeMapper
         return new RoleGrants(valid, admin, enableLiveTv, enableLiveTvManagement, folders);
     }
 
-    /// <summary>
-    /// Assembles the full authorize-state privilege set for a login: the statically-enabled folders
-    /// (when folder roles are off) plus the role-granted folders, and the config-default-then-role-grant
-    /// merge for admin / Live TV / Live TV management. Single home for the post-<see cref="Evaluate"/>
-    /// merge that used to be duplicated, byte-identical, in the OpenID and SAML authorize-state builders
-    /// (#508). The OpenID builder OR-s the returned <see cref="AssembledPrivileges.Valid"/> into its own
-    /// running validity; the SAML builder ignores it - validity there is decided by
-    /// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlLoginPolicy"/>, not here.
-    /// </summary>
+    /// <summary>Assembles the full authorize-state privilege set for a login: the statically enabled folders plus the role-granted ones, and the config-default-then-role-grant merge for admin and Live TV, the one home for the merge both protocol builders used to duplicate (#508).</summary>
+    /// <remarks>The OpenID builder ORs the returned <see cref="AssembledPrivileges.Valid"/> into its own validity; the SAML builder ignores it, because validity there is decided by <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlLoginPolicy"/>.</remarks>
     /// <param name="roles">The roles extracted from the verified login (OpenID claims or SAML attributes).</param>
     /// <param name="config">The provider configuration.</param>
     /// <returns>The assembled privileges, ready for the caller to fold into its authorize state.</returns>
