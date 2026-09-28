@@ -3,17 +3,8 @@
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Why a discovery read came back unavailable, for the surfaces that have to tell an operator what to do
-/// about it (#1064). The login path does not branch on this - it fails closed on any value - so the reason
-/// exists for the admin Test-connection probe, whose one job is to answer "why did this break".
-/// <para>
-/// It carries no provider-authored text. Each value maps to a constant the operator also sees in the server
-/// log, so the two read the same; WHICH member repeated stays in the log entry alone. The one value an
-/// administrator needs to act on - the issuer a document published, for <see cref="IssuerMismatch"/> - travels
-/// beside this on <see cref="OidcDiscoveryResult.PublishedIssuer"/>, never inside it.
-/// </para>
-/// </summary>
+/// <summary>Why a discovery read came back unavailable, for the admin Test-connection probe (#1064); the login path fails closed on any value and never branches on it.</summary>
+/// <remarks>It carries no provider-authored text: each value maps to a constant the operator also sees in the server log, and the one value an administrator acts on, the published issuer behind <see cref="IssuerMismatch"/>, travels beside it on <see cref="OidcDiscoveryResult.PublishedIssuer"/>.</remarks>
 internal enum OidcDiscoveryRefusal
 {
     /// <summary>

@@ -68,10 +68,7 @@ internal abstract class AuthorizeSession
     /// </summary>
     internal sealed class Pending : AuthorizeSession
     {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Pending"/> class, capturing everything the callback's
-        /// token exchange needs and nothing derived from an identity, so a Pending cannot mint a session.
-        /// </summary>
+        /// <summary>Initializes a new instance of the <see cref="Pending"/> class, capturing everything the token exchange needs and nothing derived from an identity, so a Pending cannot mint a session.</summary>
         /// <param name="oidcState">The OidcClient authorize state (code_verifier, redirect URI); its <c>State</c> is the store key.</param>
         /// <param name="provider">The provider the challenge was minted for.</param>
         /// <param name="isLinking">Whether the challenge intends to link an account rather than authenticate.</param>

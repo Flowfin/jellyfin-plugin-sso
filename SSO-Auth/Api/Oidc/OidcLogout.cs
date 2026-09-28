@@ -5,40 +5,17 @@ using System;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Composes the OpenID Connect RP-initiated logout (<c>end_session</c>) URL the browser is redirected to
-/// after the local Jellyfin session is ended (#727, SLO-2). Pure string logic so its two security controls
-/// are unit-testable, because this URL navigates an authenticated user's browser to an external host.
-/// </summary>
+/// <summary>Composes the OpenID Connect RP-initiated logout URL the browser is redirected to after the local Jellyfin session is ended (#727).</summary>
 /// <remarks>
-/// Two fail-closed defenses, both here:
-/// <list type="bullet">
-/// <item><description>
-/// <b>Issuer host-binding.</b> The <c>end_session_endpoint</c> comes from the provider's own discovery
-/// document, but a tampered/misconfigured discovery could point it at an attacker host. The endpoint is
-/// therefore accepted only when its authority (scheme + host + port) equals the discovered issuer's - so a
-/// logout can never navigate the browser anywhere but the identity provider itself (an open-redirect / SSRF
-/// defense mirroring the login path's issuer checks). A mismatch yields <c>null</c> (local-only logout).
-/// </description></item>
-/// <item><description>
-/// <b><c>post_logout_redirect_uri</c> allow-listing.</b> The return URL is included only when
-/// <see cref="IsAllowedPostLogoutRedirect"/> accepts it, i.e. when it parses as an absolute http(s) URL and
-/// sits at or under this server's canonical base under the rule stated there - so logout returns the browser
-/// to this Jellyfin or nowhere. The value is admin-configured rather than request-supplied, and the OP
-/// matches it against its own registered URI as well, so this is the RP-side half of a two-sided check. An
-/// absent, malformed, or off-base value is simply omitted; the logout still happens, without a redirect back.
-/// </description></item>
-/// </list>
-/// A blank <c>end_session_endpoint</c> (the OP advertises none, or discovery was unreachable) yields
-/// <c>null</c>, and the caller falls back to a local-only logout - a missing OP endpoint must never break it.
+/// Pure string logic, because this URL navigates an authenticated user's browser to an external host. The
+/// endpoint is accepted only when its authority equals the discovered issuer's, so a tampered discovery cannot
+/// send the browser anywhere but the identity provider, and the return URL is included only when
+/// <see cref="IsAllowedPostLogoutRedirect"/> accepts it. A blank or mismatched endpoint yields <c>null</c> and the
+/// caller falls back to a local-only logout: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#single-logout-opt-in"/>.
 /// </remarks>
 internal static class OidcLogout
 {
-    /// <summary>
-    /// Builds the RP-initiated <c>end_session</c> URL, or <c>null</c> when RP-initiated logout is not possible
-    /// or not safe (no endpoint, or the endpoint is not host-bound to the issuer) - the caller then performs a
-    /// local-only logout.
-    /// </summary>
+    /// <summary>Builds the RP-initiated <c>end_session</c> URL, or <c>null</c> when there is no endpoint or it is not host-bound to the issuer, in which case the caller performs a local-only logout.</summary>
     /// <param name="endSessionEndpoint">The OP's advertised <c>end_session_endpoint</c> (may be null/empty).</param>
     /// <param name="issuer">The discovered issuer (its authority host-binds the endpoint).</param>
     /// <param name="idTokenHint">The revealed captured <c>id_token</c> for the <c>id_token_hint</c> (may be null).</param>
@@ -105,35 +82,15 @@ internal static class OidcLogout
             && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase)
             && a.Port == b.Port;
 
-    /// <summary>
-    /// Whether a <c>post_logout_redirect_uri</c> candidate is allowed: it parses as an absolute http(s) URL
-    /// with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/>, so a logout
-    /// can only return the browser to this Jellyfin. Both sides are reduced to the origin+path form
-    /// <see cref="Uri.GetLeftPart"/> canonicalizes to, with any trailing slash trimmed, and "at or under" is
-    /// then three conditions:
-    /// <list type="number">
-    /// <item><description>the SAME authority - scheme, host (<c>OrdinalIgnoreCase</c>, which for the ASCII
-    /// hosts Uri lower-cases makes host case irrelevant) and effective port - so a sibling host such as
-    /// <c>base.example.com.evil.net</c> and any subdomain of the base are refused;</description></item>
-    /// <item><description>no percent-escape and no <c>;</c> segment parameter anywhere in the path, because
-    /// Uri leaves both intact and a hop that decodes or strips them would resolve the path outside the base
-    /// after this check has passed;</description></item>
-    /// <item><description>a path that EQUALS the base path or continues it at a SEGMENT boundary, compared
-    /// ordinally, so URL path case is significant - under a base of <c>https://host/jellyfin</c>,
-    /// <c>/jellyfin</c> and <c>/jellyfin/web</c> are under it while <c>/jellyfinevil/x</c> and
-    /// <c>/JELLYFIN/x</c> are not.</description></item>
-    /// </list>
-    /// A query and a fragment on the candidate are outside the containment check and ride along into the
-    /// emitted URL; they cannot move the target off this server, which is what the check exists for. The
-    /// value returned in <paramref name="allowed"/> is the candidate itself, trimmed. The SINGLE source of
-    /// truth for the return-URL rule - the runtime builder above and the save-time
-    /// <c>ProviderConfigValidator.ValidatePostLogoutRedirectUri</c> both call it, so the config-page save
-    /// rejects exactly the values the runtime would silently drop (no second, divergent URL rule). A blank
-    /// candidate or blank base yields <see langword="false"/>.
-    /// </summary>
+    /// <summary>Whether a <c>post_logout_redirect_uri</c> candidate parses as an absolute http(s) URL with no userinfo and sits at or under this server's <paramref name="canonicalBaseUrl"/>, so a logout can only return the browser to this Jellyfin.</summary>
+    /// <remarks>
+    /// At or under means the same scheme, host and port, no percent-escape or <c>;</c> parameter in the path, and a
+    /// path that equals the base path or continues it at a segment boundary, compared ordinally; a query and a
+    /// fragment ride along. The save-time validator calls it too, so the config page rejects exactly what the runtime would drop.
+    /// </remarks>
     /// <param name="candidate">The desired post-logout return URL (may be null/blank).</param>
     /// <param name="canonicalBaseUrl">This server's canonical base, the allow-list root.</param>
-    /// <param name="allowed">The accepted return URL when the result is <see langword="true"/>, else empty.</param>
+    /// <param name="allowed">The accepted return URL, trimmed, when the result is <see langword="true"/>, else empty.</param>
     /// <returns><see langword="true"/> if the candidate is a return URL at or under the canonical base.</returns>
     internal static bool IsAllowedPostLogoutRedirect(string? candidate, string? canonicalBaseUrl, out string allowed)
     {

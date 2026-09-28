@@ -7,17 +7,14 @@ using Microsoft.AspNetCore.Http;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Binds an in-flight OpenID authorize state to the browser that started it (#326). The authorize
-/// <c>state</c> token is stored process-globally and, on its own, only proves knowledge of an
-/// unguessable key - it does NOT tie the callback to the user-agent that initiated authorization, the
-/// role RFC 6749 section 10.12 and the OAuth 2.0 Security BCP assign it. Without that tie an attacker
-/// can start a flow, obtain their own code, and lure a victim to the callback so the victim's browser
-/// is silently signed in as the attacker (forced login / session fixation). The challenge sets a
-/// browser-scoped cookie carrying a fresh random id and records the same id on the state; the callbacks
-/// require the cookie to match before honoring the state, so a state started in one browser cannot be
-/// completed in another.
-/// </summary>
+/// <summary>Binds an in-flight OpenID authorize state to the browser that started it (#326).</summary>
+/// <remarks>
+/// The authorize state token alone proves knowledge of an unguessable key and does not tie the callback to the
+/// user-agent that initiated authorization, the role RFC 6749 section 10.12 assigns it, so an attacker could
+/// complete their own flow in a victim's browser. The challenge sets a cookie carrying a fresh random id and
+/// records the same id on the state, and the callbacks require the two to match:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#login-browser-binding-forced-login-defense"/>.
+/// </remarks>
 internal static class AuthorizeStateBinding
 {
     /// <summary>
@@ -54,16 +51,12 @@ internal static class AuthorizeStateBinding
         => !string.IsNullOrEmpty(storedBindingId)
            && string.Equals(storedBindingId, presentedBindingId, StringComparison.Ordinal);
 
-    /// <summary>
-    /// The cookie policy for the binding cookie. <c>Secure</c> is always set: every real OpenID
-    /// deployment is HTTPS at the browser edge (identity providers reject non-localhost <c>http</c>
-    /// redirect URIs), so the browser stores and sends the cookie even when a TLS-terminating proxy
-    /// forwards plain HTTP to the app - and marking it Secure is correct there, where a scheme-tracking
-    /// flag would wrongly under-set it. <c>SameSite=Lax</c> is required, not Strict: the IdP returns the
-    /// browser to the callback via a top-level cross-site navigation, on which Lax cookies are sent but
-    /// Strict cookies are not - Strict would suppress the cookie and fail every login. Scoped to the
-    /// whole app and bounded to the state's lifetime.
-    /// </summary>
+    /// <summary>The cookie policy for the binding cookie: Secure, HttpOnly, SameSite=Lax, scoped to the whole app and bounded to the state lifetime.</summary>
+    /// <remarks>
+    /// Secure is always set because every real OpenID deployment is HTTPS at the browser edge, even where a
+    /// proxy forwards plain HTTP to the app. Lax rather than Strict, because the provider returns the browser
+    /// through a top-level cross-site navigation, on which Strict cookies are not sent and every login would fail.
+    /// </remarks>
     /// <param name="lifetime">How long the cookie should live, matching the authorize-state lifetime.</param>
     /// <returns>The cookie options.</returns>
     internal static CookieOptions CookieOptions(TimeSpan lifetime) => new()

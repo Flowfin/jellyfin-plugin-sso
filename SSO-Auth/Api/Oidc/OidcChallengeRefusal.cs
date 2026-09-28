@@ -36,45 +36,13 @@ internal enum OidcChallengeCause
     ClientAuthentication = 2,
 }
 
-/// <summary>
-/// Reads the one field the identity library hands on from a failed authorization-request preparation and
-/// says which cause it carries, so the log line can follow it instead of asserting one cause for every
-/// refusal (#1763).
-/// </summary>
+/// <summary>Reads the one field the identity library hands on from a failed authorization-request preparation and says which cause it carries, so the log line can follow it (#1763).</summary>
 /// <remarks>
-/// <para>
-/// THE CLASSIFICATION READS THE CODE AND NOTHING ELSE, AND THAT IS A PROPERTY OF THE LIBRARY RATHER THAN A
-/// CHOICE. <c>AuthorizeState.ErrorDescription</c> is not the provider's words: both pinned versions
-/// overwrite it with one constant before the plugin sees it, so nothing can be read out of it.
-/// </para>
-/// <code>
-/// ilspycmd -t Duende.IdentityModel.OidcClient.AuthorizeClient Duende.IdentityModel.OidcClient.dll
-///     _logger.LogError("Failed to push authorization parameters");
-///     state.Error = ((ProtocolResponse)val).Error;
-///     state.ErrorDescription = "Failed to push authorization parameters";
-/// </code>
-/// <para>
-/// WHAT THE CODE ITSELF IS DEPENDS ON THE STATUS, WHICH THIS SIDE NEVER RECEIVES.
-/// <c>ProtocolResponse.Error</c> returns the parsed <c>error</c> member only where the response was a 400;
-/// every other unsuccessful status yields the HTTP reason phrase, and a transport failure yields the
-/// exception message. So <c>invalid_request</c> is a provider's code, <c>Unauthorized</c> is a reason
-/// phrase for a 401, and the two are told apart here by name because no status reaches this call.
-/// </para>
-/// <code>
-/// ilspycmd -t Duende.IdentityModel.Client.ProtocolResponse Duende.IdentityModel.dll
-///     if (ErrorType == ResponseErrorType.Http) { return HttpErrorReason; }
-///     if (ErrorType == ResponseErrorType.Exception) { return Exception.Message; }
-///     return TryGet("error");
-///     ...
-///     if (!httpResponse.IsSuccessStatusCode &amp;&amp; httpResponse.StatusCode != HttpStatusCode.BadRequest)
-/// </code>
-/// <para>
-/// THE BOUND THAT FOLLOWS, STATED RATHER THAN ENGINEERED AROUND. A reason phrase is the server's to
-/// choose, so a 401 answered with any phrase but <c>Unauthorized</c> is not recognised as a client
-/// refusal and falls to <see cref="OidcChallengeCause.Unnamed"/>. That direction loses a helpful sentence
-/// and asserts nothing false, which is the direction this rule is for. Every set below is closed and
-/// named for the same reason.
-/// </para>
+/// The classification reads the error code and nothing else, because the library overwrites the description with
+/// one constant before the plugin sees it, and the code is the provider's own only for a 400 response: any other
+/// failing status yields the HTTP reason phrase and a transport failure the exception message, so the two are told
+/// apart here by name. A reason phrase is the server's to choose, so an unrecognised one falls to
+/// <see cref="OidcChallengeCause.Unnamed"/>, which loses a helpful sentence and asserts nothing false.
 /// </remarks>
 internal static class OidcChallengeRefusal
 {
