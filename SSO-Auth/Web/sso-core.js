@@ -5677,7 +5677,7 @@ const ssoConfigurationPage = {
 };
 
 // The five page controllers (#1527). Each function only wires the controls of its own page, since an
-// unguarded handler on a missing control would throw. docs/ui/mock/FIELDS.md and tools/ui-mock-fields.js
+// unguarded handler on a missing control would throw. tools/ui/mock/FIELDS.md and tools/ui-mock-fields.js
 // hold that partition to the markup.
 
 /**

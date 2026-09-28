@@ -5,7 +5,7 @@
 /*
  * Counts every help text the five settings pages show, page by page and field by
  * field, and refuses the count moving in either direction (#1661). It reconciles
- * docs/ui/HELP-CENSUS.md, one row per site (one field on one page naming one
+ * tools/ui/HELP-CENSUS.md, one row per site (one field on one page naming one
  * help key), against the tree, and checks that each site's English text appears
  * exactly once inside the innermost field that names it. It reads bytes, not a
  * rendered page; calibration fixtures run first and stop the run on a mismatch.
@@ -19,7 +19,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const WEB = path.join(ROOT, "SSO-Auth", "Web");
 const CATALOG = path.join(ROOT, "SSO-Auth", "Localization", "en.json");
-const CENSUS = path.join(ROOT, "docs", "ui", "HELP-CENSUS.md");
+const CENSUS = path.join(ROOT, "tools", "ui", "HELP-CENSUS.md");
 
 // Void elements, so the reader never looks for a closing tag for them.
 const VOID = new Set([
@@ -406,7 +406,7 @@ function occurrencesOf(source, sites) {
 
 /**
  * Reads the census table as `page | key | field` rows, in the shape of
- * docs/ui/mock/FIELDS.md; all three cells identify a row.
+ * tools/ui/mock/FIELDS.md; all three cells identify a row.
  */
 function readCensus() {
   if (!fs.existsSync(CENSUS)) return null;
@@ -1083,7 +1083,7 @@ function main() {
   const faults = [];
   if (rows === null) {
     faults.push(
-      "docs/ui/HELP-CENSUS.md is missing, so there is nothing to measure the pages against",
+      "tools/ui/HELP-CENSUS.md is missing, so there is nothing to measure the pages against",
     );
   }
 
