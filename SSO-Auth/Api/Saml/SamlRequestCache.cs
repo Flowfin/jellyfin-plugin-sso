@@ -80,18 +80,14 @@ internal sealed class SamlRequestCache
     /// <summary>Gets the live entry count. Test-only, like Clear.</summary>
     internal int Count => _outstanding.Count;
 
-    /// <summary>
-    /// Records an issued request ID as outstanding until <paramref name="expiryUtc"/>, together with the
-    /// browser-binding id minted for it at the challenge (#415). A blank ID is ignored (the correlation
-    /// at consume time then fails closed).
-    /// </summary>
-    /// <param name="requestId">The request ID (scoped by the caller, e.g. by provider).</param>
-    /// <param name="bindingId">The browser-binding id set as a cookie at the challenge (may be empty).</param>
-    /// <param name="expiryUtc">When the entry may be evicted (the request's validity horizon).</param>
+    /// <summary>Records an issued request ID as outstanding until <paramref name="expiryUtc"/>, together with the browser-binding id minted for it at the challenge (#415); a blank ID is ignored and the correlation then fails closed.</summary>
+    /// <param name="requestId">The request ID, scoped by the caller.</param>
+    /// <param name="bindingId">The browser-binding id set as a cookie at the challenge, possibly empty.</param>
+    /// <param name="expiryUtc">When the entry may be evicted, which is the validity horizon of the request.</param>
     /// <param name="nowUtc">The current time.</param>
     /// <param name="clientKey">The normalized client key for the per-client sub-cap (#327), or null to exempt.</param>
-    /// <param name="shouldWarnCapacity">True when the caller should emit the throttled capacity warning (a cap refusal, at most once per interval).</param>
-    /// <returns>True if the entry was registered; false if refused (blank ID, per-client sub-cap, or global cap).</returns>
+    /// <param name="shouldWarnCapacity">True when the caller should emit the throttled capacity warning, at most once per interval.</param>
+    /// <returns>True if the entry was registered; false if refused by a blank ID, the sub-cap or the global cap.</returns>
     internal bool Register(string? requestId, string bindingId, DateTime expiryUtc, DateTime nowUtc, string? clientKey, out bool shouldWarnCapacity)
     {
         PruneExpired(nowUtc);

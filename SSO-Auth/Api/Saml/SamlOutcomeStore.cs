@@ -11,21 +11,13 @@ using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Saml;
 
-/// <summary>
-/// The in-flight SAML login-outcome store (#251): the assertion-consumer callback validates the signed
-/// assertion ONCE, then stores the resulting <see cref="SamlLoginOutcome"/> here keyed by a fresh CSPRNG
-/// token and hands the intermediate auth page only that token - never the assertion. The same-origin
-/// session-mint leg redeems the token once and completes the login from the stored outcome, so the signed
-/// XML no longer round-trips through the browser and is not parsed or validated a second time. This is the
-/// SAML analogue of <see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcStateStore"/>'s one-time authorize-state redeem: cap-bounded
-/// registration, an atomic one-time claim, and an <see cref="IntervalGate"/>-throttled expired-entry sweep.
-/// </summary>
+/// <summary>The in-flight SAML login-outcome store (#251): the callback validates the signed assertion once, stores the outcome under a fresh CSPRNG token, and hands the intermediate page only that token.</summary>
 /// <remarks>
-/// A single stored variant, not the OpenID two-phase Pending -> Ready swap: a SAML login is FULLY verified
-/// at the callback (signature, time, audience, recipient, role gate, one-time replay consume and the
-/// verified-identity construction all complete there), so what is stored is already the redeemable outcome.
-/// Holding a <see cref="SamlLoginOutcome"/> is therefore proof the assertion passed every gate, and the
-/// redeem is the sole one-time claim - a token is redeemable at most once even under concurrent posts.
+/// The same-origin mint leg redeems the token once and completes the login from the stored outcome, so the
+/// signed XML no longer round-trips through the browser and is never parsed a second time. It is the SAML
+/// analogue of the OpenID authorize-state redeem: cap-bounded registration, an atomic one-time claim and a
+/// throttled sweep. A single stored variant rather than the OpenID two-phase swap, because a SAML login is
+/// fully verified at the callback, so holding an outcome is proof the assertion passed every gate.
 /// </remarks>
 internal sealed class SamlOutcomeStore
 {
@@ -110,21 +102,16 @@ internal sealed class SamlOutcomeStore
     /// <returns>The new one-time outcome token.</returns>
     internal static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
-    /// <summary>
-    /// Reserves capacity for one outcome BEFORE its caller consumes the one-time SAML replay cache, so an
-    /// at-cap refusal fails closed WITHOUT the assertion having been burned - the login the store cannot yet
-    /// hold can be retried once the store drains, rather than being permanently lost to a replay-cache entry
-    /// recorded for an authentication that never completed (#539). Reserves the per-client sub-cap (#327) and
-    /// checks the global cap; on a true return the caller MUST pair it with exactly one <see cref="CommitReserved"/>
-    /// or <see cref="ReleaseReservation"/>. At the cap a fresh reservation is refused rather than evicting an
-    /// in-flight outcome - evicting would drop a user already mid-login. On refusal,
-    /// <paramref name="shouldWarnCapacity"/> is true for at most one caller per interval; the warning line stays
-    /// at the call site so the log-forging inline sanitizer never crosses a helper boundary.
-    /// </summary>
+    /// <summary>Reserves capacity for one outcome before its caller consumes the one-time replay cache, so an at-cap refusal fails closed without the assertion having been burned (#539).</summary>
+    /// <remarks>
+    /// It reserves the per-client sub-cap (#327), checks the global cap, and on a true return the caller
+    /// pairs it with one <see cref="CommitReserved"/> or <see cref="ReleaseReservation"/>. At the cap a
+    /// reservation is refused rather than evicting an outcome, which would drop a user mid-login.
+    /// </remarks>
     /// <param name="clientKey">The normalized client key whose sub-cap slot is reserved, or null for an exempt source.</param>
     /// <param name="now">The reference time driving the throttled capacity warning.</param>
     /// <param name="shouldWarnCapacity">True when the caller should emit the throttled capacity warning.</param>
-    /// <returns>True if a slot was reserved; false if refused (per-client sub-cap or global cap).</returns>
+    /// <returns>True if a slot was reserved; false if refused by the sub-cap or the global cap.</returns>
     internal bool TryReserve(string? clientKey, DateTime now, out bool shouldWarnCapacity)
     {
         // Per-client sub-cap (#327): reserve this client's slot BEFORE the global check so one source cannot
@@ -135,11 +122,9 @@ internal sealed class SamlOutcomeStore
             return false;
         }
 
-        // Global cap: at capacity a fresh reservation is refused, never an in-flight one evicted. The reserve
-        // holds only the per-client slot, so the global cap stays the store's documented APPROXIMATE ceiling -
-        // between this check and the paired CommitReserved a concurrent commit can transiently overshoot by at
-        // most the in-flight thread count, immaterial for a defense-in-depth memory bound (the per-client cap,
-        // the actual availability defense, remains exact via its CAS).
+        // Global cap: at capacity a reservation is refused rather than an in-flight outcome evicted. It is an
+        // approximate ceiling, because between this check and the paired commit a concurrent commit can
+        // overshoot by the in-flight thread count; the per-client cap, the availability defence, stays exact.
         if (_outcomes.Count >= _maxEntries)
         {
             _perClient.Release(clientKey);
@@ -198,16 +183,10 @@ internal sealed class SamlOutcomeStore
         return true;
     }
 
-    /// <summary>
-    /// The one-time atomic claim: the store is keyed by the outcome token, which is exactly the value the
-    /// mint leg presents, so this is an O(1) lookup plus an atomic TryRemove - only the request that wins the
-    /// removal proceeds, so one outcome completes at most one login even under concurrent posts. Redeemable
-    /// only while the outcome still belongs to the route provider (so a token cannot be replayed against
-    /// another provider's endpoint) and is within its lifetime; an unknown, expired, provider-mismatched or
-    /// already-claimed token returns null (fail closed).
-    /// </summary>
+    /// <summary>The one-time atomic claim: the store is keyed by the outcome token the mint leg presents, so only the request that wins the removal proceeds and one outcome completes at most one login.</summary>
+    /// <remarks>An outcome is redeemable only while it still belongs to the route provider, so a token cannot be replayed against another provider endpoint, and only within its lifetime; anything else returns null.</remarks>
     /// <param name="token">The outcome token the mint leg presented.</param>
-    /// <param name="provider">The provider named in the consuming request's route.</param>
+    /// <param name="provider">The provider named in the route of the consuming request.</param>
     /// <param name="now">The current time.</param>
     /// <returns>The redeemed outcome, or null when not redeemable.</returns>
     internal SamlLoginOutcome? TryRedeem(string? token, string provider, DateTime now)
@@ -276,21 +255,13 @@ internal sealed class SamlOutcomeStore
     }
 }
 
-/// <summary>
-/// One fully-verified SAML login, held server-side between the assertion-consumer callback (which builds it
-/// after complete validation) and the same-origin session-mint leg (which redeems it once). Immutable: the
-/// redeem is an atomic remove of the whole record, so a redeemer never observes a torn outcome. It carries
-/// the protocol-agnostic <see cref="VerifiedIdentity"/> the mint path needs plus the correlation facts the
-/// mint leg still enforces there (the assertion's <c>InResponseTo</c>, matched against the browser-binding
-/// cookie that the cross-site ACS POST could not carry), and the assertion's <c>SessionIndex</c> so the
-/// completion tail can capture the Single Logout state (#727, SLO-3a).
-/// </summary>
-/// <param name="Token">The CSPRNG token keying the entry - the only value that crosses to the browser.</param>
-/// <param name="Provider">The provider that verified the login; a token is redeemable only on its own provider's endpoint.</param>
+/// <summary>One fully verified SAML login, held server-side between the assertion-consumer callback that builds it and the same-origin mint leg that redeems it once; immutable, so a redeemer never observes a torn outcome.</summary>
+/// <param name="Token">The CSPRNG token keying the entry, the only value that crosses to the browser.</param>
+/// <param name="Provider">The provider that verified the login; a token is redeemable only on its own provider endpoint.</param>
 /// <param name="Identity">The verified identity and privileges the mint path is keyed on (#473).</param>
-/// <param name="InResponseTo">The assertion's <c>InResponseTo</c> (empty for an unsolicited response), correlated + browser-bound at the mint leg (#415).</param>
-/// <param name="SessionIndex">The assertion's first AuthnStatement <c>SessionIndex</c> (#727, SLO-3a), or null when absent - a later Single Logout request resolves the session by it.</param>
-/// <param name="ClientKey">The normalized client key that reserved this outcome's per-client budget slot (#327), or null for an exempt source.</param>
+/// <param name="InResponseTo">The assertion InResponseTo, empty for an unsolicited response, correlated and browser-bound at the mint leg (#415).</param>
+/// <param name="SessionIndex">The first AuthnStatement SessionIndex (#727), or null when absent; a later Single Logout request resolves the session by it.</param>
+/// <param name="ClientKey">The normalized client key that reserved the per-client budget slot (#327), or null for an exempt source.</param>
 /// <param name="Created">When the outcome was created, used to time it out.</param>
 internal sealed record SamlLoginOutcome(
     string Token,
