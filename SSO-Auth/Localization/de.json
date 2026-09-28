@@ -269,7 +269,7 @@
   "config.test_failed": "Die Prüfung konnte nicht ausgeführt werden. Speichern Sie den Anbieter, melden Sie sich als Verwalter an und versuchen Sie es erneut.",
   "config.test_no_result": "Es kam kein Ergebnis zurück.",
   "config.test_running": "Wird geprüft…",
-  "config.provider_save_refused": "Der Anbieter konnte nicht gespeichert werden: Der Name enthält ein Steuer-, Backslash- oder URI-reserviertes Zeichen, oder die übersteuerte Basis-URL ist keine vollständige URL.",
+  "config.provider_save_refused": "Der Anbieter konnte nicht gespeichert werden: Der Name enthält ein Steuerzeichen, einen Backslash oder ein URI-reserviertes Zeichen, oder die übersteuerte Basis-URL ist keine vollständige URL.",
   "config.config_exporting": "Die Konfiguration wird exportiert…",
   "config.config_exported": "Ausgeführt. Anbietergeheimnisse und Kontoverknüpfungen sind in der Datei unkenntlich gemacht.",
   "config.config_export_failed": "Die Konfiguration konnte nicht ausgeführt werden. Stellen Sie sicher, dass Sie als Verwalter angemeldet sind, dann versuchen Sie es erneut.",
