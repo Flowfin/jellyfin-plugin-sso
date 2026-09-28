@@ -11,29 +11,13 @@ using Jellyfin.Plugin.SSO_Auth.Api.RateLimit;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 
-/// <summary>
-/// The in-flight one-time logout-ticket store (#1768). The RP-initiated logout route has to send the
-/// browser on to the identity provider, so it is a top-level navigation, and a navigation carries no
-/// Authorization header. Until this existed the only way to reach the route from a client was to put the
-/// caller's own access token in the query string, which is a long-lived credential in a URL that lands in
-/// history, in a referrer and in every proxy log on the way. A ticket stands in for it: an authenticated
-/// call mints one, it is bound to the caller's user and provider and carries the caller's own session token
-/// so the redeem ends exactly the session it was minted from, it lives for a minute, and the route accepts
-/// it exactly once. What the session binding covers is the local sign-out; the end-session hint is chosen
-/// per user at the route, which is where that is argued (#1794).
-/// <para>
-/// The same shape as <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlOutcomeStore"/> and
-/// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcStateStore"/>: cap-bounded registration, an atomic
-/// one-time claim, an <see cref="IntervalGate"/>-throttled expired-entry sweep, and a provider scope that
-/// stops a ticket minted for one provider being spent at another's endpoint.
-/// </para>
-/// </summary>
+/// <summary>The in-flight one-time logout-ticket store (#1768): a ticket stands in for the access token a top-level logout navigation cannot carry, bound to the caller's user, provider and session, alive for a minute and accepted once.</summary>
 /// <remarks>
-/// IN MEMORY AND NEVER IN THE CONFIGURATION, which is the one place this differs from the Single Logout
-/// state beside it. <see cref="SessionLogoutStore"/> persists, because an id_token has to survive a restart
-/// to be usable as an <c>id_token_hint</c> later. A ticket has a one-minute life and carries a live session
-/// token, so writing it to the plugin configuration would put a bearer credential on disk to buy nothing: a
-/// ticket that outlived a restart would be expired before the server finished starting.
+/// The same shape as <see cref="Jellyfin.Plugin.SSO_Auth.Api.Saml.SamlOutcomeStore"/> and
+/// <see cref="Jellyfin.Plugin.SSO_Auth.Api.Oidc.OidcStateStore"/>: cap-bounded registration, an atomic one-time
+/// claim, a throttled sweep and a provider scope. In memory and never in the configuration, unlike
+/// <see cref="SessionLogoutStore"/>, because a ticket carries a live session token and would be expired before a
+/// restarted server finished starting; the end-session hint is chosen per user at the route (#1794).
 /// </remarks>
 internal sealed class LogoutTicketStore
 {
@@ -60,17 +44,10 @@ internal sealed class LogoutTicketStore
     /// <summary>How long a ticket may live before it is rejected and pruned; bounds the mint-to-navigate round trip.</summary>
     internal static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(1);
 
-    // The expired-entry sweep is an O(n) scan; throttling it to at most once per this interval keeps it off
-    // the request path (mirrors the siblings). WHAT THROTTLING DEFERS IS MEMORY AND THE ACCOUNT'S SLOT, AND
-    // THIS COMMENT CLAIMED IT WAS MEMORY ALONE. Correctness is unaffected either way: the redeem predicate
-    // rejects an expired ticket independently, so a not-yet-swept entry never completes a logout. But the
-    // sweep is the ONLY release of the per-account reservation an expired-unredeemed entry holds - the
-    // redeem path cannot reach one, because IsCurrentFor refuses it before the removal that releases - so
-    // between two sweeps a dead ticket still occupies its account's share. Measured on a store with a
-    // ten-per-account share: ten expired, unredeemable tickets refused that account a fresh mint until the
-    // gate reopened. The bound is one prune interval, the cost is one account's ticket mint refused, and
-    // the local Jellyfin sign-out is untouched. The sibling stores have the same shape; what differed here
-    // is that this comment asserted the opposite.
+    // The expired-entry sweep is an O(n) scan, throttled to once per interval to stay off the request path. What
+    // it defers is memory and the account's slot: the redeem refuses an expired ticket on its own, but the sweep is
+    // the only release of the per-account reservation a dead ticket holds, so between two sweeps that account can
+    // be refused a fresh mint. The bound is one prune interval and the local sign-out is untouched.
 
     /// <summary>The minimum interval between expired-entry sweeps, keeping the O(n) scan off the request path.</summary>
     internal static readonly TimeSpan DefaultPruneInterval = TimeSpan.FromMinutes(1);
@@ -140,17 +117,11 @@ internal sealed class LogoutTicketStore
     /// <returns>The new one-time ticket token.</returns>
     internal static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
-    /// <summary>
-    /// Registers a fresh ticket under its CSPRNG token. At either cap a NEW token is refused - that one mint
-    /// fails closed and the caller falls back to the local sign-out - rather than evicting an outstanding
-    /// ticket, which would break a sign-out already under way. On refusal <paramref name="refusal"/> names
-    /// WHICH bound was met and whether this caller holds that bound's warning throttle for the interval;
-    /// the warning line stays at the call site so the log-forging inline sanitizer never crosses a helper
-    /// boundary.
-    /// </summary>
+    /// <summary>Registers a fresh ticket under its CSPRNG token; at either cap a new token is refused rather than an outstanding ticket evicted, which would break a sign-out already under way.</summary>
+    /// <remarks>On refusal <paramref name="refusal"/> names which bound was met and whether this caller holds that bound's warning throttle; the warning line stays at the call site so the log-forging sanitizer never crosses a helper boundary.</remarks>
     /// <param name="ticket">The ticket; its token keys the entry and its Created drives the throttled warning.</param>
     /// <param name="refusal">Which bound refused, so the caller can say which; <see cref="MintRefusal.None"/> on success.</param>
-    /// <returns>True if the ticket was registered; false if refused (per-account sub-cap, global cap, or token collision).</returns>
+    /// <returns>True if the ticket was registered; false if refused by the per-account sub-cap, the global cap, or a token collision.</returns>
     internal bool TryAdd(LogoutTicket ticket, out MintRefusal refusal)
     {
         ArgumentNullException.ThrowIfNull(ticket);
@@ -184,16 +155,10 @@ internal sealed class LogoutTicketStore
         return true;
     }
 
-    /// <summary>
-    /// The one-time atomic claim. The store is keyed by the ticket token, which is exactly the value the
-    /// navigation presents, so this is an O(1) lookup plus an atomic TryRemove: only the request that wins
-    /// the removal proceeds, so one ticket ends at most one session even if the browser fires the navigation
-    /// twice. Redeemable only while the ticket still belongs to the route's provider and is inside its
-    /// lifetime; an unknown, expired, provider-mismatched or already-claimed token returns null and the
-    /// route falls back to requiring a session, which is the fail-closed direction.
-    /// </summary>
+    /// <summary>The one-time atomic claim: the store is keyed by the ticket token the navigation presents, so only the request that wins the removal proceeds and one ticket ends at most one session.</summary>
+    /// <remarks>Redeemable only while the ticket still belongs to the route's provider and is inside its lifetime; anything else returns null and the route falls back to requiring a session.</remarks>
     /// <param name="token">The ticket token the navigation presented.</param>
-    /// <param name="provider">The provider named in the consuming request's route.</param>
+    /// <param name="provider">The provider named in the route of the consuming request.</param>
     /// <param name="now">The current time.</param>
     /// <returns>The redeemed ticket, or null when not redeemable.</returns>
     internal LogoutTicket? TryRedeem(string? token, string provider, DateTime now)
@@ -261,16 +226,8 @@ internal sealed class LogoutTicketStore
         _perUser.Clear();
     }
 
-    /// <summary>
-    /// Test-only: seeds one ticket directly, bypassing the mint endpoint.
-    /// <para>
-    /// It RESERVES the account's slot, like the mint it stands in for. TryRedeem releases a slot on every
-    /// winning removal without asking how the entry arrived, so a seed that skipped the reservation would
-    /// hand back a slot nothing took - the double release PerClientBudgetLimiter.Release warns about, which
-    /// under-counts and lets the bucket admit past its cap. This lives in the production assembly and is
-    /// reachable through InternalsVisibleTo, so "test-only" is a convention rather than a boundary.
-    /// </para>
-    /// </summary>
+    /// <summary>Test-only: seeds one ticket directly, bypassing the mint endpoint.</summary>
+    /// <remarks>It reserves the account's slot like the mint it stands in for, because <see cref="TryRedeem"/> releases a slot on every winning removal and a seed that skipped the reservation would hand back a slot nothing took; reachable through InternalsVisibleTo, so test-only is a convention.</remarks>
     /// <param name="ticket">The ticket to store under its own token.</param>
     internal void Seed(LogoutTicket ticket)
     {

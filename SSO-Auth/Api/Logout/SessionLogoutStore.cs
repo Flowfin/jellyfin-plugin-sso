@@ -8,19 +8,8 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 
-/// <summary>
-/// Pure operations over the per-session Single Logout store (#727) - the
-/// <see cref="PluginConfiguration.LogoutSessions"/> map. No I/O: the login path calls <see cref="Capture"/>
-/// and the logout path calls <see cref="Remove"/>/the query helpers inside a <c>MutateConfiguration</c>/
-/// <c>ReadConfiguration</c> lambda, so persistence and locking stay with the config store while the
-/// selection and bounding rules live here and are unit-testable.
-/// </summary>
-/// <remarks>
-/// The store is bounded two ways so it cannot grow without limit even if session-end pruning is missed: an
-/// absolute <see cref="MaxEntries"/> cap (the oldest capture is evicted first) and a <see cref="MaxAge"/>
-/// time-to-live (stale entries are swept on every capture). Both run at capture time, so a busy server keeps
-/// the map trimmed without a background timer.
-/// </remarks>
+/// <summary>Pure operations over the per-session Single Logout store (#727), the <see cref="PluginConfiguration.LogoutSessions"/> map; the callers run them inside the configuration store's read or mutate lambdas, so persistence and locking stay there.</summary>
+/// <remarks>The store is bounded two ways so it cannot grow without limit if session-end pruning is missed: the <see cref="MaxEntries"/> cap evicts the oldest capture first and the <see cref="MaxAge"/> time-to-live sweeps stale entries on every capture.</remarks>
 internal static class SessionLogoutStore
 {
     /// <summary>The hard cap on stored sessions; the oldest is evicted once exceeded.</summary>

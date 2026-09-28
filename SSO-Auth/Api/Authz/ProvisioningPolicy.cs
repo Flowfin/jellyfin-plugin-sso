@@ -10,60 +10,22 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Writes a provider's static provisioning template (#1099) onto a BRAND-NEW account, once, at creation.
-/// </summary>
+/// <summary>Writes a provider's static provisioning template (#1099) onto a brand-new account, once, at creation.</summary>
 /// <remarks>
-/// <para>
-/// The one thing to hold on to is that this runs on the create arm and nowhere else. Every other policy the
-/// plugin writes - <see cref="PermissionRolePolicy"/>, <see cref="RolePrivilegeMapper"/>,
-/// <see cref="ParentalRatingPolicy"/> - is authoritative and re-asserted on every login, because a role the
-/// identity provider withdrew has to withdraw its permission. A template is the opposite claim: it is a
-/// starting point, so an administrator's later per-user edit has to survive. Re-applying it would undo that
-/// edit on the user's next login with nothing in the log to explain it.
-/// </para>
-/// <para>
-/// It writes only what the template NAMES. An unlisted permission and a null numeric field are left
-/// untouched, so Jellyfin's own new-user default governs them and a provider that carries no template
-/// provisions byte-identically to before this existed.
-/// </para>
-/// <para>
-/// The permission vocabulary is <see cref="PermissionRolePolicy.Classify"/>'s, not a second one, so the
-/// dedicated permissions (administrator, all-folders, Live TV) keep exactly one authoritative source each
-/// and <c>IsDisabled</c> stays barred from every SSO-config-driven write. Save-time validation refuses those
-/// names outright; this skips them again at write time so a config file edited by hand around the validator
-/// still cannot use a template to grant administrator or to disable every account a provider creates.
-/// </para>
+/// It runs on the create arm and nowhere else: every other policy is re-asserted on every login, but a template
+/// is a starting point an administrator's later per-user edit has to survive. It writes only what the template
+/// names, so an unlisted permission keeps Jellyfin's default. The vocabulary is
+/// <see cref="PermissionRolePolicy.Classify"/>'s, so the dedicated permissions keep one source each and
+/// <c>IsDisabled</c> stays barred even from a configuration edited by hand around the validator.
 /// </remarks>
 internal static class ProvisioningPolicy
 {
-    /// <summary>
-    /// Resolves which template a provider's brand-new accounts get, in one documented order (#1105, #1106):
-    /// the profile the login's roles selected, else the named
-    /// <see cref="PluginConfiguration.ProvisioningProfiles"/> entry the provider points at, else the
-    /// provider's own inline <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>.
-    /// </summary>
-    /// <remarks>
-    /// A name that resolves to nothing writes NO policy, and deliberately does not fall back - not to the
-    /// inline template, and not to the provider default when the name came from a role row. The save path
-    /// refuses a dangling name on both surfaces, and refuses a provider carrying a name AND an inline
-    /// template (<see cref="ProviderConfigValidator.ValidateProvisioningProfiles"/>), so neither state
-    /// arrives through a validated write; what is left is a configuration file edited by hand around the
-    /// validator, and there the fail-closed answer is to write nothing. Falling back would hand the new
-    /// account the very permission set the administrator replaced when they pointed the provider elsewhere -
-    /// and on a role row it would do it to precisely the group that was singled out for a narrower one.
-    /// </remarks>
+    /// <summary>Resolves which template a provider's brand-new accounts get (#1105, #1106): the profile the login's roles selected, else the named <see cref="PluginConfiguration.ProvisioningProfiles"/> entry the provider points at, else the provider's inline <see cref="ProviderConfigBase.ProvisioningPolicyTemplate"/>.</summary>
+    /// <remarks>A name that resolves to nothing writes no policy and does not fall back, because falling back would hand the account the very permission set the administrator replaced; the save path refuses a dangling name, so that state arrives only from a file edited by hand.</remarks>
     /// <param name="configuration">The live plugin configuration, read for its profile set.</param>
     /// <param name="provider">The provider the account is being created for; <see langword="null"/> resolves to no template.</param>
-    /// <param name="selectedProfile">
-    /// The profile name the login's roles selected (#1106), or <see langword="null"/>/blank when the login
-    /// matched no row. A selected name is authoritative: it never falls back to the provider's own default,
-    /// for the reason in the remarks.
-    /// </param>
-    /// <returns>
-    /// The template to apply and, when a configured name pointed at no profile, that name - so the caller
-    /// can say so in the log rather than provisioning an account with nothing at all, silently (#1106).
-    /// </returns>
+    /// <param name="selectedProfile">The profile name the login's roles selected (#1106), or <see langword="null"/> or blank when the login matched no row; a selected name never falls back to the provider default.</param>
+    /// <returns>The template to apply and, when a configured name pointed at no profile, that name, so the caller can log it rather than provisioning silently.</returns>
     internal static ProvisioningTemplateResolution TemplateFor(PluginConfiguration configuration, ProviderConfigBase? provider, string? selectedProfile = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -198,17 +160,8 @@ internal static class ProvisioningPolicy
             && string.Equals(parsed.ToString(), mode, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// What <see cref="TemplateFor(PluginConfiguration, ProviderConfigBase, string)"/> decided: the template
-    /// to write, and the profile name that pointed at nothing when one did.
-    /// </summary>
-    /// <remarks>
-    /// The unresolved name is carried out rather than swallowed because the fail-closed answer and the
-    /// invisible one are the same account otherwise: no policy is written either way, so an administrator
-    /// whose profile was renamed sees a new account with Jellyfin's bare defaults and nothing anywhere
-    /// saying which name did not resolve. The resolution itself stays a pure function of the configuration;
-    /// the caller owns the log, because only the caller knows this is the create arm.
-    /// </remarks>
+    /// <summary>What <see cref="TemplateFor(PluginConfiguration, ProviderConfigBase, string)"/> decided: the template to write, and the profile name that pointed at nothing when one did.</summary>
+    /// <remarks>The unresolved name is carried out rather than swallowed, because no policy is written either way and the caller, which alone knows this is the create arm, owns the log line that says which name did not resolve.</remarks>
     /// <param name="Template">The template to apply, or <see langword="null"/> when there is none to apply.</param>
     /// <param name="UnresolvedProfile">The configured profile name that resolved to nothing, or <see langword="null"/> when nothing was left unresolved.</param>
     /// <param name="SelectedByRole">Whether the name came from a role row (#1106) rather than from the provider's own default (#1105); false whenever <see cref="UnresolvedProfile"/> is null.</param>

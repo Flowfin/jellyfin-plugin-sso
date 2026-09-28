@@ -7,18 +7,14 @@ using System.Security.Cryptography;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Secrets;
 
-/// <summary>
-/// Owns the plugin's data-encryption key (DEK) and turns config secrets into (and back out of) at-rest
-/// <see cref="SecretEnvelope"/> envelopes. The key lives in a dedicated file in the plugin's data folder -
-/// the same volume the admin must already persist for configuration to survive - kept separate from the
-/// config XML so a leaked config alone cannot decrypt anything. The key is created once (only when a secret
-/// is first encrypted) and never rolled automatically. Three failure modes fail closed rather than orphaning
-/// every previously-encrypted secret: a wrong-length (corrupt) key file is rejected; revealing an encrypted
-/// value when the key file is <b>missing</b> throws instead of silently generating a new key; and encrypting
-/// refuses to mint a replacement key when the configuration already holds envelopes but the key file is
-/// missing (that pairing proves a key existed and was lost, so a new one would orphan those envelopes and
-/// mask the loss). The key file is created with owner-only permissions atomically, never briefly readable.
-/// </summary>
+/// <summary>Owns the plugin's data-encryption key and turns config secrets into and back out of at-rest <see cref="SecretEnvelope"/> envelopes.</summary>
+/// <remarks>
+/// The key lives in its own owner-only file in the plugin data folder, created atomically and never rolled, so a
+/// leaked config alone decrypts nothing. Three failures fail closed rather than orphaning every envelope: a
+/// wrong-length key file is rejected, revealing with the key file missing throws rather than minting a new key, and
+/// encrypting refuses a replacement key while the configuration already holds envelopes:
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Security-Model#secrets-encrypted-at-rest"/>.
+/// </remarks>
 internal sealed class SecretStore
 {
     private readonly string _keyFilePath;
@@ -42,20 +38,11 @@ internal sealed class SecretStore
     /// <exception cref="CryptographicException">The key file exists but is not the expected length.</exception>
     internal byte[] GetOrCreateKey() => GetOrCreateKeyForEncrypt(configHasEnvelopes: false);
 
-    /// <summary>
-    /// Encrypts a plaintext secret for storage. An empty value or an already-encrypted value is returned
-    /// unchanged, so the method is safe to apply to a whole config on every save.
-    /// </summary>
+    /// <summary>Encrypts a plaintext secret for storage; an empty or already-encrypted value is returned unchanged, so it is safe to apply to a whole config on every save.</summary>
     /// <param name="storedValue">The secret as currently held.</param>
-    /// <param name="configHasEnvelopes">
-    /// True when the configuration being persisted already holds at least one encrypted envelope. When set,
-    /// a missing key file is fail-closed (throws) instead of minting a new key, so a lost key surfaces rather
-    /// than orphaning those envelopes. Callers that protect a lone value with no config context pass false.
-    /// </param>
+    /// <param name="configHasEnvelopes">True when the configuration being persisted already holds an encrypted envelope, so a missing key file throws instead of minting a new key; callers protecting a lone value pass false.</param>
     /// <returns>The value in encrypted-at-rest form.</returns>
-    /// <exception cref="CryptographicException">
-    /// <paramref name="configHasEnvelopes"/> is true and the key file is missing (a key existed and was lost).
-    /// </exception>
+    /// <exception cref="CryptographicException"><paramref name="configHasEnvelopes"/> is true and the key file is missing, so a key existed and was lost.</exception>
     internal string? Protect(string? storedValue, bool configHasEnvelopes = false)
     {
         // Skip only a genuinely-encrypted value (idempotency); a plaintext that merely starts with the

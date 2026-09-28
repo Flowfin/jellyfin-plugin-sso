@@ -66,42 +66,13 @@ internal static class AccountLinkResolver
         return new AccountLinkDecision(AccountLinkAction.CreateNewAccount, Guid.Empty);
     }
 
-    /// <summary>
-    /// Resolves which existing account link (if any) an OpenID login maps to, preferring the stable
-    /// subject-keyed link and falling back to a legacy name-keyed link left over from before #155.
-    /// Pure: the caller resolves the two candidate links (and confirms their target users still exist)
-    /// before calling, and performs the re-key I/O when <c>MigrateLegacy</c> is set.
-    /// </summary>
-    /// <param name="subjectKeyedUserId">
-    /// The user id linked under the stable subject key, if that link exists and its user still exists.
-    /// </param>
-    /// <param name="legacyNameKeyedUserId">
-    /// The user id linked under the legacy username key, if that link exists and its user still exists.
-    /// Pass <c>null</c> when the subject and username are identical (there is nothing to migrate).
-    /// </param>
-    /// <param name="legacyNameStillHeldByTarget">
-    /// Whether the account the legacy link points at STILL bears the presented username (i.e. the
-    /// account currently named <c>username</c> is that same legacy target). The legacy key is the
-    /// mutable name, so a target that has since been renamed away from it must not be followed: the
-    /// identity provider controls <c>preferred_username</c> and could present the pre-rename name of an
-    /// account it does not own and be handed it (a stale-name superset of same-name matching, #361,
-    /// CWE-287). Requiring the name to still resolve to the same target collapses the legacy arm back to
-    /// true same-name matching. Meaningless when <paramref name="legacyNameKeyedUserId"/> is null.
-    /// </param>
-    /// <param name="allowExistingAccountLink">
-    /// Whether the provider permits matching an account by its mutable name. The legacy key IS the
-    /// mutable username, so following it hands the login an account selected by a name the identity
-    /// provider controls - the exact trust this flag governs for same-named account adoption (#354,
-    /// CWE-287). With the flag off the legacy link is ignored and the login falls through to the
-    /// name-adoption gate, which fails closed.
-    /// </param>
-    /// <returns>
-    /// The linked user id (or null when neither link resolves), and whether the legacy link must be
-    /// re-keyed to the subject. Migration is requested only when there is no subject-keyed link yet, a
-    /// legacy one resolves, name-based matching is permitted, AND the legacy target still bears the
-    /// name - a one-time, idempotent hand-off: once re-keyed, later logins hit the subject key directly
-    /// and never consult the name again.
-    /// </returns>
+    /// <summary>Resolves which existing account link, if any, an OpenID login maps to, preferring the stable subject-keyed link and falling back to a legacy name-keyed link left over from before #155.</summary>
+    /// <remarks>Pure: the caller resolves the two candidate links and performs the re-key I/O when <c>MigrateLegacy</c> is set. The legacy key is the mutable username the identity provider controls, so it is followed only when the provider permits matching by name and the legacy target still bears the presented name (#354, #361, CWE-287).</remarks>
+    /// <param name="subjectKeyedUserId">The user id linked under the stable subject key, if that link exists and its user still exists.</param>
+    /// <param name="legacyNameKeyedUserId">The user id linked under the legacy username key, if that link exists and its user still exists; null when the subject and username are identical.</param>
+    /// <param name="legacyNameStillHeldByTarget">Whether the account the legacy link points at still bears the presented username; meaningless when <paramref name="legacyNameKeyedUserId"/> is null.</param>
+    /// <param name="allowExistingAccountLink">Whether the provider permits matching an account by its mutable name; off, the legacy link is ignored and the login falls through to the name-adoption gate.</param>
+    /// <returns>The linked user id, or null when neither link resolves, and whether the legacy link must be re-keyed to the subject, a one-time idempotent hand-off.</returns>
     internal static (Guid? LinkedUserId, bool MigrateLegacy) ResolveCanonicalLink(
         Guid? subjectKeyedUserId,
         Guid? legacyNameKeyedUserId,

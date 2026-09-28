@@ -29,29 +29,14 @@ internal enum ProviderLinkPurgeResult
     LinkTableChanged,
 }
 
-/// <summary>
-/// What the tree can read about one account's ways in, resolved through the user manager OUTSIDE the
-/// configuration lock and judged inside it (#1519, T-D1). "Can use a password" is not a single field on a
-/// Jellyfin account and is not asked of the host: it is the same reading the SSO-only break-glass guard
-/// already makes - the account routes to the built-in password provider AND holds a password somebody
-/// could type - and the mode-dependent half of it (SSO-only login is on, and this account is not the
-/// break-glass admin) is applied by the purge, because only the purge holds the configuration.
-/// </summary>
-/// <remarks>
-/// THE PASSWORD DOOR IS TWO FIELDS AND NEITHER OF THEM IS IT, which is the thing to read before using
-/// one alone. A password door is <c>RoutesToPasswordProvider</c> AND
-/// <c>HoldsAPasswordSomebodySet</c>: an account on a third-party provider (an LDAP plugin, say) can hold
-/// a password of its own while that password reaches no Jellyfin login form, and an account on the
-/// built-in provider can hold only a seal this plugin minted. They are reported apart because the purge
-/// is the only side that can apply the mode-dependent half, and collapsing them here would take that
-/// decision away from it.
-/// </remarks>
+/// <summary>What the tree can read about one account's ways in, resolved through the user manager outside the configuration lock and judged inside it (#1519).</summary>
+/// <remarks>A password door is <c>RoutesToPasswordProvider</c> and <c>HoldsAPasswordSomebodySet</c> together, never one alone: an account on a third-party provider can hold a password that reaches no Jellyfin login form, and an account on the built-in provider can hold only a seal this plugin minted. They are reported apart because only the purge can apply the mode-dependent half.</remarks>
 /// <param name="UserId">The account.</param>
 /// <param name="Username">The account's own username, the basis the break-glass exemption is judged on.</param>
 /// <param name="IsAdministrator">Whether the account holds the administrator permission.</param>
 /// <param name="IsDisabled">Whether the account is disabled, and so already has no way in for this run to take.</param>
 /// <param name="RoutesToPasswordProvider">Whether the account's authentication provider is Jellyfin's built-in password provider.</param>
-/// <param name="HoldsAPasswordSomebodySet">Whether the account carries a non-empty stored password that is not one this plugin minted (#1746); a minted one is a seal nobody was shown rather than a credential anybody holds. Says nothing on its own about which login form that password reaches - pair it with <paramref name="RoutesToPasswordProvider"/>.</param>
+/// <param name="HoldsAPasswordSomebodySet">Whether the account carries a non-empty stored password that is not one this plugin minted (#1746); pair it with <paramref name="RoutesToPasswordProvider"/>.</param>
 internal readonly record struct AccountDoors(
     Guid UserId,
     string Username,
@@ -60,64 +45,27 @@ internal readonly record struct AccountDoors(
     bool RoutesToPasswordProvider,
     bool HoldsAPasswordSomebodySet);
 
-/// <summary>
-/// What one provider's link table looks like to the bulk unlink before it acts (#1519): whether the
-/// provider is stored at all, how many links it holds, and which accounts hold them.
-/// </summary>
-/// <remarks>
-/// A detached snapshot taken under the configuration lock and WITHOUT a write, which is both of the jobs
-/// it has. It lets the accounts be resolved through the user manager with the lock released - a provider
-/// can carry thousands of links, and a user-manager call per link inside the lock would block every login
-/// for the duration - and it lets the two refusals a stale page actually produces be answered without
-/// entering a mutation, because every return out of one persists the configuration file even when it
-/// changed nothing, and a count that does not match is this endpoint's NORMAL outcome rather than an
-/// exceptional one. The authoritative checks stay inside the mutation; this only keeps the routine
-/// refusal off the write path.
-/// </remarks>
+/// <summary>What one provider's link table looks like to the bulk unlink before it acts (#1519): whether the provider is stored, how many links it holds, and which accounts hold them.</summary>
+/// <remarks>A detached snapshot taken under the configuration lock without a write, so the accounts can be resolved through the user manager with the lock released and the two routine refusals a stale page produces are answered without entering a mutation, which would persist the file even when nothing changed.</remarks>
 /// <param name="ProviderExists">Whether a provider of that mode and name is stored.</param>
 /// <param name="LinkCount">How many links it holds.</param>
 /// <param name="LinkedUsers">The distinct accounts holding those links, to be judged before the purge runs.</param>
 internal readonly record struct ProviderLinkSurvey(bool ProviderExists, int LinkCount, IReadOnlyList<Guid> LinkedUsers);
 
-/// <summary>
-/// What one walk of every provider OTHER than the one being emptied says about the accounts it holds
-/// (#1519), plus whether the target itself is enabled.
-/// </summary>
-/// <remarks>
-/// Two sets rather than one, because the purge asks two questions with opposite readings of a disabled
-/// provider: who is left holding no link at all decides who is signed out, and who is left holding no
-/// link a login could resolve decides who would be stranded. Built once, because it is built inside the
-/// process-wide configuration lock every login takes, and a provider can carry thousands of links.
-/// </remarks>
+/// <summary>What one walk of every provider other than the one being emptied says about the accounts it holds (#1519), plus whether the target itself is enabled.</summary>
+/// <remarks>Two sets, because a disabled provider reads oppositely for the two questions: who is left holding no link at all is signed out, and who is left holding no link a login could resolve would be stranded. Built once, inside the configuration lock every login takes.</remarks>
 /// <param name="Any">Accounts holding a link on some other provider, enabled or not.</param>
-/// <param name="OnAnEnabledProvider">Accounts holding a link on some other ENABLED provider, which is what a login can resolve.</param>
+/// <param name="OnAnEnabledProvider">Accounts holding a link on some other enabled provider, which is what a login can resolve.</param>
 /// <param name="TargetEnabled">Whether the provider being emptied is itself enabled, so its links were a way in before the run.</param>
 internal readonly record struct LinksElsewhere(HashSet<Guid> Any, HashSet<Guid> OnAnEnabledProvider, bool TargetEnabled);
 
-/// <summary>
-/// The outcome of a per-provider bulk unlink (#1519), with everything the controller needs to answer, to
-/// audit, and to revoke. Every field except <see cref="Result"/> is meaningful only on the arm that
-/// produced it: a refusal removes nothing, so its counts describe the state that refused rather than work
-/// done.
-/// </summary>
+/// <summary>The outcome of a per-provider bulk unlink (#1519), with everything the controller needs to answer, audit and revoke; every field except <see cref="Result"/> is meaningful only on the arm that produced it.</summary>
 /// <param name="Result">What happened.</param>
 /// <param name="RemovedLinks">How many links were removed; zero on every refusal.</param>
 /// <param name="ActualLinkCount">How many links the provider actually held, so a count mismatch can say what the real number is.</param>
-/// <param name="RevokedUserIds">
-/// The accounts whose LAST canonical link this run removed, which the controller revokes the live tokens
-/// of - exactly the scope the single unlink revokes at (#468). Empty on every refusal.
-/// </param>
-/// <param name="StrandedAdministrators">
-/// The administrator accounts whose last way in the run would have taken, named so the way out is
-/// explicit. Empty on every other arm.
-/// </param>
-/// <param name="TargetWasEnabled">
-/// Whether the emptied provider was enabled, so its links were a way in before the run and the run took
-/// something. False means it took nothing from anybody, which is why the guard refused nobody - and why
-/// the after-the-fact check must not be asked either: an account with no way in on a server whose
-/// provider is switched off had none before the run, and reporting it as a lockout this run caused would
-/// be a false alarm on the workflow the route exists for.
-/// </param>
+/// <param name="RevokedUserIds">The accounts whose last canonical link this run removed, whose live tokens the controller revokes (#468); empty on every refusal.</param>
+/// <param name="StrandedAdministrators">The administrator accounts whose last way in the run would have taken; empty on every other arm.</param>
+/// <param name="TargetWasEnabled">Whether the emptied provider was enabled, so its links were a way in; false means the run took nothing from anybody, so neither the guard nor the after-the-fact check may report a lockout.</param>
 internal readonly record struct ProviderLinkPurgeOutcome(
     ProviderLinkPurgeResult Result,
     int RemovedLinks,

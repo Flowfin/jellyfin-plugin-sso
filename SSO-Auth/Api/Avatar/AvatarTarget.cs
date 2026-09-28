@@ -7,26 +7,12 @@ using Jellyfin.Plugin.SSO_Auth.Api.Net;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Avatar;
 
-/// <summary>
-/// An avatar URL bound to the outbound address tier it earned (#1764). The two travel as one value from the
-/// point the URL is chosen to the fetch, so the fetch can never apply a private verdict to a different address
-/// than the one it was given for, and it re-reads neither configuration nor discovery metadata to decide.
-/// </summary>
+/// <summary>An avatar URL bound to the outbound address tier it earned (#1764), so the fetch can never apply a private verdict to a different address than the one it was given for.</summary>
 /// <remarks>
-/// <para>
-/// The verdict is earned in exactly one way, in <see cref="Resolve"/>: the provider carries
-/// <c>AllowPrivateNetworkAddresses</c> AND the URL's origin - scheme, host and port, compared exactly - is the
-/// origin of one of that provider's own backchannel endpoints, the ones the plugin already reaches through the
-/// private tier for discovery, the code exchange and userinfo. Anything else keeps
-/// <see cref="AddressPolicy.Strict"/>: a provider without the opt-in for every origin, and an opted-in provider
-/// for every origin but its own. So the setting adds no host the plugin does not already talk to.
-/// </para>
-/// <para>
-/// The port is the URL's effective port, so <c>https://idp.lan/</c> and <c>https://idp.lan:443/</c> are one
-/// origin and <c>https://idp.lan:8443/</c> is another; a scheme that differs is another origin at the same
-/// host and port. What the tier does NOT carry past its origin is decided at the fetch: a redirect from the
-/// avatar URL is followed only to a target the strict tier admits (<see cref="AvatarService"/>).
-/// </para>
+/// The verdict is earned in <see cref="Resolve"/> alone: the provider carries <c>AllowPrivateNetworkAddresses</c>
+/// and the URL's origin, scheme, host and effective port compared exactly, is the origin of one of that provider's
+/// own backchannel endpoints. Anything else keeps <see cref="AddressPolicy.Strict"/>, so the setting adds no host
+/// the plugin does not already talk to, and a redirect is followed only to a target the strict tier admits.
 /// </remarks>
 internal sealed record AvatarTarget
 {
@@ -54,16 +40,10 @@ internal sealed record AvatarTarget
     /// <returns>The strict-tier target, or null when there is no URL.</returns>
     internal static AvatarTarget? Strict(string? url) => url is null ? null : new AvatarTarget(url, AddressPolicy.Strict);
 
-    /// <summary>
-    /// Binds a resolved avatar URL to the tier it earns from the provider that supplied it.
-    /// </summary>
+    /// <summary>Binds a resolved avatar URL to the tier it earns from the provider that supplied it.</summary>
     /// <param name="url">The candidate avatar URL, or null when the login resolved none.</param>
     /// <param name="allowPrivateNetworkAddresses">The provider's <c>AllowPrivateNetworkAddresses</c> opt-in.</param>
-    /// <param name="providerEndpoints">
-    /// The provider's own backchannel endpoints - its discovery address and the token and userinfo endpoints
-    /// discovery advertised - with a null entry where an endpoint is unknown. Only an entry that is an
-    /// absolute URL contributes an origin.
-    /// </param>
+    /// <param name="providerEndpoints">The provider's own backchannel endpoints, with a null entry where one is unknown; only an absolute URL contributes an origin.</param>
     /// <returns>The target with the tier it earned, or null when there is no URL.</returns>
     internal static AvatarTarget? Resolve(string? url, bool allowPrivateNetworkAddresses, IEnumerable<string?> providerEndpoints)
     {

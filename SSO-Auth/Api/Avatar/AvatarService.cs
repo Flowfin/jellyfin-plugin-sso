@@ -95,23 +95,17 @@ internal sealed class AvatarService
     {
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AvatarService"/> class with an injected
-    /// <see cref="HttpClient"/>. This is the test seam (#385): a client wrapping a stub handler makes the
-    /// content-type gate, the size cap, the happy path, the conditional 304, and the timeout reachable
-    /// without live HTTP. Production uses the five-argument constructor, which supplies the process-wide
-    /// shared client built on the hardened SSRF-safe <see cref="SocketsHttpHandler"/>.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="AvatarService"/> class with an injected <see cref="HttpClient"/>, the test seam (#385) that makes the content-type gate, the size cap, the conditional 304 and the timeout reachable without live HTTP; production uses the five-argument constructor.</summary>
     /// <param name="userManager">The Jellyfin user manager.</param>
     /// <param name="providerManager">The Jellyfin provider manager (image saving).</param>
     /// <param name="serverConfigurationManager">The server configuration manager (user data paths).</param>
     /// <param name="logger">The logger.</param>
     /// <param name="userAgent">The outbound User-Agent.</param>
-    /// <param name="httpClient">The client used for every fetch; reused across calls (never disposed here).</param>
-    /// <param name="userStoreLocks">The per-user store lock (#400); null uses the process-wide shared one. A test injects its own so it can drive the serialization deterministically.</param>
-    /// <param name="fileExists">Probe for the on-disk profile image (#480); null uses <see cref="File.Exists"/>. A test injects its own to drive the missing-file self-heal branch without touching the filesystem.</param>
-    /// <param name="storeLockAcquireTimeout">How long <see cref="StoreAsync"/> waits for the per-user store lock (#448, shortened by #541); null uses the production 3s bound. A test injects a shorter timeout so the abort-on-timeout branch is reachable without a real 3s wait.</param>
-    /// <param name="privateHttpClient">The client a private-tier target (#1764) is fetched over; null uses the process-wide shared private-tier client. A test injects a stub so the tier selection and the redirect rule are provable without live HTTP.</param>
+    /// <param name="httpClient">The client used for every fetch; reused across calls and never disposed here.</param>
+    /// <param name="userStoreLocks">The per-user store lock (#400); null uses the process-wide shared one.</param>
+    /// <param name="fileExists">Probe for the on-disk profile image (#480); null uses <see cref="File.Exists"/>.</param>
+    /// <param name="storeLockAcquireTimeout">How long <see cref="StoreAsync"/> waits for the per-user store lock (#448, #541); null uses the production 3s bound.</param>
+    /// <param name="privateHttpClient">The client a private-tier target (#1764) is fetched over; null uses the process-wide shared private-tier client.</param>
     internal AvatarService(
         IUserManager userManager,
         IProviderManager providerManager,
@@ -274,18 +268,9 @@ internal sealed class AvatarService
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.UserAgent.ParseAdd(_userAgent);
 
-        // Conditional refresh (#248) - but only while we still hold this user's avatar ON DISK. When we
-        // have the file, ask the origin for fresh bytes only if the image changed since our last store:
-        // If-Modified-Since carries that store's timestamp (ProfileImage.LastModified) - exactly "when we
-        // last fetched this representation" - so an unchanged avatar answers 304 and we skip the
-        // re-download AND the re-store; only a changed image (200) is fetched and re-stored.
-        // Force-refresh on a missing file (#480): if the ImageInfo record is live but the profile.* file
-        // was deleted out-of-band, sending the conditional would let a 304 skip the re-download and the
-        // avatar could never self-heal from the live record - so when the local file is absent we omit
-        // If-Modified-Since and fetch unconditionally to restore it. An origin that ignores the header
-        // just answers 200 as before, so the file-present case still degrades safely to the old
-        // always-download. SpecifyKind(Utc) makes the DateTimeOffset construction total regardless of the
-        // stored Kind; ProfileImage.LastModified is already written as DateTime.UtcNow, so no time shifts.
+        // Conditional refresh (#248): while the avatar is still on disk, If-Modified-Since carries the last store's
+        // timestamp so an unchanged image answers 304 and skips the re-download and re-store. A missing file (#480)
+        // omits the header and fetches unconditionally, so the avatar can self-heal from a live record.
         var storedImage = user.ProfileImage;
         if (storedImage?.LastModified is { } lastStored
             && lastStored > DateTime.MinValue
@@ -298,15 +283,8 @@ internal sealed class AvatarService
         return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Writes the fetched avatar to disk and only then updates the user's profile-image reference, so a
-    /// failed save leaves the previous profile-image record intact instead of a cleared record pointing
-    /// at a never-written path (#377). (When the target path is unchanged the host writes the file in
-    /// place, so a mid-write failure can still truncate the bytes - that is ImageSaver's contract, not
-    /// ours to fix.) Throws on save failure; <see cref="TrySetAsync"/>'s best-effort catch owns the logging.
-    /// Returns silently instead, logging its own warning, if the per-user store lock cannot be acquired
-    /// within the bound (#448) - a timed-out wait skips the store entirely rather than throwing.
-    /// </summary>
+    /// <summary>Writes the fetched avatar to disk and only then updates the user's profile-image reference, so a failed save leaves the previous record intact rather than pointing at a never-written path (#377).</summary>
+    /// <remarks>Throws on save failure, which <see cref="TrySetAsync"/> logs; returns silently with its own warning when the per-user store lock is not acquired within the bound (#448), skipping the store rather than running it unguarded.</remarks>
     /// <param name="user">The user whose profile image is set.</param>
     /// <param name="image">The fetched avatar bytes.</param>
     /// <param name="mediaType">The validated image media type.</param>
@@ -314,19 +292,9 @@ internal sealed class AvatarService
     /// <returns>A <see cref="Task"/> that completes when the avatar is stored and the user updated.</returns>
     internal async Task StoreAsync(User user, Stream image, string mediaType, string extension)
     {
-        // Serialize the whole write-and-transition against other logins for THIS user (#400): two
-        // concurrent stores must not interleave the SaveImage + profile-image check/clear/assign, or one
-        // can clear or overwrite the other's record. The lock spans only the store; the HTTP fetch runs
-        // before this call (in TrySetAsync), so a slow endpoint never holds the per-user gate. Keyed by
-        // user, so unrelated users never wait on each other.
-        //
-        // The wait itself is bounded (#448): CancellationToken.None made it unbounded, so a store step
-        // stalled while holding the gate (e.g. SaveImage blocking on disk I/O, or ClearProfileImageAsync
-        // on the host DB) could park every other concurrent login for this SAME user indefinitely.
-        // KeyedLockStore.AcquireAsync already honors cancellation and leaks no waiter/permit on it
-        // (KeyedLockStoreTests); a timed-out wait here acquires nothing, so the store below never runs
-        // unguarded - it is skipped entirely, exactly like the other best-effort fail-closed branches in
-        // this class (disallowed URL, disallowed content type, unsafe username).
+        // The whole write-and-transition is serialized per user (#400), so two concurrent stores cannot clear or
+        // overwrite each other's record; the fetch ran before this call, so a slow endpoint never holds the gate.
+        // The wait is bounded (#448): a timed-out wait acquires nothing and the store is skipped entirely.
         using var acquireTimeout = new CancellationTokenSource(_storeLockAcquireTimeout);
         IDisposable storeLock;
         try

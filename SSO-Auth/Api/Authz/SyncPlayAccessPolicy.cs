@@ -8,19 +8,8 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Reduces a login's roles to a SyncPlay access level (#827), the enumerated-policy counterpart of the
-/// scalar <see cref="ParentalRatingPolicy"/> and the boolean <see cref="PermissionRolePolicy"/>. When
-/// <c>EnableSyncPlayAccessRoles</c> is on, each configured mapping whose roles the login holds contributes
-/// its level and the MOST RESTRICTIVE one wins - never the loosest. A login that matches no mapping (or the
-/// feature being off) yields null, so the mint leaves the account's existing level untouched: an unmapped or
-/// malformed claim never widens SyncPlay access.
-/// <para>
-/// SyncPlay is not a <c>PermissionKind</c>, so <see cref="PermissionRolePolicy"/> cannot express it however
-/// it is spelled: it is a three-valued level on the account
-/// (<see cref="SyncPlayUserAccessType"/>), which is why it needs a reducer of its own.
-/// </para>
-/// </summary>
+/// <summary>Reduces a login's roles to a SyncPlay access level (#827); under <c>EnableSyncPlayAccessRoles</c> the most restrictive matching level wins, and no match or the feature off yields null so the existing level is left untouched.</summary>
+/// <remarks>SyncPlay is a three-valued <see cref="SyncPlayUserAccessType"/> on the account rather than a <c>PermissionKind</c>, so <see cref="PermissionRolePolicy"/> cannot express it and it needs a reducer of its own beside <see cref="ParentalRatingPolicy"/>.</remarks>
 internal static class SyncPlayAccessPolicy
 {
     /// <summary>

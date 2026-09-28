@@ -3,19 +3,8 @@
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Logout;
 
-/// <summary>
-/// What a mint did, in the classes an HTTP answer has to tell apart (#1796). One 503 stood for four
-/// different causes, and three of them are permanent for the request that met them: a caller whose access
-/// token is empty has an empty access token on the retry too, and the status that invites the retry is the
-/// one the endpoint answered. This enum is the distinction the route maps onto a status, so the mint's
-/// policy stays in <see cref="LogoutTicketService"/> and the route decides only what to say about it.
-/// </summary>
-/// <remarks>
-/// <see cref="NoCaller"/> IS THE ZERO VALUE ON PURPOSE, and it is the opposite choice from
-/// <see cref="MintRefusal"/>'s. That enum answers "why was it refused" and is read only on the refusal
-/// branch, so its zero may be the benign member. This one answers "what happened", so an out parameter
-/// nobody assigned has to read as a refusal rather than as an issued ticket.
-/// </remarks>
+/// <summary>What a mint did, in the classes an HTTP answer has to tell apart (#1796), so the mint's policy stays in <see cref="LogoutTicketService"/> and the route decides only what to say about it.</summary>
+/// <remarks><see cref="NoCaller"/> is the zero value on purpose, the opposite choice from <see cref="MintRefusal"/>: this enum answers what happened, so an out parameter nobody assigned has to read as a refusal rather than as an issued ticket.</remarks>
 internal enum MintOutcome
 {
     /// <summary>The caller resolved to no user. Permanent for this request: nothing about a retry supplies one.</summary>

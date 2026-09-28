@@ -13,22 +13,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 
-/// <summary>
-/// Keeps Jellyfin's login-page branding disclaimer in sync with the configured providers (#722). Registered
-/// as a hosted service (by <see cref="SsoOnlyServiceRegistrator"/>), where <see cref="IServerConfigurationManager"/>
-/// is available. At host start and on every plugin-configuration change it rebuilds the managed "Sign in with …"
-/// button block (<see cref="LoginButtonBuilder"/> + <see cref="LoginButtonInjector"/>) and splices it into the
-/// server's <c>BrandingOptions.LoginDisclaimer</c>, or removes the managed region when button management is off.
-/// </summary>
-/// <remarks>
-/// The change hook uses the plugin's <c>ConfigurationChanged</c> event, whose argument is the just-saved
-/// configuration - so the sync reads that object directly and never re-enters the plugin's config lock (which
-/// may still be held while the event fires). Writing the branding configuration touches a DIFFERENT
-/// configuration store, so it cannot re-trigger this handler (no loop). Everything is fail-safe: any error is
-/// logged and swallowed, so a branding-sync problem can never block a config save, a login (canonical-link
-/// writes also raise the event), or host startup. The write is guarded - the branding is saved only when the
-/// merge actually changes the disclaimer - so an unrelated config change performs no branding write.
-/// </remarks>
+/// <summary>Keeps Jellyfin's login-page branding disclaimer in sync with the configured providers (#722): at host start and on every configuration change it rebuilds the managed button block and splices it into <c>BrandingOptions.LoginDisclaimer</c>, or removes the region when management is off.</summary>
+/// <remarks>The handler reads the just-saved configuration the <c>ConfigurationChanged</c> event hands it and never re-enters the plugin's config lock; the branding write goes to a different store, so it cannot re-trigger the handler, is made only when the merge changes the disclaimer, and every error is logged and swallowed so a sync problem can never block a save, a login or startup.</remarks>
 internal sealed class LoginButtonManager : IHostedService
 {
     private const string BrandingConfigKey = "branding";

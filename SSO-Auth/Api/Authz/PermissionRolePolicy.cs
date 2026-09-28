@@ -9,29 +9,13 @@ using Jellyfin.Plugin.SSO_Auth.Config;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Authz;
 
-/// <summary>
-/// Maps the roles carried by a verified login to the generic Jellyfin permission grants they produce
-/// under the provider configuration (#164), extending the mapping beyond the dedicated admin / folder /
-/// Live TV surface handled by <see cref="RolePrivilegeMapper"/> to the full boolean
-/// <see cref="PermissionKind"/> surface. Pure: it derives the grants from (roles, config) and decides
-/// nothing about the session itself.
-/// </summary>
+/// <summary>Maps the roles of a verified login to the generic Jellyfin permission grants they produce under the provider configuration (#164), the boolean <see cref="PermissionKind"/> surface beyond <see cref="RolePrivilegeMapper"/>.</summary>
 /// <remarks>
-/// The mapping is <b>default-deny and authoritative</b>: for every permission an administrator explicitly
-/// listed (and only those), the grant is <c>true</c> when the login carries a matching role and <c>false</c>
-/// otherwise - so a missing or unmapped claim never silently grants a permission, and SSO explicitly revokes
-/// a listed permission the login no longer qualifies for. A permission that is not listed at all is never
-/// emitted, so the mint leaves it untouched and Jellyfin's own default governs it.
-///
-/// The four permissions with their own dedicated configuration fields/flows -
-/// <see cref="PermissionKind.IsAdministrator"/>, <see cref="PermissionKind.EnableAllFolders"/>,
-/// <see cref="PermissionKind.EnableLiveTvAccess"/>, <see cref="PermissionKind.EnableLiveTvManagement"/> -
-/// are refused here (see <see cref="DedicatedPermissions"/>) so each permission has exactly one
-/// authoritative source and two sources can never disagree. <see cref="PermissionKind.IsDisabled"/> is
-/// refused for a stronger reason (#165, Finding H1): no SSO role mapping may ever disable an account, which
-/// would be a whole-org lockout / recovery-defeat vector. That refusal is enforced fail-closed at
-/// config-save validation; at login an entry that still names one (or an unknown/blank name) simply grants
-/// nothing rather than throwing.
+/// The mapping is default-deny and authoritative: for every listed permission the grant is true when the login
+/// carries a matching role and false otherwise, and an unlisted permission is never emitted, so Jellyfin's own
+/// default governs it. The four permissions with dedicated flows are refused (<see cref="DedicatedPermissions"/>)
+/// so each has one authoritative source, and <see cref="PermissionKind.IsDisabled"/> is refused because no SSO
+/// role mapping may ever disable an account (#165); save-time validation refuses them and login grants nothing.
 /// </remarks>
 internal static class PermissionRolePolicy
 {
@@ -69,17 +53,10 @@ internal static class PermissionRolePolicy
         Dedicated,
     }
 
-    /// <summary>
-    /// Evaluates the generic permission grants the given roles produce under the given configuration.
-    /// </summary>
+    /// <summary>Evaluates the generic permission grants the given roles produce under the given configuration.</summary>
     /// <param name="roles">The roles extracted from the verified login (OpenID claims or SAML attributes).</param>
     /// <param name="config">The provider configuration.</param>
-    /// <returns>
-    /// One grant per configured, resolvable permission - deterministic (first-appearance order), each
-    /// permission emitted at most once (an entry repeated for a permission is OR-ed), with
-    /// <see cref="PermissionGrant.Granted"/> true iff a matching role is present. Empty when the master
-    /// switch is off or nothing is configured, so nothing is applied.
-    /// </returns>
+    /// <returns>One grant per configured, resolvable permission in first-appearance order, each emitted at most once with repeated entries OR-ed; empty when the master switch is off or nothing is configured.</returns>
     internal static IReadOnlyList<PermissionGrant> Map(IEnumerable<string> roles, ProviderConfigBase config)
     {
         // Master switch off (the default) or no mappings configured: SSO manages no extra permissions, so
@@ -155,18 +132,8 @@ internal static class PermissionRolePolicy
             : PermissionNameStatus.Valid;
     }
 
-    /// <summary>
-    /// The permission names an administrator may put in a mapping or a provisioning template (#1484): every
-    /// declared <see cref="PermissionKind"/> that <see cref="Classify"/> answers
-    /// <see cref="PermissionNameStatus.Valid"/> for, in ordinal order.
-    /// </summary>
-    /// <remarks>
-    /// Derived through <see cref="Classify"/> rather than listed, and that is the whole point of it existing:
-    /// a consumer that kept its own copy would drift in three silent directions - a member upstream adds is
-    /// mappable here and invisible there, a member upstream removes stays offerable and is refused at save,
-    /// and a name added to the dedicated set keeps being offered. Going through the same classification the
-    /// save-time validator uses means the vocabulary cannot disagree with the refusal by construction.
-    /// </remarks>
+    /// <summary>The permission names an administrator may put in a mapping or a provisioning template (#1484): every declared <see cref="PermissionKind"/> that <see cref="Classify"/> answers <see cref="PermissionNameStatus.Valid"/> for, in ordinal order.</summary>
+    /// <remarks>Derived through <see cref="Classify"/> rather than listed, so the vocabulary offered cannot disagree with the save-time refusal when upstream adds or removes a member.</remarks>
     /// <returns>The mappable permission names.</returns>
     internal static IReadOnlyList<string> MappablePermissionNames() =>
         Enum.GetNames<PermissionKind>()

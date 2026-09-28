@@ -8,36 +8,12 @@ using System.Text;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.LoginButtons;
 
-/// <summary>
-/// Pure string logic that renders the SSO "Sign in with …" buttons and splices them into Jellyfin's
-/// login-page branding disclaimer (#722). No I/O - <see cref="LoginButtonManager"/> owns the read/write of
-/// the server's <c>BrandingOptions.LoginDisclaimer</c>; this type only transforms strings, so it is
-/// exhaustively unit-testable, which matters because the output is rendered into an anonymous, pre-auth page.
-/// </summary>
-/// <remarks>
-/// SECURITY - this output is HTML rendered on the login page for every visitor, so it is an XSS sink. Every
-/// interpolated value is <see cref="WebUtility.HtmlEncode(string)"/>d and every provider name placed in a URL
-/// is additionally <see cref="Uri.EscapeDataString(string)"/>d; the markup is assembled only from a fixed
-/// template plus those encoded values - no admin string is ever passed through as raw HTML. The managed block
-/// is fenced between unique marker comments so <see cref="Merge"/> can replace or remove exactly its own
-/// region and never disturb an admin's surrounding disclaimer content, idempotently.
-/// </remarks>
+/// <summary>Pure string logic that renders the SSO sign-in buttons and splices them into Jellyfin's login-page branding disclaimer (#722); <see cref="LoginButtonManager"/> owns the I/O.</summary>
+/// <remarks>The output is HTML rendered on the anonymous login page, so it is an XSS sink: every interpolated value is HTML-encoded, every provider name placed in a URL is additionally URL-escaped, and the markup is assembled only from a fixed template. The managed block is fenced between unique marker comments so <see cref="Merge"/> replaces or removes exactly its own region.</remarks>
 public static class LoginButtonInjector
 {
-    /// <summary>
-    /// What an opening fence is RECOGNISED by, and the whole of it. Everything after this token, up to and
-    /// including the <c>--&gt;</c> that closes the comment on the same line, is prose the matcher does not
-    /// read (#1344).
-    ///
-    /// That split is the point. The opener is written into every installation's login disclaimer and is found
-    /// again by an exact search on the next sync, so any edit to the literal that is matched orphans every
-    /// block already on disk: the plugin stops recognising its own region, appends a second one beside it, and
-    /// no later action - not disabling the buttons, not reconfiguring them - can remove the first. That is
-    /// what a typographic pass over this tree did to the parenthetical below, and it shipped. Recognising
-    /// only this token makes the parenthetical safe to rewrite, and the token itself carries nothing a
-    /// typographic pass looks for: the hyphens in <c>SSO-LOGIN-BUTTONS</c> are already plain ASCII, which is
-    /// the direction such a pass converts TOWARDS rather than away from.
-    /// </summary>
+    /// <summary>What an opening fence is recognised by, and the whole of it; everything after this token up to the closing <c>--&gt;</c> on the same line is prose the matcher does not read (#1344).</summary>
+    /// <remarks>The opener is found again by exact search on every sync, so an edit to the matched literal orphans every block already on disk, which a typographic pass once did; recognising only this ASCII token makes the rest safe to rewrite.</remarks>
     internal const string BeginMarkerPrefix = "<!-- SSO-LOGIN-BUTTONS:BEGIN";
 
     /// <summary>
@@ -53,54 +29,14 @@ public static class LoginButtonInjector
     /// <summary>The three characters that close an HTML comment, and so an opening fence.</summary>
     private const string CommentClose = "-->";
 
-    /// <summary>
-    /// What each button carries as an inline <c>style</c>, and why an inline style rather than a stylesheet.
-    /// </summary>
+    /// <summary>What each button carries as an inline <c>style</c>, restoring the padding and margin Jellyfin's runtime <c>button-link</c> class removes from every disclaimer link.</summary>
     /// <remarks>
-    /// <para>
-    /// JELLYFIN RESTYLES THIS ANCHOR AFTER THE PLUGIN HAS WRITTEN IT. The login controller takes every link in
-    /// the disclaimer and adds its own classes at runtime
-    /// (<c>src/apps/legacy/controllers/session/login/index.js</c>):
-    /// </para>
-    /// <code>
-    /// for (const elem of loginDisclaimer.querySelectorAll('a')) {
-    ///     elem.rel = 'noopener noreferrer';
-    ///     elem.target = '_blank';
-    ///     elem.classList.add('button-link');
-    ///     elem.setAttribute('is', 'emby-linkbutton');
-    /// }
-    /// </code>
-    /// <para>
-    /// `button-link` and `emby-button` have the same specificity and `button-link` is declared later in
-    /// `emby-button.scss`, so it wins. What it takes away is exactly what makes a button look like one:
-    /// </para>
-    /// <code>
-    /// .emby-button       { padding: 0.9em 1em; }   /* line 1  */
-    /// .emby-button.block { margin: 0.25em 0; }     /* line 78 */
-    /// .button-link       { margin: 0; padding: 0; }/* line 47, later, so it wins */
-    /// .button-link:hover { text-decoration: underline; }
-    /// </code>
-    /// <para>
-    /// So the shipped button renders with no padding and underlines on hover, which is what discussion #1342
-    /// reported and worked around with nine declarations of Custom CSS. An inline style beats any class rule
-    /// that does not carry <c>!important</c>, in every state including <c>:hover</c>, so the four declarations
-    /// below restore what the runtime class removed and nothing more.
-    /// </para>
-    /// <para>
-    /// IT SURVIVES SANITISING, which is the reason this is possible at all. The disclaimer is rendered through
-    /// markdown-it and then DOMPurify before it reaches the page, and `style` is in DOMPurify 2.5.9's default
-    /// attribute allow-list (`src/attrs.js`, the `html` set). The plugin pins nothing here: if a future Jellyfin
-    /// narrows that list, the attribute is dropped and the button falls back to today's appearance rather than
-    /// to a broken one.
-    /// </para>
-    /// <para>
-    /// WHAT IT DELIBERATELY DOES NOT DO is make the button full width. `.loginDisclaimerContainer` is
-    /// `display: flex` and `.loginDisclaimer` is a flex item, so the region shrinks to its content and
-    /// `.emby-button.block`'s `width: 100%` resolves against a width that came from the content. Widening it
-    /// means restyling Jellyfin's own containers, which are outside this plugin's fence, and this plugin's
-    /// promise is that it manages its own region and leaves an admin's page alone. The wiki carries the
-    /// two-line snippet for admins who want it.
-    /// </para>
+    /// The login controller adds <c>button-link</c> to every anchor in the disclaimer after the plugin has written
+    /// it, and that class wins over <c>emby-button</c>, leaving no padding and an underline on hover (#1342). An
+    /// inline style beats any class rule without <c>!important</c>, survives DOMPurify's default allow-list, and
+    /// falls back to today's appearance if a future host drops the attribute. It does not make the button full
+    /// width, because that would restyle Jellyfin's own containers outside this plugin's fence:
+    /// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference#recipe-make-the-sso-buttons-full-width"/>.
     /// </remarks>
     internal const string ButtonStyle =
         "margin:0.25em 0;padding:0.9em 1em;text-decoration:none;color:inherit";
@@ -150,17 +86,8 @@ public static class LoginButtonInjector
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Splices <paramref name="block"/> into <paramref name="existingDisclaimer"/> idempotently: the FIRST
-    /// managed region is replaced, every further managed region is removed, when none is present the block is
-    /// appended, and an empty <paramref name="block"/> removes them all. Content outside the fences - an
-    /// admin's own disclaimer - is preserved, aside from the blank-line separator a managed region introduces,
-    /// which is collapsed on removal so repeated enable/disable cycles cannot accumulate whitespace.
-    ///
-    /// Removing the extra regions rather than only the first is what repairs an installation that was already
-    /// left holding two blocks by the orphaning described at <see cref="BeginMarkerPrefix"/>: it converges to
-    /// exactly one on the next sync, and to none when the buttons are turned off, from any number of them.
-    /// </summary>
+    /// <summary>Splices <paramref name="block"/> into <paramref name="existingDisclaimer"/> idempotently: the first managed region is replaced, every further one is removed, none present appends the block, and an empty block removes them all.</summary>
+    /// <remarks>Content outside the fences is preserved apart from the blank-line separator, which is collapsed on removal so repeated cycles cannot accumulate whitespace; removing the extra regions repairs an installation the orphaning at <see cref="BeginMarkerPrefix"/> left holding two.</remarks>
     /// <param name="existingDisclaimer">The current login disclaimer (may be null/empty).</param>
     /// <param name="block">The managed block from <see cref="BuildBlock"/> (empty to remove the region).</param>
     /// <returns>The merged disclaimer.</returns>
@@ -191,24 +118,14 @@ public static class LoginButtonInjector
         return Splice(current, regions[0], block);
     }
 
-    /// <summary>
-    /// Every well-formed managed region in <paramref name="current"/>, in order, as (start, end-exclusive)
-    /// character offsets spanning the opening fence through the closing one.
-    ///
-    /// What is recognised: an opening fence is <see cref="BeginMarkerPrefix"/> followed by the first
-    /// <c>--&gt;</c> that occurs BEFORE the next newline, and a region is such an opener followed by
-    /// <see cref="EndMarker"/> somewhere after it.
-    ///
-    /// What is not, and each for its own reason. The prefix with no comment close on its line is not an
-    /// opener: the fences this type writes are whole lines, so a search that crossed one would let a
-    /// hand-typed fragment swallow the real opener below it and take the admin's own content with it when the
-    /// region was replaced. An opener with no closing fence after it is not a region: a partial fence is never
-    /// parsed, so surrounding content cannot be corrupted, and a fresh block appends cleanly instead. And the
-    /// closing fence is searched for only AFTER an opener, so a stray END that a hand-edited disclaimer placed
-    /// ahead of one is ignored rather than making the region look malformed on every sync - which would
-    /// re-append a block each time, and because a login's canonical-link write also raises the config-changed
-    /// event, would grow the disclaimer without bound, once per login.
-    /// </summary>
+    /// <summary>Every well-formed managed region in <paramref name="current"/>, in order, as character offsets spanning the opening fence through the closing one.</summary>
+    /// <remarks>
+    /// An opener is <see cref="BeginMarkerPrefix"/> followed by the first <c>--&gt;</c> before the next newline,
+    /// and a region is an opener followed by <see cref="EndMarker"/> after it. A prefix with no close on its line,
+    /// an opener with no closing fence, and a stray END ahead of any opener are each ignored, so a hand-typed
+    /// fragment cannot swallow the admin's content or make every sync re-append a block, which a login's
+    /// canonical-link write would repeat without bound.
+    /// </remarks>
     /// <param name="current">The disclaimer to scan.</param>
     /// <returns>The regions found, in document order; empty when there are none.</returns>
     private static List<(int Start, int End)> FindRegions(string current)
