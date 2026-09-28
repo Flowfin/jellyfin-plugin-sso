@@ -24,10 +24,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Linking;
 
-/// <summary>
-/// The outcome of a manual link-creation request. Closed by convention (the controller's mapper throws
-/// on an unhandled arm), so a new outcome forces a new mapping rather than a silent fall-through.
-/// </summary>
+/// <summary>The outcome of a manual link-creation request; closed by convention, so the controller's mapper throws on a new arm rather than falling through.</summary>
 internal enum CanonicalLinkWriteResult
 {
     /// <summary>The link was created.</summary>
@@ -39,14 +36,11 @@ internal enum CanonicalLinkWriteResult
     /// <summary>No provider of that mode/name exists; nothing was written.</summary>
     UnknownProvider,
 
-    /// <summary>The key is already held by a DIFFERENT Jellyfin user; nothing was written (#1133).</summary>
+    /// <summary>The key is already held by a different Jellyfin user; nothing was written (#1133).</summary>
     ConflictingUser,
 }
 
-/// <summary>
-/// The outcome of a manual unlink request. Closed by convention (the controller's mapper throws on an
-/// unhandled arm).
-/// </summary>
+/// <summary>The outcome of a manual unlink request; closed by convention, so the controller's mapper throws on a new arm.</summary>
 internal enum CanonicalLinkRemoveResult
 {
     /// <summary>The link was removed.</summary>
@@ -68,14 +62,8 @@ internal enum CanonicalLinkRemoveResult
     WouldStrandAccount,
 }
 
-/// <summary>
-/// The outcome of approving an account this plugin provisioned inert (#1529). Closed by convention (the
-/// controller's mapper throws on an unhandled arm).
-/// </summary>
-/// <remarks>
-/// The three refusals are deliberately distinct rather than one "no": each says something different to the
-/// administrator holding the mouse, and only one of them means they should go and do it elsewhere.
-/// </remarks>
+/// <summary>The outcome of approving an account this plugin provisioned inert (#1529); closed by convention, so the controller's mapper throws on a new arm.</summary>
+/// <remarks>The refusals stay distinct because each tells the administrator something different, and only one sends them elsewhere.</remarks>
 internal enum PendingApprovalResult
 {
     /// <summary>The account was enabled and its record removed.</summary>
@@ -97,10 +85,7 @@ internal enum PendingApprovalResult
     AccountGone,
 }
 
-/// <summary>
-/// The issuer binding of a resolved subject-keyed OpenID link against the current login's issuer (#186).
-/// SAML (any non-OpenID mode) and a login with no resolved subject link are <see cref="NotBound"/>.
-/// </summary>
+/// <summary>The issuer binding of a resolved subject-keyed OpenID link against the current login's issuer (#186); SAML and a login with no subject link are <see cref="NotBound"/>.</summary>
 internal enum IssuerBinding
 {
     /// <summary>Issuer binding does not apply (SAML / any non-OpenID mode, or no subject link resolved).</summary>
@@ -116,55 +101,26 @@ internal enum IssuerBinding
     Mismatch,
 }
 
-/// <summary>
-/// The outcome of a manual unlink, together with whether the target user still holds any other canonical
-/// SSO link after it. The remainder is meaningful only when <see cref="Result"/> is
-/// <see cref="CanonicalLinkRemoveResult.Removed"/> (the other outcomes change no state); the controller
-/// uses it to revoke the user's active tokens ONLY when the unlink removed their LAST link, matching the
-/// hard-lockdown posture of Unregister (#440/#468) without logging out a user who still has a working SSO
-/// identity.
-/// </summary>
+/// <summary>The outcome of a manual unlink, with whether the user still holds any other canonical link after it, read in the same transaction; the controller revokes tokens only when the last link went (#468).</summary>
 /// <param name="Result">The remove outcome.</param>
-/// <param name="UserRetainsAnyLink">
-/// Whether any SAML or OpenID provider still holds a canonical link pointing at the unlinked user,
-/// evaluated in the SAME transaction as the removal. Only defined when <paramref name="Result"/> is
-/// <see cref="CanonicalLinkRemoveResult.Removed"/>; false on the no-op outcomes.
-/// </param>
+/// <param name="UserRetainsAnyLink">Whether any provider still links the user; defined only when <paramref name="Result"/> is <see cref="CanonicalLinkRemoveResult.Removed"/>, false otherwise.</param>
 internal readonly record struct CanonicalLinkRemoval(CanonicalLinkRemoveResult Result, bool UserRetainsAnyLink);
 
-/// <summary>
-/// One canonical link whose persisted account-expiry deadline has passed (#1145), as seen in a single locked
-/// pass. A detached snapshot rather than a live view: the sweep acts on each entry in its own transaction, so
-/// materializing the candidates first keeps the config lock short and cannot tear against a concurrent login.
-/// Every entry is re-resolved and re-guarded by the disable it feeds, so an entry that stopped being true in
-/// between is a no-op rather than a wrong disable.
-/// </summary>
+/// <summary>One canonical link whose persisted deadline has passed (#1145), as a detached snapshot from one locked pass; the disable it feeds re-resolves and re-guards it, so a stale entry is a no-op.</summary>
 /// <param name="Mode">The provider protocol the link belongs to.</param>
 /// <param name="Provider">The provider name.</param>
 /// <param name="CanonicalKey">The stable subject key the link and the deadline are stored under.</param>
 /// <param name="UserId">The Jellyfin user the link points at, as read in that pass.</param>
 internal readonly record struct ExpiredCanonicalLink(ProviderMode Mode, string Provider, string CanonicalKey, Guid UserId);
 
-/// <summary>
-/// The account-linking workflow behind the SSO login and admin endpoints: it resolves an SSO identity
-/// to a Jellyfin account (reusing an existing canonical link, adopting a pre-existing account, or
-/// creating one), migrates legacy username-keyed links to the stable subject key (#155), and revokes
-/// links. The controller keeps the HTTP boundary, the authorization guards, and the one-time-use
-/// replay/state consume; this service keeps the account-resolution decision (via the pure
-/// <see cref="AccountLinkResolver"/>) and every read/write of a provider's canonical-links map, all
-/// through the <see cref="ProviderConfigStore"/> facade so each check-then-write stays under one lock.
-/// </summary>
+/// <summary>The account-linking workflow behind the login and admin endpoints: resolves an SSO identity to a Jellyfin account, migrates legacy username-keyed links to the subject key (#155), and removes links.</summary>
+/// <remarks>
+/// The controller keeps the HTTP boundary and the authorization guards; this service owns every read and write of a provider's link maps, through <see cref="ProviderConfigStore"/> so each check-then-write stays under one lock.
+/// The rules behind the guards: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Linked-Accounts#design-record-links-keys-and-guards"/>.
+/// </remarks>
 internal sealed class CanonicalLinkService
 {
-    // The once-per-interval throttle for the two terminal pending-legacy-link warnings (the
-    // CreateNewAccount-orphan and RejectNameTaken-migratable branches). It is PROCESS-WIDE (static) on
-    // purpose: this service is constructed per request by the controller, so an instance field would
-    // reset every login and throttle nothing. During an upgrade window a hot login loop for a
-    // not-yet-migrated user would otherwise re-emit the same warning on every attempt (CWE-400,
-    // log-volume - #362/#358); the shared gate bounds that to one line per interval across all requests.
-    // A one-minute interval matches the sibling cap-warn gates (OidcStateStore / SamlRequestCache, #246).
-    // Tests inject a fresh gate + a fake clock so the throttle is deterministic and never leaks its cursor
-    // across cases.
+    // Process-wide on purpose: the service is built per request, so an instance gate would throttle nothing (#362); one minute matches the sibling cap-warn gates (#246).
     private static readonly IntervalGate SharedLegacyLinkWarnGate = new(TimeSpan.FromMinutes(1));
 
     private readonly IUserManager _userManager;
@@ -175,23 +131,14 @@ internal sealed class CanonicalLinkService
     private readonly Func<DateTime> _clock;
     private readonly IDisplayPreferencesManager? _displayPreferences;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CanonicalLinkService"/> class. The optional gate and
-    /// clock are test seams: production omits them, taking the process-wide legacy-link warn gate and the
-    /// wall clock so the warning throttle survives this per-request service's reconstruction.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="CanonicalLinkService"/> class.</summary>
     /// <param name="userManager">The Jellyfin user manager.</param>
     /// <param name="cryptoProvider">The crypto provider used for legacy link hashing.</param>
     /// <param name="configStore">The provider configuration store the link maps live in.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="legacyLinkWarnGate">The pending-legacy-link warning throttle; null takes the shared process-wide gate.</param>
     /// <param name="clock">The clock driving the warning throttle; null uses the wall clock.</param>
-    /// <param name="displayPreferences">
-    /// The host's display-preferences store the create arm seeds a templated home-screen layout into
-    /// (#1101). Null means this instance holds no store: the login path supplies one, and the between-logins
-    /// sweeps, which never reach the create arm, leave it out rather than carry a dependency they cannot
-    /// use. A template naming a layout with no store to write it into is logged, never thrown.
-    /// </param>
+    /// <param name="displayPreferences">The host's display-preferences store the create arm seeds a home-screen layout into (#1101); null on the paths that never reach the create arm, and a template naming a layout then logs instead of throwing.</param>
     internal CanonicalLinkService(
         IUserManager userManager,
         ICryptoProvider cryptoProvider,
@@ -207,86 +154,38 @@ internal sealed class CanonicalLinkService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _displayPreferences = displayPreferences;
 
-        // Production leaves both null and gets the process-wide gate + wall clock; tests pass a fresh gate
-        // and a fake clock so the throttle stays deterministic and isolated per case.
+        // Production leaves both null; tests pass a fresh gate and a fake clock.
         _legacyLinkWarnGate = legacyLinkWarnGate ?? SharedLegacyLinkWarnGate;
         _clock = clock ?? (() => DateTime.UtcNow);
     }
 
-    /// <summary>
-    /// Resolves the SSO login's stable identity to a Jellyfin user, creating or adopting the account per
-    /// the provider's policy, and returns its id. Throws <see cref="AccountLinkForbiddenException"/> when
-    /// the login must be refused (no identity resolved, or a pre-existing account may not be adopted).
-    /// </summary>
+    /// <summary>Resolves the login's stable identity to a Jellyfin user, creating or adopting the account per the provider's policy, and returns its id; throws <see cref="AccountLinkForbiddenException"/> when the login must be refused.</summary>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="provider">The provider the login authenticated against.</param>
     /// <param name="canonicalKey">The stable identity key (OpenID sub / SAML NameID).</param>
     /// <param name="username">The display name the account is provisioned/adopted under.</param>
     /// <param name="allowExistingAccountLink">Whether adopting a pre-existing unlinked account is permitted.</param>
-    /// <param name="adoptionGate">
-    /// The extra proof a same-named adoption must clear (#218): a privileged target is always refused, and
-    /// when the gate requires a verified email the login must carry <c>email_verified == true</c>. Default
-    /// (<see cref="AdoptionGate.None"/>) is the SAML/legacy posture: admin refusal only.
-    /// </param>
-    /// <param name="issuer">
-    /// The OpenID login's id_token issuer, used to issuer-bind the canonical link (#186): a resolved link
-    /// whose stored issuer does not match this value is refused (fail closed, after an apparent repoint),
-    /// and a link with no stored issuer is stamped with this value on first use (trust-on-first-use). Null
-    /// for SAML and for a token that carried no <c>iss</c>; both skip the binding.
-    /// </param>
-    /// <param name="provisionDisabled">
-    /// The provider's ProvisionNewUsersDisabled policy (#737): when a brand-new account is created on this
-    /// login (the create arm only), provision it disabled and persisted so it exists inert for an administrator
-    /// to approve. Never disables an existing or adopted account. Default off (a new account is created
-    /// enabled); the caller inspects the resolved account via <see cref="IsAccountAwaitingApproval"/>.
-    /// </param>
-    /// <param name="provisionedAccessDuration">
-    /// The role-mapped fixed access duration (#1146). When a brand-new account is created on this login - the
-    /// CREATE ARM ONLY - its canonical link is stamped with a deadline of the link-write instant plus this
-    /// duration. Every other arm ignores it: an existing link resolved by a later login is left exactly as it
-    /// was, which is what makes the deadline stamped once rather than slid forward on every visit, and an
-    /// ADOPTED account is not a provisioning event, so it is not given a lifetime it never agreed to. Default
-    /// null (no deadline), so a provider mapping no role provisions byte-identically to before.
-    /// </param>
-    /// <param name="syncUsername">
-    /// The provider's SyncUsernameFromProvider policy (#1138): when an EXISTING link resolves an account
-    /// whose Jellyfin name no longer matches the name the login presents, rename that account to follow the
-    /// identity provider. The RESOLVE ARM only - a created account already carries the presented name, and an
-    /// adopted one was selected BY its name. Default off, in which case the resolved account's name is never
-    /// touched, which is what every deployment does today.
-    /// </param>
-    /// <param name="provisioningProfile">
-    /// The provisioning-profile name the login's roles selected (#1106). Like the duration above this is the
-    /// CREATE ARM ONLY: it decides which policy a brand-new account is written from, and every other arm
-    /// ignores it, so a later login can never re-apply a template over an administrator's per-user edit. It
-    /// arrives as a NAME and is resolved against the profile set inside this service's own locked
-    /// configuration read, so the set and the name pointing into it are read together. Default null, in which
-    /// case the provider's own default resolution (#1105) decides - which is every login before this existed.
-    /// </param>
+    /// <param name="adoptionGate">The proof a same-named adoption must clear (#218): a privileged target is always refused, and a gate that requires a verified email refuses a login without <c>email_verified</c>.</param>
+    /// <param name="issuer">The OpenID login's id_token issuer the link is bound to (#186): a stored issuer that differs refuses the login, an absent one is stamped on first use; null for SAML or a token without <c>iss</c>.</param>
+    /// <param name="provisionDisabled">The provider's ProvisionNewUsersDisabled policy (#737): a brand-new account is created disabled for an administrator to approve; never applied to an existing or adopted account.</param>
+    /// <param name="provisionedAccessDuration">The role-mapped access duration (#1146), stamped as a deadline beside the link on the create arm only, so it is set once and never slid forward or given to an adopted account.</param>
+    /// <param name="syncUsername">The provider's SyncUsernameFromProvider policy (#1138): on the resolve arm only, rename the linked account to the name the login presents.</param>
+    /// <param name="provisioningProfile">The provisioning-profile name the login's roles selected (#1106), applied on the create arm only and resolved inside this service's own locked read; null lets the provider's default decide (#1105).</param>
     /// <returns>The resolved Jellyfin user id.</returns>
     internal async Task<Guid> ResolveOrCreateAsync(ProviderMode mode, string provider, string canonicalKey, string username, bool allowExistingAccountLink, AdoptionGate adoptionGate = default, string? issuer = null, bool provisionDisabled = false, TimeSpan? provisionedAccessDuration = null, bool syncUsername = false, string? provisioningProfile = null)
     {
-        // Defense in depth (#95, #155): a login that resolved no stable identity key (OpenID sub /
-        // SAML NameID) or no username must never create, adopt, or look up an account. Both callbacks
-        // reject such logins before calling here; this belt keeps the invariant if a caller forgets.
+        // Defense in depth (#95, #155): both callbacks reject such logins before calling here.
         if (string.IsNullOrWhiteSpace(canonicalKey) || string.IsNullOrWhiteSpace(username))
         {
             throw new AccountLinkForbiddenException("The SSO login did not resolve an identity; refusing to create or link an account.");
         }
 
-        // Read candidates -> refuse a repoint -> maybe migrate/stamp -> resolve -> act. The two locked
-        // transactions (the candidate read and, on the legacy path, the migrate-and-resolve) stay whole
-        // inside their own helpers; each fail-closed branch keeps its verbatim log line one level down.
+        // Read candidates, refuse a repoint, maybe migrate or stamp, resolve, act.
         var candidates = ReadResolutionCandidates(mode, provider, canonicalKey, username, issuer);
 
         RefuseRepointedIssuer(candidates, mode, provider, username);
 
-        // The account currently bearing the display name, resolved once (outside the config lock - it is
-        // a user-manager read, not a config read). It is both the same-name adoption candidate for the
-        // Resolve gate below AND, when it IS the legacy link's target, the proof that following the legacy
-        // username key is still true same-name matching rather than handing over an account that was
-        // renamed away from this name (#361). A legacy link whose target no longer holds the name is left
-        // for the terminal branches to label (a fresh-account orphan, or a reject), never followed.
+        // Resolved once outside the config lock; it is the adoption candidate and, when it is the legacy link's target, the proof that the legacy name still matches (#361).
         var existingAccount = _userManager.GetUserByName(username);
         Guid? existingAccountUserId = existingAccount?.Id;
         bool legacyNameStillHeldByTarget = candidates.LegacyLink.HasValue && existingAccountUserId == candidates.LegacyLink;
@@ -294,41 +193,23 @@ internal sealed class CanonicalLinkService
         var (linkedUserId, migrateLegacy) = AccountLinkResolver.ResolveCanonicalLink(candidates.SubjectLink, candidates.LegacyLink, legacyNameStillHeldByTarget, allowExistingAccountLink);
         if (migrateLegacy)
         {
-            // Migration fires only when the account currently bearing the name IS the legacy target
-            // (legacyNameStillHeldByTarget), so that target is exactly existingAccount (non-null here).
+            // Migration fires only when the account bearing the name is the legacy target, so existingAccount is non-null here.
             linkedUserId = MigrateLegacyLinkIfEligible(mode, provider, canonicalKey, username, issuer, existingAccount!);
         }
         else if (candidates.SubjectLink.HasValue && candidates.SubjectIssuer == IssuerBinding.Absent)
         {
-            // Trust-on-first-use migration (#186): the resolved subject link carries no stored issuer - it
-            // was minted before this store existed, or by a null-issuer path. The provider is unchanged
-            // (we did not hit the mismatch refusal above), so the login's issuer IS the one the link was
-            // minted under; stamp it now so a later same-URL issuer swap is caught. No lockout on upgrade:
-            // an existing user's first post-upgrade login stamps and proceeds. Skipped when the login
-            // carries no issuer - there is nothing safe to bind to, so the link stays un-stamped.
+            // Trust-on-first-use (#186): a subject link with no stored issuer is stamped with this login's, so a later issuer swap behind the same URL is caught; skipped when the login carries none.
             StampIssuer(mode, provider, canonicalKey, issuer);
         }
 
-        // A legacy link that survives here un-migrated (flag off - or flag on but the name no longer
-        // resolves to the recorded target, #354/#361) is not logged at this point: its terminal outcome
-        // decides the right message. It splits into a refusal (the name is still taken) or a
-        // fresh-account creation (the name was freed by a rename), and only the outcome
-        // branch below can label it accurately - the fresh-account case is a SUCCESSFUL login that
-        // silently orphans the original account, not a "refused" one, so a single pre-gate line would
-        // mislabel exactly the event an operator most needs to see. Each terminal branch emits its one
-        // line through the shared once-per-interval gate (#362): a hot login loop for a not-yet-migrated
-        // user is bounded to one warning per interval instead of one per attempt, so an upgrade window is
-        // a heartbeat naming who still needs migrating rather than a flood. Only the WARNING FREQUENCY is
-        // throttled - the refusal throw and the fresh-account creation still run on every login.
+        // An un-migrated legacy link is labelled by its terminal branch below, each through the shared once-per-interval gate (#362); only the warning is throttled, never the refusal or the creation.
 
         // Adoption of a pre-existing unlinked account still matches on the display name resolved above.
         var decision = AccountLinkResolver.Resolve(linkedUserId, existingAccountUserId, allowExistingAccountLink);
         switch (decision.Action)
         {
             case AccountLinkAction.UseExistingLink:
-                // The one arm where the two names can have drifted apart: the subject resolved an account
-                // that already existed under whatever name it was created with, and the identity provider
-                // may have renamed the person since.
+                // The one arm where the two names can have drifted apart since the account was created.
                 return await SyncUsernameIfRequestedAsync(syncUsername, mode, provider, decision.UserId, username).ConfigureAwait(false);
 
             case AccountLinkAction.AdoptExistingAccount:
@@ -346,39 +227,13 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Reads both candidate links (subject-keyed and legacy username-keyed) AND the subject link's issuer
-    // binding in ONE pass under the config lock, so the whole verdict is linearized against a concurrent
-    // migration or issuer stamp/repoint.
-    //
-    // The link is keyed on the stable identity. A legacy OpenID link (#155) was keyed on the mutable
-    // username instead; when no subject-keyed link exists yet but a legacy one resolves, the caller
-    // adopts and re-keys it, locking it to the subject so a later provider-side rename cannot detach it.
-    // Because the legacy key is a name the identity provider controls, following it is name-based account
-    // matching, so it honors AllowExistingAccountLink exactly like same-named adoption (#354): with the
-    // flag off, a login whose preferred_username points at another user's entry is refused by the
-    // adoption gate instead of being handed that account. Even with the flag on it is followed ONLY while
-    // the recorded target still bears the name (#361); a target renamed away from it is not handed over
-    // on the strength of a stale name key. Only OpenID differs key from name; SAML passes key == name.
-    // Both candidates are read in ONE pass under the config lock: with separate reads, a concurrent
-    // login's migration could commit between them, so this login would see the subject key before the
-    // re-key and the legacy key after it, resolve neither, and bounce a legitimate user off the adoption
-    // gate with a spurious 403. A link whose target user was deleted counts as absent (dangling links are
-    // dead, not identities).
+    // Reads the subject-keyed link, the legacy username-keyed link (#155) and the subject link's issuer binding (#186) in one locked pass, so a concurrent migration or stamp cannot tear the verdict.
+    // The legacy key is a name the identity provider controls, so following it honours AllowExistingAccountLink (#354) and only while the target still bears the name (#361); a link to a deleted user counts as absent.
     private ResolutionCandidates ReadResolutionCandidates(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer)
     {
         return _configStore.Read(configuration =>
         {
-            // The login callbacks resolve the provider before calling, so it is normally present and
-            // enabled. If it was deleted OR DISABLED in the race between that lookup and here, fail
-            // CLOSED: refuse rather than fall through to the adoption gate, whose create/adopt arms
-            // would otherwise mint a session with the provider's pre-delete/pre-disable settings (#373,
-            // #380 - a missing provider must never default the login to valid, and the same holds for a
-            // disabled one). Residual window, documented honestly: the mint itself always runs OUTSIDE
-            // the config lock, so a delete/disable after the LAST guarded transaction of any arm - this
-            // single read on the UseExistingLink path, the link write on adopt/create, the migration on
-            // the legacy path - still mints once. The guards move the final checkpoint later; #343's
-            // "disabling takes effect immediately" stays best-effort for an in-flight request unless the
-            // lock were held through minting.
+            // Deleted or disabled since the callback's lookup: fail closed (#373, #380). The mint runs outside the lock, so the last guarded transaction of each arm is the final checkpoint.
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links))
             {
                 throw new AccountLinkForbiddenException("The SSO provider is no longer configured or is disabled; refusing to resolve or create an account.");
@@ -391,9 +246,7 @@ internal sealed class CanonicalLinkService
                 && links.TryGetValue(username, out var n) && _userManager.GetUserById(n) != null
                 ? n : (Guid?)null;
 
-            // Classify the subject link's issuer binding in the SAME locked read (#186), so the verdict
-            // cannot tear against a concurrent stamp or repoint. NotBound unless a subject link resolved
-            // for an OpenID provider.
+            // Classified in the same locked read (#186), so the verdict cannot tear against a concurrent stamp or repoint.
             var issuerVerdict = bySubject is null
                 ? IssuerBinding.NotBound
                 : ClassifyIssuer(configuration, mode, provider, canonicalKey, issuer);
@@ -401,16 +254,7 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    // Non-inert issuer binding (#186): the subject-keyed link this identity resolves to was minted under a
-    // DIFFERENT issuer than the login now presents - an admin repointed the provider entry at another
-    // identity provider behind the same discovery URL, or (with the URL edited) the belt has not yet run.
-    // Refuse rather than map this login onto the old link's account; a colliding `sub` from a new IdP
-    // (realistic for short numeric subjects like "1") no longer inherits the old user. Fail closed,
-    // self-healing: the admin re-establishes the link, or an endpoint edit clears the stale links
-    // (ServerManagedFields belt). This is the check that MUST fire at runtime - the prior review rejected
-    // an inert take; a rejection test pins that it does. A login with no issuer while the link has one
-    // lands here too (ClassifyIssuer treats it as a mismatch), so a token omitting `iss` cannot slip past
-    // a stamped binding.
+    // Fail closed (#186): a subject link minted under a different issuer belongs to another identity provider's user; a login carrying no issuer against a stamped link is a mismatch too.
     private void RefuseRepointedIssuer(ResolutionCandidates candidates, ProviderMode mode, string provider, string username)
     {
         if (candidates.SubjectLink.HasValue && candidates.SubjectIssuer == IssuerBinding.Mismatch)
@@ -428,21 +272,10 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // The #155 legacy re-key, gated by the admin refusal and folded into ONE config transaction (#363).
-    // Returns the authoritative user id the identity now resolves to (the value the login binds to), or
-    // throws when an administrator target must not be adopted by name. The name contains "Migrate", so the
-    // #363 conformance rule pins its Guid? return type.
+    // The #155 legacy re-key behind the admin refusal, in one config transaction (#363); the name contains "Migrate", so the #363 conformance rule pins its Guid? return type.
     private Guid? MigrateLegacyLinkIfEligible(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, User existingAccount)
     {
-        // The legacy re-key is name-based account matching too (#218): migration fires only when the
-        // account currently bearing the name IS the legacy target (legacyNameStillHeldByTarget), so
-        // that target is exactly existingAccount. Apply the admin refusal here as well - an attacker
-        // presenting a new subject with a victim admin's preferred_username would otherwise re-key the
-        // admin's legacy link onto their own subject and take the account over. Admin-only gate
-        // (AdoptionGate.None): the verified-email requirement is deliberately not applied to the
-        // re-key, which continues a relationship established under the pre-#155 scheme rather than
-        // forming a new one. The two ways to link an admin account deliberately are the self-service
-        // page, signed in to that account, and the elevated pre-provision route (#1765).
+        // The re-key is name-based matching too (#218): a new subject presenting an administrator's preferred_username must not take the account over; the verified-email gate is not applied to a relationship formed before #155.
         if (AdoptionEligibilityResolver.Resolve(existingAccount.HasPermission(PermissionKind.IsAdministrator), AdoptionGate.None) != AdoptionVerdict.Allow)
         {
             if (_logger.IsEnabled(LogLevel.Warning))
@@ -457,14 +290,7 @@ internal sealed class CanonicalLinkService
             throw new AccountLinkForbiddenException();
         }
 
-        // Re-key the legacy link AND re-resolve the identity in ONE config transaction (#363), then
-        // bind the login to the value that transaction returns. The candidate resolution above was a
-        // separate lock acquisition, so a concurrent login could migrate this same identity between
-        // that snapshot and the re-key; taking the authoritative mapping from inside the re-key
-        // transaction - rather than the pre-migration snapshot's linkedUserId - closes that window
-        // instead of reasoning about its (previously argued-benign) safety. A concurrent winner's live
-        // subject link is used as-is; the deleted-target edge resolves to null so the login falls
-        // through to the create/adopt gate rather than binding to a dead account.
+        // Re-key and re-resolve in one transaction (#363) and bind to what it returns, so a concurrent migration between the candidate read and here cannot be bound to a stale snapshot.
         var migratedUserId = MigrateAndResolveCanonicalLink(mode, provider, canonicalKey, username, issuer);
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -477,25 +303,8 @@ internal sealed class CanonicalLinkService
         return migratedUserId;
     }
 
-    // Renames a resolved account to follow its identity provider (#1138), and returns that account either
-    // way. Off by default; every early return below leaves the account exactly as it was and still yields a
-    // successful login, because a display name that has drifted is cosmetic and refusing the login over it
-    // would be far more expensive than the mismatch.
-    //
-    // THE INVARIANT THIS MUST NOT BREAK is that the subject is the key. The account is already resolved
-    // when this runs - it is passed in by id - so nothing here can change WHICH account a login reaches. The
-    // name follows the account; it never selects one. That is why this is a rename and not a lookup.
-    //
-    // The guards, in the order they fail:
-    //
-    // - The presented name is sanitized through the same map a provisioned name takes (#1137), so a rename
-    //   cannot put a name onto an account that Jellyfin's own check would have refused at creation, and a
-    //   name with nothing usable left in it renames nothing.
-    // - A name already held by a DIFFERENT account is left alone. The host would refuse the collision
-    //   anyway, but refusing it here is what keeps the two accounts' names from depending on which of them
-    //   logged in last, and it is the case where swallowing the host's error would look like a silent
-    //   no-op with no reason recorded.
-    // - A rename that throws for any other reason is logged and swallowed.
+    // Renames a resolved account to follow its identity provider (#1138); every early return keeps the name and still logs the user in, and the account arrives by id, so the name never selects one.
+    // Guards, in order: the presented name is sanitized like a provisioned one (#1137), a name held by a different account is left alone, and any other host refusal is logged and swallowed.
     private async Task<Guid> SyncUsernameIfRequestedAsync(bool syncUsername, ProviderMode mode, string provider, Guid userId, string presentedName)
     {
         if (!syncUsername || !ProvisionedUsername.TrySanitize(presentedName, out var desiredName))
@@ -524,10 +333,7 @@ internal sealed class CanonicalLinkService
             return userId;
         }
 
-        // BOUND AT RUNTIME, NOT AT COMPILE TIME, and HostRename says why: `IUserManager.RenameUser` takes
-        // (User, string) up to 10.11.8 and (Guid, string, string) from 10.11.9 on, so a direct call to
-        // either one breaks the floor build or the shipping build. This is the same divergence
-        // `SsoOnlyLoginService.AllUsers` already answers the same way.
+        // Bound at runtime: IUserManager.RenameUser changed shape between 10.11.8 and 10.11.9, and HostRename resolves whichever the host has.
         try
         {
             var call = HostRename.Resolve(_userManager.GetType(), account, userId, currentName, desiredName)
@@ -540,16 +346,12 @@ internal sealed class CanonicalLinkService
             }
             catch (TargetInvocationException wrapped) when (wrapped.InnerException is not null)
             {
-                // The host's own refusal, unwrapped. Without this the log below records a
-                // TargetInvocationException where the reason belongs, and the reason is the whole value of
-                // logging it: an admin needs to read "that name is taken", not "reflection threw".
+                // Unwrapped so the log names the host's reason rather than the reflection wrapper.
                 ExceptionDispatchInfo.Capture(wrapped.InnerException).Throw();
                 throw;
             }
 
-            // Both known shapes return Task. A shape that does not is awaited as nothing rather than
-            // refused, because the rename has already happened by then and failing here would log a
-            // failure for work that succeeded.
+            // A shape that returns no Task is awaited as nothing: the rename has already happened.
             if (returned is Task rename)
             {
                 await rename.ConfigureAwait(false);
@@ -557,10 +359,7 @@ internal sealed class CanonicalLinkService
         }
         catch (Exception ex)
         {
-            // Deliberately broad. The host decides what a legal name is and what it throws when it is not,
-            // and this plugin compiles against an interface that promises neither; letting any of it escape
-            // would turn a cosmetic mismatch into a failed login, which is the one outcome this feature must
-            // never cause. The account keeps its old name and the reason is on the record.
+            // Deliberately broad: the host decides what a legal name is, and a cosmetic mismatch must never fail a login.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
@@ -577,18 +376,10 @@ internal sealed class CanonicalLinkService
         return userId;
     }
 
-    // Adopts the pre-existing account that shares the display name, after clearing the eligibility gate.
-    // existingAccount is non-null (the caller passes it only when a named account resolved), so the admin
-    // read cannot NRE.
+    // Adopts the account that shares the display name after the eligibility gate; existingAccount is non-null by the caller's contract.
     private Guid AdoptExistingAccount(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, User existingAccount, AdoptionGate adoptionGate, Guid candidateUserId)
     {
-        // Same-name adoption trusts the identity provider to make usernames unique and
-        // non-reassignable (#218): a new principal asserting an existing user's name is otherwise
-        // routed straight to that account. Before writing the link, clear the eligibility gate -
-        // an administrator target is never adopted by name - the two ways in are the self-service page
-        // signed in to that account, and the elevated pre-provision route, and the refusal names both
-        // (#1765) - and a provider that requires a verified email must have carried
-        // email_verified == true. Fail closed: a refusal writes no link and emits no adoption audit.
+        // Same-name adoption trusts the identity provider to keep names unique (#218): an administrator is never adopted by name, and a verified-email gate must be met; a refusal writes no link and no audit.
         var verdict = AdoptionEligibilityResolver.Resolve(
             existingAccount.HasPermission(PermissionKind.IsAdministrator),
             adoptionGate);
@@ -607,9 +398,7 @@ internal sealed class CanonicalLinkService
             throw new AccountLinkForbiddenException();
         }
 
-        // Atomic check-then-link (#133): if a concurrent first-login already linked this
-        // identity, that winner is used and no second write or duplicate audit occurs. The link
-        // write also stamps the login's issuer (#186), so the adopted link is issuer-bound.
+        // Atomic check-then-link (#133): a concurrent first login's winner is used, with no second write or audit.
         var (adoptedUserId, wrote) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, candidateUserId, issuer);
         if (wrote)
         {
@@ -620,20 +409,8 @@ internal sealed class CanonicalLinkService
         return adoptedUserId;
     }
 
-    // Maps an adoption refusal verdict to a fixed, non-PII reason phrase for the log line above. Internal
-    // rather than private so the phrases can be read by a test: what the administrator arm says is the
-    // whole remedy an operator gets, and #1765 is what it cost when that half was vague. The
-    // AdoptionVerdict is a reason CODE (RefusePrivileged / RefuseUnverifiedEmail), never an email or any
-    // user data - but logging the enum value directly makes CodeQL's cs/exposure-of-private-information
-    // heuristic trip on the "Email" in the RefuseUnverifiedEmail member name (a false positive, latent on
-    // main and surfaced only once the log moved into this small helper where the flow is interprocedural).
-    // Returning a literal phrase per arm keeps the refusal reason in the audit line - and reads clearer than
-    // the raw enum name - while cutting the data flow the heuristic followed. The Allow arm is unreachable
-    // (the caller logs only on a refusal); it is a belt for a future verdict value.
-
-    /// <summary>
-    /// The fixed reason phrase the refusal line carries for an adoption this gate turned down.
-    /// </summary>
+    /// <summary>The fixed reason phrase the refusal line carries for an adoption this gate turned down.</summary>
+    /// <remarks>Internal so a test can read the phrases; a literal per arm keeps CodeQL's private-information heuristic off the enum member name (#1765).</remarks>
     /// <param name="verdict">The eligibility verdict the resolver returned.</param>
     /// <returns>A non-PII phrase naming what was refused and, where there is one, the way through.</returns>
     internal static string DescribeAdoptionRefusal(AdoptionVerdict verdict) => verdict switch
@@ -643,31 +420,15 @@ internal sealed class CanonicalLinkService
         _ => "the account is not eligible for name-based adoption",
     };
 
-    // Provisions a fresh Jellyfin account for this identity and links it on the subject key, warning first
-    // when a now-orphaned legacy link is being left behind. When provisionDisabled is set (the provider's
-    // ProvisionNewUsersDisabled policy, #737), the brand-new account is created disabled and persisted here
-    // so it exists inert for an administrator to approve; the caller then refuses the login without minting.
+    // Provisions a fresh account for this identity and links it on the subject key; with provisionDisabled (#737) it is created inert for an administrator to approve.
     private async Task<Guid> CreateNewAccountAsync(ProviderMode mode, string provider, string canonicalKey, string username, string? issuer, Guid? legacyLink, bool provisionDisabled, TimeSpan? provisionedAccessDuration, string? provisioningProfile)
     {
-        // Resolved FIRST, ahead of the orphan warning below (#1137). That warning states that a fresh
-        // account is being provisioned and the legacy target is now orphaned; a refusal after it would
-        // leave both halves of that sentence untrue in the log, on the one line an operator recovers from.
+        // Resolved before the orphan warning (#1137), so a refusal cannot leave that warning untrue in the log.
         var provisionedName = ResolveProvisionedName(mode, provider, username);
 
         if (legacyLink.HasValue && _legacyLinkWarnGate.TryEnter(_clock()))
         {
-            // The dangerous, previously-silent case (#354/#361): a legacy username-keyed link
-            // exists and its target still exists, but no live account bears the name anymore (the
-            // account was renamed on the Jellyfin side), so the legacy link was NOT followed -
-            // whether adoption is off, or on but the name no longer resolves to the recorded target
-            // (#361, the stale-name superset the flag-on arm used to hand over). We are about to
-            // provision a FRESH account under this subject, leaving the original - the one the
-            // legacy key points at - orphaned from this identity. This warning is the single
-            // observable signal of that outcome; recover by linking the original account to this
-            // subject via the admin endpoints. See the upgrade runbook in the Provider-Setup wiki
-            // page (https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup). Throttled
-            // through the shared once-per-interval gate (#362) so a login loop cannot flood it; the
-            // account is still provisioned on every login regardless of whether the line is emitted.
+            // The once-silent case (#354, #361): a fresh account is provisioned and the legacy target is orphaned; the upgrade runbook is https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Provider-Setup.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
@@ -685,82 +446,25 @@ internal sealed class CanonicalLinkService
 
         var user = await _userManager.CreateUserAsync(provisionedName).ConfigureAwait(false);
 
-        // ONE guard from here to the link write, rather than one around each write inside it (#1533).
-        // What it holds is the whole sentence this arm is for: an account created here either ends up
-        // LINKED, or does not exist. Anything that throws in between - the persist (#1440/#737), the
-        // password mint, the template application, the link write - otherwise leaves an account that
-        // exists, is ENABLED, carries neither the SSO routing nor a password, and has no link: reachable
-        // from the ordinary login form with the empty password (#1440), and blocking every later attempt
-        // for the same identity, because the create-or-adopt gate refuses to adopt it. Fixing whatever
-        // failed does not clear that; only an administrator deleting the account does.
-        //
-        // Two of those throws already had a rollback of their own and the rest did not. The link write
-        // became a failure of this shape only when the configuration store learned to undo a write that
-        // could not reach the disk (#1521): before that the link survived in memory and a later write
-        // committed it, which was the defect there and, on this one path, an accidental self-heal.
-        //
-        // What reaches the rollback is NOT only a persistence failure, and that is deliberate rather than
-        // incidental: LinkCanonicalIfAbsent also refuses when the provider was deleted or disabled between
-        // the candidate read and the write (AccountLinkForbiddenException), and an account provisioned for
-        // a login that is then refused is the same orphan as one whose disk was full.
-        //
-        // THIS ARM ONLY, and that boundary is the load-bearing half: the adopt arm links an account that
-        // existed before this login and must never delete one. Every account this guard can reach was
-        // created by this invocation, seconds ago, carries no link, and is unreachable by any login.
+        // One guard from here to the link write (#1533): an account created here either ends up linked or does not exist, on this arm only, because the adopt arm must never delete an account.
         var linked = false;
         try
         {
             user.AuthenticationProviderId = SsoManagedProviderId.Value;
 
-            // #1139: counted where the account comes into existence, not at the pending-approval audit below.
-            // That line fires only for a provider that holds new accounts for approval, so counting there would
-            // report zero creations on every server that does not - the majority - while accounts were being made
-            // on each of them.
+            // Counted where the account comes into existence (#1139), not at the pending-approval audit, which fires only on some providers.
             SsoMetrics.AccountProvisioned(ProvisioningOutcome.Created);
 
-            // The provider's static provisioning template (#1099), applied HERE and only here: this is the one
-            // arm on which an account is brand new, which is what lets an administrator's later per-user edit
-            // survive every subsequent login. It writes only the fields the template names, so a provider
-            // carrying none provisions byte-identically to before. Ahead of the pending-approval branch below so
-            // an account created inert already carries its policy when an administrator comes to enable it,
-            // rather than getting it on a first login that may never happen.
+            // The static provisioning template (#1099), applied on the one arm where the account is new, so an administrator's later per-user edit survives every login.
             var template = ProvisioningTemplateFor(mode, provider, provisioningProfile);
             ProvisioningPolicy.ApplyAtProvisioning(user, template);
-            // The manual-login door (#1440), shut as the account comes into existence: a Jellyfin user created
-            // with no password accepts the EMPTY one on the ordinary login form. Minted through the one shared
-            // helper the boot-time sweep also uses, so the two writers cannot drift into two ideas of random.
+            // The manual-login door (#1440): a user with no password accepts the empty one, so one is minted through the helper the boot-time sweep shares.
             user.Password = ProvisionedPassword.Mint(_cryptoProvider);
 
-            // AND RECORDED, in the same breath as the mint (#1733). Without the record the stored hash is a
-            // credential somebody holds or a seal nobody can open, and the two are the same bytes - which is
-            // what let every last-link self-unlink guard read "has a password door" for accounts the plugin
-            // itself sealed. The rollback path deletes the account and the pruner takes the record with it.
-            //
-            // IT IS ITS OWN CONFIGURATION WRITE, AND THAT COSTS A SECOND WHOLE-STORE PERSIST ON THIS ARM -
-            // the one the store's own measurement puts at tens of milliseconds on a large link table, paid
-            // once per account ever provisioned rather than once per login. The cheaper shape is to fold it
-            // into the link write below, and it is declined rather than missed: that write is behind the
-            // #133 race, where the LOSER writes no link at all, so the record would be skipped for an
-            // account that is nonetheless sealed and persisted. A seal with no record reads as "holds its
-            // own password", which is the safe direction but is also the exact hole this change exists to
-            // close, and paying for it on the one arm that creates an account is the cheaper of the two.
+            // Recorded in the same breath (#1733), so the seal can be told from a password somebody holds; its own write, because the link write below is behind the #133 race and the loser would skip the record.
             _configStore.Mutate(configuration => ProvisionedPassword.Record(configuration, user.Id, user.Password));
 
-            // PERSISTED HERE, once, and this write is the door rather than the two assignments above it (#1440).
-            // The session mint re-resolves the account by id and writes THAT object, so everything set on the
-            // instance CreateUserAsync returned reached no database: the account was persisted routed at
-            // Jellyfin's own password provider with no password stored, which is a Jellyfin account that accepts
-            // the EMPTY password on the ordinary login form. Found by the end-to-end harness reading the account
-            // back after a real login, never by a unit test - every one of them asserts on the in-memory object,
-            // where both writes were always present.
-            //
-            // The pending-approval hold (#737) is applied BEFORE this write rather than after it, so one write
-            // carries the routing, the password and the disabled flag. IsDisabled is otherwise never written by
-            // this plugin and is barred from SSO role mapping (PermissionRolePolicy) precisely so no login can
-            // disable an EXISTING account; this is the one sanctioned write, and it targets ONLY a brand-new
-            // account on this create arm - never an existing or adopted one. No permissions are applied - the
-            // account carries Jellyfin's default new-user policy until an administrator enables it, and the
-            // caller reads the disabled state and refuses the login.
+            // Persisted here, once: the session mint rewrites the account by id, so only this write carries the routing, the password and the disabled flag (#1440, #737); IsDisabled is written for a brand-new account only.
             if (provisionDisabled)
             {
                 user.SetPermission(PermissionKind.IsDisabled, true);
@@ -768,35 +472,19 @@ internal sealed class CanonicalLinkService
 
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
-            // The home-screen layout (#1101) is a second persistence surface with its own store, written only
-            // once the account row above is persisted: an account that exists is complete without it, and
-            // nothing about a layout may fail a login or roll an account back. Sequenced after the persist for
-            // that reason, and isolated inside.
+            // A second persistence surface (#1101), written only after the account row exists; nothing about a layout may fail a login.
             SeedHomeScreen(user.Id, provisionedName, template);
 
             if (provisionDisabled)
             {
-                // Audited here, at the actual provisioning event, so the line fires exactly once (not on every
-                // later refused login of the now-pending account) and is always accurate - the completion-path
-                // gate that refuses the login covers any disabled account, including one an admin disabled, so
-                // auditing there would mislabel a deliberate ban as a fresh provisioning.
+                // Audited at the provisioning event, so the line fires once and never mislabels an administrator's later ban.
                 SsoAudit.ProvisionedPendingApproval(_logger, mode == ProviderMode.Oid ? "OpenID" : "SAML", provider, provisionedName);
             }
 
-            // Atomic check-then-link (#133): if a concurrent first-login for the same identity
-            // linked meanwhile, use its account - this freshly created user is left unlinked rather
-            // than overwriting the winner's link (a rare, benign orphan, not a duplicate login). The
-            // link write stamps the login's issuer (#186), so the new link is issuer-bound.
-            // The role-mapped access duration (#1146) travels with the link write and is stamped only when THIS
-            // call actually wrote the link, in the same transaction. That placement is the whole guarantee: the
-            // #133 race loser writes no link and therefore stamps no deadline over the winner's, and a deadline
-            // can only ever come into existence beside a live link, which is what bounds the map.
+            // Atomic check-then-link (#133): the race loser keeps an unlinked account rather than overwriting the winner; the issuer (#186) and the deadline (#1146) are stamped only by the call that wrote the link.
             var (effectiveUserId, _) = LinkCanonicalIfAbsent(mode, provider, canonicalKey, user.Id, issuer, provisionedAccessDuration, provisionDisabled);
 
-            // The race loser is the one case that reaches here having written no link and still keeps its
-            // account: LinkCanonicalIfAbsent returns the winner's id rather than throwing, so the guard
-            // closes normally. That orphan is the pre-existing #133 outcome and is not what this guard is
-            // about - it is left exactly as it was rather than quietly widened into an account deletion.
+            // The race loser wrote no link and keeps its account; that pre-existing #133 outcome is not widened into a deletion.
             linked = true;
             return effectiveUserId;
         }
@@ -809,16 +497,7 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Deletes an account this login created and could not finish (#1533). Its failure is SWALLOWED, and
-    // that is the whole reason it is a method rather than a line in the finally: a delete that throws
-    // from inside a finally replaces the exception being unwound, and that exception is the only thing
-    // that says what actually went wrong - the full disk, or the refusal the completion path catches by
-    // type to answer 403 rather than 500. The neighbouring rollback claimed "the original failure still
-    // propagates" and did not hold to it; this one does, and says out loud what it cost when it could not.
-    //
-    // The audit line is the second half. The provisioning that preceded this emitted its own lines - the
-    // pending-approval audit, the created-account metric, the legacy-orphan warning - and every one of
-    // them describes an account that no longer exists. This is the line that makes the log coherent again.
+    // Deletes an account this login created and could not finish (#1533); its own failure is swallowed, because a throw from a finally would replace the exception that says what went wrong.
     private async Task RollBackProvisionedAccountAsync(Guid userId, string provisionedName, ProviderMode mode, string provider)
     {
         try
@@ -834,10 +513,7 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Writes the template's home-screen layout (#1101) for a freshly persisted account, and never lets the
-    // outcome reach the login. Warning rather than error on both arms, on the same reasoning as the
-    // unresolved-profile line below: the login succeeded and the account exists; what is asked for is a look
-    // at the display-preferences store, or at the wiring of a caller that provisions without one.
+    // Writes the template's home-screen layout (#1101) for a persisted account and never lets the outcome reach the login.
     private void SeedHomeScreen(Guid userId, string provisionedName, ProvisioningPolicyTemplate? template)
     {
         if (!HomeScreenPolicy.NamesLayout(template))
@@ -857,10 +533,7 @@ internal sealed class CanonicalLinkService
         {
             if (HomeScreenPolicy.ApplyAtProvisioning(_displayPreferences, userId, template) == 0)
             {
-                // A layout was named and none was written: the stored list fails the parse the save-time
-                // validator applies, so this is a configuration written around it. The policy skips the
-                // list whole and says nothing; the line is here so an account that came out with Jellyfin's
-                // own layout under a template naming one is not a mystery.
+                // A layout was named and none was written: the stored list fails the parse the save-time validator applies.
                 _logger.LogWarning(
                     "SSO user {Name}: the provisioning template's home-screen layout names a section that is not a HomeSectionType or lists more than {Slots} entries, so none was written; a save would have refused the same list.",
                     provisionedName.ReplaceLineEndings(string.Empty).Replace('[', '('),
@@ -869,10 +542,7 @@ internal sealed class CanonicalLinkService
         }
         catch (Exception ex)
         {
-            // Deliberately broad. The store is the host's database and this plugin compiles against an
-            // interface that promises nothing about what it throws; letting any of it escape would turn a
-            // cosmetic layout into a failed login for an account that already exists, which is the one
-            // outcome this feature must never cause.
+            // Deliberately broad: the store is the host's, and a layout must never fail a login for an account that exists.
             _logger.LogWarning(
                 ex,
                 "SSO user {Name}: the provisioning template's home-screen layout could not be written; the account was created without it.",
@@ -880,25 +550,12 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // The provider's provisioning template (#1099), read under the config lock in its own short transaction
-    // rather than threaded down from the caller, so the create arm reads the configuration that is live when
-    // the account is actually made. A missing provider, or one stored with a null config object (#350),
-    // carries no template and writes nothing - the same fail-closed skip every other read here uses. Which
-    // template a provider gets - its named profile or its own inline one (#1105) - is ProvisioningPolicy's
-    // rule, resolved inside the same transaction so the profile set and the name pointing at it are read
-    // together and a concurrent save cannot be seen half-applied.
+    // The provider's template (#1099, #1105), read in its own short transaction so the profile set and the name pointing into it are read together; a missing or null-bodied provider (#350) carries none.
     private ProvisioningPolicyTemplate? ProvisioningTemplateFor(ProviderMode mode, string provider, string? provisioningProfile)
     {
         var resolution = _configStore.Read(configuration => ProvisioningPolicy.TemplateFor(configuration, ProviderConfigFor(configuration, mode, provider), provisioningProfile));
 
-        // The previously silent arm (#1106). A name that resolves to nothing writes NO policy and never
-        // falls back - deliberately, because falling back would hand the group an administrator singled out
-        // for a narrower profile the wider one instead. What that costs is visibility: the account comes out
-        // carrying Jellyfin's bare new-user defaults, which is byte-identical to a provider that configured
-        // no template at all, so without this line nothing anywhere says a configured name failed to
-        // resolve. Warning rather than error: the login succeeded and the account exists, and what is asked
-        // for is a configuration repair. Emitted only here, on the create arm, so it fires once per account
-        // rather than on every login of one.
+        // The once-silent arm (#1106): a name that resolves to nothing writes no policy and never falls back, so this line is the only sign a configured name failed; once per account, on the create arm.
         if (resolution.UnresolvedProfile is not null && _logger.IsEnabled(LogLevel.Warning))
         {
             _logger.LogWarning(
@@ -912,8 +569,7 @@ internal sealed class CanonicalLinkService
         return resolution.Template;
     }
 
-    // The stored provider object the read above resolves its template from, or null when the provider is
-    // gone or was stored with a null config object (#350).
+    // The stored provider object, or null when it is gone or was stored with a null config object (#350).
     private static ProviderConfigBase? ProviderConfigFor(PluginConfiguration configuration, ProviderMode mode, string provider) =>
         mode switch
         {
@@ -922,23 +578,12 @@ internal sealed class CanonicalLinkService
             _ => null,
         };
 
-    // The name a BRAND-NEW account is created under (#1137). Jellyfin's CreateUserAsync throws for a name
-    // outside its own character set, so an IdP that emits one (the 9p4#199 shape) used to fail the login
-    // with a host-shaped error and no actionable signal; sanitizing here turns that into a first login that
-    // succeeds under a normalized name. This runs on the CREATE arm only and touches nothing else: the link
-    // key stays the subject, and the raw IdP name is still what the legacy username key, the same-name
-    // lookup and the adoption comparison above are made against. That divergence is deliberate. Sanitizing
-    // the value those reads use would re-point an existing legacy link and change which account a login
-    // resolves to, which is exactly what #829 forbids this issue from doing; and it cannot strand this
-    // account, because every later login for the same identity resolves through the subject-keyed link
-    // written below rather than by name.
+    // The name a brand-new account is created under (#1137): sanitized on the create arm only, while the legacy key, the same-name lookup and the adoption comparison keep the raw name, because sanitizing those would re-point links (#829).
     private string ResolveProvisionedName(ProviderMode mode, string provider, string username)
     {
         if (!ProvisionedUsername.TrySanitize(username, out var provisionedName))
         {
-            // Nothing Jellyfin would accept survived. Refuse with a named plugin-side reason rather than
-            // letting CreateUserAsync throw a host-shaped error, and never invent a substitute name - an
-            // account an administrator sees has to come from something the identity provider actually sent.
+            // Nothing Jellyfin would accept survived; refuse with a named reason rather than invent a name.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
@@ -952,19 +597,13 @@ internal sealed class CanonicalLinkService
 
         if (string.Equals(provisionedName, username, StringComparison.Ordinal))
         {
-            // Unchanged, so the name-taken check the caller already made still stands and no second lookup
-            // is made. A login whose name needs no sanitization therefore takes byte-for-byte the pre-#1137
-            // path, which is what the regression test over the existing flow pins.
+            // Unchanged, so the caller's name-taken check still stands and the pre-#1137 path is taken byte for byte.
             return provisionedName;
         }
 
         if (_userManager.GetUserByName(provisionedName) != null)
         {
-            // The normalized name is already worn by an account this identity has not proved it owns.
-            // Adopting it would be a name-keyed match on a value the plugin invented rather than one the
-            // provider sent, which is the takeover shape #829 rules out; appending a suffix would hand an
-            // administrator an account name nobody chose. Refuse instead, and name both spellings so the
-            // operator can rename one side.
+            // The normalized name belongs to an account this identity has not proved it owns; adopting it would be the takeover #829 rules out, so refuse and name both spellings.
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning(
@@ -991,14 +630,7 @@ internal sealed class CanonicalLinkService
         return provisionedName;
     }
 
-    /// <summary>
-    /// Whether the resolved account is disabled and so must not be issued a session - a brand-new user
-    /// provisioned pending approval (ProvisionNewUsersDisabled, #737) or an account an administrator disabled.
-    /// A read-only check the completion path uses to refuse the login with an "awaiting approval" message
-    /// instead of attempting to mint (which would fail on a disabled user). A user that vanished between
-    /// resolution and here is left to the minter's own null guard (its AuthenticationException), not
-    /// mislabelled as pending approval.
-    /// </summary>
+    /// <summary>Whether the resolved account is disabled and so must not be issued a session (#737); a user that vanished is left to the minter's own null guard.</summary>
     /// <param name="userId">The resolved Jellyfin user id.</param>
     /// <returns><see langword="true"/> when the account exists and is disabled.</returns>
     internal bool IsAccountAwaitingApproval(Guid userId)
@@ -1007,15 +639,7 @@ internal sealed class CanonicalLinkService
         return user is not null && user.HasPermission(PermissionKind.IsDisabled);
     }
 
-    /// <summary>
-    /// Whether the resolved account holds <see cref="PermissionKind.IsAdministrator"/>. The read the
-    /// mass-lockout guard (T-D1) is made from where a caller has to decide BEFORE acting rather than learn
-    /// it from a refusal - the account-expiry gate (#1144) has to let an administrator log in rather than
-    /// merely leave it enabled, so it cannot infer the guard from a disable that returned false. Basis is
-    /// the RESOLVED account, never the identity provider's admin claim, which is the same basis the disable
-    /// paths use. A user that vanished between resolution and here reports false, so the guard opens no door
-    /// for an account that is not there.
-    /// </summary>
+    /// <summary>Whether the resolved account is an administrator, read from the account and never from the provider's claim, for the mass-lockout guard (T-D1) the expiry gate (#1144) decides before acting; a vanished user reports false.</summary>
     /// <param name="userId">The resolved Jellyfin user id.</param>
     /// <returns><see langword="true"/> when the account exists and is an administrator.</returns>
     internal bool IsAccountAdministrator(Guid userId)
@@ -1024,34 +648,10 @@ internal sealed class CanonicalLinkService
         return user is not null && user.HasPermission(PermissionKind.IsAdministrator);
     }
 
-    /// <summary>
-    /// Approves an account this plugin provisioned inert (#1529): enables it, and does nothing else.
-    /// </summary>
+    /// <summary>Approves an account this plugin provisioned inert (#1529): enables it, and does nothing else.</summary>
     /// <remarks>
-    /// WHAT IT MAY ACT ON is the whole of the safety here, and it is one question asked of the record
-    /// rather than of the account: only an identity this plugin's own create arm recorded as provisioned
-    /// disabled, whose record still names the account the link points at. A disabled account with no such
-    /// record was disabled by somebody else, for a reason this plugin does not know, and is invisible to
-    /// this path - which is what keeps an administrator's sanction out of reach of a page about SSO.
-    /// <para>
-    /// WHAT IT DOES is one permission, written on the seam that already owns it. No role, no folder, no
-    /// library and no policy: the provisioning decided those when it created the account, and an approval
-    /// that also granted would make the approve button a second, quieter provisioning policy. An
-    /// administrator account is refused outright, on the same reasoning that keeps adoption away from them
-    /// (T-D1): this route asks for an administrator credential and nothing else, and re-admitting an
-    /// administrator is the one mistake here that cannot be walked back by the same button.
-    /// </para>
-    /// <para>
-    /// THE STATE IS RE-READ HERE rather than trusted from the page that offered the row. A record says what
-    /// was true at provisioning; between the page load and the click the account may have been enabled by
-    /// hand, deleted, or promoted. Each of those has its own arm, and the two that prove the record false
-    /// take it away rather than leaving a row that would be offered again on the next read.
-    /// </para>
-    /// <para>
-    /// The enable is persisted BEFORE the record is removed. The other order loses the account from the
-    /// list on a failed write, leaving it disabled with nothing left to say why; this order can at worst
-    /// leave a record on an account that is already enabled, which the next read refuses on its own.
-    /// </para>
+    /// Only an identity the create arm recorded, whose record still names the linked account, is approvable; an administrator account is refused (T-D1); the state is re-read here, and the two arms that prove the record false remove it.
+    /// The enable is persisted before the record is removed, so a failed write leaves at worst a record the next read refuses.
     /// </remarks>
     /// <param name="mode">The protocol the provider speaks.</param>
     /// <param name="provider">The provider the link belongs to.</param>
@@ -1059,10 +659,7 @@ internal sealed class CanonicalLinkService
     /// <returns>What happened, and the account it happened to, so the caller can audit the grant by the account it granted rather than by the subject that names a person.</returns>
     internal async Task<(PendingApprovalResult Outcome, Guid UserId)> ApproveProvisionedAccountAsync(ProviderMode mode, string provider, string? canonicalName)
     {
-        // Read under the lock, decided by the one rule the roster reads with: an unknown provider and a key
-        // that names no live record are different answers, because the first is a request against something
-        // that does not exist and the second is a request against something that is not this plugin's to act
-        // on. Collapsing them would make the endpoint an existence oracle for provider names.
+        // An unknown provider and a key with no live record are different answers; collapsing them would make the endpoint an existence oracle for provider names.
         var known = _configStore.Read(configuration =>
             TryGetProvider(configuration, mode, provider, out var config)
                 ? (Provider: true, User: (Guid?)PendingApproval.Live(config, canonicalName)?.UserId)
@@ -1081,27 +678,20 @@ internal sealed class CanonicalLinkService
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {
-            // The account went away under a record that outlived it. Nothing to enable, and the record is
-            // now describing nothing at all, so it goes with the answer rather than staying to be offered
-            // again.
+            // The record outlived the account, so it goes with the answer rather than being offered again.
             RemovePendingApprovalOutsideLock(mode, provider, canonicalName!, userId);
             return (PendingApprovalResult.AccountGone, userId);
         }
 
         if (user.HasPermission(PermissionKind.IsAdministrator))
         {
-            // The record is TRUE - this plugin really did provision that account inert - so it is left
-            // exactly where it is. What is refused is this route acting on it: an administrator account is
-            // enabled in the Jellyfin dashboard, by somebody who went there to do it.
+            // The record is true and stays; an administrator account is enabled in the Jellyfin dashboard, not here.
             return (PendingApprovalResult.Administrator, userId);
         }
 
         if (!user.HasPermission(PermissionKind.IsDisabled))
         {
-            // Enabled by somebody else since it was provisioned, which is the one thing that makes the
-            // record false without any link having moved. Taking it away here is the only place this plugin
-            // ever observes that, and leaving it would keep a working account on a list of accounts that
-            // cannot sign in.
+            // Enabled by somebody else since it was provisioned, which is the one transition nothing else here observes.
             RemovePendingApprovalOutsideLock(mode, provider, canonicalName!, userId);
             return (PendingApprovalResult.AlreadyEnabled, userId);
         }
@@ -1113,13 +703,7 @@ internal sealed class CanonicalLinkService
         return (PendingApprovalResult.Approved, userId);
     }
 
-    /// <summary>
-    /// Drops a link's pending-approval record after a login that actually minted a session (#1637). A login
-    /// past the pending-approval gate proves the account is not inert, so a record still standing on it is
-    /// false: the account was enabled outside this plugin, which is the one transition nothing else here
-    /// observes. Bounded like the last-login stamp beside it - the common case is a locked read that finds
-    /// no record and writes nothing.
-    /// </summary>
+    /// <summary>Drops a link's pending-approval record after a login that minted a session (#1637), because the account was evidently enabled outside this plugin; the common case is a locked read that writes nothing.</summary>
     /// <param name="mode">The provider protocol.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The identity's stable subject key.</param>
@@ -1139,10 +723,7 @@ internal sealed class CanonicalLinkService
             return;
         }
 
-        // AVAILABILITY, for the same reason the last-login stamp states it: this runs after the session has
-        // been minted, so a configuration persist that throws must not turn a login that already succeeded
-        // into an error the reader sees. The cost of swallowing it is a stale row on an administrator's
-        // list, which the approve action refuses on its own when somebody presses it.
+        // Availability: this runs after the mint, so a failed persist must not turn a successful login into an error; the cost is a stale row the approve action refuses on its own.
         try
         {
             _configStore.Mutate(configuration => RemovePendingApproval(configuration, mode, provider, canonicalKey));
@@ -1156,20 +737,8 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    /// <summary>
-    /// Login-time deprovisioning (#831): when an SSO login is DENIED by the role allow-list, disable the
-    /// existing linked Jellyfin account so a user offboarded at the identity provider loses Jellyfin access
-    /// immediately, rather than keeping any session until a role change would otherwise apply. Opt-in per
-    /// provider (<see cref="ProviderConfigBase.DisableAccountOnRoleDenied"/>).
-    /// <para>
-    /// GUARD - the mass-lockout defense (T-D1): an <see cref="PermissionKind.IsAdministrator"/> account is
-    /// NEVER disabled by this path, which also covers the SSO-only break-glass admin (itself an admin). So a
-    /// misconfigured allow-list, or an identity provider that transiently drops group claims and denies every
-    /// login, can strand at most the non-admin accounts - an administrator (and the break-glass door) always
-    /// remains to recover. It acts only on the EXISTING subject-keyed canonical link; a first-time denied
-    /// login resolves no account and disables nothing. An already-disabled account is a no-op (not re-audited).
-    /// </para>
-    /// </summary>
+    /// <summary>Login-time deprovisioning (#831): disables the existing linked account when the role allow-list denied the login, opt-in per provider (<see cref="ProviderConfigBase.DisableAccountOnRoleDenied"/>).</summary>
+    /// <remarks>An administrator is never disabled by this path (T-D1), it acts only on an existing subject-keyed link, and an already disabled account is a no-op.</remarks>
     /// <param name="mode">The provider protocol.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose login was denied.</param>
@@ -1178,20 +747,8 @@ internal sealed class CanonicalLinkService
     internal async Task<bool> DisableDeniedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
         await DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer, enforceIssuerBinding: true).ConfigureAwait(false) is not null;
 
-    /// <summary>
-    /// Login-time enforcement of an account-expiry deadline (#1144): when a login carries an expiry instant
-    /// at or before now, disable the existing linked Jellyfin account so a time-limited or guest identity
-    /// loses Jellyfin access at its deadline rather than for as long as its tokens happen to live. Opt-in per
-    /// provider (<see cref="ProviderConfigBase.AccountExpiryClaim"/>).
-    /// <para>
-    /// One rule, one implementation: this shares every safety property of
-    /// <see cref="DisableDeniedAccountAsync"/> - the same mass-lockout guard (T-D1), the same issuer binding
-    /// (#186), the same never-create/never-adopt resolution, the same no-op on an already-disabled account -
-    /// because it is the same code, and a second copy would be a second place for the guard to be dropped
-    /// from. The two names exist because the two callers mean different things by disabling, and each owes
-    /// its own audit line.
-    /// </para>
-    /// </summary>
+    /// <summary>Login-time enforcement of an account-expiry deadline (#1144): disables the existing linked account when the login's expiry instant has passed, opt-in per provider (<see cref="ProviderConfigBase.AccountExpiryClaim"/>).</summary>
+    /// <remarks>The same body as <see cref="DisableDeniedAccountAsync"/>, so the two share every guard; the names differ because each caller owes its own audit line.</remarks>
     /// <param name="mode">The provider protocol.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The identity's stable subject key (OpenID sub / SAML NameID) whose deadline has passed.</param>
@@ -1200,21 +757,8 @@ internal sealed class CanonicalLinkService
     internal async Task<bool> DisableExpiredAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer = null) =>
         await DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer, enforceIssuerBinding: true).ConfigureAwait(false) is not null;
 
-    /// <summary>
-    /// Between-logins enforcement of an account-expiry deadline (#1145): the background sweep's disable, for
-    /// a link whose persisted deadline has passed with no intervening login. Returns the account it actually
-    /// disabled so the caller can revoke exactly that user's tokens, which a boolean could not name.
-    /// <para>
-    /// Same body, same mass-lockout guard (T-D1), same never-create/never-adopt resolution, same no-op on an
-    /// already-disabled account as the two login paths above. It differs in ONE respect and the difference is
-    /// deliberate: the issuer binding (#186) is not applied, because there is no incoming login to bind
-    /// against. That check exists to stop a login whose subject collides with a link stamped for a DIFFERENT
-    /// identity provider from acting on the prior provider's account; a sweep reads the stored link by its own
-    /// stored key and has no second party to confuse it with, so comparing the stored issuer with itself would
-    /// be a tautology, while passing a null issuer would instead classify every properly bound link as a
-    /// Mismatch and silently exempt exactly the links that are correctly stamped.
-    /// </para>
-    /// </summary>
+    /// <summary>Between-logins enforcement of an account-expiry deadline (#1145): the sweep's disable for a link whose persisted deadline passed, returning the account it disabled so the caller can revoke its tokens.</summary>
+    /// <remarks>Same body and guards as the login paths, without the issuer binding (#186): a sweep has no incoming login to bind against, and a null issuer would read every bound link as a mismatch.</remarks>
     /// <param name="mode">The provider protocol the link belongs to.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The stable subject key whose persisted deadline has passed.</param>
@@ -1222,17 +766,7 @@ internal sealed class CanonicalLinkService
     internal Task<Guid?> DisableExpiredAccountBySweepAsync(ProviderMode mode, string provider, string? canonicalKey) =>
         DisableLinkedAccountAsync(mode, provider, canonicalKey, issuer: null, enforceIssuerBinding: false);
 
-    /// <summary>
-    /// Persists the account-expiry instant a login carried for one canonical link (#1145), in its own config
-    /// transaction. Idempotent and last-writer-wins: the identity provider is authoritative about its own
-    /// deadline, so a login carrying a moved instant moves the stored one.
-    /// <para>
-    /// Written only when the link still exists, which is what bounds the map: an entry can only be created
-    /// beside a live link, and <see cref="TryRemoveLink"/> / <see cref="RemoveUserEverywhere"/> take it away
-    /// with that link. Nothing else may write here - the map is withheld from JSON precisely so a config PUT
-    /// cannot forge a PAST instant for a guessed subject and have the sweep disable that account.
-    /// </para>
-    /// </summary>
+    /// <summary>Persists the expiry instant a login carried for one link (#1145), last writer wins, and only while the link exists; the map is withheld from JSON so a configuration PUT cannot forge a past deadline.</summary>
     /// <param name="mode">The provider protocol the link belongs to.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The stable subject key the link is stored under.</param>
@@ -1253,22 +787,8 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Stamps the instant of a successful SSO login against the canonical link it resolved (#1120), so the
-    /// administrator roster can answer "last SSO login" without any event log being kept.
-    /// <para>
-    /// Bounded by construction, which is the whole design: an entry is only ever written beside a live link,
-    /// so the map's cardinality is the link map's, a repeat login overwrites one value rather than appending,
-    /// and <see cref="TryRemoveLink"/> / <see cref="RemoveUserEverywhere"/> take the entry away with the link.
-    /// </para>
-    /// <para>
-    /// Coarse on purpose. An established user's repeat login pays no configuration persist today, and this is
-    /// the login hot path, so a write-through stamp would add one write per login to the file that carries
-    /// every provider secret envelope and every link map. The stamp is therefore only rewritten once it has
-    /// aged past <see cref="ProviderConfigBase.LastSsoLoginGranularity"/>: the value is accurate to that
-    /// resolution and never fresher, and the roster's wording has to promise no more than that.
-    /// </para>
-    /// </summary>
+    /// <summary>Stamps the instant of a successful login against the link it resolved (#1120), so the roster answers "last SSO login" without an event log.</summary>
+    /// <remarks>Bounded by construction: an entry is only ever written beside a live link, and it is rewritten only once it has aged past <see cref="ProviderConfigBase.LastSsoLoginGranularity"/>, so a repeat login pays no write on the hot path.</remarks>
     /// <param name="mode">The provider protocol the link belongs to.</param>
     /// <param name="provider">The provider name.</param>
     /// <param name="canonicalKey">The stable subject key the link is stored under.</param>
@@ -1281,13 +801,7 @@ internal sealed class CanonicalLinkService
 
         var nowUtc = _clock().ToUniversalTime();
 
-        // Decided under a locked READ so the common case - an established user logging in again inside the
-        // granularity window - reaches no write at all. The decision and the write are two lock acquisitions
-        // deliberately: the field is last-writer-wins by definition, so the worst a login racing another can
-        // produce is one redundant write of an equivalent instant, and there is nothing a single held lock
-        // would protect. A stored instant in the FUTURE (a config restored from a machine whose clock ran
-        // ahead, or a clock stepped back) is also due, because `now - stored` is negative there and a stamp
-        // that is never overdue would be frozen forever.
+        // Decided under a locked read, so a repeat login inside the granularity window reaches no write; a stored instant in the future is due too, or a stepped-back clock would freeze it.
         var due = _configStore.Read(configuration =>
             TryGetProvider(configuration, mode, provider, out var config)
             && config.CanonicalLinks.ContainsKey(canonicalKey)
@@ -1300,20 +814,12 @@ internal sealed class CanonicalLinkService
             return;
         }
 
-        // AVAILABILITY. This is bookkeeping for a roster column and it runs AFTER the session has been minted,
-        // so a configuration persist that throws - a read-only or full volume being the ordinary way - must not
-        // turn a login that has already succeeded into an error the user sees, which is what an escaping
-        // exception here would do. It is deliberately swallowed to a warning: the cost of the failure is a
-        // stale "last SSO login", and letting it out would trade a cosmetic gap for SSO refusing every login
-        // on the server. The deadline writer above is deliberately NOT given the same treatment, because a
-        // lost deadline is lost ENFORCEMENT rather than a lost display.
+        // Availability: this runs after the mint, so a failed persist is a warning and a stale roster column, not a failed login; the deadline writer above is deliberately not treated the same.
         try
         {
             _configStore.Mutate(configuration =>
             {
-                // Re-tested inside the write lock rather than trusted from the read above: an unlink landing
-                // between the two acquisitions must not resurrect a stamp for a subject that no longer holds
-                // a link, which is the bound every other guarantee here rests on.
+                // Re-tested under the write lock: an unlink between the two acquisitions must not resurrect a stamp.
                 if (TryGetProvider(configuration, mode, provider, out var config) && config.CanonicalLinks.ContainsKey(canonicalKey))
                 {
                     config.CanonicalLinkLastLogins[canonicalKey] = nowUtc;
@@ -1322,9 +828,7 @@ internal sealed class CanonicalLinkService
         }
         catch (Exception ex)
         {
-            // The provider only, never the subject: this names whose bookkeeping failed and nothing that
-            // identifies the account, which is the rule the audit trail already holds itself to. Line endings
-            // are stripped AT the call rather than in a helper, because the sanitizer does not survive one.
+            // The provider only, never the subject; the sanitizer stays at the call.
             _logger.LogWarning(
                 ex,
                 "[SSO] Could not record the last SSO login for provider {Provider}. The login itself succeeded; the roster timestamp is stale.",
@@ -1332,20 +836,8 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    /// <summary>
-    /// The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across the
-    /// providers of both protocols, materialized in one locked pass (#1145).
-    /// </summary>
-    /// <remarks>
-    /// A candidate list, not a verdict. Whether an entry may be acted on at all is decided in ONE place, by
-    /// <see cref="DisableExpiredAccountBySweepAsync"/>, which re-resolves the link under the config lock and
-    /// applies every guard - including <c>requireEnabled</c>, so a provider an administrator switched off is
-    /// left alone: its logins are already refused, and reading that switch as permission to disable its whole
-    /// userbase unattended is the opposite of what it says. Re-stating that test here would be a second place
-    /// for it to drift out of and could not be proven independently, so this walk does not carry it. A
-    /// deadline whose link has gone IS skipped here, because without a link there is no account to name. The
-    /// pass is a bounded walk over the persisted maps and contacts no identity provider.
-    /// </remarks>
+    /// <summary>The canonical links whose persisted deadline is at or before <paramref name="nowUtc"/>, across both protocols, materialized in one locked pass (#1145).</summary>
+    /// <remarks>A candidate list, not a verdict: <see cref="DisableExpiredAccountBySweepAsync"/> re-resolves each entry and applies every guard, including the disabled-provider skip, so the test is stated once.</remarks>
     /// <param name="nowUtc">The instant to compare each deadline against.</param>
     /// <returns>The expired links, as a detached snapshot.</returns>
     internal IReadOnlyList<ExpiredCanonicalLink> ExpiredLinks(DateTime nowUtc)
@@ -1363,8 +855,7 @@ internal sealed class CanonicalLinkService
         {
             foreach (var entry in configs)
             {
-                // A provider stored with a null config object (reachable via the null-body add, #350) holds
-                // nothing to sweep; skipped rather than dereferenced, as everywhere else in this file.
+                // A provider stored with a null config object (#350) holds nothing to sweep.
                 if (entry.Value is not { } config)
                 {
                     continue;
@@ -1381,25 +872,8 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    /// <summary>
-    /// Every distinct Jellyfin account any SAML or OpenID provider still holds a canonical link to, as a
-    /// detached snapshot read once under the config lock (#1440).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The link is what says an account belongs to this plugin. <c>AuthenticationProviderId</c> does not:
-    /// the session mint overwrites it with a provider's <c>DefaultProvider</c> on every login, which is
-    /// exactly the configuration that turns a password-less provisioned account into one the ordinary login
-    /// form will accept the empty password for.
-    /// </para>
-    /// <para>
-    /// A provider an administrator has DISABLED is walked too, unlike the expiry sweep's <c>requireEnabled</c>
-    /// resolve. The two act in opposite directions: that one ends access and must not do so unattended for a
-    /// provider switched off, while this one only ever removes an empty-password door. Skipping a disabled
-    /// provider would leave the accounts nobody is logging in through as the reachable ones, which is the
-    /// wrong way round.
-    /// </para>
-    /// </remarks>
+    /// <summary>Every distinct Jellyfin account any provider still links, as a detached snapshot read once under the lock (#1440).</summary>
+    /// <remarks>The link is what says an account belongs to this plugin, since the mint overwrites AuthenticationProviderId on every login; a disabled provider is walked too, because this sweep only removes an empty-password door.</remarks>
     /// <returns>The linked account ids, without duplicates.</returns>
     internal IReadOnlyCollection<Guid> LinkedUserIds()
     {
@@ -1408,8 +882,7 @@ internal sealed class CanonicalLinkService
             var linked = new HashSet<Guid>();
             foreach (var config in configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values))
             {
-                // A provider stored with a null config object (reachable via the null-body add, #350) holds
-                // no links and is skipped rather than dereferenced, as everywhere else in this file.
+                // A provider stored with a null config object (#350) holds no links.
                 if (config?.CanonicalLinks is { } links)
                 {
                     linked.UnionWith(links.Values);
@@ -1420,28 +893,15 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// The accounts the minted-password record names (#1733), so a caller can work out which of them are
-    /// still worth keeping without holding the configuration lock while it finds out.
-    /// </summary>
+    /// <summary>The accounts the minted-password record names (#1733), read without holding the lock while the caller judges them.</summary>
     /// <returns>The account ids the record holds an entry for.</returns>
     internal IReadOnlyCollection<Guid> ProvisionedPasswordAccounts()
     {
         return _configStore.Read(configuration => (IReadOnlyCollection<Guid>)configuration.ProvisionedPasswords.Keys.ToList());
     }
 
-    /// <summary>
-    /// Applies a whole pass of the boot-time sweep to the minted-password record in ONE write (#1733): the
-    /// accounts it sealed, and the accounts whose records it reclaimed.
-    /// </summary>
-    /// <remarks>
-    /// ONE WRITE FOR THE PASS, and the reason is the size of the population rather than tidiness. Every
-    /// configuration write serializes and persists the WHOLE configuration, so a write per account is a
-    /// whole-store write per account on the startup path of exactly the upgraded servers that pass exists
-    /// for. The sweep is the second writer of a provisioned password and reaches the configuration through
-    /// this service rather than growing a store of its own, so both mint sites record the fact through the
-    /// same type and neither can be the one that forgot to.
-    /// </remarks>
+    /// <summary>Applies a whole pass of the boot-time sweep to the minted-password record in one write (#1733): the accounts it sealed and the records it reclaimed.</summary>
+    /// <remarks>One write for the pass, because every configuration write persists the whole store, on the startup path of exactly the upgraded servers the pass exists for.</remarks>
     /// <param name="minted">Account id to the value written to its <c>User.Password</c>.</param>
     /// <param name="reclaimed">Accounts whose record is dropped because the account no longer exists.</param>
     internal void UpdateProvisionedPasswords(IReadOnlyDictionary<Guid, string> minted, IReadOnlyCollection<Guid> reclaimed)
@@ -1463,37 +923,17 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Forgets the minted-password record an account holds, because the account is gone (#1733/#1649).
-    /// </summary>
-    /// <remarks>
-    /// KEYED ON THE ACCOUNT AND NOT ON ITS LINKS, which is why this is its own call rather than a line
-    /// inside the revoke seam. An unlink does not change what password an account holds, so an account that
-    /// is merely unlinked keeps its record; a DELETED account keeps nothing, and a record left behind would
-    /// go on describing whatever account a recycled id names next.
-    /// </remarks>
+    /// <summary>Forgets the minted-password record of a deleted account (#1733, #1649); keyed on the account and not its links, because an unlink changes no password.</summary>
     /// <param name="userId">The account to forget.</param>
     /// <returns>True when a record was removed.</returns>
     internal bool ForgetProvisionedPassword(Guid userId)
     {
-        // WRITES UNCONDITIONALLY, and the no-write guard is the caller's rather than this method's: a
-        // Mutate persists whether or not it changed anything, and most deleted accounts hold no record, so
-        // somebody has to ask first. <see cref="DeletionFootprint"/> is where that question is asked, in
-        // the same acquisition as the link question, so the guard costs no extra read.
+        // Writes unconditionally: a Mutate persists either way, so DeletionFootprint asks first whether there is a record.
         return _configStore.Mutate(configuration => ProvisionedPassword.Forget(configuration, userId));
     }
 
-    /// <summary>
-    /// What an account leaves behind in this plugin, in ONE configuration acquisition: whether any provider
-    /// on either protocol holds a link for it, and whether it holds a minted-password record (#1733/#1649).
-    /// </summary>
-    /// <remarks>
-    /// ONE ACQUISITION FOR BOTH ANSWERS, and it is the reason this exists rather than two calls. The
-    /// deletion consumer asks both questions for every account the host deletes, and the overwhelming
-    /// majority answer no to both - so each extra read is paid by every deletion on the server to learn
-    /// nothing. Asking them together also means the two answers describe ONE state of the configuration,
-    /// which is what lets the caller act on them without re-reading.
-    /// </remarks>
+    /// <summary>What an account leaves behind in this plugin, in one configuration acquisition: whether any provider links it and whether it holds a minted-password record (#1733, #1649).</summary>
+    /// <remarks>One acquisition for both answers, because the deletion consumer asks for every deleted account and most answer no to both.</remarks>
     /// <param name="userId">The account being deleted.</param>
     /// <returns>Whether it holds a link, and whether it holds a minted-password record.</returns>
     internal (bool HoldsLink, bool HoldsMintedPasswordRecord) DeletionFootprint(Guid userId)
@@ -1502,17 +942,14 @@ internal sealed class CanonicalLinkService
         {
             var holdsLink = configuration.SamlConfigs.Values
                 .Concat<ProviderConfigBase>(configuration.OidConfigs.Values)
-                // A provider stored with a null config object (reachable via the null-body add, #350) holds
-                // no links and is skipped rather than dereferenced, as everywhere else in this file.
+                // A provider stored with a null config object (#350) holds no links.
                 .Any(config => config?.CanonicalLinks is { } links && links.ContainsValue(userId));
 
             return (holdsLink, configuration.ProvisionedPasswords.ContainsKey(userId));
         });
     }
 
-    /// <summary>
-    /// Whether the only password the given account holds is one this plugin minted (#1733).
-    /// </summary>
+    /// <summary>Whether the only password the account holds is one this plugin minted (#1733).</summary>
     /// <param name="user">The account being asked about.</param>
     /// <returns>True when the stored password is the recorded one and nothing has replaced it.</returns>
     internal bool HoldsOnlyAProvisionedPassword(User user)
@@ -1521,13 +958,7 @@ internal sealed class CanonicalLinkService
             && _configStore.Read(configuration => ProvisionedPassword.IsTheOnlyPassword(configuration, user));
     }
 
-    // The shared body of every disable-a-linked-account path above. Kept private and unnamed for any caller
-    // so none can acquire a guard another lacks: PermissionRolePolicy bars IsDisabled from SSO role mapping
-    // precisely so no login can disable an account, and these are its sanctioned exceptions (#831, #1144,
-    // #1145, alongside #737). The exceptions sharing one body is what keeps that policy's invariant readable
-    // - the guard below is stated once and cannot be present in one exception and absent in another. Returns
-    // the disabled user id rather than a flag so the sweep can revoke that one account's tokens; the
-    // login-path wrappers project it back to the boolean they have always returned.
+    // The shared body of every disable path (#831, #1144, #1145): PermissionRolePolicy bars IsDisabled from role mapping, and these sanctioned exceptions share one body so the guard below cannot be absent from one of them.
     private async Task<Guid?> DisableLinkedAccountAsync(ProviderMode mode, string provider, string? canonicalKey, string? issuer, bool enforceIssuerBinding)
     {
         if (string.IsNullOrWhiteSpace(canonicalKey))
@@ -1535,11 +966,7 @@ internal sealed class CanonicalLinkService
             return null;
         }
 
-        // Resolve the existing subject-keyed link under the config lock; never a create, never the legacy
-        // name-keyed path (a denial must not adopt or mint). A disabled provider fails the read closed.
-        // The issuer binding is enforced exactly as on the mint path (RefuseRepointedIssuer, #186): a
-        // Mismatch means the denied login's subject collides with a link stamped for a DIFFERENT issuer
-        // (a repointed provider), so the resolved account belongs to someone else - never disable it.
+        // Resolve the existing subject link only, never a create or the legacy path; a disabled provider fails closed, and an issuer mismatch (#186) means the account is somebody else's.
         var userId = _configStore.Read(configuration =>
             TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links)
                 && links.TryGetValue(canonicalKey, out var linked)
@@ -1557,8 +984,7 @@ internal sealed class CanonicalLinkService
             return null;
         }
 
-        // THE GUARD: an administrator is never disabled by SSO denial (covers the break-glass admin), so this
-        // path can never strand the server. An already-disabled account is left untouched (no re-audit).
+        // The guard (T-D1): an administrator is never disabled by SSO, and an already disabled account is not re-audited.
         if (user.HasPermission(PermissionKind.IsAdministrator) || user.HasPermission(PermissionKind.IsDisabled))
         {
             return null;
@@ -1567,29 +993,17 @@ internal sealed class CanonicalLinkService
         user.SetPermission(PermissionKind.IsDisabled, true);
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
-        // An account this path could disable was ENABLED, so a pending-approval record still standing on it
-        // was false (#1529): this plugin never enables one, and the record says the account is waiting to
-        // be. Left in place it would put the account this call just disabled - for a denial, or for an
-        // expiry that the next sweep tick would only repeat - straight back onto the approval list, where
-        // one press undoes the disable and admits it until the reason recurs. The guard above means a
-        // genuinely pending account never reaches this line, so its record is never touched here.
+        // The account was enabled, so a pending-approval record on it was false (#1529); left standing it would put the account straight back onto the approval list.
         RemovePendingApprovalOutsideLock(mode, provider, canonicalKey, userId.Value);
         return userId;
     }
 
-    // Logs the name-taken refusal (distinguishing a pending migratable legacy link from an ordinary #95
-    // collision) and RETURNS the exception the caller throws, so the terminal switch arm reads as the
-    // refusal it is. The refusal throws on every login; only the WARNING is throttled through the shared
-    // once-per-interval gate (#362) so a login loop for a not-yet-migrated user cannot flood the log.
+    // Logs the name-taken refusal and returns the exception the caller throws; only the warning is throttled (#362), never the refusal.
     private AccountLinkForbiddenException RejectNameTaken(Guid? legacyLink, ProviderMode mode, string provider, string username)
     {
         if (legacyLink.HasValue)
         {
-            // Refused, but specifically because a legacy username-keyed link (#354) is pending
-            // and a live account still bears the name - the migratable case, distinct from an
-            // ordinary #95 name collision. Throttled through the shared once-per-interval gate
-            // (#362) so a login loop for a not-yet-migrated user cannot flood it; the refusal
-            // still throws on every login regardless of whether this line is emitted.
+            // The migratable case (#354): a legacy link is pending and a live account bears the name, distinct from an ordinary #95 collision.
             if (_legacyLinkWarnGate.TryEnter(_clock()))
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
@@ -1617,10 +1031,7 @@ internal sealed class CanonicalLinkService
         return new AccountLinkForbiddenException();
     }
 
-    /// <summary>
-    /// Creates a manual canonical link (admin/self linking) from a provider-side identity to a Jellyfin
-    /// user, under the config lock. HTTP-free: the controller maps the returned result to a response.
-    /// </summary>
+    /// <summary>Creates a manual canonical link from a provider-side identity to a Jellyfin user, under the config lock; the controller maps the result to a response.</summary>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="providerUserId">The provider-side identity key (OpenID sub / SAML NameID).</param>
@@ -1630,25 +1041,8 @@ internal sealed class CanonicalLinkService
     internal CanonicalLinkWriteResult TryCreateLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId, string? issuer = null)
         => WriteLink(mode, provider, providerUserId, jellyfinUserId, issuer, refuseRebind: false);
 
-    /// <summary>
-    /// Creates a canonical link for a provisioning tool that holds no identity-provider response (#1133),
-    /// under the config lock. Same write as <see cref="TryCreateLink"/> with one difference, and the
-    /// difference is the whole point of the entry point: a key already held by a different Jellyfin user is
-    /// refused rather than repointed.
-    /// </summary>
-    /// <remarks>
-    /// The rebind refusal cannot be an extra check at the HTTP boundary. A read of the link map followed by
-    /// a write is two transactions, and a login completing between them would be silently overwritten by
-    /// the caller that read first. So the check lives inside the same <c>Mutate</c> as the write, which is
-    /// what makes "nothing was written" true of the conflict rather than merely likely.
-    /// <para>
-    /// <see cref="TryCreateLink"/> keeps its repoint on purpose and is not narrowed here. Its callers reach
-    /// it only after the human whose identity is being linked has completed a live flow at the identity
-    /// provider, so the subject presented there is one the caller demonstrably controls. This entry point
-    /// has no such proof behind it - an administrator credential is all it asks for - which is exactly why
-    /// the two differ.
-    /// </para>
-    /// </remarks>
+    /// <summary>Creates a canonical link for a provisioning tool that holds no identity-provider response (#1133); a key already held by a different user is refused rather than repointed.</summary>
+    /// <remarks>The refusal lives inside the same <c>Mutate</c> as the write, so "nothing was written" is true of a conflict rather than likely; <see cref="TryCreateLink"/> keeps its repoint because its callers proved control of the subject in a live flow.</remarks>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="providerUserId">The provider-side identity key (OpenID sub / SAML NameID).</param>
@@ -1657,10 +1051,7 @@ internal sealed class CanonicalLinkService
     internal CanonicalLinkWriteResult TryPreprovisionLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId)
         => WriteLink(mode, provider, providerUserId, jellyfinUserId, issuer: null, refuseRebind: true);
 
-    /// <summary>
-    /// The one canonical-link write, shared by the two entry points above so the fail-closed empty-key
-    /// guard, the provider lookup and the issuer stamp cannot drift between them.
-    /// </summary>
+    /// <summary>The one canonical-link write behind both entry points, so the empty-key guard, the provider lookup and the issuer stamp cannot drift.</summary>
     /// <param name="mode">The protocol the operation applies to.</param>
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="providerUserId">The provider-side identity key.</param>
@@ -1670,10 +1061,7 @@ internal sealed class CanonicalLinkService
     /// <returns>The write outcome.</returns>
     private CanonicalLinkWriteResult WriteLink(ProviderMode mode, string provider, string providerUserId, Guid jellyfinUserId, string? issuer, bool refuseRebind)
     {
-        // Fail closed (#95), linking-side choke point: an SSO identity that did not resolve must not
-        // create a link - an empty or whitespace key would persist a dead link no login can ever redeem.
-        // Checked BEFORE the provider lookup so the two refusals keep their distinct response bodies
-        // ("did not resolve an identity" vs "no matching provider"); reordering is observable.
+        // Fail closed (#95) before the provider lookup, so the two refusals keep their distinct response bodies.
         if (string.IsNullOrWhiteSpace(providerUserId))
         {
             return CanonicalLinkWriteResult.EmptyKey;
@@ -1681,27 +1069,13 @@ internal sealed class CanonicalLinkService
 
         return _configStore.Mutate(configuration =>
         {
-            // Link creation is a GRANT of future login capability, and both callers (the self-or-admin
-            // link endpoints) already gate Enabled at the controller - so requiring it here too costs no
-            // reachable workflow and closes the same mid-flight-disable window the login-path write guard
-            // closes (#380): without it, a link could still be written for a provider disabled between
-            // the controller gate and this transaction, surviving a cleanup sweep and minting on
-            // re-enable. Steady-state result is unchanged (UnknownProvider, as the controller yields).
+            // Link creation is a grant, so a provider disabled between the controller gate and this transaction is refused (#380).
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links))
             {
                 return CanonicalLinkWriteResult.UnknownProvider;
             }
 
-            // The rebind refusal (#1133). Re-pointing an identity-provider subject at a second account is
-            // how a crafted provisioning call would move somebody else's identity onto an account it
-            // controls, so the pre-provision entry point refuses it and leaves the existing link intact.
-            // Repeating the SAME mapping is not a rebind and stays a success, so a tool that retries a
-            // request whose response it never saw does not have to distinguish the two.
-            // WHETHER THE KEY CHANGES HANDS is read once, before the write, and decides two things below: the
-            // rebind refusal, and what the write leaves of the entries the key carried. A repeat of the SAME
-            // mapping - the pre-provision retry after a lost response, or a user re-linking their own
-            // subject to their own account from the self-service page - changes nothing about who holds
-            // the key, and must not be told apart from a repoint by what it takes away.
+            // Whether the key changes hands decides the rebind refusal (#1133) and what the write leaves of the key's entries; a repeat of the same mapping is neither.
             var holds = links.TryGetValue(providerUserId, out var held);
             var sameHolder = holds && held == jellyfinUserId;
 
@@ -1713,14 +1087,7 @@ internal sealed class CanonicalLinkService
             links[providerUserId] = jellyfinUserId;
             StampIssuerInPlace(configuration, mode, provider, providerUserId, issuer);
 
-            // THE ENTRIES THE KEY CARRIED GO ONLY WHEN THE KEY CHANGES HANDS (#1529, #1638). A repoint puts a
-            // different account behind the key, and whatever the key held was the previous account's: a
-            // pending-approval record about it, a deadline that would have the sweep disable the newly
-            // linked account at the previous holder's expiry, a last-login stamp that would put the previous
-            // holder's sign-in on the new account's roster row. A same-mapping write keeps all three, because
-            // they are this account's - and the deadline in particular is the one thing a time-limited user
-            // must not be able to shed by re-linking themselves. TryCreateLink repoints on purpose, so it is
-            // the entry point that can land on another account's entries; the rule is written for both.
+            // The entries the key carried go only when the key changes hands (#1529, #1638): a same-mapping write keeps them, and a time-limited user cannot shed a deadline by re-linking.
             if (!sameHolder)
             {
                 RemovePendingApproval(configuration, mode, provider, providerUserId);
@@ -1732,37 +1099,22 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Removes a manual canonical link, but only when it is registered to the given Jellyfin user, under
-    /// the config lock. HTTP-free: the controller maps the returned result to a response. The find,
-    /// ownership check, and removal are one read-modify-write so they cannot interleave with a concurrent
-    /// write to the same map.
-    /// </summary>
+    /// <summary>Removes a manual canonical link when it is registered to the given user, in one read-modify-write under the config lock; the controller maps the result to a response.</summary>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="provider">The provider the link belongs to.</param>
     /// <param name="canonicalName">The provider-side identity key whose link is removed.</param>
     /// <param name="jellyfinUserId">The Jellyfin user the link must belong to.</param>
-    /// <param name="callerIsAdministrator">Whether the caller is an administrator, read from the resolved account (#1647). A link that carries a provisioned access deadline is removed only when this is true; the default refuses, so a caller that does not say is treated as the holder.</param>
-    /// <param name="passwordLoginDisabled">Whether the holder's account refuses password sign-in, read from its authentication provider (#1720). The holder's own removal of their LAST link is refused when this is true; the default refuses, for the reason <paramref name="callerIsAdministrator"/> defaults the way it does - a caller that does not say is treated as the case that costs the account.</param>
-    /// <param name="callerIsTheHolder">Whether the caller IS the account named by <paramref name="jellyfinUserId"/>, read at the boundary from the resolved caller (#1732). It narrows the administrator exemption below to the act #1720 decided - an administrator acting on somebody ELSE's link - and the default refuses, so a caller that does not say is treated as one acting on its own account.</param>
-    /// <param name="anotherAdministratorKeepsAWayIn">Whether an administrator OTHER than the caller can still sign in, measured at the boundary with <see cref="AdministratorsWithNoWayIn"/> over the other administrator accounts (#1732). The default refuses, so a caller that does not say is treated as the case that leaves the server with nobody able to restore access.</param>
+    /// <param name="callerIsAdministrator">Whether the caller is an administrator (#1647); a link carrying a deadline is removed only when true, and the default refuses.</param>
+    /// <param name="passwordLoginDisabled">Whether the holder's account refuses password sign-in (#1720); the holder's removal of their last way in is refused when true, and the default refuses.</param>
+    /// <param name="callerIsTheHolder">Whether the caller is the account named by <paramref name="jellyfinUserId"/> (#1732); narrows the administrator exemption to acts on somebody else's link, and the default refuses.</param>
+    /// <param name="anotherAdministratorKeepsAWayIn">Whether another administrator can still sign in, measured at the boundary with <see cref="AdministratorsWithNoWayIn"/> (#1732); the default refuses.</param>
     /// <returns>The remove outcome, plus whether the user retains any other link (#468).</returns>
     internal CanonicalLinkRemoval TryRemoveLink(ProviderMode mode, string provider, string canonicalName, Guid jellyfinUserId, bool callerIsAdministrator = false, bool passwordLoginDisabled = true, bool callerIsTheHolder = true, bool anotherAdministratorKeepsAWayIn = false)
     {
-        // Kept as ONE Mutate (find, ownership check, remove, and the last-link check cannot interleave). A
-        // no-result outcome still persists the unchanged config. For NotFound / Mismatch that already
-        // matched the old controller code (its mutate callback ran to completion and persisted a no-op);
-        // for UnknownProvider it is a deliberate small delta - the old code threw KeyNotFoundException out
-        // of the callback before the persist, so the unknown-provider DELETE did not write, whereas this
-        // returns UnknownProvider normally and Mutate<T> then persists. The config content and the HTTP
-        // response are byte-identical either way, it is admin-gated, and it adds no new capability (the
-        // valid-provider + bogus-name DELETE already forced the same no-op write). A read-probe-then-
-        // mutate would avoid the write but reintroduce the resolve/act race this deliberately excludes.
+        // One Mutate, so find, ownership check, removal and the last-link check cannot interleave; a no-result outcome still persists the unchanged configuration.
         return _configStore.Mutate(configuration =>
         {
-            // Removal REVOKES a grant, so it must keep working on a disabled provider -
-            // disable-then-clean-up is the normal workflow, and gating a revocation on Enabled would
-            // fail-open nothing while blocking exactly that cleanup (#380). Only absence is unknown here.
+            // Removal revokes a grant, so it keeps working on a disabled provider (#380); only absence is unknown.
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: false, out var links))
             {
                 return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.UnknownProvider, UserRetainsAnyLink: false);
@@ -1778,15 +1130,7 @@ internal sealed class CanonicalLinkService
                 return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.Mismatch, UserRetainsAnyLink: false);
             }
 
-            // A TIME-LIMITED LINK IS NOT ITS HOLDER'S TO REMOVE (#1647). The provisioned access deadline
-            // (#1146) lives on the link, and the unlink prunes it with the link; a re-login then adopts the
-            // account by name with no duration wherever the provider allows adoption. Left open, the self-
-            // service unlink was a guest's exit from the very limit that admitted them: unlink, sign in
-            // again, unlimited. So a link that carries a deadline is removed only on an administrator's
-            // word; the holder is refused before anything is touched, and the refusal is its own answer so
-            // the caller is told why rather than shown a link that will not go. Decided in the same
-            // transaction as the removal, because a deadline written between a read and this write is the
-            // one this rule exists for.
+            // A time-limited link is not its holder's to remove (#1647): the unlink would prune the deadline and a re-login could adopt the account with none; decided in this transaction.
             if (!callerIsAdministrator
                 && TryGetProvider(configuration, mode, provider, out var config)
                 && config.CanonicalLinkDeadlines.ContainsKey(canonicalName))
@@ -1794,99 +1138,9 @@ internal sealed class CanonicalLinkService
                 return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.TimeLimited, UserRetainsAnyLink: false);
             }
 
-            // A HOLDER MAY NOT STRAND THEIR OWN ACCOUNT (#1720). On a server where the account's
-            // authentication provider is this plugin's, Jellyfin refuses its password outright, so the
-            // links ARE the account's only way in - and the self-service page's Delete removed the last
-            // one with no warning and no fallback, leaving the owner unable to sign in by any means. The
-            // account is not disabled and nothing is broken; it is simply unreachable by the person who
-            // pressed the button, and only an administrator can undo it. Whether a fresh SSO login
-            // recovers them depends on the provider's AllowExistingAccountLink, which is OFF by default,
-            // so on the fail-closed posture the lockout is permanent for the user.
-            //
-            // REFUSED RATHER THAN WARNED OR REPOINTED, decided on the issue. A warning is the right shape
-            // where the user can undo what they did, and this is the one case where they cannot.
-            // Repointing the account back to the password provider would hand it a credential nobody set
-            // and reopen, for one account, the very door an SSO-only server was configured to close.
-            //
-            // WHAT COUNTS AS A WAY IN IS A LINK ON AN ENABLED PROVIDER, which is the reading the login
-            // path takes (TryGetLinks(requireEnabled: true)) and the one TryPurgeProviderLinks already
-            // decides stranding by. It is not the any-link reading the revoke below uses, and the two
-            // are deliberately different questions over the same removal: who gets signed out is who
-            // holds no link anywhere, while who would be STRANDED is who holds no link that can still
-            // mint a session. Counting a disabled provider's link as a way in is how the neighbouring
-            // guard fail-opened before it shipped, and this one repeated it until the review of #1720
-            // walked the migration case: an account keeping a link on the OLD, switched-off provider
-            // was allowed to remove the only link that still worked.
-            //
-            // AND REMOVING A LINK THAT IS NOT A WAY IN TAKES NOTHING AWAY, which is the other half and
-            // fails the other direction. A link on a provider an administrator has switched off cannot
-            // sign anybody in, so deleting it strands nobody - refusing it would take the documented
-            // disable-then-clean-up workflow (#380) away from exactly the accounts this rule protects,
-            // and would tell them a removal costs them a way in they never had.
-            //
-            // WHAT THAT HALF COSTS, STATED RATHER THAN FOUND LATER: a provider switched off for an hour
-            // is indistinguishable here from one switched off for good, so a user who tidies up their
-            // only link during that hour has nothing to come back to when it is switched on again, and
-            // adoption is off by default. Narrowing the carve-out to the case where the account keeps
-            // some other link would close it and would re-refuse the cleanup this half exists for; the
-            // review of #1720 raised it as PLAUSIBLE and it is declined there with this sentence as the
-            // record rather than silently.
-            //
-            // AN ADMINISTRATOR ACTING ON SOMEBODY ELSE'S LINK IS NOT REFUSED, and that is not an
-            // oversight: removing somebody's last link from the administrator side is a deliberate act
-            // with a person behind it. THIS endpoint repoints nothing, for either caller; `Unregister` is
-            // the route that puts an account back on the password provider. `callerIsAdministrator` is the
-            // same fact the deadline refusal above reads, resolved once at the boundary.
-            //
-            // AN ADMINISTRATOR ACTING ON THEIR OWN IS REFUSED WHERE NOBODY ELSE COULD UNDO IT, which is
-            // the decision taken on #1732 on 2026-09-14 and the reason this exemption is a pair of facts
-            // rather than one. `/SSOViews/linking` is not an administrator page - it acts on the caller's
-            // own account - so an administrator who opens it on an SSO-only server is one press away from
-            // the same lockout a user is, with the difference that the recovery this guard's message
-            // points a user at IS them. Where they are the last administrator who can sign in, the way
-            // back is editing the configuration file on disk, and that is not a way back a plugin may
-            // leave somebody to find.
-            //
-            // NARROWED RATHER THAN CLOSED, and the other two shapes were declined on the issue with their
-            // reasons. Refusing every administrator's removal of their own last usable link would take a
-            // legitimate cleanup - a provider retired, a link moved to a new issuer, a test account tidied
-            // away - from every server, including the ones where a second administrator stands ready; a
-            // rule that refuses a safe act to catch an unsafe one is paid for by everybody who was never
-            // in danger. Saying it on the page instead is what you write when the act is recoverable, and
-            // this one can leave a server with no way in at all.
-            //
-            // WHAT "ANOTHER ADMINISTRATOR KEEPS A WAY IN" MEANS IS THE PURGE'S READING, UNCHANGED. It is
-            // measured at the boundary with `AdministratorsWithNoWayIn`, which counts a link on an enabled
-            // provider and refuses to count a stored password at all, for the reason written at that
-            // method: a mass action an administrator takes can afford a refusal where one wrong judgement
-            // about a single account cannot, so this reading declines to weigh a stored password at all.
-            // The cost is stated rather than hidden - a break-glass administrator who really does sign in
-            // with a password reads here as having no way in, so an administrator's own cleanup is refused
-            // on a server that had a recovery account all along. That direction costs a call; the other
-            // costs the server.
-            //
-            // THE PLUGIN CAN TELL ITS OWN MINTED PASSWORDS APART SINCE #1733, AND THIS READING STILL DOES
-            // NOT USE THAT. What the record buys is a floor rather than coverage - an account sealed by a
-            // plugin version that kept no record reads as holding a password of its own - and resting a
-            // MASS action on a floor is what this reading exists to refuse. The caller's own door is the
-            // other question and does read the record, at `RequestHelpers.CallerHasNoPasswordDoor`.
-            //
-            // THIS REMOVAL CANNOT CHANGE THE ANSWER, which is why the other administrators are judged
-            // outside this transaction and the caller's own link is judged inside it. The link going is
-            // the caller's, so no other administrator's ways in move with it; what the boundary reading
-            // cannot see is a concurrent removal of the LAST other administrator's link, and the cost of
-            // that window is one allowed removal rather than a wrong refusal.
-            //
-            // THE LINK READING IS TAKEN IN THIS TRANSACTION, like both refusals around it: a link added or
-            // removed between a read and this write is exactly the interleaving that would make a reading
-            // taken outside the lock say the holder keeps a way in when they do not.
-            //
-            // THE TWO FACTS ABOUT THE CALLER ARE NOT, AND THIS COMMENT CLAIMED THEY WERE. Both arrive from
-            // the request boundary, resolved before the lock, because they are facts about a Jellyfin user
-            // record this lock does not cover and could not. So an account repointed onto the SSO provider
-            // between that read and this write is judged on the older answer. The window is sub-millisecond
-            // and the reverse ordering only produces a spurious refusal; it is named here rather than
-            // claimed away, and the neighbouring administrator guard records the same bound.
+            // A holder may not strand their own account (#1720), and an administrator acting on their own last way in is refused where no other administrator could undo it (#1732).
+            // A way in is a link on an enabled provider, the login path's reading, not the any-link reading the revoke below uses; why, and what it costs: https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Linked-Accounts#design-record-links-keys-and-guards.
+            // The two facts about the caller come from the boundary, outside this lock; the link reading is taken inside it.
             if ((!callerIsAdministrator || (callerIsTheHolder && !anotherAdministratorKeepsAWayIn))
                 && passwordLoginDisabled
                 && TryGetProvider(configuration, mode, provider, out var removingFrom)
@@ -1898,43 +1152,25 @@ internal sealed class CanonicalLinkService
 
             links.Remove(canonicalName);
 
-            // Drop the OpenID issuer entry alongside the link (#186), so the issuer map does not accumulate
-            // orphans and a later re-link of the same sub is not judged against a stale binding. No-op for SAML.
+            // The issuer entry goes with the link (#186); a no-op for SAML.
             RemoveIssuer(configuration, mode, provider, canonicalName);
 
-            // Drop the persisted expiry deadline alongside the link (#1145), for the same reason and on both
-            // protocols: an orphan deadline is unreachable bookkeeping, and a later re-link of the same
-            // subject must start with no deadline rather than inherit the removed link's.
+            // The deadline goes with the link (#1145), so a re-link of the subject starts with none.
             RemoveDeadline(configuration, mode, provider, canonicalName);
 
-            // Drop the last-SSO-login stamp alongside the link (#1120). Unlinking IS the erasure route an
-            // administrator has for that personal data, so a stamp that survived the unlink would be login
-            // history retained for a subject the server no longer knows, and a re-link of the same subject
-            // would report a "last SSO login" that belongs to the previous holder of the key.
+            // The last-login stamp goes with the link (#1120): unlinking is the erasure route for that personal data.
             RemoveLastSsoLogin(configuration, mode, provider, canonicalName);
 
-            // Drop the pending-approval mark alongside the link (#1529). The mark says this plugin created
-            // the account inert and it is waiting for an administrator; once the link is gone that sentence
-            // is no longer true of anything, and a mark that outlived it would keep an account on the
-            // approval list with no SSO route behind it.
+            // The pending-approval mark goes with the link (#1529); it would otherwise keep offering an account with no SSO route.
             RemovePendingApproval(configuration, mode, provider, canonicalName);
 
-            // Whether the user keeps any other canonical link across ALL providers, read in the SAME
-            // transaction as the removal (#468): computing it here rather than in a second lock acquisition
-            // means a concurrent link add/remove cannot interleave between the remove and the check and
-            // mislead the controller's last-link revocation decision. Fail toward availability at the exact
-            // boundary - the user is deemed to still have SSO access unless this proves otherwise.
+            // Read in the same transaction as the removal (#468), so a concurrent link change cannot mislead the last-link revocation.
             var retainsAnyLink = UserHasAnyLink(configuration, jellyfinUserId);
             return new CanonicalLinkRemoval(CanonicalLinkRemoveResult.Removed, retainsAnyLink);
         });
     }
 
-    /// <summary>
-    /// Projects, for one protocol, a provider -> [canonical keys linked to this user] map, materialized
-    /// under the config lock. Each provider's matches are realized with <c>ToList</c> (#157/F-10) so the
-    /// result is a detached snapshot that cannot tear against a concurrent login writing a link during
-    /// JSON serialization.
-    /// </summary>
+    /// <summary>Projects, for one protocol, a provider to linked-keys map for the user, materialized under the lock so serialization cannot tear against a concurrent write (#157).</summary>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="jellyfinUserId">The Jellyfin user whose links are listed.</param>
     /// <returns>A provider -> link-key-list map.</returns>
@@ -1942,11 +1178,7 @@ internal sealed class CanonicalLinkService
     {
         return _configStore.Read(configuration =>
         {
-            // Both arms project (name, links) tuples through ProviderConfigBase.CanonicalLinks, so the
-            // per-mode twin queries are one shape. A provider stored with a null config object (reachable
-            // today via #350's null-body add) yields null links and is skipped rather than dereferenced -
-            // same fail-closed treatment TryGetLinks gives it, so the read side cannot NRE into a 500 on
-            // a state the write side can produce.
+            // A provider stored with a null config object (#350) yields null links and is skipped.
             var providerLinks = mode == ProviderMode.Saml
                 ? configuration.SamlConfigs.Select(p => (p.Key, p.Value?.CanonicalLinks))
                 : configuration.OidConfigs.Select(p => (p.Key, p.Value?.CanonicalLinks));
@@ -1967,14 +1199,10 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Removes every canonical link pointing at the given user across all SAML and OpenID providers, so
-    /// an SSO login no longer resolves to the account. Runs under the config lock and returns the number
-    /// of links removed.
-    /// </summary>
+    /// <summary>Removes every canonical link pointing at the user across all providers, under the config lock, and returns how many went.</summary>
     /// <param name="userId">The Jellyfin user whose links are revoked.</param>
-    /// <param name="removedFrom">When given, receives every provider a link was removed from, labelled by protocol. Filled inside the same lock as the removal, so a line built from it names what this call removed and nothing a read before it saw (#1649).</param>
-    /// <param name="alsoForgetProvisionedPassword">When true, the account's minted-password record is dropped in the SAME transaction as the links (#1733), so an account deletion is one configuration write rather than two. Left false by the administrator revoke, which leaves the account standing.</param>
+    /// <param name="removedFrom">When given, receives every provider a link was removed from, labelled by protocol, filled inside the same lock (#1649).</param>
+    /// <param name="alsoForgetProvisionedPassword">When true, the minted-password record goes in the same transaction (#1733); the administrator revoke leaves it, because the account stands.</param>
     /// <returns>The number of links removed.</returns>
     internal int RemoveUserEverywhere(Guid userId, ICollection<string>? removedFrom = null, bool alsoForgetProvisionedPassword = false)
     {
@@ -1982,21 +1210,13 @@ internal sealed class CanonicalLinkService
         {
             int removed = 0;
 
-            // The minted-password record goes in the SAME transaction as the links where the caller asks
-            // for it (#1733). An account deletion that dropped one and then the other paid two whole
-            // configuration persists for one event and left a window in between where the record was gone
-            // and the links were not. It is opt-in rather than automatic, because this seam also serves the
-            // administrator revoke, which empties an account's links and leaves the ACCOUNT standing - and
-            // an account that still exists keeps whatever password it holds.
+            // Opt-in: the administrator revoke leaves the account standing, and a standing account keeps whatever password it holds.
             if (alsoForgetProvisionedPassword)
             {
                 ProvisionedPassword.Forget(configuration, userId);
             }
 
-            // One loop over both protocols' providers, each with its name and protocol so the caller's audit
-            // line can say where a link was removed from. Skip a provider stored with a null config object
-            // (reachable via #350); it holds no links to revoke, and dereferencing it would NRE into a 500 -
-            // the same fail-closed skip TryGetLinks uses.
+            // One loop over both protocols, named for the caller's audit line; a null config object (#350) holds no links.
             var providers = configuration.SamlConfigs.Select(p => (p.Key, Protocol: "SAML", Config: (ProviderConfigBase?)p.Value))
                 .Concat(configuration.OidConfigs.Select(p => (p.Key, Protocol: "OpenID", Config: (ProviderConfigBase?)p.Value)));
             foreach (var (name, protocol, config) in providers)
@@ -2011,9 +1231,7 @@ internal sealed class CanonicalLinkService
                     }
                 }
 
-                // Prune orphaned OpenID issuer entries (#186): after the revoke, any issuer keyed on a sub
-                // no longer present in the links map is dead weight and must not linger to spuriously bind
-                // (or refuse) a future re-link of that sub. SAML has no issuer map.
+                // Orphaned issuer entries go (#186), so they cannot bind or refuse a future re-link; SAML has no issuer map.
                 if (config is OidConfig oid && oid.CanonicalLinks is { } liveLinks)
                 {
                     foreach (var staleKey in oid.CanonicalLinkIssuers.Keys.Where(k => !liveLinks.ContainsKey(k)).ToList())
@@ -2022,10 +1240,7 @@ internal sealed class CanonicalLinkService
                     }
                 }
 
-                // The same prune for the expiry deadlines (#1145), on BOTH protocols - unlike the issuer map
-                // this one exists for SAML too. An orphan here is worse than dead weight: it would name a
-                // subject whose link was just revoked, so a re-link of that subject would arrive already
-                // expired and be disabled by the next sweep tick.
+                // Orphaned deadlines go on both protocols (#1145); one left would expire a re-link on the next sweep tick.
                 if (config?.CanonicalLinks is { } remaining)
                 {
                     foreach (var staleKey in config.CanonicalLinkDeadlines.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
@@ -2033,20 +1248,13 @@ internal sealed class CanonicalLinkService
                         config.CanonicalLinkDeadlines.Remove(staleKey);
                     }
 
-                    // And the last-SSO-login stamps (#1120), on both protocols for the same reason the
-                    // deadlines are: this path removes the links directly rather than through TryRemoveLink,
-                    // so it needs its own prune, and the admin Unregister is the erasure route the retention
-                    // promise names. A stamp left behind here would be login history for an account whose
-                    // links were just revoked, with nothing left in the roster to reach it by.
+                    // Orphaned last-login stamps go (#1120): Unregister is the erasure route the retention promise names.
                     foreach (var staleKey in config.CanonicalLinkLastLogins.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
                     {
                         config.CanonicalLinkLastLogins.Remove(staleKey);
                     }
 
-                    // And the pending-approval marks (#1529), on both protocols and for a reason of its own:
-                    // a mark left behind here would keep offering an account for approval after the link
-                    // that explains why it is inert was revoked. The approve action would then enable an
-                    // account whose SSO route no longer exists - a grant of access nobody asked for.
+                    // Orphaned pending-approval marks go (#1529); one left would offer an account with no SSO route for approval.
                     foreach (var staleKey in config.CanonicalLinkPendingApprovals.Keys.Where(k => !remaining.ContainsKey(k)).ToList())
                     {
                         config.CanonicalLinkPendingApprovals.Remove(staleKey);
@@ -2058,25 +1266,8 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Reads what one provider's link table looks like before a bulk unlink acts on it (#1519): whether the
-    /// provider is stored at all, how many links it holds, and which accounts would be left holding no
-    /// canonical link anywhere once those links are gone.
-    /// </summary>
-    /// <remarks>
-    /// A read, and deliberately not the act: the accounts it names have to be resolved through the user
-    /// manager to be judged, and that resolution must not happen under the configuration lock. A provider
-    /// can carry thousands of links, and a user-manager call per link inside the lock would block every
-    /// login for the duration - the same reason the link import resolves its usernames before it takes the
-    /// lock. What that costs is a window in which the table can move, and
-    /// <see cref="TryPurgeProviderLinks"/> closes it by re-deriving this set under the lock and refusing
-    /// when it names an account this survey did not.
-    /// <para>
-    /// A disabled provider is surveyed exactly as an enabled one is. Removal REVOKES a grant, so it must
-    /// keep working on a disabled provider - disable-then-clean-up is the workflow this action exists for
-    /// (#380). Only absence is unknown here.
-    /// </para>
-    /// </remarks>
+    /// <summary>Reads what one provider's link table looks like before a bulk unlink (#1519): whether it is stored, how many links it holds, and which accounts would be left with no link anywhere.</summary>
+    /// <remarks>A read and not the act: the accounts are resolved through the user manager outside the lock, and <see cref="TryPurgeProviderLinks"/> re-derives the set under the lock and refuses when it moved. A disabled provider is surveyed like an enabled one (#380).</remarks>
     /// <param name="mode">The provider protocol.</param>
     /// <param name="provider">The provider whose links would be removed.</param>
     /// <returns>The snapshot to judge; <c>ProviderExists = false</c> when no such provider is stored.</returns>
@@ -2088,19 +1279,8 @@ internal sealed class CanonicalLinkService
                 : new ProviderLinkSurvey(false, 0, Array.Empty<Guid>()));
     }
 
-    /// <summary>
-    /// Names the administrator accounts among the given doors that have no way to sign in at all, read
-    /// against the configuration as it stands now (#1519).
-    /// </summary>
-    /// <remarks>
-    /// The safety net under the purge rather than part of its gate. The gate judges accounts resolved
-    /// before the removal took the lock, and an account can lose its password door in that window without
-    /// its LINKS moving - an ordinary SSO login on a provider whose DefaultProvider is the SSO provider id
-    /// repoints the account off the password provider, which no link-table comparison can see. That window
-    /// cannot be closed from here (the user records are the host's and are not under this lock), so it is
-    /// read again afterwards instead, and an administrator left with nothing reaches the operator as an
-    /// Error line the moment it happens rather than at their next sign-in.
-    /// </remarks>
+    /// <summary>Names the administrators among the given doors that have no way to sign in, read against the configuration as it stands now (#1519).</summary>
+    /// <remarks>The safety net under the purge: an account can lose its password door in the window before the removal took the lock, which no link-table comparison can see, so it is read again afterwards.</remarks>
     /// <param name="doors">The accounts to re-judge, resolved through the user manager after the removal.</param>
     /// <returns>The usernames of administrators with neither a password door nor a link on an enabled provider.</returns>
     internal IReadOnlyList<string> AdministratorsWithNoWayIn(IReadOnlyList<AccountDoors> doors)
@@ -2119,55 +1299,10 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    /// <summary>
-    /// Removes every canonical link one provider holds (#1519), the way back from a link import that
-    /// restored the wrong document. Four preconditions decide it, and all four are the server's: the
-    /// provider must be stored, the caller's expected count must equal what the table actually holds, the
-    /// link table must not have moved since <paramref name="judged"/> was resolved, and the run must not
-    /// leave an administrator with no way to sign in. Elevation is the fifth and is the controller's.
-    /// </summary>
+    /// <summary>Removes every canonical link one provider holds (#1519), the way back from a link import that restored the wrong document; it refuses when the provider is unknown, the count differs, the table moved since <paramref name="judged"/> was resolved, or an administrator would be left with no way in.</summary>
     /// <remarks>
-    /// ONE <c>Mutate</c>, so the count comparison, the lockout guard and the removal cannot interleave with
-    /// a concurrent link write - a purge that compared a count in one transaction and removed in another
-    /// would remove a table it never counted. A refusal still persists the unchanged configuration, exactly
-    /// as <see cref="TryRemoveLink"/>'s no-result arms do and for the same reason; the bytes on disk are
-    /// identical either way.
-    /// <para>
-    /// T-D1, the mass-lockout guard: this is the first primitive here that can take every account on a
-    /// server off SSO in one call, so it REFUSES rather than excluding. Silently keeping an administrator's
-    /// link would leave the provider not empty while the answer says it is, and the next import would hit
-    /// the very refusal this action exists to clear. An account that is disabled, or that has vanished
-    /// since it was judged, is not stranded by this run: it already has no way in.
-    /// </para>
-    /// <para>
-    /// WHAT COUNTS AS A WAY IN IS A LINK ON AN ENABLED PROVIDER, AND A STORED PASSWORD DOES NOT COUNT.
-    /// The decision that asked for this guard left the reading of "a password the account can use" to be
-    /// measured rather than assumed, and the measurement says the tree cannot make it. This plugin mints
-    /// an unguessable password onto every account it provisions and onto every passwordless linked account
-    /// it finds at boot (#1440, <c>ProvisionedPassword.Mint</c>: 64 CSPRNG bytes, "never displayed, never
-    /// stored anywhere else and never recoverable"). Since #1733 it records which of those hashes it wrote,
-    /// and that record is a floor rather than coverage: an account sealed by a plugin version that kept no
-    /// record still reads as holding a password of its own, so a non-empty <c>User.Password</c> is still a
-    /// hash somebody may hold or a seal nobody can open. THIS guard weighs it neither way, because resting
-    /// a mass action on that floor is what it exists to refuse. On a server whose provider routes accounts to the built-in password provider -
-    /// which the configuration page names as a common setting - counting it would have cleared this guard
-    /// for every SSO-provisioned administrator on the server, silently, which is the exact lockout it
-    /// exists to refuse.
-    /// </para>
-    /// <para>
-    /// So the password term is out until something can tell the two apart, and the cost is stated rather
-    /// than hidden: an administrator who really does sign in with a password and holds a link on the
-    /// provider being emptied makes this refuse. The refusal names them and the ways out - unlink that one
-    /// account deliberately through the single-link route, or link it to another enabled provider - and
-    /// both are one call. A refusal costs a call; the other error costs the server.
-    /// </para>
-    /// <para>
-    /// The removal takes the issuer stamps (#186), the expiry deadlines (#1145) and the last-SSO-login
-    /// stamps (#1120) with the links, for the reasons <see cref="TryRemoveLink"/> takes them one at a time:
-    /// an orphan deadline would expire a re-link of the same subject on the next sweep tick, an orphan
-    /// issuer would judge it against a stale binding, and an orphan stamp is login history retained for a
-    /// subject this server no longer knows.
-    /// </para>
+    /// One <c>Mutate</c>, so the count, the lockout guard (T-D1) and the removal cannot interleave; a stored password does not count as a way in, because the plugin's own seals (#1440) cannot be told from a password somebody holds.
+    /// Why, and what the refusal costs: <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Linked-Accounts#design-record-links-keys-and-guards"/>.
     /// </remarks>
     /// <param name="mode">The provider protocol.</param>
     /// <param name="provider">The provider whose links are removed.</param>
@@ -2190,10 +1325,7 @@ internal sealed class CanonicalLinkService
                 return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.CountMismatch, links.Count);
             }
 
-            // Re-derived here rather than carried in: the set the survey read was read in an EARLIER
-            // transaction, and this is the one that acts. An account it names that was never judged means a
-            // link moved in between, so the guard below would be deciding on a stale reading of who can
-            // still sign in - refuse and let the caller start again rather than act on it.
+            // Re-derived here: the survey read an earlier transaction, and an account it never judged means the table moved.
             var linked = links.Values.Distinct().ToList();
             var doors = judged.ToDictionary(door => door.UserId);
             if (linked.Any(userId => !doors.ContainsKey(userId)))
@@ -2201,25 +1333,11 @@ internal sealed class CanonicalLinkService
                 return ProviderLinkPurgeOutcome.Refusing(ProviderLinkPurgeResult.LinkTableChanged, links.Count);
             }
 
-            // TWO DIFFERENT QUESTIONS OVER THE SAME ACCOUNTS, and they take opposite readings of a disabled
-            // provider. Who gets signed out is who is left holding NO canonical link anywhere, enabled or
-            // not - the reading the single unlink already revokes on (#468). Who would be STRANDED is
-            // decided against enabled providers only, because the login path resolves a link through
-            // TryGetLinks(requireEnabled: true): a link on a disabled provider is a row in a table, not a
-            // way in. Counting one as a way in is how this guard fail-opened before it shipped, on exactly
-            // the disable-then-clean-up workflow the action exists for (#380).
-            //
-            // Both are answered from ONE walk of the other providers, built before either is asked. Asking
-            // per account instead would be a scan of every other provider per linked account, inside the
-            // process-wide configuration lock that every login takes - quadratic in exactly the case this
-            // endpoint exists for, a provider carrying thousands of links.
+            // Two questions over the same accounts: who is signed out holds no link anywhere, who is stranded holds none on an enabled provider (#380); both from one walk, because this lock is the one every login takes.
             var elsewhere = LinksHeldElsewhere(configuration, links);
             var losing = linked.Where(userId => !elsewhere.Any.Contains(userId)).ToList();
 
-            // A run strands an administrator only when it TAKES their last way in. Every candidate holds a
-            // link on the target, so "had a way in before" reduces to "the target is enabled, or they had
-            // one that survives anyway" - which is why the target being disabled refuses nobody: its links
-            // were not a way in before the run either, and cleaning it up takes nothing away.
+            // A run strands an administrator only when it takes their last way in; a disabled target was no way in before the run.
             var stranded = elsewhere.TargetEnabled
                 ? linked
                     .Select(userId => doors[userId])
@@ -2237,9 +1355,7 @@ internal sealed class CanonicalLinkService
             var removed = links.Count;
             links.Clear();
 
-            // Every stamp keyed on a link this provider held is now an orphan, because no link is left to
-            // key one on. Cleared wholesale rather than key by key: the prune the per-link removals do is
-            // "drop what the links map no longer holds", and after the clear that is all of them.
+            // Every stamp keyed on this provider's links is now an orphan, so the maps are cleared wholesale.
             if (TryGetProvider(configuration, mode, provider, out var config))
             {
                 config.CanonicalLinkDeadlines.Clear();
@@ -2255,13 +1371,7 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    // Everything the purge needs to know about the OTHER providers, from ONE walk under the caller's
-    // already-held config lock: which accounts hold a link somewhere else at all, which hold one on a
-    // provider a login could actually resolve through, and whether the target itself is enabled. The
-    // target is excluded by reference to its own links map rather than by name, so it is excluded exactly
-    // once even though a SAML and an OpenID provider may share a name. A provider stored with a null
-    // config object (reachable via #350's null-body add) holds no links and is skipped rather than
-    // dereferenced - the same fail-closed treatment TryGetLinks and RemoveUserEverywhere give it.
+    // One walk over the other providers under the caller's lock: who holds a link elsewhere at all, who holds one on an enabled provider, and whether the target is enabled; the target is excluded by reference, since a SAML and an OpenID provider may share a name.
     private static LinksElsewhere LinksHeldElsewhere(PluginConfiguration configuration, SerializableDictionary<string, Guid> targetLinks)
     {
         var any = new HashSet<Guid>();
@@ -2294,30 +1404,18 @@ internal sealed class CanonicalLinkService
         return new LinksElsewhere(any, enabled, targetEnabled);
     }
 
-    // Both protocols' providers as one sequence (covariant Concat over the shared base), so a walk over
-    // them is written once.
+    // Both protocols' providers as one sequence, so a walk over them is written once.
     private static IEnumerable<ProviderConfigBase> AllProviders(PluginConfiguration configuration)
         => configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values);
 
-    /// <summary>
-    /// Whether an enabled provider of either protocol still points a link at the account (#1741): the
-    /// administrator revoke asks it before refusing, because a revoke that takes no way in strands nobody.
-    /// </summary>
-    /// <remarks>
-    /// The same reading <see cref="AdministratorsWithNoWayIn"/> takes of every OTHER administrator, asked of
-    /// the one account in front of the revoke, so the two halves of that guard cannot disagree about what a
-    /// way in is. A link on a switched-off provider is not one, in both directions, for the reason the
-    /// self-service refusal gives: removing it costs the account nothing, and the repoint that follows here
-    /// is the way back for an account already left with nothing to sign in with.
-    /// </remarks>
+    /// <summary>Whether an enabled provider of either protocol still links the account (#1741); the administrator revoke asks before refusing, because a revoke that takes no way in strands nobody.</summary>
+    /// <remarks>The same reading <see cref="AdministratorsWithNoWayIn"/> takes of every other administrator, so the two halves of the guard agree on what a way in is.</remarks>
     /// <param name="userId">The account the revoke would act on.</param>
     /// <returns>True when at least one enabled provider holds a link pointing at the account.</returns>
     internal bool UserHoldsAnEnabledLink(Guid userId)
         => _configStore.Read(configuration => UsersWithAnEnabledLink(configuration).Contains(userId));
 
-    // Every account an enabled provider still points a link at - the after-the-fact form of the guard's
-    // reading, with no target to exclude because the removal has already happened. One walk for the same
-    // reason the guard takes one: this runs under the lock every login takes.
+    // The after-the-fact form of the guard's reading, with no target to exclude; one walk, under the lock every login takes.
     private static HashSet<Guid> UsersWithAnEnabledLink(PluginConfiguration configuration)
     {
         var linked = new HashSet<Guid>();
@@ -2335,12 +1433,7 @@ internal sealed class CanonicalLinkService
         return linked;
     }
 
-    // Whether any SAML or OpenID provider still holds a canonical link pointing at the user, read under the
-    // caller's already-held config lock (#468). A provider stored with a null config object (reachable via
-    // the null-body add, #350) holds no links and is skipped rather than dereferenced - the same fail-closed
-    // treatment TryGetLinks / RemoveUserEverywhere give it. Short-circuits on the first match. Static and
-    // parameterized on the live configuration so it composes inside an existing Read/Mutate transaction
-    // without taking the lock again.
+    // Whether any provider still links the user, inside the caller's transaction (#468); a null config object (#350) is skipped.
     private static bool UserHasAnyLink(PluginConfiguration configuration, Guid userId)
     {
         foreach (var config in configuration.SamlConfigs.Values.Concat<ProviderConfigBase>(configuration.OidConfigs.Values))
@@ -2354,19 +1447,8 @@ internal sealed class CanonicalLinkService
         return false;
     }
 
-    /// <summary>
-    /// Whether the user would still hold a link that can sign them in after the named one is removed
-    /// (#1720): any link on an ENABLED provider of either protocol, other than the one being removed.
-    /// </summary>
-    /// <remarks>
-    /// IT IS NOT <see cref="UserHasAnyLink"/> AND MUST NOT BE COLLAPSED INTO IT. That one answers the
-    /// question the last-link revoke is decided on - does the account hold a link anywhere at all - and
-    /// counts a disabled provider's link, because a signed-in session is worth keeping while an
-    /// administrator switches a provider back on. This one answers whether the account can still get IN,
-    /// which the login path settles with <c>requireEnabled: true</c>, so a row in a disabled provider's
-    /// table is not an answer to it. The two readings sit three lines apart on purpose and
-    /// <see cref="TryPurgeProviderLinks"/> draws the same distinction over the same accounts.
-    /// </remarks>
+    /// <summary>Whether the user would still hold a link that can sign them in after the named one is removed (#1720): a link on an enabled provider other than the one being removed.</summary>
+    /// <remarks>Not <see cref="UserHasAnyLink"/>: that one decides the last-link revoke and counts a disabled provider's link, this one decides whether the account can still get in, as the login path reads it.</remarks>
     /// <param name="configuration">The configuration to read, inside the caller's transaction.</param>
     /// <param name="userId">The Jellyfin user whose remaining ways in are being counted.</param>
     /// <param name="mode">The protocol of the link being removed.</param>
@@ -2388,9 +1470,7 @@ internal sealed class CanonicalLinkService
                     continue;
                 }
 
-                // The link being removed does not count as its own replacement. Matched on protocol,
-                // provider name and key together, because one key may legitimately exist on several
-                // providers for the same person.
+                // The link being removed is not its own replacement; matched on protocol, provider and key, since one key may exist on several providers.
                 var isTheOneBeingRemoved = protocol == mode && string.Equals(name, provider, StringComparison.Ordinal);
                 foreach (var entry in links)
                 {
@@ -2406,25 +1486,8 @@ internal sealed class CanonicalLinkService
         return false;
     }
 
-    /// <summary>
-    /// Whether the SSO identity may still mint a session for the given user: the provider exists and is
-    /// enabled, its canonical-links map still holds <paramref name="canonicalKey"/> pointing at
-    /// <paramref name="userId"/>, and that user still exists. Read under the config lock, so it is
-    /// linearized against a concurrent revocation (<see cref="RemoveUserEverywhere"/> /
-    /// <see cref="TryRemoveLink"/>) or a mid-flight provider disable.
-    /// </summary>
-    /// <remarks>
-    /// The in-flight revocation gate (#232): a login resolves the account under the config lock but the
-    /// session mint runs after the lock is released, so an admin Unregister (or a link delete, or a
-    /// provider disable) that lands in that gap would otherwise still mint a session for the just-revoked
-    /// identity. The mint flow re-reads this predicate twice - before applying the user side effects (so a
-    /// revoked login persists no grants) and again as the last check before the mint (so a revocation
-    /// landing mid-mint still yields no session). The final check does not close the race outright - a
-    /// revocation committing between it and the mint call still mints once - but it shrinks the window to
-    /// that single unavoidable gap (the mint cannot be held under the lock, which is async). Every unknown
-    /// resolves to false (missing/whitespace key, missing or disabled provider, missing/mismatched link,
-    /// deleted target), so it is fail closed.
-    /// </remarks>
+    /// <summary>Whether the identity may still mint a session for the user: the provider is enabled, its link still points at the user, and the user exists; read under the lock, so it is linearized against a revocation or a disable.</summary>
+    /// <remarks>The in-flight revocation gate (#232): the mint runs after the lock is released, so the flow re-reads this before the side effects and again last before the mint, shrinking the window to the one unavoidable gap; every unknown resolves to false.</remarks>
     /// <param name="mode">The protocol the operation applies to, parsed once at the controller boundary (#369).</param>
     /// <param name="provider">The provider the login authenticated against.</param>
     /// <param name="canonicalKey">The stable identity key the link is stored under (OpenID sub / SAML NameID).</param>
@@ -2444,20 +1507,12 @@ internal sealed class CanonicalLinkService
             && _userManager.GetUserById(linkedId) != null);
     }
 
-    // Atomically links canonicalKey to candidateUserId unless a live link already exists for it (#133).
-    // The existence check and the write are ONE Mutate read-modify-write, so two concurrent first-logins
-    // for the same identity cannot both write or both adopt: the loser observes the winner's link and
-    // reports WroteLink=false (so the caller does not re-emit the adoption audit). The link write goes
-    // straight into the config (no discarded ActionResult), so a failure to persist propagates rather
-    // than falling through as a successful adoption.
+    // Atomically links the key unless a live link exists (#133): the existence check and the write are one Mutate, so the race loser observes the winner and writes nothing.
     private (Guid EffectiveUserId, bool WroteLink) LinkCanonicalIfAbsent(ProviderMode mode, string provider, string canonicalKey, Guid candidateUserId, string? issuer, TimeSpan? provisionedAccessDuration = null, bool provisionedPendingApproval = false)
     {
         return _configStore.Mutate(configuration =>
         {
-            // The login path resolved the provider before reaching here. If it was deleted or disabled
-            // in the race since, fail CLOSED: refuse rather than return a session with no link written
-            // (#373, #380). A freshly created user may be left orphaned, the same benign outcome as the
-            // #133 race loser.
+            // Deleted or disabled since the login resolved it: fail closed (#373, #380); an orphaned fresh user is the benign #133 outcome.
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links))
             {
                 throw new AccountLinkForbiddenException("The SSO provider is no longer configured or is disabled; refusing to link an account.");
@@ -2472,35 +1527,16 @@ internal sealed class CanonicalLinkService
             {
                 links[canonicalKey] = effectiveUserId;
 
-                // A link written under this login carries this login's issuer (#186). The #133 race loser
-                // (wroteLink == false) uses the winner's already-stamped link, so it stamps nothing.
+                // The link carries this login's issuer (#186); the race loser stamps nothing.
                 StampIssuerInPlace(configuration, mode, provider, canonicalKey, issuer);
 
-                // A link written by a PROVISIONING login carries the role-mapped access deadline (#1146),
-                // anchored to this instant. Only the create arm passes a duration - adoption passes none - and
-                // only the writer reaches here, so a second login of the same account resolves the existing
-                // link, never re-enters this branch, and leaves the recorded deadline exactly where it is. A
-                // sliding deadline is the one defect this direction of the feature can have, and this is the
-                // single place it is prevented rather than a rule restated at each caller.
+                // The role-mapped deadline (#1146) is stamped only by the call that wrote the link, so it is set once and never slides.
                 RecordProvisionedDeadlineInPlace(configuration, mode, provider, canonicalKey, provisionedAccessDuration);
 
-                // And the last-SSO-login stamp goes (#1638), for the same reason the deadline is a set-or-clear:
-                // a key written here held no live link, so a stamp still under it is the previous holder's,
-                // and the roster would show that account's last sign-in on the row of the account that just
-                // arrived - one account's data on another's row. The link written here has had no login yet;
-                // the stamp is written after the mint, by the login that earns it.
+                // A stamp under a key that held no live link is the previous holder's (#1638); the login that earns one writes it after the mint.
                 RemoveLastSsoLogin(configuration, mode, provider, canonicalKey);
 
-                // A link written by a login that provisioned its account INERT carries the pending-approval
-                // record (#1529), written in the same transaction as the link for the same reason the
-                // deadline is: the #133 race loser writes no link and must therefore leave no record, or it
-                // would offer an administrator an account it abandoned. The adopt arm never reaches here
-                // with the flag set, because adoption takes over an account that already exists and is not
-                // this plugin's to declare pending.
-                //
-                // Passed the id the link now holds, and a SET-OR-CLEAR: this is the branch that repoints a
-                // key whose previous account was deleted, and the record it may be repointing away from was
-                // written about that account. Clearing it here is what stops an adoption from inheriting it.
+                // The pending-approval record (#1529) is written by the same transaction as the link, and cleared where the key is repointed, so the race loser leaves none and an adoption inherits none.
                 RecordPendingApprovalInPlace(configuration, mode, provider, canonicalKey, effectiveUserId, provisionedPendingApproval);
             }
 
@@ -2508,57 +1544,32 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    // Re-keys a canonical link from the legacy username key to the stable subject key (#155) AND returns
-    // the authoritative user id the identity now resolves to, in ONE config transaction (#363). The
-    // caller resolved the candidates in an earlier lock acquisition, so folding the re-key and the
-    // re-resolution into this single transaction - and having the caller bind to the returned id rather
-    // than that earlier snapshot - removes the window a concurrent login could interpose in between the
-    // snapshot and the re-key. Idempotent under concurrency: if the legacy key is already gone (a
-    // concurrent login migrated first) the move is a no-op, and a LIVE subject key is never overwritten -
-    // only a dangling one (its target user deleted), which would otherwise block the hand-off on every
-    // subsequent login. Returns null only when neither key resolves a live account (the dangling edge), so
-    // the login fails closed into the create/adopt gate rather than binding to a dead account.
+    // Re-keys a legacy username-keyed link to the subject key (#155) and returns the id the identity now resolves to, in one transaction (#363); idempotent under concurrency, never overwriting a live subject link, and null when neither key resolves a live account.
     private Guid? MigrateAndResolveCanonicalLink(ProviderMode mode, string provider, string canonicalKey, string legacyKey, string? issuer)
     {
         return _configStore.Mutate<Guid?>(configuration =>
         {
-            // The candidate-resolving read passed the provider enabled; if it was deleted or disabled in
-            // the window since, fail CLOSED: throw rather than no-op, because the caller would otherwise
-            // bind to the pre-window legacy id and mint a session for a provider that no longer exists or
-            // was just switched off (#373, #380).
+            // Deleted or disabled since the candidate read: fail closed (#373, #380) rather than bind to the pre-window id.
             if (!TryGetLinks(configuration, mode, provider, requireEnabled: true, out var links))
             {
                 throw new AccountLinkForbiddenException("The SSO provider is no longer configured or is disabled; refusing to migrate the account link.");
             }
 
-            // Re-key only a legacy entry that still needs it: the subject key must be absent or dangling
-            // (never overwrite a live subject link a concurrent login already established). When we re-key,
-            // the identity now resolves subject-keyed to the legacy target, so that IS the authoritative id
-            // - returning the moved value (rather than re-reading and filtering) preserves the prior
-            // behaviour on the deleted-mid-migration race, where the caller bound to the legacy id and
-            // failed closed downstream.
+            // Re-key only while the subject key is absent or dangling; the moved value is the authoritative id.
             if (links.TryGetValue(legacyKey, out var legacyUserId)
                 && (!links.TryGetValue(canonicalKey, out var subjectUserId) || _userManager.GetUserById(subjectUserId) == null))
             {
                 links.Remove(legacyKey);
                 links[canonicalKey] = legacyUserId;
 
-                // The re-keyed link is a fresh subject-keyed link written under THIS login, so stamp its
-                // issuer (#186). The legacy key carried no issuer (it predates the store); the new key is
-                // bound to the login that migrated it, matching the create/adopt write paths.
+                // A fresh subject-keyed link written under this login carries its issuer (#186).
                 StampIssuerInPlace(configuration, mode, provider, canonicalKey, issuer);
 
-                // Both keys lose any pending-approval record (#1529). The subject key is only overwritten
-                // here when it DANGLES, so a record under it was written about an account that is gone; the
-                // legacy key has no link left to explain one. Neither is this plugin provisioning an
-                // account inert, which is the only thing that may leave a record behind.
+                // Both keys lose any pending-approval record (#1529): the subject key dangled and the legacy key has no link left.
                 RemovePendingApproval(configuration, mode, provider, canonicalKey);
                 RemovePendingApproval(configuration, mode, provider, legacyKey);
 
-                // The deadline and the last-login stamp as well, on both keys (#1638). The subject key is
-                // overwritten here only when it dangles, so anything under it was a deleted account's; the
-                // legacy key has no link left to explain an entry, and a deadline stranded there would be
-                // inert only until something wrote that key again.
+                // The deadline and the last-login stamp as well, on both keys (#1638).
                 RemoveDeadline(configuration, mode, provider, canonicalKey);
                 RemoveDeadline(configuration, mode, provider, legacyKey);
                 RemoveLastSsoLogin(configuration, mode, provider, canonicalKey);
@@ -2566,28 +1577,15 @@ internal sealed class CanonicalLinkService
                 return legacyUserId;
             }
 
-            // Nothing to migrate: a concurrent login already re-keyed, or the legacy key is gone. Bind to
-            // the authoritative subject link, treating a dangling one (target deleted) as absent.
+            // Nothing to migrate: bind to the live subject link, treating a dangling one as absent.
             return links.TryGetValue(canonicalKey, out var live) && _userManager.GetUserById(live) != null
                 ? live
                 : (Guid?)null;
         });
     }
 
-    // The provider's canonical-links map via TryGetValue rather than the throwing indexer, so an unknown
-    // provider on the reachable admin link/unlink paths is a false return the caller maps to
-    // UnknownProvider - finishing the #241 removal of KeyNotFoundException-as-control-flow. Returns true
-    // and a non-null map only when the provider exists AND has a config object; a missing provider - or a
-    // null-valued entry (reachable today via the null-body add, #350) - returns false, so the caller fails
-    // closed (UnknownProvider on admin paths, a reject on login paths) instead of dereferencing null. With
-    // requireEnabled, a DISABLED provider is treated like an absent one - every GRANT path (the login
-    // guards and the link-create write) passes true so a provider disabled mid-flight is rejected exactly
-    // like a deleted one (#380), while removal passes false because revoking must keep working on a
-    // disabled provider (disable-then-clean-up). The map is
-    // self-healing (CanonicalLinks lazily creates and stores it), so mutating the returned map persists
-    // directly; callers must hold the config lock (Read / Mutate) while touching it. The mode is the typed
-    // ProviderMode the controller parsed once at the HTTP boundary (#369), so both dispatch arms are reached
-    // only with a validated value; the default throw stays as a belt against an out-of-range enum value.
+    // The provider's links map by TryGetValue, so an unknown provider or a null config object (#350) fails closed instead of throwing (#241); with requireEnabled a disabled provider counts as absent (#380), which every grant path passes and removal does not.
+    // Callers hold the config lock; the map is self-healing, so mutating it persists.
     private static bool TryGetLinks(PluginConfiguration configuration, ProviderMode mode, string provider, bool requireEnabled, [NotNullWhen(true)] out SerializableDictionary<string, Guid>? links)
     {
         switch (mode)
@@ -2603,10 +1601,7 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Generic over the provider config type (both maps hold ProviderConfigBase since #204), so the SAML
-    // and OpenID arms are one body: a missing provider or a null-valued entry returns false; with
-    // requireEnabled a disabled provider also returns false. Reads Enabled only after links != null has
-    // proven config non-null.
+    // One body for both protocols (#204); Enabled is read only after the links proved the config non-null.
     private static bool TryGetLinks<T>(SerializableDictionary<string, T> configs, string provider, bool requireEnabled, [NotNullWhen(true)] out SerializableDictionary<string, Guid>? links)
         where T : ProviderConfigBase
     {
@@ -2615,10 +1610,7 @@ internal sealed class CanonicalLinkService
         return ok && links != null && (!requireEnabled || config?.Enabled == true);
     }
 
-    // The provider config object itself, for the server-managed map that hangs off it and is not the links
-    // map (the deadlines, #1145). Same fail-closed shape as TryGetLinks: a missing provider, or an entry
-    // stored with a null config object (#350), returns false rather than being dereferenced. Callers must
-    // hold the config lock; the maps are self-healing, so mutating the returned object's map persists.
+    // The provider object itself, for the maps that hang off it; same fail-closed shape as TryGetLinks, and callers hold the lock.
     private static bool TryGetProvider(PluginConfiguration configuration, ProviderMode mode, string provider, [NotNullWhen(true)] out ProviderConfigBase? config)
     {
         config = mode switch
@@ -2631,9 +1623,7 @@ internal sealed class CanonicalLinkService
         return config is not null;
     }
 
-    // Drops a link's persisted expiry deadline within the caller's already-held config transaction (#1145),
-    // called alongside a link removal so the deadline map does not outlive the links it keys off. Without it
-    // a re-link of the same subject would inherit the previous holder's deadline and be swept immediately.
+    // The deadline goes with the link (#1145), or a re-link of the subject would be swept at once.
     private static void RemoveDeadline(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
     {
         if (TryGetProvider(configuration, mode, provider, out var config))
@@ -2642,10 +1632,7 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Drops a link's last-SSO-login stamp within the caller's already-held config transaction (#1120), called
-    // alongside a link removal. Kept as its own named step beside RemoveDeadline rather than folded into it,
-    // because the two are removed for different reasons: an orphan deadline is bookkeeping the sweep would act
-    // on, an orphan stamp is retained personal data whose erasure route was just taken.
+    // Its own step beside RemoveDeadline, because an orphan stamp is retained personal data (#1120), not bookkeeping.
     private static void RemoveLastSsoLogin(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
     {
         if (TryGetProvider(configuration, mode, provider, out var config))
@@ -2654,18 +1641,8 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Records that THIS login provisioned the linked account disabled and awaiting an administrator
-    // (#1529), within the caller's already-held config transaction. The record names the account it was
-    // written for and the instant of the PROVISIONING, not of the approval, so the accounts page can say
-    // how long somebody has been waiting - which is the whole question an administrator opens that list
-    // with.
-    //
-    // A SET-OR-CLEAR rather than a stamp, and that is the security half of it. Every OTHER write of the
-    // same key is by definition not this plugin provisioning an account inert: it is an adoption, a manual
-    // link, or a re-key. Returning early there would leave the previous holder's record standing over a key
-    // that now names somebody else's account, which is a record of what the plugin did decaying into the
-    // guess this map exists to replace. Called from inside the link write, so the clear lands in the same
-    // transaction as the link that invalidated the record.
+    // Records that this login provisioned the linked account inert (#1529), with the provisioning instant, so the accounts page can say how long somebody has waited.
+    // A set-or-clear: every other write of the same key is not a provisioning, and a record left standing would name somebody else's account.
     private void RecordPendingApprovalInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, Guid userId, bool provisionedPendingApproval)
     {
         if (!TryGetProvider(configuration, mode, provider, out var config))
@@ -2686,11 +1663,7 @@ internal sealed class CanonicalLinkService
         };
     }
 
-    // Drops a link's pending-approval mark within the caller's already-held config transaction (#1529),
-    // called alongside a link removal. Its own named step beside the two above, because it is removed for a
-    // third reason: an orphan deadline is bookkeeping the sweep would act on and an orphan stamp is retained
-    // personal data, while an orphan MARK is an offer to enable an account - the only one of the three that
-    // grants anything.
+    // Its own step beside the two above, because an orphan mark is an offer to enable an account (#1529).
     private static void RemovePendingApproval(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
     {
         if (TryGetProvider(configuration, mode, provider, out var config))
@@ -2699,18 +1672,8 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // The same removal for a caller that holds no transaction of its own (#1529): the approve and disable
-    // paths, which write the account through the user manager between reading the record and dropping it,
-    // and so cannot hold the config lock across the whole act. Its own named step rather than an inline
-    // Mutate, because every caller is removing a record for a different reason and the reasons belong
-    // beside them.
-    //
-    // COMPARE-AND-REMOVE, not remove. The window between the caller's read and this write is exactly where
-    // the key can be freed and written again for a NEW account - a deleted target counts as absent, and the
-    // next login of the same subject provisions afresh and records that account. A removal that did not
-    // check would then drop the new account's record on the strength of a decision about the old one, and
-    // leave an account disabled with no row anywhere to find it on. So the record goes only if it still
-    // names the account the caller read; otherwise it is somebody else's, and it stays.
+    // The same removal for the approve and disable paths, which write the account between reading the record and dropping it and so hold no transaction (#1529).
+    // Compare-and-remove: the key may have been freed and written for a new account in between, and that account's record must stay.
     private void RemovePendingApprovalOutsideLock(ProviderMode mode, string provider, string canonicalKey, Guid userId)
         => _configStore.Mutate(configuration =>
         {
@@ -2722,13 +1685,7 @@ internal sealed class CanonicalLinkService
             }
         });
 
-    // Classifies an OpenID subject link's issuer binding against the login's issuer, read under the caller's
-    // config lock (#186). SAML (and any non-OID mode) is NotBound - issuer binding is OpenID only. For OID:
-    // Absent when the link has no stored issuer yet (legacy/un-stamped, eligible for trust-on-first-use);
-    // Match when the stored issuer ordinally equals the login's; Mismatch otherwise. A blank stored value is
-    // treated as Absent (never written blank; defensive). The Mismatch arm INCLUDES the case where the login
-    // carries no issuer while the link has one, so a token that omits `iss` cannot slip past a stamped
-    // binding - fail closed.
+    // Classifies an OpenID subject link's issuer against the login's under the caller's lock (#186): NotBound outside OpenID, Absent without a stored issuer, Match on ordinal equality, otherwise Mismatch, including a login that carries none.
     private static IssuerBinding ClassifyIssuer(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, string? issuer)
     {
         if (mode != ProviderMode.Oid)
@@ -2749,11 +1706,7 @@ internal sealed class CanonicalLinkService
         return string.Equals(stored, issuer, StringComparison.Ordinal) ? IssuerBinding.Match : IssuerBinding.Mismatch;
     }
 
-    // Trust-on-first-use stamp of an OpenID link that has no stored issuer yet (#186), in its own config
-    // transaction. OID-only and non-blank-issuer-only. Idempotent: writes only when the link still exists AND
-    // its issuer is still absent, so a concurrent login that already stamped is not overwritten. A no-op for
-    // SAML or a blank issuer (nothing safe to bind to) - the link stays un-stamped rather than binding to an
-    // empty value.
+    // Trust-on-first-use stamp in its own transaction (#186): written only while the link exists and its issuer is still absent, and never for SAML or a blank issuer.
     private void StampIssuer(ProviderMode mode, string provider, string canonicalKey, string? issuer)
     {
         if (mode != ProviderMode.Oid || string.IsNullOrWhiteSpace(issuer))
@@ -2772,10 +1725,7 @@ internal sealed class CanonicalLinkService
         });
     }
 
-    // Stamps (overwriting) an OpenID link's issuer within the caller's ALREADY-HELD config transaction (#186),
-    // called right after a link WRITE (adopt / create / migrate / manual link) so the fresh link carries the
-    // issuer it was minted under. Overwrites any stale value - a link just (re)written under this login belongs
-    // to this login's issuer. A no-op for SAML or a blank issuer.
+    // Overwrites the issuer inside the caller's transaction right after a link write (#186): a link just written belongs to this login's issuer. A no-op for SAML or a blank issuer.
     private static void StampIssuerInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, string? issuer)
     {
         if (mode != ProviderMode.Oid || string.IsNullOrWhiteSpace(issuer))
@@ -2789,19 +1739,7 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // Stamps the role-mapped access deadline beside a link this transaction just wrote (#1146), inside the
-    // caller's config lock so the deadline and the link it describes land together or not at all. Called
-    // from the create arm only; every other caller passes null and this is a no-op.
-    //
-    // The clock read is the instance clock, so the suite can pin the anchor instead of racing the wall
-    // clock. Both protocols are handled - unlike the issuer stamp, which is OpenID-only - because the map it
-    // writes into is carried by ProviderConfigBase and is swept for both.
-    //
-    // The duration is re-checked against the same bounds the policy and the save-time validator apply,
-    // because the guard has to sit where the arithmetic is: DateTime.AddHours THROWS past DateTime.MaxValue,
-    // and a value hand-edited into the config XML reaches this line without passing the save path at all. A
-    // duration outside the bounds stamps NOTHING rather than throwing, so the login still succeeds and the
-    // account simply carries no deadline - which is exactly what the same provider does today.
+    // Stamps the role-mapped deadline beside a link this transaction wrote (#1146), from the instance clock, on both protocols; a duration outside the validator's bounds stamps nothing rather than throwing, since DateTime.AddHours throws past MaxValue.
     private void RecordProvisionedDeadlineInPlace(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey, TimeSpan? provisionedAccessDuration)
     {
         if (!TryGetProvider(configuration, mode, provider, out var config))
@@ -2809,14 +1747,7 @@ internal sealed class CanonicalLinkService
             return;
         }
 
-        // A SET-OR-CLEAR, not a stamp (#1638). This runs inside the branch that has just written the link,
-        // and a link is written over a key only when the key held no LIVE link - which includes a link whose
-        // account was deleted. That account's deadline is still in the map, and left there a login that
-        // carried no duration would inherit it: the sweep reads a deadline's account off the CURRENT link
-        // map, so the next tick would disable an account that is minutes old for an expiry nobody granted
-        // it. A write with no usable duration therefore removes what it found, and a write with one
-        // replaces it; a second login of a linked account never reaches this branch and leaves the recorded
-        // deadline exactly where it is.
+        // A set-or-clear (#1638): the key may have held a deleted account's deadline, and a login without a duration must not inherit it.
         if (provisionedAccessDuration is not { } duration
             || duration <= TimeSpan.Zero
             || duration > TimeSpan.FromHours(GuestAccessDurationRoleMap.MaxDurationHours))
@@ -2828,8 +1759,7 @@ internal sealed class CanonicalLinkService
         config.CanonicalLinkDeadlines[canonicalKey] = _clock().ToUniversalTime() + duration;
     }
 
-    // Drops an OpenID link's issuer entry within the caller's already-held config transaction (#186), called
-    // alongside a link removal so the issuer map does not accumulate orphans. A no-op for SAML.
+    // The issuer entry goes with the link (#186); a no-op for SAML.
     private static void RemoveIssuer(PluginConfiguration configuration, ProviderMode mode, string provider, string canonicalKey)
     {
         if (mode == ProviderMode.Oid
@@ -2840,8 +1770,6 @@ internal sealed class CanonicalLinkService
         }
     }
 
-    // The result of the single under-lock candidate read: the subject-keyed link (if live), the legacy
-    // username-keyed link (if live), and the subject link's issuer binding against the login (#186) - all
-    // resolved in one locked pass so the orchestrator acts on a self-consistent snapshot.
+    // The single locked candidate read: both links, if live, and the subject link's issuer binding (#186).
     private readonly record struct ResolutionCandidates(Guid? SubjectLink, Guid? LegacyLink, IssuerBinding SubjectIssuer);
 }
