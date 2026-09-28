@@ -1,12 +1,10 @@
 import { loadCatalog, applyTo, t } from "./i18n.js";
 
+// The self-service linking page: the holder's SSO links per provider, their removal and the sign-out control.
 const ssoConfigLinking = {
   pluginUniqueId: "505ce9d1-d916-42fa-86ca-673ef241d7df",
 
-  // A single generic banner for a failed request on this page (GetNames load, existing-links load,
-  // or unlink, #536/#564). It never carries a status code or server message, so a rejection cannot
-  // leak an internal detail into the admin UI; it just tells the user the page is no longer
-  // trustworthy as shown.
+  // Shows the generic failure banner, which never carries a status code or server message (#536, #564).
   showError: () => {
     const banner = document.querySelector("#sso-linking-error");
     if (banner) {
@@ -14,11 +12,7 @@ const ssoConfigLinking = {
     }
   },
 
-  // Takes the generic banner back down, and it exists for ONE caller: the unlink shows the generic
-  // banner the moment a request is rejected and only then reads the body to find out whether the
-  // server declined for a reason worth its own sentence (#1731). Saying nothing until the body has
-  // been read would leave a page that took the delete control away and said nothing at all if that
-  // read never settles, which is what a stalled body behind a proxy looks like.
+  // Hides the generic banner once a rejected unlink turns out to be a refusal with its own sentence (#1731).
   hideError: () => {
     const banner = document.querySelector("#sso-linking-error");
     if (banner) {
@@ -26,13 +20,8 @@ const ssoConfigLinking = {
     }
   },
 
-  // The refusal banner, which is a SECOND element rather than the one above with different words
-  // (#1731). The generic banner is authored in the markup and carries `data-i18n="link.load_error"`,
-  // so a catalogue pass would write its own row back over anything put into it; and the two say
-  // opposite things about the page - one says the page can no longer be trusted as shown, the other
-  // says the server understood the request and declined it, with the link still there and still
-  // correct on screen. Only ever filled with a catalogue row through `t()`, never with a server
-  // value, so nothing the server writes reaches the page (#536).
+  // Shows the refusal banner with a catalogue sentence, a separate element because the generic one is
+  // rewritten by every catalogue pass; never filled from a server value (#1731, #536).
   showRefusal: (message) => {
     const banner = document.querySelector("#sso-linking-refused");
     if (banner) {
@@ -41,15 +30,8 @@ const ssoConfigLinking = {
     }
   },
 
-  // The sentence for the one success this page cannot draw (#1882): the last SSO link that could sign
-  // the holder in is gone and, with it, the session this page was loaded under. A THIRD element rather
-  // than either banner above: the generic one says the page can no longer be trusted as shown, the
-  // refusal says the server declined, and this says the server did exactly what the question before the
-  // press announced. Authored in the markup around its own sign-in link, filled from the catalogue by
-  // the parts pass and never from a server value. The other two go down with it, because a page that
-  // says both that something went wrong and that the removal succeeded says nothing. And every control
-  // that would send a request goes with them: the session is gone, so a second Delete or a sign-out press
-  // could only answer 401 and raise the generic banner beside this sentence.
+  // Shows the signed-out notice after the last SSO link is removed, hiding the other banners and every
+  // control that would send a request on the now ended session (#1882).
   showSignedOut: (view) => {
     ssoConfigLinking.hideError();
     const refused = document.querySelector("#sso-linking-refused");
@@ -64,16 +46,10 @@ const ssoConfigLinking = {
     ssoConfigLinking.stopOfferingSignOut();
   },
 
-  // Every "Sign out everywhere" control drawn on this page (#1768), so a refusal that applies to all of
-  // them - Single Logout is off on this server, which is one global switch - can take all of them away
-  // without walking the tree. Emptied when the page loads its providers.
+  // Every "Sign out everywhere" control on the page (#1768), so a global refusal can disable them all.
   signOutButtons: [],
 
-  // Draws the control beside a provider the holder has signed in with (#1768). Offered only where the
-  // holder holds a link on an OpenID provider: a link is what an SSO login leaves behind, so it is the
-  // one fact this page has about which provider's session might be worth ending, and the SAML route
-  // has a sign-out of its own. Whether Single Logout is on is a fact the page cannot read; the mint
-  // answers 404 where it is off, and the press below says so then.
+  // Draws the sign-out control beside an OpenID provider the holder holds a link on (#1768).
   offerSignOut: (container, provider_name) => {
     const row = container.querySelector(
       `.sso-provider-links-container[data-id="${CSS.escape(provider_name)}"]`,
@@ -96,8 +72,7 @@ const ssoConfigLinking = {
       "Sign out everywhere",
     );
     button.append(icon, label);
-    // The button is bound in the closure rather than read off the event: in a browser the click lands
-    // on the label span as often as on the button, and `evt.target` would then be the span.
+    // Bound in the closure because a click often lands on the label span, not the button.
     button.addEventListener("click", () =>
       ssoConfigLinking.handleSignOutPressed(button, provider_name),
     );
@@ -105,30 +80,16 @@ const ssoConfigLinking = {
     ssoConfigLinking.signOutButtons.push(button);
   },
 
+  // Disables every sign-out control on the page.
   stopOfferingSignOut: () => {
     ssoConfigLinking.signOutButtons.forEach((button) => {
       button.disabled = true;
     });
   },
 
-  // The whole surface of #1768: ask the server for a one-time ticket over the API client, which carries
-  // the session in a header, then navigate with the ticket and nothing else. The route that ends the
-  // session and sends the browser on to the identity provider is reached by a top-level navigation,
-  // which cannot carry a header, and the only other thing that could name the caller there is the
-  // access token in the URL - the form this control exists to retire. So the ticket is minted first
-  // and the navigation is built from what the server answered, never from what the client holds.
-  //
-  // ONE PRESS, ONE TICKET. The control is taken away the moment it is pressed and given back only on a
-  // refusal that leaves the holder something to do: every mint is an entry in the holder's own bounded
-  // share, and a second press while the first is in flight would spend one for nothing.
-  //
-  // THE REFUSALS ARE TOLD APART BY STATUS, and each is a sentence rather than the generic banner, because
-  // the generic banner says the page can no longer be trusted as shown and that is not what happened:
-  // the server understood the request and declined it, the links on screen are still true. A 404 is the
-  // one the stock install answers - Single Logout is off - and it is global, so every control goes. A
-  // 503 or a 429 clears by waiting, so the control stays. Anything else, including an answer with no
-  // ticket in it, is a failed press and says so; nothing navigates to the bare route, which would only
-  // refuse the navigation and read to the holder as a broken sign-out.
+  // Mints a one-time logout ticket over the API client, then navigates with it, so no access token goes
+  // into the URL (#1768). The control stays disabled while a press is in flight.
+  // A 404 means Single Logout is off and removes every control; 503 and 429 keep it; anything else is a failed press.
   handleSignOutPressed: (button, provider_name) => {
     if (button.disabled) {
       return Promise.resolve();
@@ -189,6 +150,7 @@ const ssoConfigLinking = {
         );
       });
   },
+  // Loads the enabled provider names of each protocol and renders their rows.
   loadProviders: (view) => {
     ssoConfigLinking.signOutButtons = [];
     ["oid", "saml"].forEach((provider_mode) => {
@@ -212,17 +174,11 @@ const ssoConfigLinking = {
             provider_mode,
           );
         })
-        // ApiClient.fetch rejects on a non-2xx status (auth expiry, a server error, ...), the same as
-        // the existing-links load below, so a failed GetNames load surfaces the banner instead of
-        // silently rendering an empty provider list (#564).
+        // A non-2xx status rejects, so a failed load shows the banner rather than an empty list (#564).
         .catch(() => ssoConfigLinking.showError());
     });
   },
-  // When a protocol section ends up with no rows (no enabled providers to offer and no existing
-  // link the user still holds), show a placeholder instead of a bare heading over blank space
-  // (#669), so a single-protocol or fresh install does not look broken. Called only after both the
-  // enabled-provider list and the existing-links feed have resolved, since a disabled provider the
-  // user still holds a link to is rendered from the links feed and keeps the section non-empty.
+  // Shows a placeholder in a protocol section with no rows, once both feeds have resolved (#669).
   maybeShowSectionEmptyState: (container, provider_mode) => {
     if (container.children.length > 0) {
       return;
@@ -236,10 +192,9 @@ const ssoConfigLinking = {
     );
     container.appendChild(placeholder);
   },
+  // Renders the enabled providers, then the holder's existing links, including those on disabled providers.
   loadProviderList: (container, providers, provider_mode) => {
-    // The server only offers enabled providers for new links (#344), so every name here gets an
-    // add button. A link the user still holds to a since-disabled provider is rendered separately
-    // below, from the links feed, so it stays visible and removable.
+    // The server offers only enabled providers here (#344), so every name gets an add button.
     providers.forEach((provider_name) => {
       ssoConfigLinking.appendProviderContainer(
         container,
@@ -266,13 +221,8 @@ const ssoConfigLinking = {
               `.sso-provider-existing-links-container[data-provider="${CSS.escape(provider_name)}"]`,
             );
 
-            // No container means the provider is not offered for new links because it is disabled
-            // (it is absent from the enabled-only GetNames list, #344). The server still returns
-            // such links and still lets the user delete them (LinksByUser / TryRemoveLink pass
-            // requireEnabled:false; disabling then cleaning up is the intended workflow), so render
-            // a container without an add button, marked disabled, rather than dropping it and
-            // throwing on a null container. A disabled provider the user holds no link to (empty
-            // list, nothing to remove) is skipped.
+            // No container means the provider is disabled (#344); its links are still listed and removable,
+            // unless there are none.
             if (!existing_links) {
               if (provider_map[provider_name].length === 0) {
                 return;
@@ -301,29 +251,23 @@ const ssoConfigLinking = {
           });
           ssoConfigLinking.maybeShowSectionEmptyState(container, provider_mode);
         })
-        // ApiClient.fetch rejects on a non-2xx status (auth expiry, a server error, ...), so a failed
-        // existing-links load surfaces the banner instead of silently leaving the list empty (#536).
+        // A non-2xx status rejects, so a failed load shows the banner rather than an empty list (#536).
         .catch(() => ssoConfigLinking.showError());
     } else {
-      // No signed-in user to fetch existing links for: the section is complete once the enabled
-      // providers are rendered, so decide the empty state now.
+      // No signed-in user, so the section is complete once the enabled providers are rendered.
       ssoConfigLinking.maybeShowSectionEmptyState(container, provider_mode);
     }
   },
 
-  // Builds one provider row (title, optional add button, existing-links container) and appends it,
-  // returning the existing-links container so the caller can populate it. When offerLink is false the
-  // provider is disabled: no add button is drawn (it cannot accept a new link) and the title is marked,
-  // but any link the user already holds stays listed and removable.
+  // Builds and appends one provider row and returns its existing-links container.
+  // A disabled provider (offerLink false) gets no add button, but its held links stay listed.
   appendProviderContainer: (
     container,
     provider_name,
     provider_mode,
     offerLink,
   ) => {
-    // Provider and canonical names are identity-provider/admin-controlled: build the DOM with
-    // createElement/textContent (never innerHTML), and feed them into selectors and URLs only
-    // through CSS.escape / encodeURIComponent, never raw.
+    // Names are identity-provider or admin controlled: DOM via textContent, selectors and URLs only escaped.
     const provider_config = document.createElement("div");
     provider_config.classList.add("sso-provider-links-container");
     provider_config.dataset.id = provider_name;
@@ -339,12 +283,7 @@ const ssoConfigLinking = {
     const existing_links = document.createElement("div");
     existing_links.classList.add("sso-provider-existing-links-container");
     existing_links.dataset.provider = provider_name;
-    // WHETHER A LINK IN THIS CONTAINER IS A WAY IN (#1731), carried here because this is the only
-    // place that knows: `offerLink` is false exactly for a provider absent from the enabled-only
-    // GetNames list. The server decides stranding by the same reading - a link on a switched-off
-    // provider cannot sign anybody in (#1720) - so the sentence before the press and the refusal
-    // after it are counting the same population, rather than the page counting rows and the server
-    // counting doors.
+    // Whether a link here can sign the holder in; the server reads a disabled provider the same way (#1731, #1720).
     existing_links.dataset.enabled = offerLink ? "true" : "false";
 
     if (offerLink) {
@@ -379,6 +318,7 @@ const ssoConfigLinking = {
     return existing_links;
   },
 
+  // Renders one checkbox row per canonical name the holder has linked on a provider.
   populateExistingLinks: (
     container,
     provider_mode,
@@ -396,13 +336,8 @@ const ssoConfigLinking = {
         "checkbox-wrapper",
       );
 
-      // The canonical name is identity-provider-controlled - assigning it via dataset/textContent
-      // (never innerHTML) keeps a hostile linked-account name inert on this page.
-      // The `is` option upgrades the customized built-in where the client accepts it. The Jellyfin 12
-      // client refuses that argument outright and throws for any value (#1607), which would take this
-      // list the way it took the provider page's library checklists, so the construction falls back to
-      // the attribute alone. The attribute is set either way, so CSS attribute selectors and the
-      // web-components polyfill see it.
+      // The name is set through dataset and textContent so a hostile linked-account name stays inert.
+      // The `is` option throws on the Jellyfin 12 client (#1607), so construction falls back to the attribute alone.
       let checkbox;
       try {
         checkbox = document.createElement("input", { is: "emby-checkbox" });
@@ -415,12 +350,7 @@ const ssoConfigLinking = {
       checkbox.dataset.id = canonical_name;
       checkbox.dataset.mode = provider_mode;
       checkbox.dataset.provider = provider_name;
-      // Copied onto the row rather than looked up from the container at press time (#1731). The
-      // delete button reads a flat list of checkboxes across both protocol sections, and a lookup
-      // back up the tree would have to work on the container the row happens to sit in - which is a
-      // different element on the disabled path, built by the branch below the enabled one. A row
-      // whose container never declared it counts as a way in, which is the reading that ASKS before
-      // acting rather than the one that stays silent.
+      // Copied onto the row because the delete button reads a flat list (#1731); an undeclared container counts as a way in.
       checkbox.dataset.enabled =
         container.dataset.enabled === "false" ? "false" : "true";
 
@@ -437,10 +367,7 @@ const ssoConfigLinking = {
     });
   },
 
-  // Takes the delete control off a page whose rows may no longer be true (#1731). Both halves, because
-  // the button is re-enabled by the checkbox beside it and disabling only the button would be undone by
-  // the next tick of it. Nothing turns either back on: the banner beside them asks for a reload, and a
-  // reload is what rebuilds the rows from the server.
+  // Disables the delete checkbox and button on a page whose rows may no longer be true (#1731).
   stopOffering: (view) => {
     const enable = view.querySelector("#enable-delete");
     if (enable) {
@@ -454,13 +381,8 @@ const ssoConfigLinking = {
     }
   },
 
-  // Whether the rows about to be sent take away every link that could sign this holder in again.
-  //
-  // A LINK ON A SWITCHED-OFF PROVIDER IS NOT A WAY IN, in either direction, which is the reading the
-  // server's refusal takes (#1720): a leftover link on a provider somebody disabled does not keep the
-  // page quiet, and removing such a link on its own never raises the question at all. The counting is
-  // over the rows the page has RENDERED, so a link the holder cannot see - one this feed did not
-  // return - is not counted as a way in either; that is the same population the delete button acts on.
+  // Whether the rows being sent remove every rendered link that could sign the holder in (#1720).
+  // A link on a disabled provider is not a way in.
   removesEveryWayIn: (rendered, sending) => {
     const isWayIn = (box) => box.dataset.enabled !== "false";
     const waysIn = rendered.filter(isWayIn);
@@ -468,6 +390,7 @@ const ssoConfigLinking = {
     return removed.length > 0 && removed.length === waysIn.length;
   },
 
+  // Removes the ticked links after confirming a last-link removal, then reports the outcome.
   handleDeleteButtonPressed: (evt, view) => {
     if (evt.target.disabled) return Promise.resolve();
 
@@ -491,20 +414,8 @@ const ssoConfigLinking = {
       return true;
     });
 
-    // THE SENTENCE BEFORE THE PRESS, and it is the courtesy rather than the rule (#1731). The rule is
-    // the server's refusal, and this page cannot reproduce it: whether the account has a password to
-    // fall back on is a fact about a Jellyfin user record that nothing here reads. A page can be
-    // reloaded, scripted around or out of date against the server, which is why the guard was built
-    // there and why declining here only stops the request rather than standing for a decision.
-    //
-    // SO THE QUESTION NAMES THE CONSEQUENCE AND NEVER PROMISES THE REFUSAL, which is the correction the
-    // review of this change made. A sentence saying "the server refuses this and nothing changes" is
-    // false in exactly the two populations the server's guard is documented not to cover: an
-    // administrator, who is exempt from it (#1732), and an account carrying a password this plugin
-    // minted and never recorded, which reads as a door nobody can open (#1733). For both of them the
-    // removal goes through, and a dialog naming only benign outcomes would have turned a hesitant press
-    // into a confident one on the press that costs the account. Warning of a lockout the server then
-    // refuses costs a moment of caution; the other direction costs the account.
+    // A courtesy before the press; the server's refusal is the rule (#1731). The question names the
+    // consequence and never promises a refusal, because administrators (#1732) and some accounts (#1733) are not covered.
     const removesEveryWayIn = ssoConfigLinking.removesEveryWayIn(
       rendered,
       selected,
@@ -527,11 +438,7 @@ const ssoConfigLinking = {
       const provider_name = checked_link.dataset.provider;
       const provider_mode = checked_link.dataset.mode;
 
-      // Encode the provider/canonical segments so an identity-provider-controlled name with a
-      // slash or other reserved character cannot inject extra path segments. A name that is
-      // exactly "." or ".." can still be collapsed by a path normalizer, but that only 404s
-      // (the route targets the caller's own links); "." is left unencoded because encoding it
-      // would break the common dotted username/email behind a strict reverse proxy.
+      // Encoded segments stop a name from injecting path segments; "." stays unencoded for dotted names.
       return ApiClient.fetch({
         type: "DELETE",
         url: ApiClient.getUrl(
@@ -542,23 +449,8 @@ const ssoConfigLinking = {
 
     return (
       Promise.all(delete_requests)
-        // A removal that went through is shown by reloading the page, which draws the links the holder
-        // still holds. WHERE IT WAS THE LAST LINK, THE RELOAD IS THE WRONG ANSWER (#1882): the server
-        // ends every session of the account the moment its last SSO link is gone, which is what the
-        // question above said would happen, so the reloaded page has no session to draw with, its two
-        // feeds answer 401, and it shows the generic banner - a sentence that says something went wrong
-        // and tells the holder to reload a page that will fail the same way until they sign in again.
-        // So after a removal the page asks the links feed once more, and where the answer is the 401
-        // the sign-out leaves behind it says what happened, in the past tense, with the way back. Any
-        // other answer means the session is still there and the page reloads as before. The generic
-        // banner keeps every other failure, and a 401 on a page nobody pressed Delete on is still one.
-        //
-        // THE FEED IS ASKED AFTER EVERY REMOVAL, NOT ONLY AFTER THE LAST WAY IN, because the two counts
-        // differ on purpose: the question above counts links on ENABLED providers, which is what can
-        // sign the holder in, while the server revokes when NO link is left anywhere, a link on a
-        // switched-off provider included. A holder whose only link sits on a switched-off provider is
-        // asked nothing, removes it, and is signed out all the same; the one extra read is what lets the
-        // page say so instead of reloading into the banner. The review of this change found that shape.
+        // After a removal the links feed is asked once more: a 401 means the server ended the session with the
+        // last link, so the page says so instead of reloading into the banner (#1882).
         .then(() =>
           ApiClient.fetch(
             {
@@ -577,27 +469,10 @@ const ssoConfigLinking = {
             },
           ),
         )
-        // ApiClient.fetch rejects on a non-2xx status, so a rejected DELETE must not fall through to
-        // the unconditional reload below it: that would show the exact same page a successful removal
-        // shows, with no indication that the link the user asked to remove is still present (#536).
-        //
-        // ONE REFUSAL MEANS SOMETHING TO THE READER AND GETS ITS OWN SENTENCE (#1731); everything else
-        // is the generic banner, which never reflects a server value. The stranding refusal carries the
-        // three facts a user can act on - that this was their last way in, that the account takes no
-        // password, and that an administrator can undo it - and a bare banner tells them only that
-        // something went wrong, which reads as a broken page and is pressed again.
-        //
-        // TOLD APART BY THE SENTENCE THE ENDPOINT WRITES rather than by the bare status, the same way
-        // the pending-approvals panel tells its two 403s apart. This route already answers 403 for an
-        // elevation refusal and for a time-limited link, and a reverse proxy can write a 403 page of
-        // its own about something else entirely. The bound is that the match is on the server's own
-        // words: a reword there silently falls back to the generic banner, which is the harmless
-        // direction, and the gate reads both arms so a reword is caught rather than discovered.
+        // A rejected DELETE shows the banner instead of reloading (#536). The stranding refusal gets its
+        // own sentence (#1731), matched on the endpoint's words; a reword falls back to the generic banner.
         .catch((rejection) => {
-          // SOMETHING IS SAID NOW, before the body is read. Telling one 403 from another needs the
-          // body, and a body can stall behind a proxy after its headers arrived, which would leave a
-          // page that took the delete control away and said nothing at all. So the generic banner goes
-          // up first and the refusal below takes it down again once the body has been read.
+          // The banner goes up before the body is read, since the body can stall behind a proxy.
           ssoConfigLinking.showError();
 
           const status =
@@ -614,35 +489,14 @@ const ssoConfigLinking = {
               status === 403 &&
               /last SSO link that can sign you in/i.test(String(text || ""));
 
-            // AND THE BUTTON STOPS OFFERING ITSELF WHERE THE ROWS MAY BE WRONG, which the review of
-            // this change asked for, and only there. A batch is several requests and Promise.all
-            // reports the first rejection, so the page no longer knows which links the holder still
-            // holds - and until this change nothing depended on the rows being true; now the question
-            // above counts them. The measured sequence was two ticked links, one removed and one
-            // failed: no reload, both rows still on screen, and the retry of the failed one asked
-            // NOTHING because the page still believed there were two ways in.
-            //
-            // ONE SHAPE IS EXEMPT AND IT IS THE COMMON ONE: a SINGLE request that the server answered
-            // by declining it. There the removal did not happen, the rows are still exactly true, and
-            // taking the control away would refuse the largest refusal population the tidy-up the
-            // refusal itself sends them to - removing a leftover link on a switched-off provider is
-            // never refused, and is how somebody clears the state this page shows. Every other shape,
-            // a 500 among them, may have been written before it failed.
+            // After a partial batch the rows may be wrong, so the delete control stops; a single declined
+            // request leaves them true and keeps it.
             if (!declined || delete_requests.length !== 1) {
               ssoConfigLinking.stopOffering(view);
             }
 
-            // WHAT WAS REFUSED IS NAMED, NOT WHAT THE WHOLE PRESS DID. An earlier wording said "it was
-            // not removed", which is a claim about the batch: where several links were ticked, one of
-            // them may already be gone when this refusal arrives. The sentence speaks for the one
-            // removal the server declined and sends the reader to a reload for the rest.
-            //
-            // TWO REFUSALS SHARE THAT OPENING AND SEND THE READER TO DIFFERENT PLACES (#1732). The first
-            // tells a user to ask an administrator; where the reader IS the last administrator who can
-            // sign in, that is advice to ask themselves. The second clause of the server's sentence is
-            // what separates them, and the fall-through is the harmless direction: a server whose
-            // wording moved shows the user sentence, which is wrong about who to ask and right about
-            // what happened, rather than no sentence at all.
+            // Names only the refused removal. The second clause of the server's sentence tells the last
+            // administrator apart from a user (#1732).
             if (declined) {
               const serverLeftUnreachable =
                 /no other administrator on this server/i.test(
@@ -669,6 +523,7 @@ const ssoConfigLinking = {
   },
 };
 
+// Wires the delete controls, then loads the catalogue and the providers.
 export default function initLinkingView(view) {
   view.querySelector("#enable-delete").addEventListener("change", (e) => {
     view.querySelector("#btn-delete-selected-links").disabled =
@@ -681,9 +536,7 @@ export default function initLinkingView(view) {
       ssoConfigLinking.handleDeleteButtonPressed(e, view),
     );
 
-  // Load the UI strings before rendering: the static markup is localized in place and the dynamically
-  // built rows (provider empty-state, disabled note) read their text through t(). loadCatalog always
-  // resolves, so a fetch failure just leaves the built-in English.
+  // The catalogue loads first so static markup and built rows are localized; it always resolves.
   loadCatalog().then(() => {
     applyTo(document);
     ssoConfigLinking.loadProviders(view);

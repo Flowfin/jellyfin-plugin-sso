@@ -3,59 +3,12 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Counts the English sentences the settings surface writes without going through
- * the catalog, and refuses the number moving in either direction (#1602).
- *
- * WHY A COUNT AND NOT A LIST. `de.json` and `en.json` carry the same keys and
- * nothing is missing from either, so every check the localization has is green
- * while a `de-DE` administrator reads a page that is half English. The reason is
- * not the catalogs: a sentence written as a literal in the bundle never reaches
- * them, so it cannot be reported as absent from something it was never in. The
- * gap is invisible to a completeness check by construction.
- *
- * What it is NOT invisible to is a count, and the count is what this pins. It
- * refuses an increase, which is the drift - one more literal is one more
- * sentence a translator will never see. It refuses a decrease too, which is not
- * pedantry: a tranche that wraps ten of them and leaves the pin alone would let
- * the next ten arrive unseen behind the slack it left. The pin moves in the same
- * commit as the work, and that is what makes it a ratchet rather than a number.
- *
- * THE PIN IS ZERO NOW, so in practice this refuses the next literal outright.
- * The ratchet shape is kept rather than replaced by a flat "none allowed": the
- * exemptions below are what "none" actually means, and a future sentence that
- * genuinely cannot reach a catalog belongs in that list with its reason beside
- * it, not in a number nobody can read a reason out of.
- *
- * WHAT COUNTS. A double-quoted literal opening with a capital and containing a
- * space, of any length, that is not the English default of a `tr(...)` or
- * `t(...)` call. That is deliberately coarse. It matches things that are not
- * prose and misses prose written without a capital, and both are fine for a
- * ratchet: what it has to be is STABLE, so the same tree always yields the same
- * number and a change to the number is always a change somebody made.
- *
- * WHAT THE SPACE TEST CANNOT REACH IS A ONE-WORD LINE, and the two by-SITE arms
- * below exist for it: a literal handed to a save-status renderer (#1723) or to a
- * test or transfer progress renderer (#1739) is refused whether or not it has a
- * space in it. "Testing…" was English on a German page under every floor this
- * tool ever had, because the space test runs before a length is considered at
- * all - lowering the floor could not have found it and did not.
- *
- * THERE IS NO FLOOR ANY MORE. Until #1725 a literal counted only from twenty
- * characters, and eight sentences a de-DE administrator reads sat under it: the
- * field names handed to "{label} is required.", the addresses handed to the
- * copy notice under the SAML editor, the metadata import's progress line and the
- * test result's fallback. Every one of them was English on a German page while
- * this gate was green. The probe that found them ran the same scan at a floor of
- * two and surfaced nothing else, so the floor is gone rather than lowered: a
- * literal short enough to be a field name is exactly the kind that gets written
- * without a second thought.
- *
- * Comments are stripped character by character rather than line by line,
- * because this file's siblings in `SSO-Auth/Web` carry paragraphs of reasoning
- * with sentences in them, and a line-based strip would count the reasoning.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-unsaved-state.js.
+ * Counts the English literals the settings scripts write without going through the
+ * catalog, and refuses the number moving either way (#1602). A counted literal is a
+ * double-quoted string opening with a capital and holding a space, with no length
+ * floor (#1725); literals handed to the save-status (#1723) and progress (#1739)
+ * renderers are refused by site. Exceptions go in EXEMPT with their reason.
+ * Run with `node tools/ui-untranslated.js`; no dependencies.
  */
 
 import fs from "node:fs";
@@ -65,20 +18,13 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 
-// The pinned count. It goes DOWN as sentences are wrapped, in the same commit
-// that wraps them, and it never goes up. ZERO since 2026-09-11: every sentence the
-// settings surface writes goes through the catalog, and the four that stay literal are
-// named in EXEMPT below with the reason each cannot.
+// The pinned count: it goes down in the commit that wraps sentences, and never up.
 const PINNED = 0;
 
-// Files that are not this plugin's prose: the vendored API client, and the
-// translator itself, which cannot translate through the thing it is.
+// Not this plugin's prose: the vendored API client, and the translator itself.
 const SKIP = new Set(["jellyfin-apiClient.esm.min.js", "i18n.js"]);
 
-// Sentences that stay literal on purpose, each with the reason it cannot go
-// through the catalog. Matched on the exact text, and a stale entry - one no
-// file carries any more - is refused, so this list cannot quietly grant an
-// exemption to a sentence that has since changed.
+// Sentences that stay literal, each with its reason; matched exactly, and a stale entry is refused.
 const EXEMPT = [
   {
     text:
@@ -177,73 +123,28 @@ function withoutComments(source) {
   return out;
 }
 
-// No length floor: see the header. The space test below is what separates a sentence from a token.
+// No length floor (#1725); the space test separates a sentence from a token.
 const SENTENCE = /"([A-Z][^"]+)"/g;
 
-// The English default of a catalog call, in the two shapes this tree uses. `tr(key, english)`
-// is the core's own wrapper, which puts the default second. `t(key, params, english)` is what
-// i18n.js exports and the linking page calls directly, and it puts the default THIRD, behind
-// the parameter object - so a regex that only knew the first shape counted a translated string
-// as untranslated. The object is matched without nesting on purpose: a parameter bag here is a
-// flat map of names to values, and accepting a nested one would start excusing anything that
-// merely looked like a call.
-//
-// The THIRD shape is for text that cannot be wrapped where it is written. The provider
-// templates are object literals built when the module loads, which is before the
-// localization module has resolved, so a tr() call there would freeze the English
-// default into the object once and for good. Each template therefore carries its KEY
-// beside the English - `noteKey` next to `note`, `labelKey` next to `label` - and the
-// catalog lookup happens where the template is rendered. The English is still the
-// fallback, still one copy, and ScriptEnglishDefaults_MatchTheCatalog still pins it
-// equal to the catalog, so the property this tool exists for is unchanged.
-//
-// THE PARAMETER SLOT TAKES `undefined` AND NOT ONLY AN OBJECT, and reading only the object counted a
-// row that goes through the catalogue as one that bypasses it (#1731). `t(key, params, fallback)`
-// substitutes nothing when `params` is falsy - that is the module's own first branch - so a sentence
-// with no placeholder is written `t("key", undefined, "English")`, which is what the linking page
-// already writes for `link.disabled_note`. That call was never counted only because its English is
-// too short to look like a sentence, so the gap sat under the ratchet rather than being absent. The
-// token is a literal and not text, so accepting it excuses exactly the calls that do go through the
-// catalogue and nothing that merely looks like one.
+// The English default of a catalog call: `tr(key, english)`, `t(key, params, english)` with a flat
+// object or `undefined` as params (#1731), and a template's `noteKey`/`labelKey` beside its English,
+// looked up where the template renders because it is built before the catalog loads.
 const AS_DEFAULT = [
   /\btr?\(\s*"[a-z0-9_.]+"\s*,\s*$/,
   /\bt\(\s*"[a-z0-9_.]+"\s*,\s*(?:\{[^{}]*\}|undefined)\s*,\s*$/,
   /\w+Key:\s*"[a-z0-9_.]+"\s*,\s*\w+:\s*$/,
 ];
 
-// A literal handed to one of the two save-status renderers (#1723). "Settings saved." is
-// shorter than SENTENCE's floor, so the ratchet never saw it and a de-DE administrator read
-// it in English after every save while the refusal beside it was German. The floor has since
-// gone (#1725), so the ratchet counts a literal of that shape too; this arm stays because it
-// reads the two renderers by SITE rather than by shape - a literal with no space or no capital
-// handed to either is still refused, and the refusal names the renderer. The empty literal that
-// clears the region is not prose and is left alone.
+// A literal handed to a save-status renderer (#1723), read by site so a one-word literal is refused too.
 const STATUS_LITERAL = /\brender(?:Saml)?SaveStatus\(\s*\w+\s*,\s*"([^"]+)"/g;
 
-// A literal handed to one of the two progress renderers (#1739). SENTENCE keeps only a literal
-// with a space in it, which is what separates a sentence from a token, so "Testing…" was never a
-// candidate at any floor: a de-DE administrator read the line the Test Connection button writes
-// while it works, and the configuration export's and import's, in English on a German page while
-// this gate was green. This arm reads the two renderers by SITE for the same reason STATUS_LITERAL
-// does, which is the only reading that reaches a one-word sentence. The empty literal that clears
-// the region is not prose and is left alone.
+// A literal handed to a progress renderer (#1739), read by site for the same reason.
 const PROGRESS_LITERAL =
   /\brender(?:Test|Transfer)Message\(\s*\w+\s*,\s*"([^"]+)"/g;
 
 /*
- * Reads the WHOLE file rather than a line at a time, and that is not a detail. The
- * formatter breaks a long catalog call across four lines, so the key sits on the line
- * above its English default:
- *
- *     tr(
- *       "config.validation_endpoint_https",
- *       "Use an https:// URL for the OpenID endpoint.",
- *     ),
- *
- * A line-based test sees only the sentence and calls a translated string untranslated.
- * The first draft of this tool did exactly that, and its pinned baseline counted
- * sentences that already went through the catalog - which the first tranche exposed by
- * moving the number two instead of eleven.
+ * Reads the whole file, since the formatter can put a catalog call's key on the line
+ * above its English default and a line-based test would count it as untranslated.
  */
 function findIn(file) {
   const source = withoutComments(fs.readFileSync(file, "utf8"));
@@ -256,8 +157,7 @@ function findIn(file) {
     if (!text.includes(" ")) {
       continue;
     }
-    // Anchored at the end, so it reads the text immediately before the literal, across
-    // any newlines and indentation the formatter put there.
+    // Anchored at the end, so it reads the text right before the literal across newlines.
     const before = source.slice(0, match.index);
     if (AS_DEFAULT.some((shape) => shape.test(before))) {
       continue;
@@ -269,8 +169,7 @@ function findIn(file) {
   return found;
 }
 
-// The literals one by-SITE arm finds. Both arms ask the same question of a different renderer
-// pair, so they are one function reading a pattern rather than two that drift apart.
+// The literals a by-site pattern finds, shared by both renderer arms.
 function siteLiteralsIn(file, pattern) {
   const source = withoutComments(fs.readFileSync(file, "utf8"));
   const found = [];
@@ -298,9 +197,7 @@ function main() {
 
   const faults = [];
 
-  // A stale exemption is refused: an entry naming a sentence no file carries any
-  // more is an exemption nobody can see the effect of, and the next edit to that
-  // sentence would silently lose it.
+  // A stale exemption is refused, so a changed sentence cannot silently lose it.
   const present = new Set(all.map((entry) => entry.text));
   EXEMPT.filter((entry) => !present.has(entry.text)).forEach((entry) =>
     faults.push(

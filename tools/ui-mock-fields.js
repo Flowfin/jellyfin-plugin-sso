@@ -3,39 +3,11 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Reconciles docs/ui/mock/FIELDS.md against the inputs of the configuration
- * pages it declares a home for (#1526, widened to the five built pages by
- * #1527).
- *
- * WHY THE COUNT IS DERIVED AND NOT WRITTEN DOWN. Stage 0 asks that every field
- * of the old page reappears under a new home, and a table saying so is worth
- * only what checks it. A count typed into a document drifts against the page
- * the moment a field moves; a count read off the page cannot.
- *
- * WHAT #1527 ADDED. Until the pages existed, the table's "New tab" column was a
- * promise nothing could check: the tool read the single old page and could only
- * ask whether a control had SOME row. It now reads the five built pages and
- * asks the stronger question the stage-1 done-condition names - whether each
- * control is reachable on the page its row names - and three more questions the
- * split created, at the legs below: whether a controller reaches off its own
- * page, whether an id the core names is declared anywhere, and whether the tab
- * strip actually routes to the pages the plugin registers. The mock beside the
- * table is checked exactly as before.
- *
- * NO COUNT OF THE REFUSALS IS WRITTEN HERE. Each leg says what it refused when
- * it refuses, and a total in this header would drift against the legs the way
- * every hand count does. What each one is for is written at the leg.
- *
- * WHY COMMENTS ARE STRIPPED FIRST. The Providers page documents its own hidden
- * `selectProvider` inside an HTML comment, and that comment contains a second
- * `<select>` tag. A reader that greps the raw bytes counts it and reaches 124;
- * a reader that strips comments reaches 123. Only one of the two is the set of
- * controls an administrator can reach, so the stripping happens here rather
- * than being left to whoever runs this.
- *
- * WHY IT COMPARES SETS AND NOT SIZES. A row kept for a field that was deleted
- * and a field added with no row cancel out in a count. They do not cancel out
- * in a set comparison, which is the drift the count exists to catch.
+ * Reconciles docs/ui/mock/FIELDS.md and the mock against the inputs of the five
+ * configuration pages (#1526, #1527): each control must have one row, sit on the
+ * page and inside the risk region its row names, and every controller and tab
+ * link must stay on registered pages. HTML comments are stripped first and the
+ * ids are compared as sets, so a deleted and an added field do not cancel out.
  */
 
 "use strict";
@@ -45,11 +17,7 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 
-/*
- * The five pages, keyed by the tab name FIELDS.md writes in its "New tab"
- * column. The key is the join between the table and the tree, so a tab renamed
- * in one and not the other fails here rather than passing quietly.
- */
+// The five pages, keyed by the tab name FIELDS.md writes in its "New tab" column.
 const PAGES = {
   Overview: path.join(root, "SSO-Auth", "Web", "configPage.html"),
   Providers: path.join(root, "SSO-Auth", "Web", "providersPage.html"),
@@ -86,12 +54,8 @@ function attr(tag, name) {
 }
 
 /**
- * Index of the tag that closes the `tag` element opening at `start`.
- *
- * The tag is a parameter because a risk region is not always a `<div>`: #1666 made the Sensitive and
- * Insecure regions native `<details>` folds, and a walk counting `<div>` depth inside one returns at
- * the first inner `</div>` - which puts every control of those regions OUTSIDE the box the page draws
- * around it, and the marking this tool compares against FIELDS.md is exactly that box.
+ * Returns the index of the tag closing the `tag` element opening at `start`.
+ * The tag is a parameter because risk regions can be `<details>` folds (#1666).
  */
 function regionEnd(html, start, tag) {
   const re = new RegExp("<" + tag + "\\b[^>]*>|</" + tag + ">", "g");
@@ -109,6 +73,7 @@ function regionEnd(html, start, tag) {
   return html.length;
 }
 
+/** Returns the start and end of every div or details region carrying a class. */
 function regionsOf(html, className) {
   const re = new RegExp(
     '<(div|details)\\b[^>]*class="[^"]*' + className + '[^"]*"[^>]*>',
@@ -164,16 +129,9 @@ function readPage() {
 }
 
 /**
- * The `Field`, `New tab` and `Marked` columns of every body row of the table in
- * FIELDS.md, as a map from id to `{ tab, marked }`.
- *
- * The tab is what #1527 made checkable; before the pages existed there was
- * nothing to check it against. The marking was always derivable and was never
- * compared: it is the page's OWN classification, read back out of the
- * `sso-danger-zone` and `sso-sensitive-region` boxes the markup draws, and a
- * move that carries a control out of its box leaves it saving exactly as before
- * while it stops being presented as dangerous. That is a silent loss the id
- * sets cannot see, and moving controls between files is what this change does.
+ * Reads the `Field`, `New tab` and `Marked` columns of FIELDS.md as a map from
+ * id to `{ tab, marked }`. The marking is compared against the page's own risk
+ * boxes, so a control moved out of its box fails even though it still saves.
  */
 function readTable() {
   if (!fs.existsSync(TABLE)) return null;
@@ -191,11 +149,7 @@ function readTable() {
   return rows;
 }
 
-/**
- * The ids of docs/ui/mock/fields.js, which is what the mock pages render from.
- * It is loaded the way a browser loads it - a plain script assigning to a
- * global - rather than parsed, so this reads exactly what the mock reads.
- */
+/** Returns the ids of docs/ui/mock/fields.js, loaded as the mock page loads it. */
 function readData() {
   if (!fs.existsSync(DATA)) return null;
   const shim = {};
@@ -203,6 +157,7 @@ function readData() {
   return (shim.SSO_MOCK_FIELDS || []).map((f) => f.id);
 }
 
+/** Prints a FIELDS.md table row for every field, for `--emit`. */
 function emit(fields) {
   for (const f of fields) {
     console.log(
@@ -220,26 +175,10 @@ function emit(fields) {
 }
 
 /*
- * THE SECOND LEG (#1527): does each page's controller only reach ids its own
- * page carries?
- *
- * WHY IT EXISTS. The five `initXPage` functions in sso-core.js register their
- * handlers with bare `view.querySelector("#id").addEventListener(...)` and not
- * one of those registrations is null-guarded. That is deliberate and it is not
- * free: the whole safety argument is that each function is reached only from
- * the page whose markup holds every id it touches, and a single id that moves
- * to another tab turns into a TypeError that stops the REST of that page's
- * wiring - a settings page whose controls are all present and half of them
- * inert. Guarding each site instead would hide exactly that mistake, so the
- * partition is checked here rather than defended there.
- *
- * WHAT IT READS. Every `"#..."` string literal inside each init function's
- * body, however it is written - a direct call, an entry in a list the function
- * loops over, a selector passed to a helper. A literal is what a selector is in
- * this file, and one built by concatenation at runtime is outside what any
- * reading of the source can resolve; the two id lists that ARE built that way
- * (`"#" + id` over a literal array) put their ids in literals in the same body,
- * so they are covered.
+ * The second leg (#1527): each page controller must only reach ids its own page
+ * carries, since the init functions register handlers without null guards and
+ * one moved id stops the rest of that page's wiring. It reads every `"#..."`
+ * literal in each init body; selectors built at runtime are out of reach.
  */
 const INIT_PAGES = {
   initOverviewPage: "Overview",
@@ -266,15 +205,8 @@ function functionBody(source, name) {
 }
 
 /**
- * Every id the markup of one page declares, COMMENTS STRIPPED FIRST.
- *
- * The stripping is the whole point and it was missing. The control leg strips
- * comments and this one did not, so an element wrapped in an HTML comment
- * disappeared from the page while its id went on being "declared" here - and a
- * controller registering an unguarded handler against it passed both legs and
- * threw at the browser, killing the rest of that page's wiring. That is exactly
- * the failure the controller leg exists to prevent, walking through the check
- * that prevents it.
+ * Returns every id one page declares, with HTML comments stripped first so a
+ * commented-out element does not count as declared.
  */
 function idsDeclaredBy(file) {
   return new Set(
@@ -286,6 +218,7 @@ function idsDeclaredBy(file) {
   );
 }
 
+/** Returns the faults of the controller leg and of the any-page id check. */
 function controllerFaults() {
   const core = path.join(root, "SSO-Auth", "Web", "sso-core.js");
   if (!fs.existsSync(core)) {
@@ -319,18 +252,11 @@ function controllerFaults() {
     }
   }
 
-  // The init functions are one call deep. Everything the shared renderers reach - the card lists, the
-  // status regions, the result panels - is outside every init body and outside the field table too,
-  // because those are containers rather than form controls. A renamed container is therefore invisible
-  // to both legs above, so this asks the weaker question that still catches it: every id the core names
-  // anywhere is declared by SOME page. It cannot say which page, which is what the leg above is for.
+  // Ids outside the init bodies, such as containers, must at least be declared by some page.
   const declaredAnywhere = new Set(
     Object.values(PAGES).flatMap((file) => [...idsDeclaredBy(file)]),
   );
-  // A literal immediately followed by `+` is a PREFIX rather than an id - the SAML half queries
-  // `"#saml-" + prop` - and asking whether the tree declares an id called `saml-` is a question about
-  // this reader rather than about the tree. Concatenated selectors are outside what any reading of the
-  // source resolves, which is the same bound the leg above carries and is stated in both places.
+  // A literal followed by `+` is a prefix such as `"#saml-" + prop`, not an id.
   const named = [
     ...new Set(
       [...source.matchAll(/"#([A-Za-z0-9_-]+)"(\s*\+)?/g)]
@@ -349,16 +275,8 @@ function controllerFaults() {
 }
 
 /*
- * THE FOURTH LEG (#1527): does every link and every controller name a page the plugin registers?
- *
- * WHY IT EXISTS. The tab strip is static markup, and it is the ONLY route between the five pages. Its
- * hrefs, the `data-controller` on each page, and the core's registered name are three sets of strings
- * that have to agree with the `GetPages` table in SSOPlugin.cs, and until this leg nothing compared
- * them: the manifest test pins the table against itself, so a name renamed in BOTH the table and that
- * test passes CI green and ships an Overview page with four dead tabs and no route to the settings at
- * all. That is the worst outcome this change can produce and it was the least guarded.
- *
- * The table is read out of the C# rather than restated here, so this cannot drift from it.
+ * The fourth leg (#1527): every tab link and controller must name a page the
+ * plugin registers, read from `GetPages` in SSOPlugin.cs so it cannot drift.
  */
 function registeredPageNames() {
   const plugin = path.join(root, "SSO-Auth", "SSOPlugin.cs");
@@ -377,16 +295,8 @@ function registeredPageNames() {
 }
 
 /**
- * The registered page name each tab must link to, derived rather than restated.
- *
- * Overview is the plugin's own page id, because that is the name the dashboard's
- * plugin list opens; the other four are that id and their tab in lower case,
- * which is the convention `SSOPlugin.GetPages` registers them under. Deriving it
- * is what lets the leg below ask the question it is actually for - does the
- * Accounts tab open Accounts - rather than the weaker one it asked first, which
- * was only whether an href names SOME registered page. A strip whose Policies
- * label pointed at Server passed that weaker question with five registered
- * hrefs and no route to the profile editor at all.
+ * Maps each tab to the registered page name it must link to: Overview is the
+ * plugin page id, the others are that id plus the lower-case tab name.
  */
 function tabTargets(registered, tabs) {
   const id = [...registered].reduce((a, b) => (a.length <= b.length ? a : b));
@@ -397,6 +307,7 @@ function tabTargets(registered, tabs) {
   return out;
 }
 
+/** Returns the faults of the tab strip, page controllers and current-tab marks. */
 function linkFaults() {
   const registered = registeredPageNames();
   if (registered === null) {
@@ -412,10 +323,7 @@ function linkFaults() {
     }
   };
 
-  // The tab each anchor is FOR, in strip order, so an href can be paired with its own label rather
-  // than only checked for existing. Naming a registered page is the weaker question: an Accounts tab
-  // pointing at Policies names a registered page and opens the wrong one, silently, and the first
-  // draft of this leg passed it.
+  // The tab each anchor is for, in strip order, so an href is paired with its own label.
   const ORDER = Object.keys(PAGES);
   const PAGE_NAMES = tabTargets(registered, ORDER);
 
@@ -423,8 +331,7 @@ function linkFaults() {
     const html = withoutComments(fs.readFileSync(file, "utf8"));
     const where = path.basename(file);
 
-    // One match per anchor, carrying its label class, its data-index and its href together, so the
-    // three are compared against each other instead of each being read on its own.
+    // One match per anchor with its label class, data-index and href together.
     const anchors = [
       ...html.matchAll(
         /class="emby-tab-button SSOTAB_(\w+)([^"]*)"[^>]*?data-index="(\d+)"[^>]*?href="#\/configurationpage\?name=([^"]+)"/g,
@@ -461,8 +368,7 @@ function linkFaults() {
         );
       }
 
-      // The href must be the page this anchor is labelled for. `emby-tabs` also drives its highlight
-      // off data-index, so an index that is not the anchor's position paints the wrong tab white.
+      // The href must be this anchor's page, and data-index its position in the strip.
       const expectedHref = PAGE_NAMES[ORDER[position]];
       if (expectedHref && a.href !== expectedHref) {
         faults.push(
@@ -497,8 +403,7 @@ function linkFaults() {
       say("controller", controller[1], where);
     }
 
-    // The page must also be the one the tab strip marks as current, or an administrator is told they
-    // are somewhere they are not.
+    // The page must also be the one the tab strip marks as current.
     const active = anchors.filter((a) => a.active);
     if (active.length !== 1) {
       faults.push(
@@ -535,6 +440,7 @@ function linkFaults() {
   return faults;
 }
 
+/** Runs every leg, prints each one, and returns the exit code. */
 function main() {
   const fields = readPage();
   if (process.argv.includes("--emit")) {
@@ -555,10 +461,7 @@ function main() {
     );
   }
 
-  // A control on two pages is refused rather than counted twice. Two pages both
-  // holding one id is invalid HTML across the pair AND a save model with two
-  // owners for one setting, which is the failure the split can produce that the
-  // single page could not.
+  // A control on two pages means two save owners for one setting, so it is refused.
   const repeated = [
     ...new Set(pageIds.filter((id, i) => pageIds.indexOf(id) !== i)),
   ];
@@ -602,10 +505,7 @@ function main() {
   against("FIELDS.md", rows === null ? null : [...rows.keys()]);
   against("fields.js", data);
 
-  // The stage-1 done-condition (#1527): reachable on ITS page, not merely on
-  // some page; and still inside the risk box the table says it is in. Only
-  // reached once the id sets agree, because a mismatched set would otherwise
-  // report every consequence of one missing row.
+  // Reachable on its own page and inside its risk box (#1527), checked once the id sets agree.
   if (rows !== null && faults.length === 0) {
     const misplaced = fields.filter((f) => rows.get(f.id).tab !== f.tab);
     if (misplaced.length) {
@@ -666,9 +566,7 @@ function main() {
     "fields.js:".padEnd(19) +
       (data === null ? "absent" : String(data.length).padStart(3) + " entries"),
   );
-  // Every leg runs and every leg PRINTS that it ran, whatever the ones before
-  // it found. A leg that is silently skipped reads exactly like a leg that
-  // passed, which is the accounting mistake this whole check exists against.
+  // Every leg runs and prints, so a skipped leg cannot read as a passed one.
   const controllers = controllerFaults();
   console.log(
     "controllers:".padEnd(19) +

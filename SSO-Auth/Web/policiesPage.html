@@ -26,13 +26,8 @@
           </div>
 
           <!--
-            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
-            navigable before any controller runs and a page whose script failed to load still says where
-            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
-            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
-            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
-            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
-            there breaks the page.
+            The tab strip (#1527), static so the pages are navigable before any controller runs.
+            Each href uses a page name registered in SSOPlugin.GetPages; the names are part of the URL contract.
           -->
           <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="3">
             <div class="emby-tabs-slider">
@@ -85,12 +80,7 @@
             </div>
           </div>
 
-          <!--
-            The server could not read its stored configuration and is running on defaults (#1543). Hidden
-            until the server says so, and it says so until an administrator imports or saves one - so this
-            is the one statement on the page that is not about what the form in front of you contains, but
-            about whether the form is showing you your settings at all.
-          -->
+          <!-- Shown while the server runs on defaults because it could not read its stored configuration (#1543). -->
           <div
             id="sso-unreadable-config"
             class="fieldDescription sso-empty-state"
@@ -98,11 +88,8 @@
           ></div>
 
           <!--
-            The unsaved-changes indicator (#1572). Hidden until a control on this page is edited by a
-            person; the text is written by sso-core.js renderUnsavedNotice with textContent (#221) and
-            carries no configuration value. It is above the columns rather than beside the save, because
-            its second job is to say why a tab returned to was NOT refreshed, and that has to be readable
-            at the moment of arrival rather than after scrolling past every field.
+            The unsaved-changes indicator (#1572), written by sso-core.js renderUnsavedNotice with textContent (#221).
+            It sits above the columns so it can also say on arrival why a returned-to tab was not refreshed.
           -->
           <div
             id="sso-unsaved"
@@ -115,23 +102,10 @@
           <div class="sso-columns" data-sso-condensed-help>
             <div class="sso-column-main">
               <!--
-            Provisioning profiles (#1105): the editor for the GLOBAL named profile set. A profile is a
-            ProvisioningPolicyTemplate under a name, so the ten controls below are the SAME control set
-            both provider forms carry, with the same sso-tmpl-* markers and the same three-state rules,
-            under a "profile-Tmpl-" id prefix. They are deliberately a third rendering rather than a
-            shared one: the page has no template engine, and the conformance rules that pin the kind and
-            vocabulary of each control read the markup, so a control that is not written here is not
-            guarded here either. ProvisioningProfiles is a root PluginConfiguration member, not a provider
-            field, so this section sits OUTSIDE both provider forms and carries no flat sso-* marker: it
-            is saved by its own handler (sso-core.js saveProvisioningProfile), which re-posts the whole
-            configuration with only the profile set changed, exactly as saveServerSettings does.
-
-            Delete and rename are the two acts that can break a provider from here, and both are checked
-            against the live configuration BEFORE the PUT rather than left to the server's refusal: a
-            delete of a profile some provider still names is refused and the names are shown, and a
-            rename repoints every reference in the same document so the configuration is never posted in
-            the state the validator refuses. The server rule remains the guard - this is the courtesy
-            that tells the administrator before they lose the edit.
+            Provisioning profiles (#1105): the editor for the global named profile set, with the same template
+            controls and three-state rules as the provider forms under a "profile-Tmpl-" id prefix. It sits
+            outside both provider forms and is saved by sso-core.js saveProvisioningProfile.
+            Delete and rename are checked against the live configuration before the PUT; the server rule remains the guard.
           -->
               <form id="sso-provisioning-profiles" class="esqConfigurationForm">
                 <div
@@ -185,10 +159,8 @@
                       </div>
                     </div>
                     <!--
-                  A profile a configuration file or the environment defined is frozen server-side (#1498): the
-                  save keeps the stored value and records the ignored write. This is where the page says so,
-                  painted by applyManagedProfileState from the managed-set report, beside the selector that
-                  chose the profile. textContent only, and hidden until a managed profile is selected.
+                  Says when the selected profile is managed by a configuration file or the environment (#1498),
+                  painted by applyManagedProfileState with textContent.
                 -->
                     <p
                       class="fieldDescription sso-managed-note"
@@ -694,11 +666,7 @@
             </div>
             <aside class="sso-column-rail">
               <!--
-                THE WHOLE TEXT OF THE FIELD THAT HAS FOCUS (#1662). Every field below shows one sentence and keeps
-                the rest behind a fold; this is the second way to read the rest, without losing the field while
-                reading about it. Empty and hidden in the markup on purpose: SSO-Auth/Web/i18n.js fills it on focus,
-                so a page whose script never ran shows nothing here rather than a card naming a field nobody chose.
-                The heading is the same catalogue row the folds are named with, so the two cannot drift apart.
+                The whole help text of the focused field (#1662), filled on focus by SSO-Auth/Web/i18n.js and hidden until then.
               -->
               <div class="verticalSection sso-help-card" hidden>
                 <h2 class="sectionTitle" data-i18n="config.help_full_text">

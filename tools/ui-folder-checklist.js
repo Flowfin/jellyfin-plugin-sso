@@ -3,27 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Refuses, by name, the two ways the provider page's library checklists have
- * failed (#1607).
- *
- * WHY THIS RUNS THE SHIPPED FILE. Every C# rule over these assets reads their
- * TEXT, so none of them can say what the checklist DOES, and the fault here was
- * not visible in the text at all: `document.createElement("input", { is: ... })`
- * is correct on Jellyfin 10.11 and throws on Jellyfin 12, whose client registers
- * no emby-* customized built-in and whose createElement refuses the options
- * argument outright - for a registered name and an invented one alike. The throw
- * landed before the first row existed, so the checklist came up empty on a server
- * with four libraries, and a save then wrote that emptiness over the provider's
- * folder restriction. Nothing short of running the builder against a client that
- * refuses the argument can tell the two clients apart.
- *
- * WHAT IT DOES NOT DO. It does not model a browser. The stub below is the
- * smallest DOM the two functions under test touch: createElement in both client
- * shapes, a class list, a dataset, textContent, append/appendChild, remove, and
- * class-selector lookup. Everything under test is the shipped function.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-unsaved-state.js.
+ * Runs the shipped library checklist builder of the provider page against both
+ * client shapes and refuses the two known failures by name (#1607).
+ * Jellyfin 12 throws on the createElement `is` option, which only running the
+ * builder can show; the DOM stub below is the smallest one the code touches.
  */
 
 import fs from "node:fs";
@@ -41,6 +24,7 @@ const FOLDERS = {
   ],
 };
 
+/** The stub class list of one element. */
 class Classes {
   constructor(owner) {
     this.owner = owner;
@@ -57,6 +41,7 @@ class Classes {
   }
 }
 
+/** The stub DOM element; its members mirror the DOM methods of the same name. */
 class Element {
   constructor(tag) {
     this.tag = tag;
@@ -116,11 +101,9 @@ class Element {
 }
 
 /**
- * A `document` in one of the two client shapes.
- *
- * `refusesTheIsOption` is Jellyfin 12: createElement throws the moment a second
- * argument is passed, whatever it names. The message is the one that client
- * actually raises, so a reader who greps for it finds this file.
+ * Returns a stub `document` in one of the two client shapes.
+ * `refusesTheIsOption` is Jellyfin 12, whose createElement throws on any second
+ * argument with the message used below.
  */
 function documentFor(refusesTheIsOption) {
   let optionsSeen = 0;
@@ -138,6 +121,7 @@ function documentFor(refusesTheIsOption) {
   };
 }
 
+/** Imports the shipped sso-core.js as a module. */
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -146,10 +130,12 @@ async function loadCore() {
   return (await import(url)).default;
 }
 
+/** Returns the checkbox rows drawn into a container. */
 function rowsOf(container) {
   return container.querySelectorAll(".folder-checkbox");
 }
 
+/** Runs every leg and exits non-zero on a refusal. */
 async function main() {
   const core = await loadCore();
   const faults = [];
@@ -210,9 +196,7 @@ async function main() {
     }
   }
 
-  // Everything below presupposes a builder that returns rows. Reporting the shape faults and stopping
-  // here is what keeps the refusal readable: without it the first unguarded call throws again, and the
-  // message an operator reads is a stack trace through a base64 data URL rather than the sentence above.
+  // The legs below need a builder that returns rows; stopping here keeps the refusal readable.
   if (faults.length > 0) {
     faults.forEach((fault) => console.error("REFUSED  " + fault));
     process.exit(1);

@@ -3,71 +3,14 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL provider wizard of sso-core.js over the REAL Providers page and refuses each way
- * it can be wrong (#1665).
+ * Drives the shipped provider wizard of sso-core.js over the shipped Providers page and
+ * refuses each way it can be wrong (#1665).
  *
- * WHY IT EXISTS AS A RUNNING PROOF. Everything the wizard is made of is a DECISION, and every rule
- * this repository already has over these assets reads TEXT. The catalogue tests can say that each
- * refusal sentence exists in both languages; ui-mock-fields.js can say that every id the controller
- * reaches is on this page; ui-untranslated-markup.js can say that no step title bypasses the
- * catalogue. None of them can ask whether a step that is NOT complete opens the next one anyway,
- * and that is the whole of what the wizard is: an order with a refusal at each join.
- *
- * THE FAILURE THIS IS AGAINST IS THE CONFIDENT ONE. A wizard whose gates always pass is not a
- * broken-looking page - it is a page that walks an administrator to "Enable" with an endpoint that
- * has never answered, which is the state the fifth step exists to prevent. Reading the source finds
- * that only if the reader already suspects it; inverting one comparison in `wizardRefusal` keeps
- * every other check in this tree green.
- *
- * WHAT IS DRIVEN IS THE BUTTON AND NOT THE FUNCTION. The arms below press
- * `#sso-wizard-next` and its siblings after running `initProvidersPage` over the shipped markup, so
- * a registration that was never written, or written against an id that has moved, fails here rather
- * than passing as a green call to a function nobody wired.
- *
- * WHERE THE EXPECTED SENTENCES COME FROM. Out of SSO-Auth/Localization/en.json, by KEY. A gate
- * holding its own copy of the prose would go green on a refusal that names the wrong key and says
- * the wrong thing, which is exactly the class of mistake a five-refusal function makes. The core's
- * `tr()` returns its English default when no catalogue has loaded, and
- * LocalizationCatalogTests.ScriptEnglishDefaults_MatchTheCatalog pins that default equal to the
- * English row - so comparing against the row is comparing against the key.
- *
- * WHAT THAT LEAVES TO THE SUITE RATHER THAN TO THIS FILE, measured rather than supposed: a refusal that
- * names the WRONG key while carrying the right default is invisible here, because tr() with no catalogue
- * loaded answers with the default whatever key it was handed. Driven by swapping one key in
- * wizardFinish - this file stayed green and the test above refused by name, printing both strings. The
- * two guards are complementary and neither is the other.
- *
- * WHY IT IS NODE AND NOT A BROWSER OR A DOM LIBRARY. The means check, per the standpoint: node is
- * already carried by this tree and runs the ten gates beside this one with no install, and a DOM
- * library would add a dependency and a lockfile to a repository that has neither. A browser would
- * answer more and is the walk, which decision D4 on #1528 owes for this slice either way. What the
- * cheap means cannot say is stated below rather than hidden.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is a stub: id lookup, one class selector, a class
- * list, text nodes, and an ANCESTOR CHAIN derived from the page's own markup so an element's parent
- * is the smallest element that strictly contains it. That chain is what lets an arm assert which
- * ROW carries `aria-current`, because the row is the state span's parent in the document and in the
- * fixture alike.
- *
- * It says NOTHING about layout, about the order a browser would run two listeners in, about what a
- * screen reader announces from the refusal's `role="status"`, or about whether the step the
- * administrator is reading is the step they can see. Those are the walk's, and the walk is the last
- * Done-when on #1665 rather than something this file quietly discharges.
- *
- * WHY THE MODULE IS LOADED THROUGH A DATA URL. sso-core.js is an ES module and this tree carries no
- * package.json, so node would read a `.js` file as CommonJS and fail on its `export`. Importing the
- * bytes as a data: URL loads the same source as a module without writing a file beside the tree.
- *
- * THE CALIBRATION RUNS BEFORE THE REAL PAGE IS OPENED, POSITIVE AND NEGATIVE. The reader below
- * decides what the wizard ought to show, and a reader that cannot fail is not a measurement: it
- * would pass a page it had stopped looking at. So it is first handed a hand-built wizard that is
- * right, and then one hand-broken wizard per refusal it can make - and the run stops on any
- * disagreement instead of opening the real page. The negative is the half that gets skipped and the
- * half that matters: a reader carrying positives only passes its own calibration by accepting
- * everything.
- *
- * EVERY LEG REFUSES BY NAME AND THE PASS IS PRINTED. A proof whose result nobody sees reads exactly
- * like one that never ran.
+ * The arms press the wizard buttons after initProvidersPage, so a missing registration
+ * fails too. Expected sentences come from en.json by key; a refusal naming the wrong key
+ * with the right default is left to the C# catalogue suite. The DOM is a stub without
+ * layout or screen reader output, which stays with the walk (#1528, #1665). A calibration
+ * over hand-built right and broken wizards runs before the real page is opened.
  */
 
 "use strict";
@@ -80,8 +23,7 @@ const CORE = path.join(root, "SSO-Auth", "Web", "sso-core.js");
 const PROVIDERS_PAGE = path.join(root, "SSO-Auth", "Web", "providersPage.html");
 const ENGLISH = path.join(root, "SSO-Auth", "Localization", "en.json");
 
-// The ids and the class tokens the wizard is made of. Spelled here because an arm has to name them;
-// that the page still declares each one is asserted against the markup below rather than trusted.
+// The ids and class tokens the wizard is made of; the markup is asserted to declare each one.
 const WIZARD = "sso-wizard";
 const START = "sso-wizard-start";
 const REFUSAL = "sso-wizard-refusal";
@@ -96,13 +38,9 @@ const ROW = "sso-wizard-step";
 const EDITORS = { oid: "sso-editor", saml: "saml-editor" };
 const STEPS = 5;
 
-// ---------------------------------------------------------------------------
-// The stub. Small on purpose: every member here is one the code under test reaches for on a route an
-// arm below drives, and nothing is here for completeness. Nine members copied from the stub this one
-// is patterned on were cut once a run under instrumentation showed no arm reaching them; the single
-// member that stayed unreached carries the reason it stayed, at itself.
-// ---------------------------------------------------------------------------
+// The stub: only the members an arm reaches.
 
+// A minimal classList over a set of names.
 class Classes {
   constructor(names) {
     this.set = new Set(names || []);
@@ -118,6 +56,7 @@ class Classes {
   }
 }
 
+// A text node.
 class Text {
   constructor(data) {
     this.nodeType = 3;
@@ -125,6 +64,7 @@ class Text {
   }
 }
 
+// A DOM element with an ancestor chain, attributes and a classList.
 class Element {
   constructor(tag, id, type, classes) {
     this.nodeType = 1;
@@ -151,11 +91,7 @@ class Element {
     this.listeners.get(name).push(handler);
   }
 
-  // ATTRIBUTES ARE KEPT APART FROM PROPERTIES HERE, and the wizard is the reason. Its step lives in
-  // `data-step` and is read back with getAttribute, so a stub that stored an attribute as a
-  // same-named property would answer `el["data-step"]` for a reader that asked for the attribute and
-  // agree with itself whatever the code did. `hidden` stays a property because that is how every
-  // reader in this module writes it.
+  // Attributes are kept apart from properties because the wizard reads `data-step` through getAttribute.
   setAttribute(name, value) {
     this.attributes = this.attributes || {};
     this.attributes[name] = String(value);
@@ -173,12 +109,9 @@ class Element {
     }
   }
 
-  /*
-   * A LOOKUP MADE ON AN ELEMENT IS PAGE-GLOBAL FOR THE FORMS THE PAGE ANSWERS, AND SCOPED FOR A BARE
-   * TAG. The second half has to be scoped: the insecure-options toggle writes its own label with
-   * `button.querySelector("span")`, and a page-global answer there would hand it the first span in
-   * the document and put that label somewhere else entirely. Scoped through the ancestor chain rather
-   * than through a child index, so nothing here keeps a second view of the tree.
+  /**
+   * Answers the page-global forms through the page and a bare tag within this element's subtree,
+   * so a toggle writing its own span label finds its own span.
    */
   querySelector(selector) {
     if (!this.ownerPage) {
@@ -237,11 +170,7 @@ class Element {
     nodes.forEach((node) => this.appendChild(node));
   }
 
-  // THE ONE MEMBER HERE NO ARM REACHES TODAY, kept with its reason rather than deleted with the rest:
-  // `readinessFieldName` falls back to it for a control that has neither a `for=` label nor a wrapping
-  // one, and the refusal naming the missing required fields is written out of that function. This page
-  // carries no such control, so the fallback is unreached; one added tomorrow would reach it, and a stub
-  // without this would answer that with a throw rather than with the field's id.
+  // Unreached today; readinessFieldName falls back to it for a control without a label.
   closest(selector) {
     for (let at = this; at; at = at.parentNode) {
       if (at.tag === selector) {
@@ -252,11 +181,7 @@ class Element {
   }
 }
 
-/**
- * One page. Its `querySelector` answers the three forms this path uses and REFUSES anything else, so
- * a selector the stub cannot resolve fails the run instead of quietly returning null - which the
- * code reads as "the element is not on the page" and renders nothing for.
- */
+/** One page whose querySelector answers the forms this path uses and throws on any other. */
 class Page {
   constructor(elements, labels) {
     this.elements = elements;
@@ -288,11 +213,7 @@ class Page {
     throw new Error("the stub does not resolve the selector " + selector);
   }
 
-  /*
-   * TAG LISTS AND ONE CLASS TOKEN, in DOCUMENT ORDER, because the wizard's whole reading of itself
-   * is ordinal: the panels ARE the steps and their order is the order of the steps. A stub that
-   * answered in any other order would let a renderer that shows the wrong panel pass.
-   */
+  /** Tag lists and one class token in document order, because the panels are the steps in order. */
   querySelectorAll(selector) {
     const token = /^\.([a-z][a-z0-9-]*)$/.exec(selector.trim());
     if (token) {
@@ -327,15 +248,14 @@ class Page {
   }
 }
 
-// ---------------------------------------------------------------------------
 // The fixture, read out of the shipped page.
-// ---------------------------------------------------------------------------
 
 /** Replaces every HTML comment with spaces, so a documented control is not a real one. */
 function withoutComments(html) {
   return html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
 }
 
+/** The value of `name="..."` on an opening tag, or an empty string. */
 function attr(tag, name) {
   const m = tag.match(new RegExp("(?<![-\\w])" + name + '="([^"]*)"'));
   return m ? m[1] : "";
@@ -371,12 +291,7 @@ function spanFrom(html, start) {
   return null;
 }
 
-/**
- * The label a field's name is read from, in both idioms the page authors and `readinessFieldName`
- * reads differently. Built from the page's own bytes, because restating the names here would give
- * this fixture a second copy of every label to drift against - and the refusal that names the
- * missing required fields names them by those labels.
- */
+/** The label each control's name is read from, built from the page's own markup in both idioms. */
 function labelsOf(html, controls) {
   const labels = new Map();
 
@@ -411,6 +326,7 @@ function labelsOf(html, controls) {
   return labels;
 }
 
+/** A label element holding the text and spans of the given inner markup. */
 function labelFrom(inner) {
   const label = new Element("label", "", "label");
   let at = 0;
@@ -432,12 +348,8 @@ function labelFrom(inner) {
 }
 
 /**
- * The Providers page as this stub sees it.
- *
- * THREE POPULATIONS, deduplicated on where each one starts in the markup: every form control, every
- * element carrying an id, and every element carrying a class token this wizard reads back. The third
- * is what the rail's fixture did not need: the step rows and the state spans inside them have no id,
- * and they are exactly what `renderWizard` walks.
+ * The Providers page as this stub sees it: every form control, every element with an id,
+ * and every element with a class token the wizard reads back.
  */
 function providersFixture() {
   const html = withoutComments(fs.readFileSync(PROVIDERS_PAGE, "utf8"));
@@ -482,11 +394,7 @@ function providersFixture() {
     remember(m.index, m[1], attr(m[0], "id"), m[1], classesOf(m[0]));
   }
 
-  // EVERY SPAN, AND THE REASON IS A SPAN NOBODY NAMED. Several controls on this page write their own
-  // label into a child span found by tag alone, and a fixture without those spans leaves the
-  // controller reaching for the text of null on a route the wizard goes through: `addProvider` resets
-  // the insecure-options toggle every time it opens the editor. They are collected rather than
-  // special-cased, so this stays a reading of the markup.
+  // Every span, because several controls write their own label into a child span found by tag.
   for (const m of html.matchAll(/<span\b[^>]*>/g)) {
     remember(m.index, "span", attr(m[0], "id"), "span", classesOf(m[0]));
   }
@@ -496,9 +404,7 @@ function providersFixture() {
     .map(([, entry]) => entry);
   const elements = entries.map((entry) => entry.el);
 
-  // Every id the wizard's controller reaches, ASSERTED against the markup rather than invented. A
-  // renamed region turns a render into a no-op that a fixture building its own regions would report
-  // as a pass.
+  // Every id the wizard's controller reaches, asserted against the markup.
   for (const id of [
     WIZARD,
     START,
@@ -521,10 +427,7 @@ function providersFixture() {
     }
   }
 
-  // THE STARTING STATE IS THE MARKUP'S OWN, read off each opening tag. A fixture that started the
-  // wizard open, or the editors open, would make an arm refuse for a reason the arm did not set up -
-  // and the wizard shipping `hidden` is load-bearing: it is what a page whose script never ran shows
-  // instead of a five-step list nothing can advance.
+  // The starting state is the markup's own; the wizard ships `hidden`.
   entries.forEach(({ el, span }) => {
     const tag = html.slice(span[0], html.indexOf(">", span[0]) + 1);
     el.hidden = tag.split(/[\s>]+/).includes("hidden");
@@ -534,9 +437,7 @@ function providersFixture() {
     }
   });
 
-  // THE ANCESTOR CHAIN, DERIVED: each element's parent is the SMALLEST span that strictly contains
-  // it. That is what makes the row carrying `aria-current` a reading of the page rather than a
-  // declaration here - move a state span out of its row and it lands on whatever really encloses it.
+  // Each element's parent is the smallest span that strictly contains it.
   entries.forEach(({ el, span }) => {
     let parent = null;
     let width = Infinity;
@@ -567,9 +468,7 @@ function providersFixture() {
   return new Page(elements, labelsOf(html, controls));
 }
 
-// ---------------------------------------------------------------------------
-// The reader. What the wizard ought to show, and every way it can be wrong.
-// ---------------------------------------------------------------------------
+// The reader: what the wizard ought to show, and every way it can be wrong.
 
 const catalogue = JSON.parse(fs.readFileSync(ENGLISH, "utf8"));
 
@@ -587,6 +486,7 @@ function says(key, params) {
   );
 }
 
+/** The state word a step row shows at `index` while the wizard is at `step`. */
 const STATE_WORD = (index, step) =>
   index < step
     ? says("config.wizard_state_done")
@@ -594,10 +494,7 @@ const STATE_WORD = (index, step) =>
       ? says("config.wizard_state_here")
       : says("config.wizard_state_todo");
 
-/**
- * Every way the wizard can disagree with `expected`, as a list of sentences. It reads the page and
- * never the module's own bookkeeping, so what it judges is what an administrator would see.
- */
+/** Every way the wizard disagrees with `expected`, read from the page rather than the module. */
 function inspectWizard(page, expected) {
   const refusals = [];
   const complain = (what) => refusals.push(what);
@@ -738,9 +635,7 @@ function inspectWizard(page, expected) {
   return refusals;
 }
 
-// ---------------------------------------------------------------------------
-// The calibration. A wizard that is right, then one broken wizard per refusal.
-// ---------------------------------------------------------------------------
+// The calibration: a wizard that is right, then one broken wizard per refusal.
 
 /** A hand-built wizard, correct at `step`, before any arm breaks one thing in it. */
 function handWizard(step, open) {
@@ -783,6 +678,7 @@ function handWizard(step, open) {
   return new Page(elements, new Map());
 }
 
+/** Runs the reader over the correct hand wizards and over one broken wizard per refusal. */
 function calibrate() {
   const arms = [];
   const record = (name, mustRefuse, refusals) =>
@@ -874,9 +770,7 @@ function calibrate() {
     );
   }
   {
-    // A STEP THAT NEVER STOPS SAYING "you are here". The rows are the only thing on screen that says
-    // where the wizard is once a panel is open, so a state word that does not move is the quiet half
-    // of a stepper that does not move.
+    // A state word that never moves off "you are here".
     const page = handWizard(2, true);
     page.querySelectorAll("." + STATE)[0].textContent = says(
       "config.wizard_step_state",
@@ -936,9 +830,7 @@ function calibrate() {
     );
   }
   {
-    // THE REFUSAL WRITTEN INTO A HIDDEN REGION, which is the shape renderUnsavedNotice's comment is
-    // about: a `hidden` element is out of the accessibility tree, so the sentence exists and is
-    // announced to nobody. It reads, in the DOM, exactly like a refusal that worked.
+    // The refusal written into a hidden region, which no one hears.
     const page = handWizard(1, true);
     const box = page.querySelector("#" + REFUSAL);
     box.textContent = says("config.wizard_refuse_protocol");
@@ -982,10 +874,9 @@ function calibrate() {
   return arms;
 }
 
-// ---------------------------------------------------------------------------
 // The arms over the real page.
-// ---------------------------------------------------------------------------
 
+// Imports the shipped sso-core.js as a data URL module, since this tree has no package.json.
 async function loadCore() {
   const source = fs.readFileSync(CORE, "utf8");
   const url =
@@ -1012,9 +903,7 @@ function installHost(host) {
     alert() {},
     processPluginConfigurationUpdateResult() {},
   };
-  // `confirm` IS RECORDED AND ITS ANSWER IS THE ARM'S, because the protocol switch is the one place
-  // the wizard can destroy typed work and the guard is the confirmation. An arm that could not
-  // decline one would prove the dialog appears and nothing about what declining does.
+  // `confirm` is recorded and answered by the arm, so a decline can be driven.
   globalThis.window = {
     confirm: (text) => {
       host.confirms.push(text);
@@ -1024,9 +913,7 @@ function installHost(host) {
     document: globalThis.document,
   };
   globalThis.navigator.clipboard = { writeText: () => Promise.resolve() };
-  // EVERY CALL IS COUNTED. The wizard's claim is that it issues no request of its own - the save and
-  // the test are the editor's buttons - so a step that reached the network is refused here by the
-  // count rather than by a reading of the file.
+  // Every call is counted, because the wizard issues no request of its own.
   globalThis.ApiClient = new Proxy(
     {},
     {
@@ -1077,6 +964,7 @@ function nameOf(core, page, id) {
   return core.readinessFieldName(page, id);
 }
 
+/** Runs the calibration and answers its arms, or null when any disagreed. */
 function main() {
   const arms = calibrate();
   const bad = arms.filter((arm) => !arm.ok);
@@ -1100,6 +988,7 @@ function main() {
   return arms;
 }
 
+/** Runs the calibration, then every arm over the real page, and exits non-zero on a refusal. */
 async function run() {
   const arms = main();
   if (arms === null) {
@@ -1127,8 +1016,7 @@ async function run() {
   const opened = async () => {
     const page = providersFixture();
     controllers.providers(page);
-    // The controller's own load is a promise chain; let it settle so an arm judges a page that has
-    // finished arriving rather than one mid-fill.
+    // Let the controller's load settle before an arm judges the page.
     await new Promise((resolve) => setImmediate(resolve));
     return page;
   };
@@ -1213,8 +1101,7 @@ async function run() {
     }),
   });
 
-  // ONE FIELD SHORT IS STILL A REFUSAL, AND IT NAMES THAT ONE. A gate that only reported "something
-  // is missing" would send an administrator back to a form of fifty-seven controls.
+  // One field short is still a refusal, and it names that field.
   required.slice(0, -1).forEach((id) => {
     page.querySelector("#" + id).value = "value-" + id;
   });
@@ -1382,9 +1269,7 @@ async function run() {
       );
     }
 
-    // THE SAML HALF OF STEP THREE IS ITS OWN SENTENCE, because its address is computed in the client
-    // from the provider name and no save is involved. Telling a SAML administrator to press Save
-    // would send them to a button that does not fill the field they are looking at.
+    // The SAML half of step three has its own sentence, because its address is computed client-side.
     core.readinessSpecs.saml.requiredIds.forEach((id) => {
       switching.querySelector("#" + id).value = "value";
     });
@@ -1399,13 +1284,8 @@ async function run() {
     });
   }
 
-  // ---- an editor closed mid-wizard takes the wizard's answer with it, AND THE REFUSAL GOES WHERE
-  // THE CONTROLS IT NAMES ARE ----
-  //
-  // Both loaders hide the editor when their read fails, and a save chains a load, so this pairing is
-  // ordinary rather than exotic. The sentence names the two pick buttons, and those live on the FIRST
-  // panel; written on the step the administrator happened to be on, it pointed at buttons no panel was
-  // showing.
+  // ---- an editor closed mid-wizard takes the wizard's answer with it ----
+  // The refusal names the pick buttons, so it is written on the first panel where they live.
   {
     const closing = await opened();
     press(closing, START);
@@ -1427,12 +1307,7 @@ async function run() {
   }
 
   // ---- a step already passed can stop being true, and the last step notices ----
-  //
-  // THE SEQUENCE IS ORDINARY AND IT IS THE ONE THAT WAS WRONG. An administrator who reaches the last
-  // step and then clicks a saved provider's card is handed an editor `resetEditor` has just emptied,
-  // and the Test Connection outcome goes with it. On the first version of this wizard, which judged
-  // the step it was handed and nothing before it, Finish accepted, closed the wizard and wrote "The
-  // provider is tested, enabled and saved" about a provider whose test this page had just forgotten.
+  // Clicking a saved provider's card at the last step empties the editor and its test outcome.
   {
     const reloaded = await walkedToTheLastStep();
     core.openProvider(reloaded, "another");
@@ -1440,10 +1315,7 @@ async function run() {
     reloaded.querySelector("#Enabled").checked = true;
     core.markPageClean(reloaded);
     press(reloaded, FINISH);
-    // The first thing the walk meets, which is the required fields: `resetEditor` empties the form
-    // before the load refills it, and this client holds no provider called "another" to refill from.
-    // Which sentence it is matters less than that the wizard did not finish; the arm below pins the
-    // half this one cannot reach.
+    // resetEditor empties the form first, so the required-fields refusal is what the walk meets.
     check("reloaded-finish", reloaded, {
       open: true,
       step: 4,
@@ -1459,8 +1331,7 @@ async function run() {
   // ---- and the same walk with only the test outcome gone ----
   {
     const forgotten = await walkedToTheLastStep();
-    // The one value `resetEditor` writes on its way through, set here so the arm reaches the step
-    // whose condition it is about rather than the first one the reload also broke.
+    // The one value resetEditor writes, so the arm reaches the test step.
     core.readinessTestState.oid = null;
     forgotten.querySelector("#Enabled").checked = true;
     core.markPageClean(forgotten);
@@ -1473,10 +1344,6 @@ async function run() {
   }
 
   // ---- a green test stops speaking when the fields it was about move ----
-  //
-  // THE FLAG SURVIVES EVERY KEYSTROKE, which is right for the rail and wrong for a gate. Reaching the
-  // last step legitimately and then putting a typo in the endpoint left a wizard that finished on the
-  // strength of a run which had asked about a different address, and said so in those words.
   {
     const edited = await walkedToTheLastStep();
     edited.querySelector("#OidEndpoint").value = "https://typo.example/";
@@ -1489,8 +1356,7 @@ async function run() {
       refusal: says("config.wizard_refuse_test_stale"),
     });
 
-    // AND IT SPEAKS AGAIN once the field is what it was, so the gate is about the subject rather than
-    // about any edit ever having happened.
+    // It speaks again once the field is what it was.
     edited.querySelector("#OidEndpoint").value = "value-OidEndpoint";
     press(edited, FINISH);
     check("stale-test-restored", edited, {
@@ -1501,10 +1367,7 @@ async function run() {
   }
 
   // ---- ticking Enabled is not a reason to re-test ----
-  //
-  // The subject is the spec's REQUIRED ids and not the whole form, and this is the half that says so:
-  // a gate keyed on every control would send an administrator back to Test Connection for the tick the
-  // last step asks them to make.
+  // The subject is the spec's required ids, not the whole form.
   {
     const enabling = await walkedToTheLastStep();
     enabling.querySelector("#Enabled").checked = true;
@@ -1518,10 +1381,7 @@ async function run() {
   }
 
   // ---- a provider a configuration source owns is not enabled from here ----
-  //
-  // The freeze (#1104) writes `disabled` on every control of the form, `Enabled` and Save included, so
-  // the ordinary last-step sentence named two actions the administrator could not take and gave no
-  // reason. The wizard's own buttons are outside both forms, which is why Back and Leave stay live.
+  // The freeze (#1104) disables every form control, so the last step says why instead.
   {
     const frozen = await walkedToTheLastStep();
     frozen.querySelector("#Enabled").disabled = true;
@@ -1540,11 +1400,7 @@ async function run() {
   }
 
   // ---- a row removed by a button is work, and the dirty class does not know it ----
-  //
-  // `handleRoleMappingRemove` calls `row.remove()` and dispatches nothing, so the class stays off while
-  // the form has changed - which the refresh guard two hundred lines above already refuses to trust for
-  // exactly this decision. The protocol switch empties the editor, so it has to ask on the reading that
-  // sees it.
+  // handleRoleMappingRemove dispatches nothing, so the protocol switch asks on the baseline reading.
   {
     const removing = await opened();
     press(removing, START);
@@ -1575,9 +1431,6 @@ async function run() {
   }
 
   // ---- both protocols arrive with the provider switched off ----
-  //
-  // Half of them start from `addSamlProvider` rather than `addProvider`, and the fail-closed claim is
-  // about both.
   {
     const saml = await opened();
     press(saml, START);
@@ -1591,13 +1444,7 @@ async function run() {
   }
 
   // ---- `hidden` has to hide, and on this dashboard it does not on its own ----
-  //
-  // THE ONE ARM HERE THAT READS A STYLESHEET, because the property it is about is a cascade and the
-  // stub has no cascade. The browser's `[hidden] { display: none }` is a USER-AGENT rule and loses to
-  // any author rule for the same property; jellyfin-web declares `display: inline-flex` on
-  // `.emby-button` and ships no `[hidden]` rule, so Next, Finish and the start button stayed on screen
-  // and stayed pressable while every property above read them as hidden. What that cost was the whole
-  // gate: Finish accepted on step one. This refuses the removal of the rule that repairs it.
+  // jellyfin-web's `.emby-button` display rule beats the user-agent `[hidden]` rule, so the stylesheet must carry one.
   {
     const css = fs.readFileSync(
       path.join(root, "SSO-Auth", "Web", "style.css"),
@@ -1621,14 +1468,7 @@ async function run() {
   }
 
   // ---- the stepper is painted again once the catalogue lands ----
-  //
-  // A SECOND ARM THAT READS BYTES, and for the same reason as the one above: what it is about is a
-  // dynamic import this stub does not perform. The wizard's step rows are the one thing on this
-  // surface a script writes BEFORE the catalogue can arrive, because Overview's card opens the wizard
-  // inside the controller, and tr() answers in English while that import is in flight. `applyTo`
-  // cannot repair them: it rewrites marked markup and the rows carry no marker. So the repaint is the
-  // repair, and this refuses its removal. What it cannot say is whether the repaint produces the right
-  // German - that is the walk, in a de-DE client.
+  // The step rows are written before the catalogue can arrive and carry no marker applyTo can rewrite.
   {
     const source = fs.readFileSync(CORE, "utf8");
     const at = source.indexOf("loadCatalog().then(");
@@ -1666,15 +1506,7 @@ async function run() {
   }
 
   // ---- the deep link on a view the dashboard hands back from its cache (#1721) ----
-  //
-  // The walk of 2026-09-13 found the card opening the Providers tab with the wizard closed on every
-  // press after the first in a session: the flagged address gets a view of its own on the first press,
-  // and after Leave or Finish the next press hands that view back from the cache, where no controller
-  // runs and the flag was read only in the controller. What does fire on that return is `viewshow`,
-  // so the flag is read there too, and
-  // only while the wizard is closed, because nothing strips the flag and a wizard restarted on every
-  // return would throw away the step the administrator had reached. One arm per half of that sentence:
-  // a closed wizard opens, an open one keeps its step, and a show without the flag opens nothing.
+  // A cached view runs no controller, so `viewshow` reads the flag too, and only while the wizard is closed.
   {
     const settled = () => new Promise((resolve) => setImmediate(resolve));
 

@@ -3,51 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL self-service linking page of the shipped SSO-Auth/Web/linking.js
- * and refuses each way its unlink can act without asking or refuse without saying
- * why (#1731).
- *
- * WHY THIS IS A RUNNING PROOF. Both properties are decisions rather than strings.
- * Whether the page ASKS before the press depends on counting the links that could
- * still sign the holder in, over rows built by two different branches; whether it
- * SAYS why afterwards depends on telling one 403 from another 403 by the body the
- * endpoint wrote. A rule reading these assets as text sees a `window.confirm` call
- * and a catalogue key and can say nothing about either question, and both fail
- * silently: a page that never asks looks exactly like one whose condition is
- * wrong, and a refusal shown as the generic banner looks exactly like a server
- * that fell over.
- *
- * A LINK ON A SWITCHED-OFF PROVIDER IS NOT A WAY IN, in both directions, because
- * that is the reading the server's refusal takes (#1720). A leftover link on a
- * provider somebody disabled must not keep the page quiet about the removal of
- * the last working one - that is the migration case the review of #1720 found -
- * and removing such a link on its own must not raise a question at all, because
- * it takes nothing away. Two arms below, one per direction.
- *
- * THE REFUSAL IS TOLD APART BY THE SENTENCE THE ENDPOINT WROTE, and this drives
- * the two 403s that route actually answers: the stranding refusal, which gets its
- * own sentence, and a time-limited link, which is a different refusal and must
- * fall to the generic banner rather than tell the holder that their account takes
- * no password. The bound is written where it is read: a reword on the server side
- * silently returns the generic banner, which is the harmless direction, and this
- * gate is what catches the reword rather than a user.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the page
- * touches - createElement, append/appendChild, textContent, dataset, classList,
- * addEventListener, remove, and querySelector/querySelectorAll by id, class and
- * one data attribute. It is not a browser: no layout, no CSS, no focus and no
- * event dispatch, so it cannot say that the banner is visible on screen or that
- * the confirmation is reachable by keyboard. What it can say is which requests
- * were sent, whether a question was asked, and which sentence was written - which
- * is what the properties above are about.
- *
- * THE SENTENCES ARE READ FROM THE CATALOGUE AND NOT FROM THIS FILE. The last arm
- * loads de.json instead of en.json and requires the question to change, so a
- * sentence hard-coded into the page - the drift this page has had before - is
- * refused rather than reviewed.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-account-filter.js and tools/ui-pending-approvals.js.
+ * Drives the shipped linking.js self-service page and refuses an unlink that acts
+ * without asking or is refused without saying why (#1731). A link on a disabled
+ * provider is not a way in (#1720), and every sentence comes from the catalogue.
+ * Run with `node tools/ui-self-service-unlink.js`; no dependencies.
  */
 
 import fs from "node:fs";
@@ -58,10 +17,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.join(HERE, "..", "SSO-Auth", "Web");
 const LOCALIZATION = path.join(HERE, "..", "SSO-Auth", "Localization");
 
-// The endpoint's own words for the stranding refusal, quoted from the controller so this gate and the
-// page cannot drift apart from the server behind each other's back. Read from the tree rather than
-// typed here: the page matches the server's sentence, so a reword that changes the server without the
-// page is exactly the state this tool exists to fail on, and a hand copy here would hide it.
+// The stranding refusal's sentence, read from the controller so a server-side reword fails here.
 const CONTROLLER = path.join(
   HERE,
   "..",
@@ -82,9 +38,7 @@ function catalogue(name) {
 const faults = [];
 const refuse = (leg, detail) => faults.push(leg + ": " + detail);
 
-// ---------------------------------------------------------------------------
 // The stub.
-// ---------------------------------------------------------------------------
 
 class Element {
   constructor(tag) {
@@ -180,10 +134,8 @@ class Element {
 }
 
 /*
- * The three selector shapes this page uses, and nothing else: `#id`, `.class`, and
- * `.class[data-name="value"]`. Deliberately not a selector engine - a wider one would
- * quietly accept a selector the page does not write and answer it differently from a
- * browser, which is the kind of stub that proves the stub.
+ * The three selector shapes the page uses: `#id`, `.class` and `.class[data-name="value"]`.
+ * Deliberately narrow, so the stub never answers a selector the page does not write.
  */
 const SELECTOR = /^(?:#([\w-]+)|\.([\w-]+)(?:\[data-([\w-]+)="(.*)"\])?)$/;
 
@@ -208,8 +160,7 @@ function matches(node, selector) {
   );
 }
 
-// The three banners the page owns live on the document, not inside the view, exactly as the served
-// markup authors them, so a page that filled the wrong one is visible here.
+// The page's banners live on the document, as the served markup authors them.
 const banners = {
   "sso-linking-error": new Element("div"),
   "sso-linking-refused": new Element("div"),
@@ -228,9 +179,8 @@ globalThis.document = {
 
 globalThis.CSS = { escape: (value) => String(value) };
 
-// What each arm sets: the answer to the confirmation, what a DELETE does, and what was asked and sent.
-// `links` is what the links feed answers AFTER a removal (#1882): null is the feed as rendered, a
-// function is the answer the sign-out leaves behind. Reset by render().
+// What each arm sets, and what the page asked and sent. `links` is the links feed after a removal
+// (#1882): null is the rendered feed, a function the answer after the sign-out. Reset by render().
 const answers = {
   confirm: true,
   delete: () => Promise.resolve({}),
@@ -256,8 +206,7 @@ globalThis.window = {
 
 const USER = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 
-// The feeds the page loads from: the enabled-provider names per protocol, and the links the holder
-// holds. An arm sets these before it renders.
+// The feeds the page loads: enabled-provider names per protocol and the holder's links.
 const server = { names: { oid: [], saml: [] }, links: { oid: {}, saml: {} } };
 
 globalThis.ApiClient = {
@@ -291,9 +240,7 @@ const culture = { values: catalogue("en") };
 globalThis.fetch = () =>
   Promise.resolve({ ok: true, json: () => Promise.resolve(culture.values) });
 
-// ---------------------------------------------------------------------------
 // Rendering one page.
-// ---------------------------------------------------------------------------
 
 const linking = await import(pathToFileURL(path.join(WEB, "linking.js")).href);
 
@@ -313,13 +260,8 @@ function viewWith() {
 }
 
 /*
- * Builds the page the way a browser does - the module's own entry point, its own
- * catalogue load, its own two feeds - and hands back the checkbox rows it drew.
- *
- * The awaits are the page's own promise chain settling: `loadCatalog().then()` and
- * the two feeds inside it. Draining the microtask queue a few times is what stands
- * in for the browser's turn, and a row that never appears fails the arm reading it
- * rather than hanging here.
+ * Builds the page through its own entry point, catalogue load and feeds, and returns
+ * the checkbox rows it drew. Draining microtasks stands in for the browser's turn.
  */
 async function render(scenario) {
   server.names = scenario.names;
@@ -378,8 +320,7 @@ const TWO_WAYS_IN = {
   },
 };
 
-// The migration shape: a new provider is up and the old one is switched off, so the holder still sees
-// two rows and only one of them can sign them in.
+// The migration shape: two rows, only one of them on an enabled provider.
 const ONE_ENABLED_ONE_DISABLED = {
   names: { oid: ["keycloak"], saml: [] },
   links: {
@@ -393,9 +334,7 @@ function rejectWith(status, body) {
   return () => Promise.reject({ status, text: () => Promise.resolve(body) });
 }
 
-// ---------------------------------------------------------------------------
 // The legs.
-// ---------------------------------------------------------------------------
 
 const english = catalogue("en");
 const german = catalogue("de");
@@ -416,9 +355,7 @@ const german = catalogue("de");
       "linking.js no longer matches the endpoint's own words, so the stranding refusal cannot be told apart from the other 403s this route answers",
     );
   }
-  // The SECOND clause, which is the only thing separating the two refusals that share the opening above
-  // (#1732). Losing it in either tree collapses the administrator's refusal onto the user's sentence,
-  // which tells the last administrator on the server to go and ask an administrator.
+  // The second clause separates the administrator's refusal from the user's (#1732).
   if (!/no other administrator on this server/.test(controller)) {
     refuse(
       "server-sentence",
@@ -454,22 +391,8 @@ const german = catalogue("de");
 /*
  * ---- Arm: the question names the consequence and never promises the refusal ----
  *
- * THIS IS A NEGATIVE ASSERTION ON WHAT THE ROW SAYS, and it is here because the arm
- * above only asks that the page shows the ROW: a row rewritten to promise a refusal
- * would keep every other arm green. The first draft of this change promised one, and
- * it is false in the populations the server's guard is documented not to cover - an
- * administrator, exempt from it (#1732), and an account sealed by a plugin version
- * that kept no minted-password record, which is the residual #1733 ships with. For
- * those the removal goes through, so a dialog whose only named outcomes are benign
- * turns a hesitant press into a confident one on the press that costs the account.
- *
- * AN ACCOUNT CARRYING A RECORDED MINTED PASSWORD IS NO LONGER ONE OF THEM (#1733):
- * the guard reads the record and refuses that removal, so it is named here as what
- * moved rather than left in a list it has left.
- *
- * The vocabulary is per language and is the smallest set that catches the sentence
- * that was written rather than every way of writing it - a floor, like every word
- * list, and the review is what catches a shape nobody has written yet.
+ * The guard does not cover administrators (#1732) or accounts without a minted-password
+ * record (#1733), so a row promising a refusal would mislead exactly there.
  */
 {
   const PROMISES_A_REFUSAL = {
@@ -570,14 +493,8 @@ const german = catalogue("de");
 /*
  * ---- Arm: a page whose rows may no longer be true stops offering the button ----
  *
- * THE COURTESY IS COUNTED OFF THE RENDERED ROWS, so a page that has stopped agreeing
- * with the server can skip it in silence. Two ticked links, the first removed and the
- * second failing: `Promise.all` reports the rejection, the reload never runs, and both
- * rows stay on screen although one link is gone. A retry of the failed one would then
- * be counted as one of two ways in and go out with no question at all - which is the
- * lockout press, without the sentence this whole change exists to show. Measured on the
- * shipped page during the review of this change, which is why it is an arm and not a
- * sentence in a comment.
+ * After a partial failure the rows disagree with the server, and a retry counted off
+ * them could remove the last way in without the question.
  */
 {
   const page = await render(TWO_WAYS_IN);
@@ -617,13 +534,8 @@ const german = catalogue("de");
 /*
  * ---- Arm: the one shape that keeps the control is the one the server declined ----
  *
- * THE EXEMPTION IS NOT AN AFTERTHOUGHT AND IT IS THE COMMON CASE. A SINGLE request the
- * server answered by declining changed nothing, so the rows are still exactly true, and
- * taking the control away there would refuse the largest refusal population the very
- * tidy-up the refusal sends them to: removing a leftover link on a switched-off
- * provider is never refused, and is how somebody clears the state this page shows.
- * Driven with the migration shape, because that is where a holder has something left to
- * remove after being refused.
+ * A single declined request changed nothing, so the rows stay true and the holder can
+ * still remove a leftover link on a switched-off provider.
  */
 {
   const page = await render(ONE_ENABLED_ONE_DISABLED);
@@ -686,11 +598,7 @@ const german = catalogue("de");
 }
 
 // ---- Arm: the administrator who would strand the SERVER gets the other sentence (#1732) ----
-//
-// The two refusals share their opening clause, so an arm that only proved "a 403 gets a refusal
-// sentence" would pass with the page showing either of them. What this pins is that the page reads the
-// clause that separates them: the reader here is the last administrator who can sign in, and the user
-// sentence beside it tells them to ask an administrator to fix it.
+// Both refusals share an opening clause, so this pins the clause that separates them.
 {
   const page = await render(ONE_WAY_IN);
   answers.confirm = true;
@@ -779,27 +687,15 @@ const german = catalogue("de");
 /*
  * ---- Arm: removing the last way in says the sign-out happened, not that something went wrong ----
  *
- * THE SERVER ENDS EVERY SESSION OF THE ACCOUNT the moment its last SSO link is gone, which is what the
- * question before the press says will happen. The page used to reload, and the reloaded page had no
- * session to draw with: both feeds answered 401 and it showed the generic banner, a sentence saying
- * something went wrong and telling the holder to reload a page that fails the same way until they
- * sign in again (#1882). Measured on the 5.1.1 candidate. So after a removal the page asks the links
- * feed once, and a 401 there is answered with the signed-out sentence and no reload. Any other answer
- * is a session still alive and the page reloads as before.
- *
- * AFTER EVERY REMOVAL AND NOT ONLY AFTER THE LAST WAY IN, because the question before the press counts
- * links on enabled providers while the server revokes when no link is left anywhere. A holder whose
- * only link sits on a switched-off provider is asked nothing, removes it and is signed out all the
- * same, which the review of the change found and the arm below drives.
+ * The server ends every session once the last SSO link is gone, so after any removal the page
+ * probes the links feed and answers a 401 with the signed-out sentence and no reload (#1882).
  */
 {
   const page = await render(ONE_WAY_IN);
   answers.confirm = true;
   answers.delete = () => Promise.resolve({});
   answers.links = () => Promise.reject({ status: 401 });
-  // Both other banners are up from an earlier press, so the arm can see them go down: a page saying
-  // that something went wrong, or that the server declined, beside the sentence that the removal did
-  // what the question said, says nothing.
+  // Both other banners start up, so the arm can see them go down.
   banners["sso-linking-error"].hidden = false;
   banners["sso-linking-refused"].hidden = false;
   await press(page, ["alice@example.com"]);
@@ -838,8 +734,7 @@ const german = catalogue("de");
   }
 }
 
-// The C1 shape: the only link left sits on a switched-off provider, so the question is not asked, and
-// the server still revokes because no link is left anywhere.
+// The only link left sits on a switched-off provider: no question, but the server still revokes.
 {
   const page = await render({
     names: { oid: [], saml: [] },

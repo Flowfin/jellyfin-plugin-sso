@@ -1,16 +1,12 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Client-side application of the plugin's UI string catalog (#913). The server owns the culture fallback:
-// it resolves the caller's Accept-Language and returns a complete key->value map from SSOViews/i18n. This
-// module fetches that map once and applies it to elements marked `data-i18n="<key>"`, and exposes `t()` for
-// strings built in JavaScript. It degrades to the markup's built-in English if the fetch fails, so a
-// network error never blanks the page.
+// Applies the server-resolved UI string catalog to `data-i18n` markup and exposes `t()` for strings built
+// in JavaScript (#913). A failed fetch leaves the markup's built-in English standing.
 
 let catalog = {};
 
-// Substitute {name} placeholders from params; an absent param is left verbatim so a mismatched catalog
-// entry never drops text.
+// Substitutes {name} placeholders from params, leaving an absent one verbatim so no text is dropped.
 function format(text, params) {
   if (!params) {
     return text;
@@ -21,10 +17,7 @@ function format(text, params) {
   );
 }
 
-// Look up a key. When it is not in the loaded catalog, most importantly when the fetch failed and the
-// catalog is empty, fall back to the caller's built-in English default (the same role the hard-coded text
-// on data-i18n markup plays), and only to the key itself if no default was given, so a missing string is
-// never blank. Placeholders are substituted in either case.
+// Looks up a key, falling back to the given English default and then to the key, so a string is never blank.
 export function t(key, params, fallback) {
   const value = Object.prototype.hasOwnProperty.call(catalog, key)
     ? catalog[key]
@@ -32,30 +25,19 @@ export function t(key, params, fallback) {
   return format(value, params);
 }
 
-// The attributes a data-i18n-<attr> marker may localize. Deliberately an allowlist of inert,
-// user-visible attributes rather than a generic setter: a generic one would let a markup typo (or a
-// future edit) drive href, src, or an event handler through the same path.
+// The attributes a data-i18n-<attr> marker may localize: an allowlist of inert attributes, so no markup
+// typo can drive href, src or an event handler.
 const LOCALIZABLE_ATTRIBUTES = ["title", "placeholder", "aria-label"];
 
-// The marker for a SENTENCE THAT HOLDS MARKUP (#1529), and it is deliberately not spelled
-// `data-i18n-<something>`: that shape means "localize the attribute of this name", the allowlist above
-// is what keeps it safe, and a marker that borrowed the shape without being an attribute would make
-// that rule ask a question it no longer means.
+// The marker for a sentence that holds markup (#1529); not spelled data-i18n-<attr>, which names an attribute.
 const PARTS_MARKER = "data-i18n-parts";
 
-// A slot in a parts value. `{0}` stands for this element's FIRST child element, `{1}` for its second,
-// and so on in document order.
+// A slot in a parts value: `{0}` is the element's first child element, `{1}` its second, in document order.
 const SLOT = /\{(\d+)\}/g;
 
 /*
- * Splits a parts value into the pieces to write and the children to keep, or returns null if the value
- * does not describe this element.
- *
- * WHY THIS REFUSES RATHER THAN DOING ITS BEST. A value that names four slots applied to an element with
- * three children would silently drop a `<code>` sample out of a sentence about recovering from a
- * lockout. Leaving the English standing is a visible, correct fallback; a half-assembled sentence is
- * neither. So every index must be in range and each one must appear exactly once - which also refuses a
- * value that names the same child twice, where one copy would have to be a clone and this never clones.
+ * Splits a parts value into text pieces and kept children, or returns null if it does not fit the element.
+ * Every index must be in range and used exactly once, so the English stays rather than a half-built sentence.
  */
 function plan(value, childCount) {
   const tokens = [];
@@ -78,14 +60,8 @@ function plan(value, childCount) {
 }
 
 /*
- * Writes a parts value into one element.
- *
- * NOTHING HERE IS PARSED AS MARKUP AND NOTHING IS CLONED. The children are the element's own nodes,
- * held in an array while the element is emptied and then put back - so they keep their identity, their
- * own content, and any listener on them, and the catalog can reorder them without being able to create
- * one. The only thing built from the catalog is a text node, through createTextNode, which cannot carry
- * markup by construction. That is the same posture as the attribute allowlist above and for the same
- * reason: a localization file is data, and data never becomes structure here.
+ * Writes a parts value into one element by reordering its own children around text nodes.
+ * Nothing is parsed as markup or cloned, so catalog data never becomes structure.
  */
 function applyParts(el, value) {
   const children = [...el.children];
@@ -102,53 +78,27 @@ function applyParts(el, value) {
   el.replaceChildren(...built);
 }
 
-// ---- Condensed help (#1662, stage 2 of the 4.4 surface planned on #1528) ----
+// Condensed help (#1662, #1528).
 
-// A page opts INTO the rule by marking the container it applies inside, which is also the container the
-// focus is watched on and the one the rail card is looked for under. An opt-in rather than "every help
-// text on every page" because the stage moves the pages one slice at a time: the Providers page carries
-// 112 of the help sites this tree holds and is the slice after this one, so a rule reaching it early
-// would move those texts in a change whose reviewer was handed the other twenty.
+// The attribute a page sets on the container the condensed-help rule applies inside; an opt-in per page.
 const CONDENSE_ROOT = "data-sso-condensed-help";
 
-// Set on a container whose focus listener is attached, so a second applyTo() rewrites the sentences
-// without adding a second listener that would answer one focus twice.
+// Set on a container once its focus listener is attached, so a second applyTo() adds no second listener.
 const CONDENSE_WIRED = "data-sso-condensed-help-wired";
 
-// A terminator with something after it. A terminator at the very end of a value is not a split - it is
-// the end of a text holding one sentence, and such a text has nothing to hide.
+// A sentence terminator with something after it; one at the very end of a text is not a split.
 const SENTENCE_END = /[.!?](?=\s)/g;
 
-// An abbreviation, and nothing else: single LETTERS joined by dots. `z`, `B`, `e.g`, `i.e`, `u.a`. This
-// is what separates an abbreviation's dot from a sentence's, and it is deliberately NOT "the token holds
-// a dot": these help texts end sentences with dotted identifiers like
-// Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider, whose segments are words, and a
-// rule refusing every dotted token would leave those texts unsplit with no visible sign of it.
-//
-// `\p{L}` RATHER THAN `\w`, because `\w` is ASCII and the German catalogue is not. With `\w` the tail of
-// "Das heißt" is "t" - one word character, an abbreviation by this rule - so the sentence was not split
-// at all and the whole text stood under the field, which is the exact state this stage removes. Found by
-// the review of 2026-09-12 on constructed German; nothing in de.json trips it today, and "heißt" and
-// "Größe" are ordinary enough words that nothing keeps it that way.
+// An abbreviation: single letters joined by dots (`z`, `e.g`, `u.a`), so dotted identifiers still split.
+// `\p{L}` rather than `\w` so non-ASCII words in the German catalogue are not read as initials.
 const INITIALS = /^(?:\p{L}\.)*\p{L}$/u;
 
-// The LETTERS-AND-DOTS tail of what precedes a terminator, which is the only thing the rule above is
-// about. NOT the whole non-space run: a help text once wrote `(e.g.` with the bracket glued on,
-// `(e.g` is not a chain of initials, and the lead came out as "...authentication-context references
-// (e.g." - a fragment ending mid-abbreviation that every later check accepts, because it is still a
-// prefix of the text. Stopping at the first non-letter also settles the two cases a wider tail gets
-// wrong in the other direction: "Sende acr-1." and "Nutze SAML 2.0." leave an EMPTY tail, which is no
-// abbreviation, so both split where a reader expects them to.
+// The letters-and-dots tail before a terminator, the only part the abbreviation rule looks at.
 const WORD_TAIL = /([\p{L}.]*)$/u;
 
 /*
- * The first sentence of a text, or null when the text holds only one.
- *
- * NULL RATHER THAN THE WHOLE TEXT, and the difference is what the caller does with it. A fold whose
- * summary promises the full text and whose body repeats the line above it costs a click and gives
- * nothing back, so a block whose text has come to hold one sentence shows that sentence and hides the
- * fold. A caller handed the whole text back would have to compare lengths to find that case, which is
- * the same test written where it is easier to get wrong.
+ * Returns the first sentence of a text, or null when the text holds only one.
+ * Null lets the caller hide a fold that would only repeat the line above it.
  */
 function firstSentence(text) {
   SENTENCE_END.lastIndex = 0;
@@ -166,15 +116,13 @@ function firstSentence(text) {
   return null;
 }
 
-// Every element under `root` matching `selector`, as an array.
+// Returns every element under `root` matching `selector`, as an array.
 function all(root, selector) {
   return [...root.querySelectorAll(selector)];
 }
 
-// The nearest ancestor, `el` itself included, for which `test` holds - or null. A parent walk rather
-// than Element.closest: what it is given is a map lookup rather than a selector, and keeping the DOM
-// surface this module needs small is what lets the whole rule be driven from a stub by
-// tools/ui-condensed-help.js instead of being believed.
+// Returns the nearest ancestor, `el` included, for which `test` holds, or null.
+// A parent walk rather than Element.closest keeps the DOM surface small enough for tools/ui-condensed-help.js to stub.
 function nearest(el, test) {
   for (let at = el; at && at !== document; at = at.parentNode) {
     if (test(at)) {
@@ -184,18 +132,14 @@ function nearest(el, test) {
   return null;
 }
 
+// Whether `el` carries the class `name`.
 function hasClass(el, name) {
   return el.classList !== undefined && el.classList.contains(name);
 }
 
 /*
- * The field a help block belongs to: the nearest container the page draws around one control, and the
- * block's own parent where the page draws neither.
- *
- * THE SAME RULE tools/ui-help-census.js MEASURES "elsewhere" WITH, and writing it the same way is the
- * point. The census refuses a help text that moved outside the field naming it; this decides which
- * field a focus belongs to. Two different answers to "which field is this" would let the rail show a
- * text for a field the census says it does not belong to.
+ * Returns the field a help block belongs to: the nearest input or checkbox container, else the block's parent.
+ * It is the same rule tools/ui-help-census.js measures with, so both agree on which field a text belongs to.
  */
 function fieldOf(help) {
   return (
@@ -208,33 +152,9 @@ function fieldOf(help) {
 }
 
 /*
- * Writes the sentence under one field from the text behind its fold.
- *
- * THE ONE THING THAT IS NOT IN THE MARKUP, and that is the whole of decision D1 on #1528. The fold, its
- * summary and the whole text are authored on the page, so a reader whose script never arrived still
- * gets every word - closed, one click away, named by a catalogue row. What needs a runtime is the
- * SPLIT: the alternative was 109 short sentences hand-written in two languages, a German wall in front
- * of the reader before anything was visible. So the lead is derived here, from the body's own text,
- * which means it is derived from whatever language the pass above just wrote and never from a copy
- * somebody has to keep in step.
- *
- * The fold is hidden where the body holds one sentence, so the promise its summary makes - that there
- * is more behind it - is never made falsely.
- *
- * A ONE-SENTENCE BODY IS MOVED RATHER THAN COPIED (#1669), and that is the difference between a
- * sentence and the markup inside it. `lead.textContent = whole` replaced the lead's children with a
- * single text node, which is correct for a body whose content is a catalogue row and nothing else, and
- * lossy for one marked `data-i18n-parts`: that content is a sentence assembled AROUND child elements,
- * so copying its text flattened a `<code>` sample into the body font while the fold that still held it
- * was hidden. The two repairs that were rejected on the issue were leaving the fold up, which shows a
- * field a bare "Full text" triangle and no sentence at all, and moving the CHILDREN into the lead,
- * which empties the body that `applyParts` reassembles from on the next catalogue pass.
- *
- * Moving the body itself costs neither. It keeps its identity, its children, its marker and its place
- * in every lookup here, and it becomes the line under the field by standing where the lead stands -
- * before the hidden fold, with the lead cleared and collapsed by `.sso-help-lead:empty`. The move is
- * made in both directions, because the same block is re-read in the other language: a text that holds
- * one sentence in English and two in German folds and unfolds as the catalogue changes under it.
+ * Writes the sentence under one field from the text behind its fold, hiding the fold when there is only one.
+ * The lead is derived at runtime from the body so it follows whichever language was just applied (#1528).
+ * A one-sentence body is moved rather than copied so its child elements survive (#1669).
  */
 function refresh(help) {
   const lead = help.querySelector(".sso-help-lead");
@@ -248,26 +168,8 @@ function refresh(help) {
   lead.textContent = sentence === null ? "" : sentence;
   details.hidden = sentence === null;
 
-  // EACH MOVE IS GUARDED BY WHERE THE BODY ALREADY IS, and that is not an
-  // optimisation. Re-inserting a node REMOVES it and puts it back, which blurs
-  // anything focused inside it; three of these bodies carry a link, and this function
-  // runs again on every catalogue pass.
-  //
-  // AND THE REFERENCE NODE IS ONLY USED WHERE IT IS A CHILD OF THIS BLOCK. `details`
-  // comes out of a querySelector over the whole block, so a page that wrapped the fold
-  // would hand insertBefore a node that is not a sibling - which THROWS, out of a
-  // forEach, taking the rest of the condensing and the rail listener with it. A null
-  // reference appends instead, which puts the body after a fold that is hidden anyway:
-  // the wrong order in a state nobody can see, rather than a page that stops being
-  // condensed. That branch is driven: the arm is called "a fold the page wrapped still
-  // gets its one-sentence body onto the page" in tools/ui-condensed-help.js.
-  //
-  // AND THE SHAPE IS NOW REFUSED WHERE IT IS AUTHORED (#1684), so this branch is a floor
-  // rather than the rule - which is what it used to be, under a sentence saying every
-  // page happens to author the fold as a direct child and nothing checks it. The markup
-  // reader in the same gate walks each block's authored nesting and refuses a fold that
-  // is not its block's own child, naming the page and the key. What is left to this
-  // branch is markup that reached a browser without passing that gate.
+  // Each move is guarded so a focused link inside the body is not blurred on every catalogue pass.
+  // A fold that is not a direct child falls back to appending; the markup gate refuses that shape (#1684).
   if (sentence === null) {
     if (body.parentNode !== help) {
       help.insertBefore(body, details.parentNode === help ? details : null);
@@ -281,26 +183,9 @@ function refresh(help) {
 }
 
 /*
- * Names the fold after the field it belongs to (#1672).
- *
- * WHAT A SCREEN READER IS HANDED WAS MEASURED RATHER THAN REASONED, on 2026-09-12 in Chromium 152's
- * accessibility tree over the shipped Providers page with this applier run on it: every one of the
- * page's 111 folds is a disclosure triangle named "Full text", so a list of the page's controls reads
- * as 111 identical rows and none of them says which field it opens. The name is computed from the
- * summary's own text, which is one catalogue row shared by every fold on purpose.
- *
- * SO THE FIELD'S LABEL IS PUT IN FRONT OF THAT WORD, BY REFERENCE AND NOT BY COPY. `aria-labelledby`
- * names the label and then the summary itself, so the computed name is the label's text followed by
- * the catalogue word - "Redirect URI (register at provider): Full text" - and it follows
- * both texts through every later catalogue pass with no second string anybody has to keep in step.
- * The two ids the reference needs are written here where they are missing, derived from the control
- * the label is for, so no page authors them.
- *
- * ONLY WHERE THE PAGE DRAWS A CONTAINER AROUND ONE CONTROL. `fieldOf` falls back to the block's own
- * parent for the blocks that sit in no `inputContainer` or `checkboxContainer` - the empty states, the
- * danger zone, the test block - and the first label under such a parent belongs to some other field.
- * A fold named after a field it does not open is worse than one named "Full text", so those keep the
- * bare word, and how many there are is a number the gate prints rather than one this comment promises.
+ * Names the fold after the field it belongs to (#1672), so a screen reader does not hear many identical "Full text" rows.
+ * `aria-labelledby` references the label and the summary, so the name follows both through later catalogue passes.
+ * Blocks outside an input or checkbox container keep the bare word, since the nearby label belongs to another field.
  */
 function nameFold(help, details) {
   const summary = details.querySelector("summary");
@@ -314,7 +199,7 @@ function nameFold(help, details) {
     return;
   }
 
-  // A label FOR its control, or one WRAPPED AROUND it, which is how the checkbox rows are authored.
+  // A label for its control, or one wrapped around it as the checkbox rows are authored.
   const wrapped = label.querySelector("input");
   const control =
     label.getAttribute("for") || (wrapped && wrapped.getAttribute("id"));
@@ -334,16 +219,8 @@ function nameFold(help, details) {
 }
 
 /*
- * The label that names the block's field: the last one before the block in document order that
- * carries text.
- *
- * THE LAST, because one container on the SAML form holds two labelled controls and one help block
- * under the second, and the first label would name that fold after the field above it (review of
- * 2026-09-12). WITH TEXT, because jellyfin-web's `emby-input`, `emby-textarea` and `emby-select`
- * insert an EMPTY label of their own directly in front of every control they upgrade; that one
- * stands closer to the block than the authored label on every field, and taking it would name
- * every fold by the bare word again. Neither shape is visible to the gate's markup reader, which
- * is why both are driven as arms in tools/ui-condensed-help.js rather than only stated here.
+ * Returns the last label with text before the block in its field.
+ * The last, because one container can hold two labelled controls; with text, because jellyfin-web inserts empty labels.
  */
 function labelBefore(field, help) {
   const labels = new Set(all(field, "label"));
@@ -367,23 +244,8 @@ function labelBefore(field, help) {
 }
 
 /*
- * Writes the whole text into the block's spoken copy, where a page authors one (#1672).
- *
- * A FIELD DESCRIBED BY ITS WHOLE BLOCK IS DESCRIBED BY THE LEAD LINE AND THE WORD "FULL TEXT", and
- * that too was measured, on the same page and the same day. `aria-describedby` is computed from what
- * the referenced element RENDERS, and a closed `<details>` renders its summary and nothing behind it.
- * Opening the fold made the description the whole text. Pointing the reference at the body inside
- * the closed fold made it EMPTY, because a closed fold's content is not in the rendered tree at all,
- * so that repair is dead. What does carry the whole text is a hidden element the reference names
- * DIRECTLY - accessible-name computation walks into those - and that is the spoken copy: a
- * `<span class="sso-help-spoken" hidden>` beside the fold, filled here from the body, named by the
- * field's `aria-describedby` in place of the block. Measured: the description is then the whole text
- * with the fold closed.
- *
- * FILLED FROM THE BODY AND NEVER FROM THE CATALOGUE, for the reason the rail card is: the copy and
- * the fold cannot say different things, and a parts body arrives assembled. One page authors one such
- * span today, for the redirect-URI field. tools/ui-condensed-help.js refuses a field described by its
- * block and a spoken copy nothing names, so the shape cannot drift in either direction unnoticed.
+ * Writes the whole text into the block's hidden spoken copy, where a page authors one (#1672).
+ * `aria-describedby` on a closed fold reads only its summary, so the field references this copy instead.
  */
 function speak(help, body) {
   const spoken = help.querySelector(".sso-help-spoken");
@@ -393,24 +255,9 @@ function speak(help, body) {
 }
 
 /*
- * Condenses every help block under one marked container and, where that container has a rail card,
- * shows the whole text of the focused field in it.
- *
- * THE CARD IS FILLED WITH textContent AND NEVER WITH MARKUP (#221), and what it is filled FROM is the
- * body of the fold rather than the catalogue - so the rail and the fold cannot say different things,
- * and a field whose text the catalogue does not carry shows its built-in English in both places.
- *
- * ONE LISTENER ON THE CONTAINER rather than one per field: the field is found by walking up from what
- * the focus landed on, so a control added to a page later is covered without being registered. Focus
- * landing on the container itself, or leaving it altogether, CLEARS the card rather than leaving the
- * last field's text standing beside a control it does not describe - the second half is `focusout`,
- * because `focusin` never fires for a target outside the container and the card would otherwise survive
- * every way of leaving it.
- *
- * THE MARK IS SET LAST, AFTER THE LISTENER EXISTS. It said "this container is wired", and the review of
- * 2026-09-12 found it set on the line before the card lookup that can return early - so one pass over a
- * container whose card had not been authored yet marked it wired with nothing attached, and every later
- * pass returned at the guard. The attribute now means what it says.
+ * Condenses every help block under one marked container and shows the focused field's whole text in its rail card.
+ * The card is filled with textContent from the fold body, never markup (#221), so rail and fold agree.
+ * One listener on the container covers fields added later; the wired mark is set only after it is attached.
  */
 function condenseHelp(root) {
   const helps = all(root, ".sso-help");
@@ -425,17 +272,7 @@ function condenseHelp(root) {
     return;
   }
 
-  // FIRST BLOCK WINS WHERE TWO SHARE ONE FIELD, rather than the last, and neither is good: one of the
-  // two is unreachable from the rail either way. A Map built from pairs silently kept the LAST, which is
-  // the harder of the two to notice on a page, so this at least fails in document order.
-  //
-  // THE SHAPE IS REFUSED NOW, AND THIS NOTE SAID IT WAS REFUSED NOWHERE. It said so correctly while the
-  // Providers page was still flat; that page joined the slice in #1663, which is where the note said the
-  // shape would first arise, and the refusal landed with it. tools/ui-condensed-help.js reads the field
-  // each condensed block resolves to - the same walk `fieldOf` below makes - and refuses two blocks
-  // sharing one, naming the key it keeps and the key the rail can no longer reach. No page carries the
-  // shape; what the refusal holds is the next edit that would. The fold and the sentence under the field
-  // are unaffected by it either way; only the rail is.
+  // Where two blocks share one field the first wins; tools/ui-condensed-help.js refuses that shape (#1663).
   const fields = new Map();
   helps.forEach((help) => {
     const field = fieldOf(help);
@@ -454,12 +291,7 @@ function condenseHelp(root) {
 
   root.addEventListener("focusin", (event) => show(event.target));
 
-  // A `relatedTarget` OUTSIDE the container clears the card. An ABSENT one does not, and that asymmetry
-  // is the whole of this handler's care: a mousedown on something unfocusable - the card itself, which
-  // is a plain div with a scrollbar for exactly these long texts - blurs the input with no related
-  // target at all, and clearing there makes the card vanish under the click that was about to scroll it.
-  // A window losing focus delivers the same shape. So an unknown destination leaves the card standing,
-  // which is the harmless half of being wrong.
+  // Focus moving outside the container clears the card; an unknown destination keeps it, so clicking the card does not hide it.
   root.addEventListener("focusout", (event) => {
     const to = event.relatedTarget;
     if (to && !nearest(to, (el) => el === root)) {
@@ -469,10 +301,7 @@ function condenseHelp(root) {
   root.setAttribute(CONDENSE_WIRED, "");
 }
 
-// Apply the loaded catalog under `root` (default: the whole document): `data-i18n="key"` replaces an
-// element's text content, `data-i18n-parts="key"` rewrites a sentence AROUND the child elements it
-// holds, and `data-i18n-<attr>="key"` replaces one of the allowlisted attributes above (e.g.
-// data-i18n-title). A key that is not in the catalog leaves the built-in English in place.
+// Applies the loaded catalog under `root` (default: the document) to text, parts and allowlisted attribute markers.
 export function applyTo(root) {
   const scope = root || document;
 
@@ -500,15 +329,11 @@ export function applyTo(root) {
     });
   });
 
-  // LAST, because it reads the text the passes above have just written. Descendants only: the marker
-  // sits on the two-column container inside a page, and a page whose container carries no marker keeps
-  // the flat help text it shows today, which is how this stage moves one slice at a time.
+  // Last, because it reads the text the passes above just wrote.
   scope.querySelectorAll("[" + CONDENSE_ROOT + "]").forEach(condenseHelp);
 }
 
-// Fetch the culture-resolved catalog from the server. The returned promise always resolves; on any failure
-// the catalog stays empty and callers fall back to the built-in English. ApiClient.getUrl builds the
-// server-rooted URL the linking/config pages already use; the endpoint is anonymous, so a plain fetch.
+// Fetches the culture-resolved catalog; the promise always resolves and leaves the catalog empty on failure.
 export function loadCatalog() {
   return fetch(ApiClient.getUrl("SSOViews/i18n"), {
     headers: { Accept: "application/json" },

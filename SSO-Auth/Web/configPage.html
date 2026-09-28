@@ -26,13 +26,8 @@
           </div>
 
           <!--
-            The tab strip (#1527). Static markup rather than a JS-built strip, so the five pages are
-            navigable before any controller runs and a page whose script failed to load still says where
-            the rest of the settings are. The classes are the dashboard's own section-tab markup, so the
-            strip is styled by the server's stylesheet and not by this plugin. Each href is the dashboard
-            route for a registered plugin page: the names are the ones SSOPlugin.GetPages registers, and
-            they are part of the plugin's URL contract - renaming one here breaks the link, renaming one
-            there breaks the page.
+            The tab strip (#1527), static so the pages are navigable before any controller runs.
+            Each href uses a page name registered in SSOPlugin.GetPages; the names are part of the URL contract.
           -->
           <div class="tabs-viewmenubar sso-tabs" is="emby-tabs" data-index="0">
             <div class="emby-tabs-slider">
@@ -85,12 +80,7 @@
             </div>
           </div>
 
-          <!--
-            The server could not read its stored configuration and is running on defaults (#1543). Hidden
-            until the server says so, and it says so until an administrator imports or saves one - so this
-            is the one statement on the page that is not about what the form in front of you contains, but
-            about whether the form is showing you your settings at all.
-          -->
+          <!-- Shown while the server runs on defaults because it could not read its stored configuration (#1543). -->
           <div
             id="sso-unreadable-config"
             class="fieldDescription sso-empty-state"
@@ -100,12 +90,8 @@
           <div class="sso-columns">
             <div class="sso-column-main">
               <!--
-            The Overview status view (#1527, from the plan in #1525). It holds NO setting: every figure on
-            it is read from the server, which is why FIELDS.md places none of the page's 123 controls here.
-            The three containers below are filled by the controller from the plugin configuration and the
-            aggregate check; they are empty in the markup rather than carrying a plausible-looking
-            placeholder, so a page whose script did not run shows nothing rather than a figure nobody
-            measured.
+            The Overview status view (#1527, #1525). It holds no setting; the containers below are filled
+            from the server and stay empty if the script did not run.
           -->
               <div class="verticalSection">
                 <h2 class="sectionTitle" data-i18n="overview.state_title">
@@ -113,16 +99,8 @@
                 </h2>
                 <div id="sso-overview-state" class="fieldDescription"></div>
                 <!--
-              EMPTY, AND CARRYING NO data-i18n MARKER, BOTH DELIBERATELY. This line states whether SSO-only
-              is on, which is a statement about this server rather than a label, so sso-core.js OWNS it and
-              writes it once the configuration answers - and it localizes the wording at that source through
-              tr(), the same arrangement the provider editor titles use. A marker here would let the
-              localizer, which sets textContent for every marked element whenever its catalogue arrives,
-              overwrite a written "SSO-only is ON" with the catalogue value for the OFF wording; the two
-              race freely and the loser is a security statement. Empty rather than defaulted for the same
-              reason in the other direction: a built-in "SSO-only is off" would be asserted on a server
-              where it is on for as long as the read takes, and on any load where the read fails it would
-              never be corrected at all. Nothing is better than a confident wrong answer here.
+              Written by sso-core.js once the configuration answers. It has no localization marker, so a
+              catalogue pass cannot overwrite the SSO-only statement, and no default, so it never asserts a wrong state.
             -->
                 <div id="sso-overview-sso-only" class="fieldDescription"></div>
               </div>
@@ -141,11 +119,7 @@
                   No provider is configured yet. Add one on the Providers tab.
                 </div>
                 <!--
-              THE WIZARD'S ENTRY POINT ON OVERVIEW (#1665, decision D2 on #1528). A LINK and not a button,
-              on the same dashboard route the tab strip uses and carrying the flag initProvidersPage reads
-              on load - so it works before any controller has run, exactly as the strip does, and an
-              Overview whose script failed still reaches the Providers tab from here instead of doing
-              nothing when it is pressed.
+              The wizard entry (#1665, #1528): a link on the dashboard route, so it works before any controller runs.
             -->
                 <a
                   is="emby-linkbutton"
@@ -169,11 +143,8 @@
               </div>
 
               <!--
-            What to do next. Derived from the same readiness rules the provider editor applies, so this list
-            and the panel beside an open provider cannot say different things about one provider. It states
-            what is missing and never claims a provider works: an entry disappears when the condition that
-            produced it is gone, and an empty list is rendered as an explicit sentence rather than as a
-            blank region a reader could take for a failed load.
+            What to do next, derived from the same readiness rules as the provider editor. It lists what is
+            missing, never claims a provider works, and renders an empty list as a sentence.
           -->
               <div class="verticalSection">
                 <h2 class="sectionTitle" data-i18n="overview.next_title">
@@ -183,11 +154,7 @@
               </div>
             </div>
             <aside class="sso-column-rail">
-              <!--
-            About / notes, compact and collapsible so it does not push the provider workspace below the
-            fold. Presentation-only: the same guidance the page always carried, moved into a native
-            emby-collapse (collapsed by default) so the workspace is the first thing an admin sees.
-          -->
+              <!-- About and notes, in a collapsed emby-collapse so the workspace comes first. -->
               <div
                 class="verticalSection"
                 is="emby-collapse"

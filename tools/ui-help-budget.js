@@ -4,15 +4,8 @@
 
 /*
  * Holds every label, help text and error text of both catalogues to the word
- * budgets the Coding-Standards wiki page declares beside the comment charter
- * (#1901): a label of at most five words, a short help of one sentence, a full
- * text that stays short, sentences a reader can hold, and an error that names
- * the fault and the fix. The short help is the first sentence of the help text,
- * split by the same rule SSO-Auth/Web/i18n.js applies on the page, so what is
- * measured here is what the field shows. Hard caps refuse, soft caps report.
- * Calibration fixtures with known answers run first and stop the run on a
- * disagreement. Node is preinstalled on the runner and this tool has no
- * dependencies, in the same terms as tools/ui-help-census.js.
+ * budgets of the Coding-Standards wiki page (#1901). Hard caps refuse, soft
+ * caps report; calibration fixtures run first and stop the run on a mismatch.
  */
 
 import fs from "node:fs";
@@ -37,13 +30,13 @@ const LABEL = /_label$/;
 const HELP = /_help$/;
 const ERROR = /^error\.|_failed$|_refused$/;
 
-// The sentence rule of i18n.js, kept identical so the lead measured here is the
-// lead the page shows: a terminator followed by whitespace ends a sentence unless
-// what precedes it is a chain of initials such as `e.g.` or `z. B.`.
+// The sentence rule of SSO-Auth/Web/i18n.js, kept identical so the lead
+// measured here is the lead the page shows; initials such as `e.g.` do not end one.
 const SENTENCE_END = /[.!?](?=\s)/g;
 const INITIALS = /^(?:\p{L}\.)*\p{L}$/u;
 const WORD_TAIL = /([\p{L}.]*)$/u;
 
+// Splits a text into its sentences by the page's rule.
 function sentences(text) {
   const out = [];
   let start = 0;
@@ -64,8 +57,7 @@ function sentences(text) {
   return out;
 }
 
-// Placeholders stand for markup the page supplies and are not words; a token
-// counts when it holds a letter or a digit, so a bare dash or symbol does not.
+// Counts the tokens holding a letter or digit, placeholders excluded.
 function words(text) {
   return String(text)
     .replace(/\{\d+\}/g, " ")
@@ -73,6 +65,7 @@ function words(text) {
     .filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
 }
 
+// Lowercases a text and drops placeholders, extra spaces and trailing punctuation.
 function normalise(text) {
   return String(text)
     .replace(/\{\d+\}/g, " ")
@@ -82,8 +75,7 @@ function normalise(text) {
     .toLowerCase();
 }
 
-// Every finding for one pair of catalogues: `hard` is what refuses, `soft` is
-// what the run reports and lets pass.
+// Returns the hard and soft findings for one pair of catalogues.
 function judge(english, german) {
   const hard = [];
   const soft = [];
@@ -148,10 +140,8 @@ function judge(english, german) {
   return { hard, soft };
 }
 
-// Fixtures with known answers: a pair that passes, and one negative per refusal.
-// The row names the refusal it must produce, or `null` where the pair must pass;
-// a lead of 41 words is also a sentence of 41, so an arm asks for its own line
-// and the passing arms hold that nothing fires on a text inside every budget.
+// Fixtures with known answers: each arm names the refusal it must produce, or
+// `null` where the pair must pass.
 const many = (n, word = "word") =>
   Array.from({ length: n }, () => word).join(" ");
 const PASSING_EN = {
@@ -213,6 +203,7 @@ const ARMS = [
   ],
 ];
 
+// Runs every fixture arm and returns the disagreements.
 function calibrate() {
   const faults = [];
   for (const [arm, expected, en, de] of ARMS) {
@@ -233,10 +224,12 @@ function calibrate() {
   return faults;
 }
 
+// Parses one catalogue from the Localization folder.
 function read(name) {
   return JSON.parse(fs.readFileSync(path.join(CATALOGUES, name), "utf8"));
 }
 
+// Calibrates, then measures both catalogues and exits non-zero on a hard cap.
 function main() {
   const faults = calibrate();
   if (faults.length > 0) {

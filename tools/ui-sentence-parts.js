@@ -3,38 +3,10 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Drives the REAL parts applier of the shipped i18n.js and refuses each way it
- * can be wrong (#1529).
- *
- * WHY A RUNNING PROOF AND NOT A CONFORMANCE RULE. The C# rules beside this one
- * read the TEXT of the markup and the catalogs: they can say that a parts value
- * names the same slots the element has children, and they do. What they cannot
- * say is what happens when it does not - and that is the whole safety of this
- * mechanism. `applyParts` must leave the English sentence standing rather than
- * assemble a partial one, because a sentence missing a `<code>` sample in the
- * middle of instructions for recovering from a lockout is worse than a sentence
- * in the wrong language. Whether it does is a property of the code, and the
- * inverted condition reads exactly like the correct one.
- *
- * A LIVE WALK COULD NOT ANSWER IT EITHER, which is why this file exists rather
- * than a note in a pull request. On a real server the catalog comes from the
- * server, so the refusal cases cannot be reached without shipping a broken
- * catalog to reach them. The first attempt to check this in a browser drove
- * four different bad values through a key the catalog did not carry, so the
- * applier was never entered and all four "passed" for the same empty reason.
- *
- * WHAT THE STUB CAN AND CANNOT SAY. The DOM below is the smallest one the
- * applier touches: createTextNode, children, replaceChildren, getAttribute and a
- * selector lookup for exactly the two marker forms. It is not a browser. It
- * cannot say anything about layout, about the order the page runs its own
- * scripts in, or about a client whose createElement behaves differently - the
- * folder-checklist gate beside it exists for that last one. What keeps it from
- * being a proof about itself is that the code under test is the shipped
- * i18n.js, loaded whole through a data URL, and that the catalog reaches it
- * through its own loadCatalog and its own fetch rather than by assignment.
- *
- * Node is preinstalled on the runner and this tool has no dependencies, in the
- * same terms as tools/ui-mock-fields.js and tools/ui-untranslated.js.
+ * Drives the shipped i18n.js parts applier and refuses each way it can be wrong
+ * (#1529): a value that does not describe the element must leave the English
+ * sentence standing. The catalog arrives through the module's own loadCatalog.
+ * Run with `node tools/ui-sentence-parts.js`; no dependencies.
  */
 
 import fs from "node:fs";
@@ -44,9 +16,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APPLIER = path.join(HERE, "..", "SSO-Auth", "Web", "i18n.js");
 
-// ---------------------------------------------------------------------------
 // The stub.
-// ---------------------------------------------------------------------------
 
 class TextNode {
   constructor(text) {
@@ -112,14 +82,10 @@ function documentWith(elements) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // The legs.
-// ---------------------------------------------------------------------------
 
 async function applierWith(catalog, elements) {
-  // The catalog reaches the module the way it does on a server: through its own
-  // loadCatalog, over a fetch. Assigning it directly would test a module this
-  // tree does not ship.
+  // The catalog reaches the module over its own loadCatalog fetch, as on a server.
   globalThis.ApiClient = {
     getUrl: (route) => "https://example.invalid/" + route,
   };
@@ -179,8 +145,7 @@ const refuse = (leg, detail) => faults.push(leg + ": " + detail);
     );
   }
 
-  // The children must be the SAME nodes. A clone would drop a listener and, on a
-  // page where a child is a link or a button, would quietly disconnect it.
+  // The children must be the same nodes; a clone would drop their listeners.
   const now = el.children;
   if (
     now.length !== kept.length ||
@@ -253,9 +218,7 @@ for (const [leg, value] of [
 
 // ---- Arm: the text marker still works, and runs BEFORE the parts pass ----
 {
-  // The <strong> inside a parts element carries its own text marker, because the
-  // parts pass moves nodes and never looks inside one. It only translates if the
-  // text pass has already run when the node is moved.
+  // The <strong> translates only if the text pass runs before the parts pass moves it.
   const el = sentence();
   el.children[0].setAttribute("data-i18n", "probe.title");
   const module = await applierWith(

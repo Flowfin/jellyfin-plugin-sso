@@ -3,123 +3,13 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Reads the condensed help of the pages that opt into it, in both halves it has
- * (#1662): the fold the markup authors, and the sentence SSO-Auth/Web/i18n.js
- * derives at runtime.
- *
- * WHY THIS EXISTS BESIDE THE CENSUS AND DOES NOT REPLACE IT. tools/ui-help-census.js
- * reads bytes, and it holds the promise "nothing is deleted, only moved": every
- * help text is still on the page its row names, inside the field that names it,
- * exactly once. It says nothing about what the move PRODUCED. A help text sealed
- * inside a `<details>` whose summary is never named, above a lead line that stays
- * empty because no applier ran, satisfies the census exactly as well as a
- * working page does - the text is there, once, in the right field, and no reader
- * can see it. That gap is this tool's subject.
- *
- * TWO READERS, BECAUSE THE SLICE HAS TWO HALVES AND THEY FAIL DIFFERENTLY. The
- * first reads the shipped markup and refuses a help text that is not authored as
- * a fold, a fold with no lead line to fill, a summary naming something other than
- * the catalogue row the folds share, a marked page with no rail card, a fold authored
- * inside a `<p>` - which `<details>` closes, so a browser takes the fold out of the
- * block - and two help blocks resolving to one field, by either branch of the walk the
- * applier makes (#1663). It also closes the COUNT over the page: every `*_help` marker
- * is either a condensed block or a site that DECLARES itself flat with a reason, so a
- * help text on a class neither reader enters is refused rather than dropped from both
- * populations in silence (#1677). The
- * second LOADS the shipped applier and drives it over the shipped catalogues,
- * refusing a lead that is not the first sentence of the text behind it, a fold
- * hiding nothing, a fold hidden while it holds more, and a rail card answering a
- * field that does not have focus.
- *
- * WHY IT IS NODE AND NOT A BROWSER OR A DOM LIBRARY. The means check, per the
- * standpoint: node is already carried by this tree - tools/ui-mock-fields.js and
- * tools/ui-unsaved-state.js are run by the .NET workflow with no install - and a
- * DOM library would add a dependency and a lockfile to a repository that has
- * neither. tools/ui-unsaved-state.js took the same decision for the same reason
- * and carries the same class of bound, stated below rather than hidden.
- *
- * WHAT THE STUB CAN AND CANNOT SAY, AND THIS BOUND IS THE PART TO READ. The DOM
- * below is a stub with a real TREE - parents, children, text, and a selector
- * reader over tag, class and attribute - because the rule under test walks upward
- * from a focus, and that is not decidable without one. It is still NOT a browser.
- * It has NO EVENT PROPAGATION: the listener is registered on the container and
- * the stub CALLS it with the element the focus landed on, which is the shape a
- * browser delivers `focusin` in, but the stub cannot say that `focusin` bubbles,
- * and a mutation spelling it `focus` - which does not bubble - passes every arm
- * below. That property is the event's, not this code's, and it is named here
- * rather than claimed.
- *
- * It also says nothing about layout, about whether `<details>` draws a disclosure
- * triangle, or about what a screen reader announces when one opens. Those are
- * exactly the reasons the element is native rather than rebuilt, and they are a
- * walk's to confirm rather than this tool's.
- *
- * WHAT WAS MEASURED WHERE THIS TOOL CANNOT LOOK (#1672): Chromium 152's accessibility
- * tree, read on 2026-09-12 over the shipped Providers page with the shipped applier
- * run on it. A field whose `aria-describedby` names its whole block is described by
- * the lead line and the word "Full text" while the fold is closed, and by nothing at
- * all when the reference names the body inside the closed fold; a hidden element
- * named directly carries the whole text; and every fold's summary is a disclosure
- * triangle named by the one catalogue word, 111 rows alike. The applier answers both
- * with `nameFold` and `speak`, and the arms below hold the ATTRIBUTES that computation
- * reads, because the stub computes no accessible name. What a screen reader then
- * says is still measured by nothing in this tree.
- *
- * WHAT KEEPS IT FROM BEING A PROOF ABOUT ITSELF. The code under test is the
- * shipped i18n.js, loaded whole, not a copy and not an extract. The pages read
- * are the ones carrying the opt-in attribute, so a page joining the slice is
- * picked up without being named here, and a field removed from a page is removed
- * from what is read. The texts are the shipped en.json and de.json values rather
- * than prose written for a test.
- *
- * AND WHAT THE SECOND READER DOES NOT TOUCH, which is the bound to read before
- * trusting its green line. It drives the applier over a page this file BUILDS from
- * the real keys, not over the real page's tree - this tree carries no HTML parser
- * and adding one is a dependency the standpoint has not been asked for. So every
- * question about WHERE something sits on a real page belongs to the first reader,
- * and the first reader is a string reader. The review of 2026-09-12 measured what
- * that costs: moving the opt-in attribute onto an inner element left the rail card
- * outside the container the applier walks, killed the card on the whole page, and
- * the runtime arms - judging a fixture whose card is in the right place - printed a
- * pass. The markup reader now refuses that placement by name, which closes the one
- * instance and not the class. A real-page shape the string reader cannot see is
- * still a shape nothing here judges.
- *
- * IT IS A STRING READER AND NOT A PARSER, WHICH IS A SEPARATE BOUND FROM THAT ONE AND
- * COST TWO LIVE BLOCKS (#1663). Both readers here walk the tags as AUTHORED; a browser
- * walks them as PARSED, and the two differ wherever HTML implies an end tag. Two folds
- * authored inside a `<p>` therefore read as whole to every line of this file while a
- * browser lifted them out of their blocks and left the lead line unfillable for good.
- * The `<p>` case is refused by name now, and the class is not closed: any other implied
- * end tag would pass exactly the same way.
- *
- * ONE HALF OF THE PAGE WAS JUDGED BY THE MARKUP READER ALONE UNTIL #1669, AND THIS
- * PARAGRAPH SAID SO. A help text whose body is marked `data-i18n-parts` holds a
- * catalogue value with `{n}` slots the pass fills from the body's own children, so the
- * sentence a reader sees is assembled on the page and the raw value is not it. The
- * built page had no such children, so those keys were kept out of the runtime half
- * rather than judged against a lead holding `{0}` - and the defect that closed that
- * gap lived exactly there: the one-sentence rule wrote the body's TEXT into the lead,
- * which flattens the children of a body that is a sentence built around them, and
- * every arm here passed. The built page carries those children now, read off the
- * shipped markup by `directChildren` and `childText` below, so the applier is DRIVEN
- * over both shapes.
- *
- * WHAT THAT COSTS IS A THIRD READER, AND IT IS CIRCULAR UNLESS SOMETHING PINS IT. The
- * same reading builds the fixture's children and the text the fixture is judged
- * against, so a mis-read child agrees with itself. The hand-written child and assembly
- * tables in the calibration are what break that circle, in the same way and for the
- * same reason as the hand-written leads beside them. A body whose children that reader
- * cannot walk - a child holding its own elements, a character reference it does not
- * know - stays OUT of the driven set and the run prints how many, so a page moving out
- * of its reach is visible rather than silently dropped from the population.
- *
- * THE CALIBRATION RUNS FIRST AND THE REAL PAGES SECOND. A reader that accepts
- * everything passes its own arithmetic, so the arms below drive both readers over
- * fixtures whose answers are known - a positive for each shape that must pass and
- * one negative per refusal each reader can make - and the run stops before the
- * pages are opened if any of them disagrees. The pass is printed, because a
- * calibration nobody sees the result of reads exactly like one that was never run.
+ * Reads the condensed help of the pages that opt into it in both halves
+ * (#1662, #1663, #1669, #1672, #1677): a string reader over the shipped markup
+ * refuses a help text not authored as a well-formed fold, and a second reader
+ * drives the shipped SSO-Auth/Web/i18n.js over a page built from the shipped
+ * catalogues and refuses a wrong lead, fold or rail card. The DOM stub has no
+ * event propagation or layout, and the string reader does not see implied end
+ * tags beyond the `<p>` case; calibration fixtures run first.
  */
 
 import fs from "node:fs";
@@ -134,19 +24,13 @@ const LOCALIZATION = path.join(ROOT, "SSO-Auth", "Localization");
 const CONDENSE_ROOT = "data-sso-condensed-help";
 const SUMMARY_KEY = "config.help_full_text";
 
-// The lead line as the markup authors it: present, empty, and named, so the applier has
-// somewhere to write the first sentence and a page whose script never ran shows no blank prose.
+// The lead line as the markup authors it: present, empty and named, for the applier to fill.
 const EMPTY_LEAD = '<span class="sso-help-lead"></span>';
 
-// ---------------------------------------------------------------------------
 // The stub DOM
-// ---------------------------------------------------------------------------
 
-// A selector this stub understands: an optional tag name followed by any number
-// of `.class` and `[attr]` terms. That is the whole vocabulary i18n.js uses, and
-// a selector outside it THROWS rather than matching nothing - a stub silently
-// returning an empty list for a selector it did not understand would turn every
-// arm below green for the wrong reason.
+// Compiles a selector of an optional tag and `.class` or `[attr]` terms, and
+// throws on anything else so an unknown selector cannot match nothing silently.
 function selector(text) {
   const parts = /^([a-z0-9-]*)((?:\.[a-zA-Z0-9_-]+|\[[a-zA-Z0-9_-]+\])*)$/.exec(
     text.trim(),
@@ -168,6 +52,7 @@ function selector(text) {
     attributes.every((name) => el.hasAttribute(name));
 }
 
+/** The stub text node. */
 class Text {
   constructor(data) {
     this.data = data;
@@ -179,6 +64,7 @@ class Text {
   }
 }
 
+/** The stub element; its members mirror the DOM members of the same name. */
 class El {
   constructor(tag) {
     this.tag = tag;
@@ -249,12 +135,7 @@ class El {
     return node;
   }
 
-  // The node is taken out of wherever it currently sits FIRST, which is the half a
-  // stub is easiest to get wrong: a DOM move is a removal and an insertion, and a
-  // stub that only inserts leaves the node in two parent lists at once. The applier
-  // moves a one-sentence body between the block and the fold and back (#1669), so a
-  // stub without this would show the body in both places and every arm judging
-  // "where is it now" would pass whatever the applier did.
+  // Takes the node out of its current parent, since a DOM move is a removal and an insertion (#1669).
   detach(node) {
     const from = node.parentNode;
     if (from) {
@@ -263,10 +144,7 @@ class El {
     node.parentNode = null;
   }
 
-  // A REFERENCE NODE THAT IS NOT A CHILD THROWS, which is what the DOM does and is the
-  // half a lenient stub hides: appending instead would let a block whose fold is not a
-  // direct child pass every arm here while a browser aborted the whole condensing pass
-  // on it. `null` means "at the end", which is the DOM's own spelling.
+  // Throws on a reference node that is not a child, as the DOM does; `null` means the end.
   insertBefore(node, before) {
     if (before !== null && !this.nodes.includes(before)) {
       throw new Error(
@@ -281,9 +159,7 @@ class El {
   }
 
   replaceChildren(...nodes) {
-    // The nodes being dropped lose their parent, which is what a browser does and what
-    // an arm asking "is the body still in the tree" rests on: a stub that only emptied
-    // the list would leave a detached body still claiming this element as its parent.
+    // The dropped nodes lose their parent, as in a browser.
     this.nodes.forEach((node) => {
       node.parentNode = null;
     });
@@ -291,9 +167,7 @@ class El {
     nodes.forEach((node) => this.appendChild(node));
   }
 
-  // Depth-first, document order, `this` excluded - the contract querySelectorAll
-  // has, and the exclusion matters: the rule asks a container for the help blocks
-  // INSIDE it and would otherwise be handed the container.
+  // Returns the descendants depth-first in document order, `this` excluded.
   descendants() {
     const out = [];
     const walk = (el) =>
@@ -321,9 +195,7 @@ class El {
     this.listeners.get(name).push(handler);
   }
 
-  // No propagation: the stub hands the registered handler the element the focus
-  // landed on, which is what a browser delivers for a bubbling event, and the
-  // header says what that cannot prove.
+  // Calls the handlers with the focus target directly; the stub has no propagation.
   fire(name, target, relatedTarget) {
     (this.listeners.get(name) || []).forEach((handler) =>
       handler({ target, relatedTarget: relatedTarget || null }),
@@ -337,42 +209,21 @@ globalThis.document = {
 };
 globalThis.ApiClient = { getUrl: (route) => `https://stub.invalid/${route}` };
 
-// ---------------------------------------------------------------------------
 // The first reader: the fold the markup authors
-// ---------------------------------------------------------------------------
 
-// One `*_help` field description, as the markup writes it. The opening tag is
-// matched first and its element walked to its own close with a depth counter,
-// because the block nests a `<details>` and a `<div>` inside itself and the
-// lazy-to-first-`</div>` reading that suffices for a flat description would stop
-// in the middle of one.
-// ANY TAG, NOT `<div>`, and the review of 2026-09-12 is why. A div-only reader was
-// handed `<p class="fieldDescription" data-i18n="config.server_slo_help">` on the
-// real Server page - one field un-condensed by hand, which is what a later edit
-// undoing this stage looks like - and printed its pass line over nineteen blocks
-// where there had been twenty. The census next door drops its `<details>` figure
-// from 20 to 19 for the same edit and refuses nothing, because the text is still
-// present once in its own field. Neither reader owned it.
+// One `*_help` field description on any tag, walked to its own close by elementBody
+// because the block nests a `<details>` and a `<div>`.
 const HELP_BLOCK =
   /<(?<tag>[a-z][a-z0-9]*)\b(?<attrs>[^>]*\bclass="[^"]*\bfieldDescription\b[^"]*"[^>]*)>/g;
 
-/*
- * Whether an opening tag carries a class, as a CLASS rather than as a substring.
- *
- * `\bsso-help\b` was the first spelling and it is wrong in the direction that
- * matters: a hyphen is a non-word character, so the boundary matches inside
- * `sso-help-card-text` - the card's own text holder, which is a `fieldDescription`
- * with no help key - and the reader named it as a broken block on all three pages.
- * A class is a whitespace-separated token, so it is compared as one.
- */
+/** Returns whether an opening tag carries a class as a whitespace-separated token. */
 function hasClassToken(opening, name) {
   const attribute = /class="([^"]*)"/.exec(opening);
   return attribute !== null && attribute[1].split(/\s+/).includes(name);
 }
 
-// The body of the element whose opening tag ends at `from`, walked to its own close
-// with a depth counter over tags of the SAME NAME. Returns null when the element
-// never closes.
+// Returns the body of the element whose opening tag ends at `from`, counting
+// tags of the same name, or null when it never closes.
 function elementBody(markup, from, tag) {
   const tags = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, "g");
   tags.lastIndex = from;
@@ -395,20 +246,9 @@ function elementBody(markup, from, tag) {
 }
 
 /*
- * How many elements are still open at `at` inside `inner` - zero when whatever starts
- * there is a direct child of the element `inner` is the body of.
- *
- * A SELF-CLOSING TAG IS DEPTH-NEUTRAL AND A VOID NAME IS NOT READ, which is the bound to
- * know rather than a simplification. These pages write every void element with its slash -
- * nineteen `<br />` on the Providers page and every `<input>` closed the same way - because
- * Prettier formats this markup and the `prettier` gate runs on every change, so `<br>` with
- * no slash cannot land. A name list instead would have to be right about every void element
- * these pages use, and the direction it fails in is silent: an `<input>` counted as an
- * element that opens makes every tag after it read as nested inside it, and this reader
- * would then refuse honest markup. One was written here first and deleted, because the
- * proof run showed every branch of it could go with the gate staying green - no block on
- * any of the four pages authors a void element before its fold today, so nothing drove it.
- * The arm below does drive the self-closing branch.
+ * Returns how many elements are still open at `at` inside `inner`, zero for a
+ * direct child. A self-closing tag is depth-neutral, which holds because
+ * Prettier writes every void element on these pages with its slash.
  */
 function depthAt(inner, at) {
   let depth = 0;
@@ -424,28 +264,11 @@ function depthAt(inner, at) {
   return depth;
 }
 
-/*
- * Refuses the markup half, page by page: what a reader of a page whose script
- * never arrived is left with.
- */
+/** Refuses the markup half of one page: what a reader is left with if the script never runs. */
 function inspectMarkup(page, source) {
   let flat = 0;
-  // Whitespace-collapsed first, because Prettier decides where the lines in these
-  // files break: it puts every attribute of a long tag on its own line and the
-  // closing angle bracket on a line after them. A reader matching
-  // `class="x" data-i18n="y"` against the file as written would start refusing the
-  // moment a class name grew long enough to wrap, which is a refusal about a
-  // formatter rather than about a page. The C# markup rules collapse for the same
-  // reason and say so where they do it.
-  //
-  // COMMENTS ARE REMOVED BEFORE ANYTHING IS COUNTED, and the review of 2026-09-12
-  // is why. These pages are heavily commented - the three carry twenty-one comments
-  // between them - and the depth counter below reads `</div>` inside one as a real
-  // closing tag. A comment mentioning a closing tag inside a help block truncated the
-  // block, left it with no key, and dropped it from the population with NO refusal:
-  // the tool printed its success line over a page it had stopped reading. That is the
-  // "green for the wrong reason" this file's header says it exists to refuse,
-  // arriving in the file itself.
+  // Comments go first, since the depth counter would read a `</div>` in one as real, and
+  // whitespace is collapsed so where Prettier wraps a tag does not matter.
   const markup = source.replace(/<!--[\s\S]*?-->/g, " ").replace(/\s+/g, " ");
   const refusals = [];
   const at = [];
@@ -475,12 +298,7 @@ function inspectMarkup(page, source) {
       );
       continue;
     }
-    // A BLOCK THE READER COULD NOT READ IS REFUSED, never skipped. This was a plain
-    // `continue`, and the review of 2026-09-12 showed what that bought: a block whose
-    // body the walker had truncated yielded no key, left the population with no
-    // refusal, and the run printed its success line over a page it had stopped
-    // reading. A marked block naming no key is either broken markup or a reader that
-    // cannot walk it, and neither of those is a pass.
+    // A marked block naming no key is broken markup or an unreadable one, never a pass.
     if (keys.length === 0) {
       if (hasClassToken(opening, "sso-help")) {
         refusals.push(
@@ -494,25 +312,8 @@ function inspectMarkup(page, source) {
 
     const key = keys[0];
 
-    // A BLOCK AUTHORED IN A `<p>` IS REFUSED, AND THIS READER FOUND IT ONLY AFTER A
-    // PARSER DID (#1663). `<details>` is on the HTML spec's list of elements whose
-    // start tag closes an open `<p>`, so a browser RE-PARENTS the fold out of the
-    // block and leaves the lead span alone inside a `<p>` that ends before it. The
-    // applier then finds a `.sso-help` with no `.sso-help-body`, returns at its own
-    // guard, and the lead stays empty for good - which the stylesheet hides, so the
-    // field shows a bare "Full text" triangle and nothing else. The rail handler is
-    // worse: it reads `.sso-help-body` off that block without a guard and throws.
-    //
-    // NEITHER READER HERE COULD SEE IT AND THAT IS THE POINT. This one walks the
-    // SOURCE nesting with a depth counter over the authored tags, so the block reads
-    // as whole; the runtime one drives a tree this file BUILDS, where the element is
-    // whatever `buildPage` chose. Two green readers over two structurally dead blocks
-    // is exactly the "green for the wrong reason" the header says this file exists to
-    // refuse, and the repair is a property rather than a fixed page.
-    //
-    // ONLY `p`, because that is the rule HTML actually has: an implied end tag before
-    // `<details>`. A longer list of tags would be a guess, and a guess that refuses
-    // honest markup is worse here than one that misses.
+    // `<details>` closes an open `<p>`, so a browser lifts the fold out of the block
+    // and the lead stays empty (#1663); only `p` has that implied end tag.
     if (match.groups.tag === "p") {
       refusals.push(
         `${key} on ${page} is authored in a <p>, which <details> closes: the browser lifts the fold out of the block, the lead line can never be filled, and the rail card throws on a focus inside that field`,
@@ -535,21 +336,8 @@ function inspectMarkup(page, source) {
         `${key} on ${page} has no fold to put the whole text behind`,
       );
     } else if (depthAt(body, fold.index) > 0) {
-      // THE FOLD IS A DIRECT CHILD OF ITS BLOCK, WHICH THE APPLIER RELIES ON AND NOTHING
-      // REFUSED UNTIL NOW (#1684). `refresh` in SSO-Auth/Web/i18n.js finds the fold with a
-      // querySelector over the WHOLE block, so it finds one at any depth, and then promotes
-      // a one-sentence body with `help.insertBefore(body, details)` - which needs the fold
-      // to be that element's own child. Every one of these blocks authors it that way and
-      // the applier carries a fallback for the other shape, so this is not a crash waiting
-      // to happen; it is a layout edit that silently changes where a help body ends up,
-      // after the fold rather than in front of it, and takes it out of the stylesheet rule
-      // that gives a promoted body the lead's spacing.
-      //
-      // READ FROM THE SAME WALK AS EVERY OTHER REFUSAL HERE, over the authored source with
-      // its comments stripped, because the runtime reader next door cannot see it at all:
-      // that one drives a tree `buildPage` builds, where the fold is a direct child by
-      // construction. Two green readers over a shape neither of them authors is the "green
-      // for the wrong reason" this file exists to refuse.
+      // The applier promotes a one-sentence body in front of the fold, which needs the
+      // fold to be the block's own child (#1684).
       refusals.push(
         `the fold of ${key} on ${page} is not a direct child of its block: the applier finds it at any depth and then appends the one-sentence body after it instead of in front of it, where the stylesheet gives it the fold's spacing rather than the lead's`,
       );
@@ -570,26 +358,14 @@ function inspectMarkup(page, source) {
     }
   }
 
-  // A FIELD DESCRIBED BY ITS WHOLE BLOCK (#1672). Measured in Chromium's accessibility
-  // tree over the shipped Providers page: `aria-describedby` is computed from what the
-  // named element RENDERS, and a closed fold renders its summary and nothing behind it,
-  // so the description a screen reader is handed is the lead line and the word "Full
-  // text" - and empty when the reference names the body inside the closed fold. The
-  // shape a description can be computed from is the block's spoken copy, a hidden span
-  // the applier fills from the body; so a reference to a block is refused by name and
-  // a copy nothing names is refused as dead weight, both here where the page is
-  // authored, because the runtime reader drives a fixture whose references are right
-  // by construction.
+  // A field's aria-describedby must name the block's hidden spoken copy, not the block or
+  // anything inside its closed fold, which a screen reader reads as a word or nothing (#1672).
   const described = new Set(
     [...markup.matchAll(/aria-describedby="([^"]*)"/g)].flatMap((m) =>
       m[1].split(/\s+/).filter(Boolean),
     ),
   );
-  // THE BLOCK'S EXTENT AND NOT ONLY ITS OPENING TAG, because the review of 2026-09-12
-  // drove a reference to the body inside the fold past a reader that knew the block by
-  // its class alone - which is the EMPTY case, worse than the one it refused - and a
-  // spoken copy authored one element outside its block, which `speak` looks for inside
-  // the block and never fills.
+  // The block's whole extent, so references into the fold and copies outside it are caught.
   const blockSpans = elementSpans(markup).filter((span) =>
     hasClassToken(
       markup.slice(markup.lastIndexOf("<", span.from - 1), span.from),
@@ -630,8 +406,7 @@ function inspectMarkup(page, source) {
         `a spoken copy on ${page}${id ? ` (${id[1]})` : ""} is named by no aria-describedby, so the applier fills a text nothing reads`,
       );
     }
-    // The ATTRIBUTE, read with every quoted value blanked first, so a class token spelled
-    // `hidden` does not pass for it.
+    // The attribute, read with quoted values blanked, so a class named `hidden` does not pass.
     if (!/\shidden(?=[\s>/=])/.test(tag[0].replace(/="[^"]*"/g, '=""'))) {
       refusals.push(
         `the spoken copy${id ? ` ${id[1]}` : ""} on ${page} is not hidden, so the whole text stands on the page twice`,
@@ -644,13 +419,7 @@ function inspectMarkup(page, source) {
     }
   }
 
-  // WHERE THE CARD SITS, not merely whether the page holds one, and the review of
-  // 2026-09-12 is why this is not a page-wide grep. The applier looks for the card
-  // UNDER the marked container and attaches no focus listener when it does not find
-  // one there. Moving the marker onto an inner element - one attribute, the kind of
-  // authoring slip a page grows while it is being rearranged - left the card outside
-  // it, killed the rail on the whole page, and a reader grepping the page string
-  // found the card exactly where it had always been and passed.
+  // The card must sit under the marked container, where the applier looks for it.
   if (blocks > 0) {
     const scope = markedScope(markup);
     if (scope === null) {
@@ -670,21 +439,12 @@ function inspectMarkup(page, source) {
         `the rail card on ${page} sits outside the ${CONDENSE_ROOT} container, where the applier does not look for it: no focus listener is attached and the card never opens`,
       );
     }
-    // INSIDE THE CARD, not anywhere on the page. This was a page-wide test, which is
-    // the reading the placement refusal above exists against: moving the heading out
-    // of the card and leaving it standing elsewhere on the page passed, and the card
-    // shipped headless in the rail.
+    // The heading must be inside the card.
     const inCard =
       card < 0
         ? ""
         : elementBody(markup, markup.indexOf(">", card) + 1, "div") || "";
-    // ANY HEADING LEVEL, AND THE LEVEL IS THE PAGE'S QUESTION RATHER THAN THIS ONE'S.
-    // `<h2` was the only spelling until the review of 2026-09-12, which is a constraint
-    // nobody argued for: what this refusal is about is that the card is HEADED by the
-    // row the folds share, so one page's card cannot be renamed without the others.
-    // The level belongs beside the headings the page already has - the Providers rail
-    // carries an h3 readiness card, so an h2 help card beside it is a heading-order
-    // defect a screen reader meets and the refusal was creating.
+    // Any heading level; the card only has to be headed by the row the folds share.
     if (
       card >= 0 &&
       !new RegExp(`<h[1-6][^>]*data-i18n="${SUMMARY_KEY}"`).test(inCard)
@@ -701,45 +461,19 @@ function inspectMarkup(page, source) {
       );
     }
 
-    // TWO HELP BLOCKS IN ONE FIELD (#1663). The applier keeps the FIRST in document
-    // order and the second is then unreachable from the rail card - focus anywhere in
-    // that field shows the first block's text, whichever control the reader is in. The
-    // fold and the sentence under the field are unaffected, so nothing on the page
-    // looks wrong; the card just answers with the wrong text, which is the failure a
-    // reader is least able to name.
-    //
-    // WHY IT IS REFUSED ON THIS PAGE AND NOT ON THE THREE BEFORE IT. No page carried
-    // the shape when slice 1 landed, counted over its twenty blocks, and the applier
-    // says so at the choice it makes rather than leaving it to be discovered. The
-    // Providers page is where it can first arise: 112 sites in 98 keys over two
-    // protocol forms, fourteen keys standing twice. It does not carry the shape today
-    // either - this refusal is green on the tree it lands with, and its bite is the
-    // negative arm below rather than a page it currently catches.
+    // Two help blocks in one field (#1663): the rail card keeps the first in document
+    // order, so the second is unreachable from it.
     forEachSharedField(markup, at, (first, second) =>
       refusals.push(
         `${first} and ${second} on ${page} are two help blocks in one field: the rail card answers for ${first} wherever the focus lands in it, and ${second} is unreachable from it`,
       ),
     );
 
-    // HOW MANY FOLDS A BROWSER NAMES AFTER THEIR FIELD (#1672), read the way the applier
-    // decides it: a block under a field container that carries a label. The rest keep
-    // the catalogue word, on purpose, and the run prints both so the split is a number
-    // rather than a sentence.
+    // How many folds a browser names after their field (#1672), as the applier decides it.
     named = resolveFields(markup, at).filter((each) => each.labelled).length;
 
-    // THE COUNT IS CLOSED, CLASS-AGNOSTIC (#1677). Everything above enters a help text
-    // through its CLASS - `fieldDescription` for a block, `sso-help` for a condensed one
-    // - so a `*_help` marker written on a class neither reader knows is in NEITHER
-    // population, and the census next door does not care how a site is authored. A field
-    // taken out of the condensing by renaming its class would leave no trace anywhere but
-    // in a number nothing asserts.
-    //
-    // So the markers are counted from the attribute alone and the page has to add up:
-    // every one is either a condensed block or a site that DECLARES itself flat, with the
-    // reason at the site. The tree carries exactly one declaration today and it is a
-    // warning rather than a field description - folding a warning hides the thing it
-    // exists to put in front of a reader - which is why the answer is a declaration and
-    // not an exemption by class name: the next one has to say why too.
+    // Every `*_help` marker must be a condensed block or declare itself flat with a reason
+    // (#1677), so a help text on a class neither reader enters is refused.
     const markers = [
       ...markup.matchAll(/data-i18n(?:-parts)?="[a-z0-9_.]+_help"/g),
     ].length;
@@ -758,8 +492,7 @@ function inspectMarkup(page, source) {
   return { refusals, blocks, declared: flat, markup, named };
 }
 
-// Elements a browser closes without a closing tag; they never contain a help block
-// and would otherwise be pushed onto the stack below and swallow the rest of a page.
+// Elements a browser closes without a closing tag, kept off the stack below.
 const VOID_TAGS = new Set([
   "area",
   "base",
@@ -777,13 +510,7 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-/*
- * Every element on the page as a span, innermost last for any given point.
- *
- * ONE STACK PASS rather than a walk per candidate: the reader below needs the field
- * of every block and the fallback field is the block's PARENT, which is a question
- * about every element rather than about a named few.
- */
+/** Returns every element on the page as a span, from one stack pass. */
 function elementSpans(markup) {
   const spans = [];
   const stack = [];
@@ -795,9 +522,7 @@ function elementSpans(markup) {
       continue;
     }
     if (slash === "/") {
-      // An unbalanced close is dropped rather than allowed to unwind the stack past
-      // the element it does not belong to: this reader is not a parser, and guessing
-      // at broken markup is how it would start refusing pages for the wrong reason.
+      // An unbalanced close is dropped rather than unwinding the stack past its element.
       const open = stack.pop();
       if (open === undefined) {
         continue;
@@ -811,22 +536,10 @@ function elementSpans(markup) {
 }
 
 /*
- * Calls back once per pair of condensed blocks that the applier would resolve to ONE
- * field, naming the key it keeps and the key it drops.
- *
- * THE FIELD IS DECIDED THE WAY THE APPLIER DECIDES IT, BOTH HALVES OF IT. `fieldOf`
- * in SSO-Auth/Web/i18n.js walks up from the block to the nearest `inputContainer` or
- * `checkboxContainer`, and where there is none it takes the block's own PARENT. This
- * read only the first half until the review of 2026-09-12, which is worse than a gap
- * because the note in i18n.js claimed the whole of it: ten of the Providers page's
- * blocks sit in neither container - the empty states, the collapse contents, the
- * subgroups, the danger zone, the test block - and two help texts added to any of
- * them would share a field, lose one of the two to the rail, and be refused by
- * nothing while a comment said otherwise. The refuted claim and the missing half are
- * repaired in the same change.
- *
- * A PARENT IS THE INNERMOST SPAN THAT IS NOT THE BLOCK ITSELF, which is why the
- * spans are taken over every element rather than over the two class names.
+ * Calls back once per pair of condensed blocks the applier resolves to one field,
+ * naming the key it keeps and the key it drops. The field is the nearest field
+ * container, or the block's parent where there is none, as `fieldOf` in
+ * SSO-Auth/Web/i18n.js decides it.
  */
 function forEachSharedField(markup, blocks, say) {
   const held = new Map();
@@ -844,11 +557,9 @@ function forEachSharedField(markup, blocks, say) {
 }
 
 /*
- * Where each block sits, both halves of the applier's walk: the innermost field
- * container holding it, and the innermost element of any kind. `labelled` says whether
- * that container carries a label, which is what `nameFold` in i18n.js names the fold
- * after (#1672); a block under no container is never named, whatever labels its parent
- * happens to hold.
+ * Returns where each block sits: the innermost field container and the innermost
+ * element holding it, and whether that container carries the label `nameFold` names
+ * the fold after (#1672).
  */
 function resolveFields(markup, blocks) {
   const spans = elementSpans(markup);
@@ -864,10 +575,7 @@ function resolveFields(markup, blocks) {
   };
 
   return blocks.map((block) => {
-    // INNERMOST WINS in both halves: a container nested in another is the one the
-    // applier stops at first on its way up, and the parent is the innermost element
-    // of any kind. Picking an outer one would collapse a whole section into one field
-    // and refuse a page nothing is wrong with.
+    // The innermost element wins in both halves, as the applier stops at the first on its way up.
     let field = null;
     let parent = null;
     spans.forEach((span) => {
@@ -885,8 +593,7 @@ function resolveFields(markup, blocks) {
       block,
       field,
       parent,
-      // A label FOR a control, or one wrapped around an input with an id: the two shapes
-      // `nameFold` derives its ids from. A bare `<label>` is not enough to be counted.
+      // A label for a control, or one wrapped around an input with an id, as `nameFold` reads it.
       labelled:
         field !== null &&
         /<label\b[^>]*\sfor="[^"]+"|<label\b(?:(?!<\/label>)[\s\S])*<input\b[^>]*\sid="/.test(
@@ -896,19 +603,11 @@ function resolveFields(markup, blocks) {
   });
 }
 
-// The span of the container a page marks for condensing, or null when it marks
-// none or the element cannot be walked to its close.
+// Returns the span of the container a page marks for condensing, or null when it
+// marks none or the element never closes.
 function markedScope(markup) {
-  // Tag-agnostic, because the applier's selector is: it asks for the attribute and
-  // does not care what element carries it. A div-only reader refused a `<section>`
-  // container with a message saying the applier had been handed nothing to walk,
-  // which was false of the applier.
-  //
-  // THE FIRST MARKED CONTAINER AND ONLY THE FIRST. The applier condenses under EVERY
-  // container carrying the attribute; this returns one span, so a page marking two
-  // would have the second's blocks reported as sitting outside "the" container. No
-  // page marks two and nothing refuses one that does - said here rather than left for
-  // the reader of a confusing refusal to work out.
+  // Any tag, as the applier's selector is; only the first marked container is returned,
+  // and no page marks two.
   const opening = new RegExp(
     `<([a-z][a-z0-9]*)\\b[^>]*\\b${CONDENSE_ROOT}\\b[^>]*>`,
   );
@@ -922,24 +621,12 @@ function markedScope(markup) {
   return body === null ? null : { from, to: from + body.length };
 }
 
-// ---------------------------------------------------------------------------
 // The second reader: the sentence the applier derives
-// ---------------------------------------------------------------------------
 
 /*
- * The first sentence, re-expressed here rather than imported from the module under
- * test - and THIS IS NOT AN INDEPENDENT DERIVATION, which an earlier version of
- * this comment claimed it was. It is the same rule written a second time: same
- * terminator, same abbreviation guard, same order. It therefore catches the applier
- * failing to APPLY the rule - a lead never written, written from the wrong text,
- * written once and left behind by a second catalogue - and it cannot catch the RULE
- * being wrong, because it is wrong in the same place.
- *
- * WHAT HOLDS THAT HALF is the table below: leads written out by hand, against inputs
- * chosen for the ways this rule breaks. The review of 2026-09-12 found the rule
- * cutting `config.acr_values_help` mid-abbreviation at `(e.g.` while every arm here
- * passed, precisely because both copies agreed. A hand-written answer cannot agree
- * with a mistake it was not told about.
+ * Returns the first sentence of a text, or null for a single sentence. It is the
+ * applier's rule written a second time, so it catches the rule not being applied;
+ * the hand-written lead table catches the rule itself being wrong.
  */
 function expectedLead(text) {
   const terminator = /[.!?](?=\s)/g;
@@ -957,19 +644,9 @@ function expectedLead(text) {
 }
 
 /*
- * The DIRECT child elements of a body, as `{ tag, attrs, inner }`, or null where this
- * reader cannot walk them.
- *
- * NULL RATHER THAN A BEST EFFORT, and the null is what keeps the count honest. A body
- * whose children this cannot read stays outside the driven population and is printed as
- * such; a body it reads WRONG would be judged against a sentence nobody wrote.
- *
- * BUILT ON `elementBody` RATHER THAN ON A SECOND DEPTH COUNTER. The first spelling of
- * this counted every tag name in one counter where `elementBody` counts tags of the
- * same name, so the two walkers disagreed on mismatched nesting while a comment here
- * claimed they were the same reader. One walker cannot disagree with itself, and it
- * carries the bound that walker already has: a page whose nesting relies on an implied
- * end tag reads as something a browser would not build.
+ * Returns the direct child elements of a body as `{ tag, attrs, inner }`, or null
+ * where it cannot walk them, so an unreadable body stays out of the driven set.
+ * It is built on `elementBody` so the two walkers cannot disagree.
  */
 function directChildren(inner) {
   const tags = /<([a-z][a-z0-9]*)\b([^>]*?)(\/?)>/g;
@@ -993,16 +670,9 @@ function directChildren(inner) {
 }
 
 /*
- * What one such child's text WILL be when the pass reaches the parts body, or null where
- * this reader cannot say.
- *
- * THE ORDER THE APPLIER RUNS IN IS THE WHOLE OF THIS. `applyTo` writes every
- * `data-i18n` element first and assembles the parts sentences afterwards, so a child
- * carrying a key holds the CATALOGUE's text by then and not the page's - which is why a
- * marked child is read out of the catalogue rather than out of the markup. An unmarked
- * child keeps whatever the page authored, so its own tags would have to be resolved the
- * same way, one level further down; that is refused instead, and so is an entity, whose
- * decoding this reader does not do.
+ * Returns what one child's text will be when the pass reaches the parts body, or
+ * null where this reader cannot say. `applyTo` writes `data-i18n` elements first,
+ * so a marked child is read from the catalogue; nested tags are refused.
  */
 function childText(child, values, fallback) {
   const key = /\bdata-i18n="([a-z0-9_.]+)"/.exec(child.attrs);
@@ -1014,14 +684,8 @@ function childText(child, values, fallback) {
   return /</.test(child.inner) ? null : decodeText(child.inner);
 }
 
-// The named references a help body may hold. THE SET IS A FLOOR AND NOT AN INVENTORY:
-// the parts bodies carry two of these today, `&lt;` and `&gt;`, in the `<code>` samples
-// that write a URL template or a JSON snippet, and the others are here because the same
-// samples reach for them rather than because anything writes them now. A reference
-// OUTSIDE the set - `&mdash;`, which these pages do author elsewhere - takes its body
-// out of the driven set and into the count the run prints, which is the fail-closed
-// direction. `&amp;` is decoded LAST so `&amp;lt;` comes out as the four characters
-// somebody wrote and not as a `<`.
+// The named references a help body may hold; any other reference takes the body out
+// of the driven set. `&amp;` is decoded last so `&amp;lt;` stays as written.
 const NAMED = {
   "&lt;": "<",
   "&gt;": ">",
@@ -1030,6 +694,7 @@ const NAMED = {
   "&#39;": "'",
 };
 
+/** Decodes the named references, or returns null for one outside the set. */
 function decodeText(text) {
   const out = text.replace(
     /&(?:lt|gt|quot|apos|#39);/g,
@@ -1039,24 +704,12 @@ function decodeText(text) {
 }
 
 /*
- * The text a parts value comes to after the pass fills its slots: `{n}` stands for the
- * nth child element of the body, so what a reader sees is the value with each slot
- * replaced by that child's own text. Null where the value does not describe the body -
- * a slot out of range, a slot named twice, a child no slot names - which is the case
- * the pass REFUSES, leaving the authored English standing.
- *
- * THE SAME RULE WRITTEN A SECOND TIME, exactly as `expectedLead` above is, and with the
- * same bound: it catches the pass failing to apply the rule and it cannot catch the
- * rule being wrong, because it would be wrong here in the same place. What holds that
- * half for the sentence rule is the hand-written table; what holds it here is that the
- * children the arms below hand in are elements, so a pass that flattened them would
- * produce the same TEXT and a different TREE, and the tree is what is refused.
+ * Returns a parts value with each `{n}` slot replaced by the nth child's text, or
+ * null where the value does not describe the body, which the pass refuses too.
+ * The same rule written a second time, like `expectedLead`.
  */
 function assemble(value, children) {
-  // A CHILD NOBODY COULD RESOLVE IS NULL, AND IT MUST NOT BE CONCATENATED. `"a " + null`
-  // is the string `"a null"`, which would be written into the fixture and into the text
-  // the fixture is judged against at once - green over a sentence nobody wrote, which is
-  // the one failure this whole reader exists to avoid.
+  // A child nobody could resolve is null and must not be concatenated as "null".
   if (children.some((text) => typeof text !== "string")) {
     return null;
   }
@@ -1079,14 +732,9 @@ function assemble(value, children) {
 }
 
 /*
- * One page as a tree: a marked container holding one folded field per help key,
- * and a rail card beside them.
- *
- * BUILT RATHER THAN PARSED, and that is a bound as well as a convenience. The
- * markup reader above judges the shipped pages; this one judges what the applier
- * DOES with a block of that shape. What it cannot see is a page that nests a
- * field differently from this fixture - a help block outside any
- * `inputContainer`, say, whose field would then be its own parent.
+ * Builds one page as a tree: a marked container with one folded field per help
+ * key, and a rail card beside them. It judges what the applier does with a block
+ * of this shape, not how a real page nests its fields.
  */
 function buildPage(keys, texts, summary, options) {
   const wrapper = new El("div");
@@ -1101,8 +749,7 @@ function buildPage(keys, texts, summary, options) {
   const fields = keys.map((key, index) => {
     const container = new El("div");
     container.className = "inputContainer";
-    // A LABEL FOR THE CONTROL, as the pages author one per field (#1672): the fold is
-    // named after it, so the fixture carries the thing the name is derived from.
+    // A label for the control, which the fold is named after (#1672).
     const label = new El("label");
     label.setAttribute("for", `fixture_${index}`);
     label.textContent = `Field ${index}`;
@@ -1116,12 +763,7 @@ function buildPage(keys, texts, summary, options) {
     summaryEl.textContent = summary;
     const body = new El("div");
     body.className = "sso-help-body";
-    // A BODY ASSEMBLED FROM PARTS IS A DIFFERENT SHAPE AND IS BUILT AS ONE (#1669). Its
-    // marker is the parts spelling, its content is child ELEMENTS rather than one text
-    // node, and the catalogue value handed to the pass holds `{n}` slots naming them -
-    // so the text the reader ends up with is assembled on the page and is not the raw
-    // value. Without this the only thing that could be driven was the plain shape, and
-    // the rule's behaviour on the other one was asserted in a comment instead.
+    // A parts body holds child elements and a value with `{n}` slots (#1669).
     const assembled = options && options.parts && options.parts[key];
     if (assembled) {
       body.setAttribute("data-i18n-parts", key);
@@ -1143,9 +785,7 @@ function buildPage(keys, texts, summary, options) {
     help.className = "fieldDescription sso-help";
     help.replaceChildren(lead, details);
 
-    // A SPOKEN COPY where the arm asks for one (#1672), named by the field's
-    // aria-describedby in place of the block: the one shape a description can be
-    // computed from with the fold closed.
+    // A hidden spoken copy named by the field's aria-describedby, where the arm asks for one (#1672).
     let spoken = null;
     if (options && options.spoken) {
       spoken = new El("span");
@@ -1196,10 +836,8 @@ function buildPage(keys, texts, summary, options) {
 }
 
 /*
- * Refuses the runtime half: `texts` is what each key's text OUGHT to be after the
- * pass - the catalogue value where the catalogue carries the key, the built-in
- * English where it does not - so "the fold lost a sentence" and "the fold is
- * showing the wrong language" are both refusable rather than only the first.
+ * Refuses the runtime half. `texts` is what each key's text ought to be after the
+ * pass, so a lost sentence and a wrong language are both refused.
  */
 function inspect(page, texts, summary) {
   const refusals = [];
@@ -1208,10 +846,7 @@ function inspect(page, texts, summary) {
 
   page.fields.forEach((field) => {
     const whole = texts[field.key];
-    // A key neither catalogue carries reaches here as undefined, and every comparison
-    // below would then read a property off it. The census step refuses such a key
-    // first, so this is a floor rather than the primary guard - and a floor is what
-    // keeps the ORDER of two steps from being the only thing holding a crash back.
+    // A key no catalogue carries; the census step refuses it first, and this keeps it from crashing.
     if (typeof whole !== "string") {
       say(
         `${field.key} is named by a page and carried by no catalogue, so there is no text for the fold to hold`,
@@ -1226,13 +861,8 @@ function inspect(page, texts, summary) {
       );
     }
 
-    // THE TREE AND NOT ONLY THE TEXT, for a body whose sentence is assembled around
-    // child elements (#1669). Flattening those children into one text node keeps every
-    // character and loses every `<code>`, `<strong>` and link in the sentence, so a
-    // comparison of text alone passes a defect whose whole content is the markup. It
-    // also refuses the other direction, which the repair this issue rejected would have
-    // produced: moving the children somewhere else empties the body that the NEXT
-    // catalogue pass reassembles from, and the count goes to zero.
+    // The tree and not only the text for a parts body (#1669), so flattened or moved
+    // children are refused.
     if (
       field.parts !== undefined &&
       field.body.children.length !== field.parts
@@ -1249,10 +879,7 @@ function inspect(page, texts, summary) {
       );
     }
 
-    // THE FOLD IS NAMED AFTER ITS FIELD (#1672): the summary's aria-labelledby names the
-    // field's label and then the summary itself, by ids the applier writes. Measured in
-    // Chromium's accessibility tree, a summary without it is a disclosure triangle named
-    // by the catalogue word alone, the same as every other fold on the page.
+    // The summary's aria-labelledby names the field's label and then itself (#1672).
     const labelId = field.label.getAttribute("id");
     const summaryId = summaryEl ? summaryEl.getAttribute("id") : null;
     const namedBy = summaryEl
@@ -1266,10 +893,7 @@ function inspect(page, texts, summary) {
       counts.named += 1;
     }
 
-    // AND THE SPOKEN COPY, WHERE THE FIELD HAS ONE, HOLDS THE WHOLE TEXT AND STAYS HIDDEN.
-    // It is what the field's aria-describedby hands a screen reader, so a copy short of
-    // the text describes the field with less than the fold holds, and one that is shown
-    // puts the text on the page twice.
+    // A spoken copy holds the whole text and stays hidden.
     if (field.spoken) {
       if (field.spoken.textContent !== whole) {
         say(
@@ -1283,24 +907,11 @@ function inspect(page, texts, summary) {
       }
     }
 
-    // THE ONE-SENTENCE STATE IS A PLACE RATHER THAN A COPY (#1669). The body itself is
-    // the line under the field: the applier moves it out of the fold and in front of
-    // it, so a sentence assembled around child elements arrives with them instead of
-    // being flattened into the lead's text. So what is refused here is the body's
-    // PARENT, the empty lead beside it and the hidden fold - three states that fail
-    // differently. A body left inside a hidden fold shows the field NOTHING, which is
-    // the worst of the three and the one a partial repair produces. The parent and not
-    // the index: a body appended after the hidden fold rather than before it draws the
-    // same page, so the two orders are not separated here.
+    // A one-sentence body moves in front of the fold rather than being copied into the
+    // lead (#1669), so its parent, the empty lead and the hidden fold are each checked.
     if (lead === null) {
       counts.flat += 1;
-      // THE POPULATION #1669 IS ABOUT, COUNTED WHERE THE PAGE IS READ rather than by a
-      // walk somebody runs once. It is the parts-marked bodies that come out holding ONE
-      // sentence after their own children are substituted, which is the only shape the
-      // flattening defect could reach, and it moves with every catalogue edit - a
-      // translator adding a second sentence in German takes a row out of it. Derived from
-      // the hand-written lead rule above and never from where the applier put the body,
-      // so a regression shrinks the figure instead of being counted as a pass.
+      // The parts bodies holding one sentence, the population #1669 is about, derived from the lead rule.
       counts.flatParts += field.parts === undefined ? 0 : 1;
       if (field.body.parentNode !== field.help) {
         say(
@@ -1371,10 +982,7 @@ function inspectRail(page, texts, summary, expectCard) {
       "the card is shown before anything has focus, naming a field nobody chose",
     );
   }
-  // GUARDED IN THE MESSAGE AS WELL AS IN THE CONDITION, which is where the first
-  // attempt at this stopped: the condition admitted an absent heading and the message
-  // then read a property off it, so the refusal it was meant to produce was still a
-  // stack trace. The same applies to the card's text holder, read above.
+  // Guarded in the message as well as the condition, so a missing element is a refusal, not a crash.
   if (!text) {
     refusals.push(
       "the card holds no element for a field's text, so a focus has nowhere to write",
@@ -1407,10 +1015,7 @@ function inspectRail(page, texts, summary, expectCard) {
       );
     }
 
-    // AND FOCUS LEAVING THE CONTAINER ALTOGETHER, which is the half `focusin`
-    // cannot see: it never fires for a target outside the container, so a card
-    // cleared only on focusin keeps the last field's text for as long as the view
-    // lives. The review of 2026-09-12 named it; this is the arm that holds it.
+    // Focus leaving the container, which `focusin` never sees, must clear the card.
     page.root.fire("focusin", page.fields[0].input);
     page.root.fire("focusout", page.fields[0].input, page.wrapper);
     if (!card.hidden) {
@@ -1419,10 +1024,7 @@ function inspectRail(page, texts, summary, expectCard) {
       );
     }
 
-    // AND THE OTHER DIRECTION, which the fix for the line above can overshoot into. A
-    // blur with NO destination - a mousedown on the card itself, which is a plain div
-    // with a scrollbar for exactly these long texts, or a window losing focus - must
-    // NOT clear: the card would vanish under the click that was about to scroll it.
+    // A blur with no destination, such as a click on the card itself, must not clear it.
     page.root.fire("focusin", page.fields[0].input);
     page.root.fire("focusout", page.fields[0].input, null);
     if (card.hidden) {
@@ -1435,20 +1037,19 @@ function inspectRail(page, texts, summary, expectCard) {
   return refusals;
 }
 
-// ---------------------------------------------------------------------------
 // The run
-// ---------------------------------------------------------------------------
 
+/** Reads a file as UTF-8. */
 function read(file) {
   return fs.readFileSync(file, "utf8");
 }
 
+/** Parses one catalogue from the Localization folder. */
 function catalogue(name) {
   return JSON.parse(read(path.join(LOCALIZATION, `${name}.json`)));
 }
 
-// The pages this slice moved, read from the tree: a page is in scope because it
-// carries the opt-in attribute, never because it is named here.
+// Returns the pages carrying the opt-in attribute, which is what puts a page in scope.
 function markedPages() {
   return fs
     .readdirSync(WEB)
@@ -1457,6 +1058,7 @@ function markedPages() {
     .sort();
 }
 
+/** Imports the shipped i18n.js as a module. */
 async function loadApplier() {
   const source = read(path.join(WEB, "i18n.js"));
   const url =
@@ -1465,10 +1067,8 @@ async function loadApplier() {
   return import(url);
 }
 
-// Applies one catalogue to one built page. `loadCatalog` always resolves - a
-// failed fetch leaves the catalogue empty and the built-in English standing - so
-// `applyTo` runs either way, which is the degraded path this drives rather than
-// assumes.
+// Applies one catalogue to one built page. `loadCatalog` always resolves, so a failed
+// fetch leaves the built-in English and `applyTo` runs either way.
 async function render(i18n, page, values) {
   globalThis.fetch = () =>
     values === null
@@ -1478,6 +1078,7 @@ async function render(i18n, page, values) {
   i18n.applyTo(page.wrapper);
 }
 
+/** Maps each fixture text to a `config.fixture_N_help` key. */
 function fixtureTexts(values) {
   return values.reduce((all, value, index) => {
     all[`config.fixture_${index}_help`] = value;
@@ -1486,10 +1087,8 @@ function fixtureTexts(values) {
 }
 
 /*
- * Leads written out BY HAND, one row per way this rule is known to break, and the
- * only arm in this file whose answer does not come from the rule it judges. `null`
- * means "one sentence": nothing behind the fold, so the whole text is the line
- * under the field.
+ * Leads written by hand, one row per way the sentence rule is known to break, so
+ * this arm is the one not derived from the rule. `null` means one sentence.
  */
 const HAND_WRITTEN_LEADS = [
   [
@@ -1500,13 +1099,12 @@ const HAND_WRITTEN_LEADS = [
     "The language code Jellyfin itself stores, for example eng. Leave blank to keep the default.",
     "The language code Jellyfin itself stores, for example eng.",
   ],
-  // The one the review found: an abbreviation with a bracket glued to its front.
+  // An abbreviation with a bracket glued to its front.
   [
     "Space-separated values (e.g. acr-1) may be sent. The rest follows.",
     "Space-separated values (e.g. acr-1) may be sent.",
   ],
-  // And the other direction: a dotted IDENTIFIER is not an abbreviation, and a
-  // guard wide enough to cover the row above must still split this one.
+  // A dotted identifier is not an abbreviation and must still split.
   [
     "Name Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider here. It is what a save accepts.",
     "Name Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider here.",
@@ -1520,27 +1118,18 @@ const HAND_WRITTEN_LEADS = [
     "Ein Code wie z. B. eng gehört hierhin.",
   ],
   ["Welche Untertitel? Diese hier.", "Welche Untertitel?"],
-  // `\w` is ASCII and this catalogue is not: with it, the tail of "Das heißt" is
-  // "t", one word character, an abbreviation by the rule - and the text went unsplit.
+  // Non-ASCII letters, which `\w` would miss.
   ["Das heißt. Mehr steht dahinter.", "Das heißt."],
   ["Es zählt die Größe. Mehr steht dahinter.", "Es zählt die Größe."],
-  // A tail that stops at the first non-letter is what keeps these two splitting: an
-  // empty tail is no abbreviation, and both a hyphenated value and a version number
-  // end on a digit.
+  // An empty tail is no abbreviation, so values ending on a digit split.
   ["Sende acr-1. Der Rest folgt.", "Sende acr-1."],
   ["Nutze SAML 2.0. Der Rest folgt.", "Nutze SAML 2.0."],
-  // A sentence ending on a bracket rather than on a word, which is what pins the
-  // empty tail from the other side: widen INITIALS to accept one and this row breaks.
+  // A sentence ending on a bracket pins the empty tail from the other side.
   [
     "Nie enthalten (auch keine Geheimnisse). Der Rest folgt.",
     "Nie enthalten (auch keine Geheimnisse).",
   ],
-  // A single non-ASCII capital as an initial. This row exists to pin the CHARACTER
-  // CLASS of the abbreviation test rather than to settle whether an author meant an
-  // initial here: the rule says a lone letter before a dot is an abbreviation, and
-  // that has to hold for a letter outside ASCII too. Without this row the ASCII
-  // spelling of that test survives every other arm, because the letters-and-dots
-  // tail already carries the German cases above on its own.
+  // A lone non-ASCII capital before a dot is an initial, which pins the character class.
   ["Siehe Anlage Ö. Mehr steht dahinter.", null],
   ["Nur ein Satz, und nicht mehr.", null],
   ["Ein Satz ganz ohne Satzzeichen am Ende", null],
@@ -1553,9 +1142,8 @@ const ABBREVIATION =
 const GERMAN =
   "Standardmäßig aus. Eingeschaltet speichert jede Anmeldung den Zustand, den eine Abmeldung braucht.";
 
-// A page of markup in the shape the applier expects, for the markup reader's own
-// arms. Written here rather than taken from a page so a negative can break one
-// part of it at a time.
+// Builds markup in the shape the applier expects, for the markup reader's own arms,
+// so a negative can break one part of it at a time.
 function fixtureMarkup(key, parts) {
   const p = {
     lead: true,
@@ -1575,30 +1163,21 @@ function fixtureMarkup(key, parts) {
     ].join("\n");
   }
 
-  // `heading: false` leaves the card headless. It is a negative of its own because the
-  // heading refusal had none until the review of 2026-09-12 - it was written, never
-  // driven, and then widened from `<h2` to any level by that review, which is exactly
-  // when an undriven refusal stops being trustworthy.
+  // `heading: false` leaves the card headless.
   const heading =
     p.heading === false
       ? ""
       : `<h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2>`;
   const card = `<div class="verticalSection sso-help-card" hidden>${heading}<div class="sso-help-card-text"></div></div>`;
-  // The element the block is authored in. `div` everywhere but the one negative that
-  // asks for `p`, which is the tag a browser will not keep a `<details>` inside.
+  // The element the block is authored in; `p` is the negative a browser re-parents.
   const tag = p.tag || "div";
   const block = [
     `<${tag} class="fieldDescription${p.marked ? " sso-help" : ""}"${p.described ? ' id="fixture-help"' : ""}>`,
     p.comment ? `<!-- a note that mentions a closing </div> tag -->` : "",
     p.lead ? `<span class="sso-help-lead"></span>` : "",
-    // `selfClosed` puts the one kind of tag that must NOT move the depth count before the
-    // fold: a void element with its slash, which is how these pages author all of them.
-    // Without this arm the self-closing branch of `depthAt` is driven by nothing, because
-    // no block on any of the four pages carries such a tag before its fold today.
+    // `selfClosed` puts a void element with its slash before the fold, which must not move the depth.
     p.selfClosed ? `<br />` : "",
-    // `wrapped` puts the fold inside a layout element, which is the edit somebody makes
-    // while rearranging a form and the shape #1684 is about. It is a near-miss of one
-    // opening tag and one closing tag, and nothing else about the block moves.
+    // `wrapped` puts the fold inside a layout element (#1684).
     p.wrapped ? `<div class="sso-help-layout">` : "",
     p.details ? `<details class="sso-help-full">` : "<div>",
     p.summary
@@ -1618,18 +1197,13 @@ function fixtureMarkup(key, parts) {
     `</${tag}>`,
   ].join("\n");
 
-  // `scoped: false` is the shape the review of 2026-09-12 killed a whole page's
-  // rail with: the card is on the page, one element outside the container the
-  // applier walks.
+  // `scoped: false` puts the card one element outside the container the applier walks.
   if (p.scoped === false) {
     return [`<div ${CONDENSE_ROOT}>`, block, `</div>`, card].join("\n");
   }
 
-  // A second `*_help` marker on a class neither reader enters (#1677). `stray` leaves it
-  // undeclared, which the closure refuses; `flat` declares it with a reason, which it
-  // accepts. The two differ by one attribute, which is the whole near-miss: renaming a
-  // field's class to take it out of the condensing produces the first, and a warning that
-  // was never a field description produces the second.
+  // A second `*_help` marker on a class neither reader enters (#1677): `stray` leaves it
+  // undeclared, `declared` gives it a reason.
   const extra =
     p.stray || p.declared
       ? `<div class="sso-callout"${p.declared ? ' data-sso-flat-help="a warning, not a field description"' : ""} data-i18n-parts="config.fixture_9_help">a warning</div>`
@@ -1660,12 +1234,8 @@ function fixtureMarkup(key, parts) {
 }
 
 /*
- * Two condensed blocks, in two field containers or in one (#1663).
- *
- * THE NEAR-MISS IS THE POINT AND IT IS ONE CLOSING TAG. `shared: false` is the shape
- * every page already has - a block per field - and `shared: true` is that page with
- * one `</div>` moved, which is exactly the edit somebody makes while rearranging a
- * form. The refusal has to separate those two and nothing else.
+ * Builds two condensed blocks in two field containers, in one, or under one
+ * plain parent (#1663); the shapes differ by one moved closing tag.
  */
 function fixturePair(key, other, shared) {
   const block = (name) =>
@@ -1679,10 +1249,7 @@ function fixturePair(key, other, shared) {
       `</div>`,
     ].join("\n");
   const card = `<div class="verticalSection sso-help-card" hidden><h2 class="sectionTitle" data-i18n="${SUMMARY_KEY}">Full text</h2><div class="sso-help-card-text"></div></div>`;
-  // `wrapper` is the class the two blocks share. `inputContainer` is the branch
-  // `fieldOf` walks up to; anything else is the PARENT branch, which is the half the
-  // review of 2026-09-12 found unread and which ten of the Providers page's blocks
-  // sit in.
+  // `inputContainer` is the branch `fieldOf` walks up to; anything else is the parent branch.
   const wrapper = shared === "parent" ? "sso-test-block" : "inputContainer";
   const fields =
     shared === false
@@ -1691,6 +1258,7 @@ function fixturePair(key, other, shared) {
   return [`<div ${CONDENSE_ROOT}>`, fields, card, `</div>`].join("\n");
 }
 
+/** Runs every calibration arm of both readers and returns the results. */
 async function calibrate(i18n) {
   const results = [];
   const record = (name, mustRefuse, refusals) =>
@@ -1810,17 +1378,8 @@ async function calibrate(i18n) {
 
   /*
    * --- the child reader, against hand-written answers (#1669) ---
-   *
-   * WITHOUT THIS THE REAL-PAGE HALF IS GREEN FOR THE WRONG REASON. The children a
-   * parts body on a page carries are read off the markup by `directChildren` and
-   * `childText`, and the SAME reading builds both the fixture's children and the text
-   * the fixture is judged against - so a reader that mis-reads a child agrees with
-   * itself and every arm downstream passes. What breaks that circle is an answer
-   * written by hand, which is the same device the lead table below is, for the same
-   * reason.
-   *
-   * The catalogue row is the one a marked child resolves through, because the pass
-   * writes those children before it assembles the sentence around them.
+   * The same reading builds a fixture's children and the text it is judged against,
+   * so these hand-written answers are what keep it from agreeing with itself.
    */
   const CHILD_CATALOGUE = { "config.fixture_child": "the setting's name" };
   const CHILD_ROWS = [
@@ -1829,18 +1388,16 @@ async function calibrate(i18n) {
       "<code>/sso/OID/p/&lt;name&gt;</code> then <br /> then <code>a &amp; b</code>",
       ["/sso/OID/p/<name>", "", "a & b"],
     ],
-    // A marked child holds the CATALOGUE's text by the time the sentence is
-    // assembled, never the page's.
+    // A marked child holds the catalogue's text by the time the sentence is assembled.
     [
       '<strong data-i18n="config.fixture_child">Whatever the page says</strong>',
       ["the setting's name"],
     ],
-    // A child of a child: one level further down, which this reader does not resolve.
+    // A child of a child, which this reader does not resolve.
     ["<span>a <code>nested</code> sample</span>", null],
-    // A marked child whose key neither catalogue carries: its text is the page's own
-    // English, which this reader has no way to know, so the body leaves the driven set.
+    // A marked child whose key no catalogue carries, so its text is unknown here.
     ['<strong data-i18n="config.no_such_key">Whatever</strong>', null],
-    // A reference it does not know, which a browser would decode and it would not.
+    // A reference it does not know.
     ["<code>&hellip;</code>", null],
     // Markup it cannot walk at all.
     ["<code>unclosed", null],
@@ -1863,9 +1420,7 @@ async function calibrate(i18n) {
     );
   }
 
-  // And the assembly around them, hand-written the same way: a value may reorder its
-  // slots, and one that does not name each child exactly once describes a different
-  // element and is refused rather than half-applied.
+  // The assembly, hand-written the same way: a value must name each child exactly once.
   const ASSEMBLY_ROWS = [
     ["Set {0} first.", ["A"], "Set A first."],
     ["Set {1} before {0}.", ["A", "B"], "Set B before A."],
@@ -1893,13 +1448,8 @@ async function calibrate(i18n) {
     const page = buildPage([key], texts, "Full text", {});
     await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
     const field = page.fields[0];
-    // A ONE-SENTENCE ANSWER IS READ OFF THE BODY AND A SPLIT ONE OFF THE LEAD (#1669),
-    // and the row pins WHICH element as well as what it says. `null` here means the
-    // whole text stands under the field, which since that change means the body itself
-    // has been moved out of the fold - so the row asks the body for the text AND asks
-    // where it now sits. Reading "whatever is outside the fold" instead would have
-    // accepted the behaviour this issue replaced, where the lead held the whole text
-    // and the body stayed behind a hidden fold.
+    // A one-sentence answer is read off the body and a split one off the lead (#1669),
+    // and the row also checks where the body now sits.
     const shown = expected === null ? field.body : field.lead;
     const want = expected === null ? text : expected;
     const placed =
@@ -1939,10 +1489,7 @@ async function calibrate(i18n) {
 
   /*
    * --- the fold's name and the spoken copy (#1672) ---
-   *
-   * Both were measured in a browser's accessibility tree and neither can be measured
-   * here: the stub computes no accessible name. What the arms hold is the ATTRIBUTES
-   * that computation reads, which the applier writes and which a mutation removes.
+   * The stub computes no accessible name, so the arms hold the attributes it is computed from.
    */
   {
     const texts = fixtureTexts([TWO, ONE]);
@@ -1950,8 +1497,7 @@ async function calibrate(i18n) {
       spoken: true,
     });
     await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
-    // Twice, because the ids are written where they are missing and a second pass has
-    // to find them rather than mint a second set.
+    // Twice, so a second pass must find the ids rather than mint a second set.
     await render(i18n, page, { ...texts, [SUMMARY_KEY]: "Full text" });
     const summaryEl = page.fields[0].details.querySelector("summary");
     record(
@@ -1974,8 +1520,7 @@ async function calibrate(i18n) {
     );
   }
 
-  // A LABEL WRAPPED AROUND ITS CONTROL, which is how every checkbox row is authored:
-  // no `for`, the input inside the label, and the id taken from that input.
+  // A label wrapped around its control, as every checkbox row is authored.
   {
     const texts = fixtureTexts([TWO]);
     const page = buildPage(Object.keys(texts), texts, "Full text", {});
@@ -1997,10 +1542,7 @@ async function calibrate(i18n) {
     );
   }
 
-  // A BLOCK IN NO FIELD CONTAINER KEEPS THE BARE WORD: the first label under its parent
-  // belongs to some other field, and a fold named after a field it does not open is
-  // worse than one named "Full text". The arm holds that the applier does NOT reach
-  // for that label; deleting the container test in `nameFold` is what turns it red.
+  // A block in no field container keeps the bare word rather than another field's label.
   {
     const texts = fixtureTexts([TWO]);
     const page = buildPage(Object.keys(texts), texts, "Full text", {});
@@ -2019,10 +1561,7 @@ async function calibrate(i18n) {
     );
   }
 
-  // TWO LABELLED CONTROLS IN ONE CONTAINER, the help under the second: the SAML form's
-  // Live TV rows author this once, and the FIRST label named that fold after the field
-  // above it (review of 2026-09-12). The label that names a fold is the last one before
-  // its block.
+  // Two labelled controls in one container: the last label before the block names the fold.
   {
     const texts = fixtureTexts([TWO]);
     const page = buildPage(Object.keys(texts), texts, "Full text", {});
@@ -2048,12 +1587,8 @@ async function calibrate(i18n) {
     );
   }
 
-  // THE HOST'S OWN EMPTY LABEL. jellyfin-web's emby-input, emby-textarea and emby-select
-  // insert `<label for=id></label>` with no text directly in front of every control they
-  // upgrade, so on a real page an empty label stands between the authored one and the
-  // block on every field. The stub has no custom elements, so the label is authored here;
-  // the arm also asks that no id was minted on it, because the id it would get is the
-  // authored label's, and the same attribute string would then name an empty element.
+  // The empty label jellyfin-web inserts before an upgraded control must not name the fold
+  // or be given an id.
   {
     const texts = fixtureTexts([TWO]);
     const page = buildPage(Object.keys(texts), texts, "Full text", {});
@@ -2078,13 +1613,7 @@ async function calibrate(i18n) {
 
   /*
    * --- the applier driven over a body assembled from parts (#1669) ---
-   *
-   * UNTIL THIS BLOCK THESE BODIES WERE JUDGED BY THE MARKUP READER ALONE, and the
-   * defect that produced the issue is exactly what that leaves open: the one-sentence
-   * rule wrote the body's TEXT into the lead, which is right for a body whose content
-   * is a catalogue row and flattens the children of one that is a sentence built
-   * around them. Every arm here drives the shipped applier over a body with real child
-   * elements and asks where the children ended up, not only where the words did.
+   * Each arm asks where the child elements ended up, not only where the words did.
    */
   const AVATAR = "https://example.com/@{user_id}.png";
   const partsArm = async (name, values, children, extra) => {
@@ -2103,17 +1632,14 @@ async function calibrate(i18n) {
     ]);
   };
 
-  // The shape that already worked: more than one sentence, so the lead is a plain text
-  // slice and the markup stays behind the fold where it always was.
+  // More than one sentence: the markup stays behind the fold.
   await partsArm(
     "a parts body holding two sentences is split like any other",
     ["The avatar url takes the form {0}. Leave it blank to keep the default."],
     [AVATAR],
   );
 
-  // The shape the issue is about, and the two things it has to hold at once: the child
-  // element is still an ELEMENT, and it is somewhere the reader can see it - outside
-  // the fold that is now hidden.
+  // One sentence: the child is still an element and sits outside the hidden fold.
   await partsArm(
     "a parts body holding one sentence keeps its child where a reader can see it",
     ["The avatar url takes the form {0}"],
@@ -2129,10 +1655,7 @@ async function calibrate(i18n) {
           ],
   );
 
-  // THE ARM THAT REFUSES THE REPAIR THIS ISSUE REJECTED. Moving the body's children
-  // into the lead shows the markup once and empties the body, so the SECOND catalogue
-  // finds no children to assemble around and the field goes blank in the other
-  // language. Two passes, both one-sentence, is the cheapest way to say so.
+  // A second catalogue must reassemble the body, so moving the children into the lead fails.
   await partsArm(
     "a second catalogue reassembles a one-sentence parts body",
     [
@@ -2142,8 +1665,7 @@ async function calibrate(i18n) {
     [AVATAR],
   );
 
-  // And the move in the other direction: one sentence in English, two in German, so
-  // the body has to go back behind the fold that the first pass hid.
+  // One sentence in English and two in German, so the body goes back behind the fold.
   await partsArm(
     "a parts body that gains a sentence in the other language folds again",
     [
@@ -2154,23 +1676,8 @@ async function calibrate(i18n) {
   );
 
   /*
-   * THE FALLBACK REFERENCE NODE IS DRIVEN RATHER THAN ASSERTED. `refresh` reads the fold
-   * with a querySelector over the whole block, so it finds one at any depth, and then
-   * inserts the promoted body with `help.insertBefore(body, details)` - which requires the
-   * fold to be the block's own CHILD. Every page authors it that way, so the arm the
-   * applier carries for the other shape was reachable from nothing:
-   * `details.parentNode === help ? details : null`. An arm nothing drives cannot be told
-   * apart from one that does not work, and deleting it instead was tried and is worse: a
-   * browser aborts the whole condensing pass and the rail listener on the throw.
-   *
-   * So the shape is authored here. The fold goes inside a wrapper, which is the layout
-   * change somebody makes without reading this function, and the arm asks for the two
-   * things that separate a degradation from a failure: the pass does not throw, and the
-   * body ends up somewhere a reader can see it rather than inside the hidden fold. Where
-   * it ends up is AFTER the fold rather than before it, which draws the same field because
-   * the fold is hidden, and the stylesheet then gives it the fold's spacing rather than
-   * the lead's - the one visible cost, and the reason #1684 asks the markup reader to
-   * refuse the shape at authoring time instead of leaving the applier to absorb it.
+   * The applier's fallback for a fold that is not the block's own child (#1684):
+   * the pass must not throw and the body must end up outside the hidden fold.
    */
   {
     const key = "config.fixture_0_help";
@@ -2179,10 +1686,7 @@ async function calibrate(i18n) {
     });
     const field = page.fields[0];
     const wrap = new El("div");
-    // ORDER: replaceChildren drops the fold's parent first, so the wrapper adopts a node
-    // that belongs to nobody. Appending to the wrapper first would leave the fold in two
-    // child lists at once in a stub that did not detach, and this one does - so the order
-    // here is the one a browser also takes rather than a habit.
+    // replaceChildren first drops the fold's parent, as a browser would, before the wrapper adopts it.
     field.help.replaceChildren(field.lead, wrap);
     wrap.appendChild(field.details);
     let threw = null;
@@ -2214,15 +1718,8 @@ async function calibrate(i18n) {
   }
 
   /*
-   * THE SECOND PASS MOVES NOTHING, which is what the `body.parentNode !== help`
-   * guard in the applier buys and what the arms above cannot see: every one of them
-   * compares a FINAL tree, and re-inserting a body that is already in place leaves the
-   * same tree behind. A DOM move is a removal and an insertion, so a browser blurs
-   * anything focused inside the moved node - three of these bodies carry a link - and
-   * `refresh` runs again on every catalogue pass. The stub is not a browser and holds no
-   * focus, which this file's header says of itself, so the arm counts the MOVES rather
-   * than asserting the blur: one on the pass that promotes the body, none on an
-   * identical pass after it.
+   * A second identical pass must not move the promoted body again, since a DOM move
+   * blurs a focused link inside it; the stub has no focus, so the moves are counted.
    */
   {
     const key = "config.fixture_0_help";
@@ -2253,8 +1750,7 @@ async function calibrate(i18n) {
     );
   }
 
-  // The negative: the children flattened into one text node, which is the defect
-  // itself. Every character is still there, so only the tree can refuse it.
+  // The negative: the children flattened into one text node, which only the tree can refuse.
   {
     const key = "config.fixture_0_help";
     const value = "The avatar url takes the form {0}";
@@ -2301,10 +1797,8 @@ async function calibrate(i18n) {
         page.fields[1].details.hidden = false;
       },
     ],
-    // The two ways the one-sentence state fails since the body is moved rather than
-    // copied (#1669), and they are the two repairs the issue rejected, arriving as
-    // mutations: the fold keeps the text, so the field shows nothing at all; or the
-    // text is copied into the lead beside the body, so the field says it twice.
+    // The one-sentence state fails by leaving the text in the hidden fold or by
+    // copying it into the lead as well (#1669).
     [
       "a one-sentence text left inside its hidden fold",
       (page) => {
@@ -2430,12 +1924,8 @@ async function calibrate(i18n) {
     record(name, true, inspect(page, texts, "Full text").refusals);
   }
 
-  // TWO HELP BLOCKS IN ONE FIELD CONTAINER. No page carries the shape and nothing
-  // refuses it, which `i18n.js` says of itself at the map it builds; what this arm
-  // holds is that the applier is DETERMINISTIC about it - the first block in
-  // document order answers the rail rather than whichever the map happened to keep -
-  // so the day the Providers slice produces one, the loss is visible in the order
-  // the page is written rather than in the order a Map was built.
+  // Two help blocks in one field container: the applier deterministically lets the
+  // first block in document order answer the rail.
   const sharedTexts = fixtureTexts([TWO, GERMAN]);
   const sharedKeys = Object.keys(sharedTexts);
   const shared = buildPage(sharedKeys, sharedTexts, "Full text", {});
@@ -2459,7 +1949,7 @@ async function calibrate(i18n) {
         ]),
   ]);
 
-  // --- two arms about the SCOPE of the rule rather than one page's shape ---
+  // --- two arms about the scope of the rule rather than one page's shape ---
   const scopeTexts = fixtureTexts([TWO]);
   const unmarked = buildPage(Object.keys(scopeTexts), scopeTexts, "Full text", {
     marked: false,
@@ -2484,13 +1974,8 @@ async function calibrate(i18n) {
     ...inspectRail(cardless, scopeTexts, "Full text", false),
   ]);
 
-  // AND IT IS NOT MARKED AS WIRED, which is a different claim from the one above and
-  // the one the applier's guard rests on. The attribute says "this container has a
-  // focus listener"; it was set on the line before the card lookup that returns
-  // early, so a pass over a container whose card was not there yet marked it wired
-  // with nothing attached and every later pass returned at the guard. Nothing held
-  // that until this arm: the mutation putting the attribute back above the lookup
-  // left the whole calibration green.
+  // A container with no card must not be marked wired, or a later pass with a card
+  // attaches no listener.
   record("a container with no card is not marked as wired", false, [
     ...(cardless.root.hasAttribute("data-sso-condensed-help-wired")
       ? [
@@ -2518,10 +2003,7 @@ async function calibrate(i18n) {
     false,
     [
       ...inspect(twice, { [key]: GERMAN }, "Vollständiger Text").refusals,
-      // `|| []` rather than a direct read, because a container with NO listener is
-      // exactly one of the states this arm has to name. Reading the length off an
-      // absent list turned a legible refusal into a stack trace, which is the shape
-      // of failure a gate is least useful in.
+      // `|| []`, since a container with no listener is one of the states to name.
       ...((twice.root.listeners.get("focusin") || []).length === 1
         ? []
         : [
@@ -2546,6 +2028,7 @@ async function calibrate(i18n) {
   return `calibration:       ${results.length} arms, ${mustPass} that must pass and ${results.length - mustPass} that must be refused, all as expected`;
 }
 
+/** Calibrates, then judges every marked page in both catalogues and returns the exit code. */
 async function run() {
   const i18n = await loadApplier();
   const calibration = await calibrate(i18n);
@@ -2575,14 +2058,8 @@ async function run() {
       refused += 1;
     });
 
-    // THE COLLAPSED STRING COMES FROM THE MARKUP READER RATHER THAN BEING PRODUCED
-    // AGAIN HERE. Reading the file as written yields ZERO keys the moment Prettier
-    // wraps the body tag, and comments have to go first because these pages are heavily
-    // commented and a comment mentioning a closing tag reads as one to a walker - both
-    // of which that reader already does. The count below refuses the page when the two
-    // readers disagree about how many blocks it holds, so they have to be reading the
-    // same string; a second copy of the two replacements made that agreement a property
-    // of two edits staying in step instead of a property of the code.
+    // The collapsed string comes from the markup reader, so the two block counts
+    // below are read from the same text.
     const flatMarkup = authored.markup;
     const bodies = [
       ...flatMarkup.matchAll(
@@ -2592,10 +2069,7 @@ async function run() {
       if (m.groups.parts === undefined) {
         return { key: m.groups.key, parts: false, children: [] };
       }
-      // A BODY THAT NEVER CLOSES IS UNREADABLE AND NOT CHILDLESS. Defaulting the
-      // absent body to an empty string read as "no children", put it in the driven
-      // set, and produced a refusal blaming the catalogue for naming slots - for a
-      // failure of this reader, with the unread count still at zero.
+      // A body that never closes is unreadable, not childless.
       const inner = elementBody(
         flatMarkup,
         m.index + m[0].length,
@@ -2609,28 +2083,9 @@ async function run() {
     });
     const keys = bodies.map((body) => body.key);
 
-    // A PARTS BODY IS DRIVEN TOO, WITH ITS OWN CHILDREN UNDER IT (#1669), and until
-    // that issue it was not. Such a body holds a catalogue value with `{n}` slots the
-    // pass fills from the body's own child elements, so the text a reader sees is
-    // assembled on the page and the raw value is not it; the page this file builds now
-    // carries those children, read off the shipped markup, so the applier is driven
-    // over the shape it flattened rather than judged on it by the markup reader alone.
-    //
-    // WHAT IS STILL NOT DRIVEN IS PRINTED RATHER THAN DROPPED. A body whose children
-    // this string reader cannot walk, or one holding a child whose own text it cannot
-    // resolve in either catalogue, stays out of the driven set and is counted in the
-    // line the run prints - so a page moving out of reach of this half is visible
-    // instead of silently shrinking the population. Nothing on the pages carries that
-    // shape today.
-    //
-    // AND ONE BOUND THAT IS DISCLOSED RATHER THAN CLOSED. A child's text is read off
-    // the COLLAPSED markup, so a child whose text Prettier wrapped across a source line
-    // is read here as one space where a browser's `textContent` holds the line break
-    // and its indentation. One shipped body is in that state today - the JSON sample in
-    // `config.role_claim_object_help` - and both are whitespace, so the sentence splits
-    // in the same place and the fixture and its expected text agree by construction. A
-    // future wrap whose break landed just after a terminator would move the split in a
-    // browser and not here, and nothing in this file would see it.
+    // Parts bodies are driven with their own children (#1669); a body this reader
+    // cannot walk is counted in the printed line rather than dropped. Child text is
+    // read from collapsed markup, so a wrapped line break is one space here.
     const either = { ...de, ...en };
     const readable = (body) =>
       !body.parts ||
@@ -2647,11 +2102,7 @@ async function run() {
       refused += 1;
     }
 
-    // THE TWO READERS ARE MADE TO AGREE ON THE COUNT, which is the arithmetic neither
-    // of them does alone. One walks elements and one greps for the body marker, so a
-    // block either of them loses - a truncated walk, a body tag spelled differently,
-    // a field quietly un-condensed - moves one number and not the other. Without this
-    // the run printed a green line over nineteen blocks where there had been twenty.
+    // The element reader and the marker reader must agree on the block count.
     if (authored.blocks !== keys.length) {
       console.error(
         `REFUSED  ${page}: the element reader finds ${authored.blocks} condensed block(s) and the marker reader finds ${keys.length}, so one of them is not seeing the page`,
@@ -2673,11 +2124,8 @@ async function run() {
         continue;
       }
 
-      // THE CATALOGUE VALUE AND THE TEXT A READER ENDS UP WITH ARE THE SAME THING FOR A
-      // PLAIN BODY AND ARE NOT FOR A PARTS ONE. `catalogue` is what the pass is handed;
-      // `texts` is what each body ought to hold afterwards, which for a parts body is
-      // that value with every slot filled by its own child. Keeping the two apart is
-      // what lets one `inspect` judge both shapes.
+      // `catalogue` is what the pass is handed and `texts` what each body ought to
+      // hold afterwards, which for a parts body has its slots filled.
       const value = (key) =>
         values[key] !== undefined ? values[key] : en[key];
       const catalogue = {};
@@ -2703,13 +2151,8 @@ async function run() {
           continue;
         }
         texts[body.key] = whole;
-        // THE CHILD KEEPS ITS OWN TAG. The page writes `code`, `br`, `strong`, `em` and
-        // `a`; building every one as a `span` would have made the fixture a shape no
-        // page authors, and a `<br>` in particular is a void element whose text is
-        // empty for a reason. The three maps are keyed by KEY while a page may carry
-        // one key at two sites - fourteen of the Providers page's do - so the last
-        // site's children stand for all of them. No duplicated key has differing
-        // children today; the day one does, one of the two sites is driven twice.
+        // Each child keeps its own tag. The maps are keyed by key, so for a key on two
+        // sites the last site's children stand for both.
         parts[body.key] = body.children.map((child, index) => ({
           tag: child.tag,
           text: childrenText[index],
