@@ -29,7 +29,7 @@ every help text is on the page its row names, inside the field that names it, ex
 A row this table names that no page holds any more is a deleted help text. A
 site the pages hold that no row names is one that arrived unmeasured. Both are
 refused, by name, and the counts above are printed rather than written here for
-the reason `docs/ui/mock/FIELDS.md` gives for its own: a number typed into a
+the reason `tools/ui/mock/FIELDS.md` gives for its own: a number typed into a
 document goes stale against the tool that decides it.
 
 The arms are the gate's own calibration. They run against fixtures whose answers

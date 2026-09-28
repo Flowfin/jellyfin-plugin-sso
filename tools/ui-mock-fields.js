@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: 2026 iderex
 
 /*
- * Reconciles docs/ui/mock/FIELDS.md and the mock against the inputs of the five
+ * Reconciles tools/ui/mock/FIELDS.md and the mock against the inputs of the five
  * configuration pages (#1526, #1527): each control must have one row, sit on the
  * page and inside the risk region its row names, and every controller and tab
  * link must stay on registered pages. HTML comments are stripped first and the
@@ -26,8 +26,8 @@ const PAGES = {
   Server: path.join(root, "SSO-Auth", "Web", "serverPage.html"),
 };
 
-const TABLE = path.join(root, "docs", "ui", "mock", "FIELDS.md");
-const DATA = path.join(root, "docs", "ui", "mock", "fields.js");
+const TABLE = path.join(root, "tools", "ui", "mock", "FIELDS.md");
+const DATA = path.join(root, "tools", "ui", "mock", "fields.js");
 
 /** Replaces every HTML comment with spaces, so line numbers and offsets survive. */
 function withoutComments(html) {
@@ -149,7 +149,7 @@ function readTable() {
   return rows;
 }
 
-/** Returns the ids of docs/ui/mock/fields.js, loaded as the mock page loads it. */
+/** Returns the ids of tools/ui/mock/fields.js, loaded as the mock page loads it. */
 function readData() {
   if (!fs.existsSync(DATA)) return null;
   const shim = {};

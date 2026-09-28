@@ -10,8 +10,8 @@ invented, so what can be judged is the structure and nothing else.
 From the tree, with no build step:
 
 ```
-$ start docs/ui/mock/overview.html        # Windows
-$ xdg-open docs/ui/mock/overview.html     # Linux
+$ start tools/ui/mock/overview.html        # Windows
+$ xdg-open tools/ui/mock/overview.html     # Linux
 ```
 
 The five pages link to each other through the tab strip, so any of them is a
@@ -22,7 +22,7 @@ mock is static, so it drops into the server's own web root and is reachable in
 the same browser as the plugin page:
 
 ```
-$ docker cp docs/ui/mock jf-sso:/jellyfin/jellyfin-web/ssomock
+$ docker cp tools/ui/mock jf-sso:/jellyfin/jellyfin-web/ssomock
 $ start http://127.0.0.1:8096/web/ssomock/overview.html
 ```
 
@@ -32,7 +32,7 @@ off the path or `providers.html?protocol=SAML` looks for a file of that name:
 ```
 $ node -e "const h=require('http'),f=require('fs'),p=require('path'); \
   h.createServer((q,s)=>{const u=q.url.split('?')[0]; \
-  const n=p.join('docs/ui/mock',u==='/'?'overview.html':u); \
+  const n=p.join('tools/ui/mock',u==='/'?'overview.html':u); \
   f.readFile(n,(e,d)=>e?(s.writeHead(404),s.end()):(s.writeHead(200,{'content-type': \
   n.endsWith('.css')?'text/css':n.endsWith('.js')?'text/javascript':'text/html'}),s.end(d)))}) \
   .listen(8123,'127.0.0.1')"
