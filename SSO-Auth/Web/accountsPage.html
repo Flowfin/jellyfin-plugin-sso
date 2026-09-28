@@ -134,16 +134,15 @@
                           Every Jellyfin account that holds an SSO link, with
                           the provider and the identity-provider subject behind
                           each link. Revoking an account removes its links from
-                          every provider, ends every session it holds on every
-                          device, and switches it back to the built-in Jellyfin
-                          password provider - so that account can sign in with a
-                          password again even while this server is otherwise
-                          SSO-only, and the server-wide setting is not changed.
-                          A revoke is not durable where a provider has Allow
-                          Existing Account Link enabled: the same-named account
-                          can be re-adopted on its next SSO login, so disable or
-                          rename the local account as well when the cut has to
-                          hold. Requires administrator privileges.
+                          every provider and ends every session it holds on
+                          every device. It also switches the account back to the
+                          built-in Jellyfin password provider, so it can use a
+                          password again; the server-wide setting is not
+                          changed. A revoke is not durable where a provider has
+                          Allow Existing Account Link enabled: the same-named
+                          account can be re-adopted on its next SSO login.
+                          Disable or rename the local account as well when the
+                          cut has to hold. Requires administrator privileges.
                         </div>
                       </details>
                     </div>
@@ -292,18 +291,16 @@
                           data-i18n="config.link_transfer_help"
                         >
                           Account links are stored against Jellyfin user ids,
-                          which a rebuilt user database does not reissue, so a
-                          migration needs this second file as well as the
+                          which a rebuilt user database does not reissue. A
+                          migration therefore needs this second file beside the
                           configuration file above. It is keyed on usernames and
-                          is NOT redacted: it contains usernames and the
-                          identity-provider subject identifiers behind each
-                          link, so treat it as identity data. Import restores
-                          every link onto the account this server holds for that
-                          username today, and rejects the whole file rather than
-                          restoring part of it if it names a user or a provider
-                          this instance does not have, or a link this instance
-                          already holds for a different account. Requires
-                          administrator privileges.
+                          is not redacted: it holds usernames and the provider
+                          subject behind each link, so treat it as identity
+                          data. Import restores every link onto the account this
+                          server holds for that username today. A file naming a
+                          user or provider this instance lacks, or a link
+                          already held by another account, is rejected whole.
+                          Requires administrator privileges.
                         </div>
                       </details>
                     </div>

@@ -722,16 +722,12 @@
                               class="sso-help-body"
                               data-i18n-parts="config.oid_name_help"
                             >
-                              The name used by Jellyfin to identify the OpenID
-                              provider.
+                              The name Jellyfin uses for this OpenID provider.
                               <br />
-                              If an OpenID provider with a matching name does
-                              not exist, a new provider with this name will be
-                              created.
+                              A name no provider has yet creates a new provider.
                               <br />
-                              If an OpenID provider with a matching name already
-                              exists, the settings for that provider will be
-                              updated.
+                              A name an existing provider has updates that
+                              provider's settings.
                             </div>
                           </details>
                         </div>
@@ -752,8 +748,9 @@
                           class="inputLabel inputLabelUnfocused"
                           for="OidRedirectUri"
                           data-i18n="config.oidc_redirect_uri_label"
-                          >Redirect URI (register this at your provider):</label
                         >
+                          Redirect URI (register at provider):
+                        </label>
                         <div class="sso-redirect-uri-row">
                           <input
                             is="emby-input"
@@ -790,23 +787,22 @@
                               class="sso-help-body"
                               data-i18n-parts="config.oid_redirect_uri_help"
                             >
-                              The exact redirect URI the login uses. Register it
+                              The exact redirect URI the login uses; register it
                               verbatim at your identity provider. The server
-                              builds it and this field shows what the server
-                              answered, so it is the same string the login sends
-                              rather than a copy of it. Save the provider first:
-                              an unsaved one has nothing for the server to
-                              answer for. It is built from the
+                              builds it and this field shows the server's
+                              answer, so it is the string the login sends rather
+                              than a copy. Save the provider first: an unsaved
+                              one has nothing for the server to answer for. It
+                              is built from the
                               <strong data-i18n="config.base_url_override_name"
                                 >Base URL Override</strong
                               >
-                              (in the Advanced section) when set, otherwise this
-                              server's address; if you sit behind a reverse
-                              proxy, set that override and save, so this matches
-                              what the login actually sends. Users who still
-                              start at the legacy
-                              <code>/sso/OID/p/&lt;name&gt;</code> route send
-                              the legacy
+                              in the Advanced section when set, otherwise from
+                              this server's address. Behind a reverse proxy, set
+                              that override and save, so this matches what the
+                              login actually sends. Users who still start at the
+                              legacy <code>/sso/OID/p/&lt;name&gt;</code> route
+                              send the legacy
                               <code>/sso/OID/r/&lt;name&gt;</code> spelling
                               instead; register that one too if any of them do.
                             </div>
@@ -864,7 +860,7 @@
                               The provider's issuer, character for character as
                               its discovery document publishes it. The plugin
                               appends /.well-known/openid-configuration to this
-                              value, so a provider served from a subfolder or
+                              value. A provider served from a subfolder or
                               through a front controller such as index.php
                               publishes an issuer carrying that segment, and the
                               segment belongs here. To read the value, open the
@@ -909,9 +905,8 @@
                               class="sso-help-body"
                               data-i18n-parts="config.oid_client_id_help"
                             >
-                              The OpenID client ID, for this media server
-                              instance. This is configured on the OIDC provider
-                              to uniquely identify
+                              The OpenID client id of this media server. It is
+                              set at the OIDC provider to identify
                               <strong data-i18n="config.oid_client_id_this"
                                 >this</strong
                               >
@@ -952,14 +947,14 @@
                               class="sso-help-body"
                               data-i18n="config.oidc_secret_help"
                             >
-                              The OpenID client secret. Randomly generated &
-                              shared. For security it is never sent back to this
-                              page: leave it blank to keep the stored value, or
-                              enter a new secret to replace it. A blank field
-                              keeps the stored secret only while the discovery
-                              endpoint and the client id stay the same: change
-                              either and the stored secret is dropped, and the
-                              save says so.
+                              The OpenID client secret, randomly generated and
+                              shared. It is never sent back to this page: leave
+                              it blank to keep the stored value, or enter a new
+                              secret to replace it. A blank field keeps the
+                              stored secret only while the discovery endpoint
+                              and the client id stay the same. Change either and
+                              the stored secret is dropped, and the save says
+                              so.
                             </div>
                           </details>
                         </div>
@@ -1050,8 +1045,9 @@
                           />
                           <span
                             data-i18n="config.provider_hide_login_button_label"
-                            >Hide from managed login-page buttons</span
                           >
+                            Hide from managed login-page buttons
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -1066,11 +1062,11 @@
                               data-i18n="config.provider_hide_login_button_help"
                             >
                               Excludes this provider from the managed "Sign in
-                              with …" block on the login page while keeping it
-                              usable through its direct start URL. Only takes
-                              effect while the global "Manage login buttons on
-                              the login page" option is on; it never hides
-                              anything you added to the branding yourself.
+                              with …" block on the login page while keeping its
+                              direct start URL usable. Takes effect only while
+                              the global "Manage login buttons" option is on. It
+                              never hides anything you added to the branding
+                              yourself.
                             </div>
                           </details>
                         </div>
@@ -1106,10 +1102,10 @@
                             >
                               Custom label for this provider's managed
                               login-page button. Leave blank to use the provider
-                              name. Only takes effect while the global "Manage
-                              login buttons on the login page" option is on and
-                              the button is not hidden; any text is safe: it is
-                              always rendered inert, never as markup.
+                              name. Takes effect only while the global "Manage
+                              login buttons" option is on and the button is not
+                              hidden. Any text is safe: it is rendered inert,
+                              never as markup.
                             </div>
                           </details>
                         </div>
@@ -1145,12 +1141,11 @@
                             >
                               The URL the identity provider returns the browser
                               to after an RP-initiated OpenID logout, sent as
-                              post_logout_redirect_uri. Honoured only if it is
-                              an absolute http(s) URL at or under this server's
-                              base URL; an off-base or malformed value is
-                              rejected on save. Leave blank for no post-logout
-                              redirect. Only takes effect while the global
-                              "Enable Single Logout" option is on.
+                              post_logout_redirect_uri. It must be an absolute
+                              http(s) URL at or under this server's base URL;
+                              anything else is rejected on save. Leave blank for
+                              no post-logout redirect. Takes effect only while
+                              the global "Enable Single Logout" option is on.
                             </div>
                           </details>
                         </div>
@@ -1237,9 +1232,9 @@
                               class="sso-help-body"
                               data-i18n-parts="config.default_username_claim_help"
                             >
-                              The default username claim to use from OpenID by
-                              default. If it is not set, it defaults to
-                              <code>preferred_username</code>.
+                              The claim the username is read from by default. If
+                              it is not set, <code>preferred_username</code> is
+                              used.
                             </div>
                           </details>
                         </div>
@@ -1273,15 +1268,13 @@
                               class="sso-help-body"
                               data-i18n-parts="config.default_provider_help"
                             >
-                              The set provider then gets assigned to the user
-                              after they have logged in. If it is not set,
-                              nothing is changed. With this, a user can login
-                              with SSO but is still able to log in via other
-                              providers later.<br />A common option is
+                              The provider assigned to the user after they have
+                              logged in; if it is not set, nothing is changed. A
+                              user can then log in with SSO and still log in via
+                              other providers later.<br />A common choice is
                               <code
                                 >Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider</code
-                              >
-                              for the default provider.
+                              >.
                             </div>
                           </details>
                         </div>
@@ -1315,9 +1308,9 @@
                               class="sso-help-body"
                               data-i18n-parts="config.avatar_url_format_help"
                             >
-                              The url of the avatar with sso variable format:
-                              example :
-                              <code>https://example.com/@{user_id}.png</code>
+                              The avatar URL as a template with SSO variables,
+                              for example
+                              <code>https://example.com/@{user_id}.png</code>.
                             </div>
                           </details>
                         </div>
@@ -1336,8 +1329,9 @@
                           />
                           <span
                             data-i18n="config.oidc_disable_avatar_picture_claim_label"
-                            >Disable avatar from the OIDC picture claim</span
                           >
+                            No avatar from picture claim
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -1397,19 +1391,22 @@
                               for roles. The first element is the claim type,
                               the subsequent values are to parse the JSON of the
                               claim value. Use a
-                              <code>"\."</code> to denote a literal ".". This
-                              expects a list of strings from the OIDC server,
-                              unless "Role claim is an object map" below is on.
+                              <code>"\."</code>
+                              to denote a literal ".". This expects a list of
+                              strings from the OIDC server, unless "Roles as
+                              object map" below is on.
                               <br />
                               For Keycloak, it is
-                              <code>realm_access.roles</code> by default for
-                              realm roles. For client roles, it is
+                              <code>realm_access.roles</code>
+                              by default for realm roles. For client roles, it
+                              is
                               <code
                                 >resource_access.&gt;clientId&lt;.roles</code
                               >
                               (e.g. resource_access.jellyfin.roles)
                               <br />
-                              For Authelia, it is <code>groups</code>
+                              For Authelia, it is
+                              <code>groups</code>
                             </div>
                           </details>
                         </div>
@@ -1428,8 +1425,9 @@
                           />
                           <span
                             data-i18n="config.oidc_role_claim_object_map_label"
-                            >Role claim is an object map</span
                           >
+                            Roles as object map
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -1498,10 +1496,9 @@
                           >
                             What a brand-new account created by this provider
                             starts with. Every field is opt-in: anything you
-                            leave alone keeps Jellyfin's own default, and these
-                            values are written once, when the account is
-                            created, so a change made later survives every
-                            following login.
+                            leave alone keeps Jellyfin's own default. The values
+                            are written once, when the account is created, so a
+                            change made later survives every following login.
                           </div>
                         </details>
                       </div>
@@ -1551,11 +1548,11 @@
                               class="sso-help-body"
                               data-i18n="config.provisioning_profile_help"
                             >
-                              Take the starting policy from a profile defined in
-                              Provisioning Profiles above, instead of from the
-                              fields below. The two are mutually exclusive: a
-                              provider that names a profile and also carries its
-                              own inline fields is refused on save, because one
+                              Takes the starting policy from a profile defined
+                              in Provisioning Profiles above, instead of from
+                              the fields below. The two are mutually exclusive:
+                              a provider that names a profile and also carries
+                              inline fields is refused on save. One
                               account-creation policy has one source. Leave it
                               on (none), or set it back to (none) and save, to
                               use the fields below again.
@@ -1883,14 +1880,14 @@
                               data-i18n="config.template_home_sections_help"
                             >
                               The sections of the web client's home screen, one
-                              per line, top slot first: None, SmallLibraryTiles,
+                              per line, top slot first. Allowed names, spelled
+                              exactly so: None, SmallLibraryTiles,
                               LibraryButtons, ActiveRecordings, Resume,
                               ResumeAudio, LatestMedia, NextUp, LiveTv or
-                              ResumeBook, spelled exactly like that. Up to ten
-                              lines; the slots you do not fill show nothing, as
-                              they would after saving the client's own
-                              home-screen settings. Leave the box empty to keep
-                              Jellyfin's own layout.
+                              ResumeBook. Up to ten lines; a slot you do not
+                              fill shows nothing, as after saving the client's
+                              own home-screen settings. Leave the box empty to
+                              keep Jellyfin's own layout.
                             </div>
                           </details>
                         </div>
@@ -1900,7 +1897,7 @@
                           class="sso-subgroup-title"
                           data-i18n="config.template_permissions_label"
                         >
-                          Permissions written onto a new account
+                          Permissions for a new account
                         </p>
                         <div class="fieldDescription sso-help">
                           <span class="sso-help-lead"></span>
@@ -1917,9 +1914,9 @@
                               is not listed is never touched. The names come
                               from the server rather than from a list kept on
                               this page, so they cannot drift from what a save
-                              accepts; administrator, all-folders and Live TV
+                              accepts. Administrator, all-folders and Live TV
                               access are not offered here because each keeps its
-                              own setting above, and no account can be created
+                              own setting above. No account can be created
                               disabled from here.
                             </div>
                           </details>
@@ -1989,19 +1986,17 @@
                               class="sso-help-body"
                               data-i18n-parts="config.oid_roles_help"
                             >
-                              A list of roles, one role per-line to look for in
-                              the OpenID response.
-                              <br />
-                              If a user has any of these roles, then the user is
-                              authenticated. This validates the OpenID response
-                              against the claim set in
+                              A list of roles, one per line, to look for in the
+                              OpenID response. <br />
+                              A user who has any of these roles is
+                              authenticated. The response is checked against the
+                              claim set in
                               <strong
                                 data-i18n="config.role_claim_property_name"
                                 >"RoleClaim"</strong
-                              >. (If your provider carries the roles as object
-                              keys, as Zitadel does, also tick "Role claim is an
-                              object map" beside the Role Claim field.)
-                              <br />
+                              >. If your provider carries the roles as object
+                              keys, as Zitadel does, also tick "Roles as object
+                              map" beside the Role Claim field. <br />
                               Leave blank to disable role checking.
                             </div>
                           </details>
@@ -2162,8 +2157,7 @@
                                 class="sso-help-body"
                                 data-i18n="config.oidc_enable_folder_roles_help"
                               >
-                                Determines if user roles should be used to
-                                control library access.
+                                Whether user roles control library access.
                               </div>
                             </details>
                           </div>
@@ -2256,15 +2250,15 @@
                                 configuration does not manage. Off, a login
                                 replaces the account's library list with what
                                 the roles grant. On, a login keeps every library
-                                the account holds that is named neither in the
-                                enabled-folders list nor in any folder role
-                                mapping, and grants or revokes the managed ones
-                                by role as before. A folder dropped from the
-                                configuration stops being managed and stays on
-                                the account; to revoke one without deleting it,
-                                keep it in a mapping no role carries. With
-                                several providers, a login through this one
-                                leaves the other providers' folders alone too.
+                                named neither in the enabled-folders list nor in
+                                any folder role mapping. The managed ones are
+                                still granted or revoked by role as before. A
+                                folder dropped from the configuration stops
+                                being managed and stays on the account. To
+                                revoke one without deleting it, keep it in a
+                                mapping no role carries. With several providers,
+                                a login through this one leaves the other
+                                providers' folders alone too.
                               </div>
                             </details>
                           </div>
@@ -2412,9 +2406,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span data-i18n="config.oidc_enable_live_tv_label"
-                            >Enable Live TV Access By Default</span
-                          >
+                          <span data-i18n="config.oidc_enable_live_tv_label">
+                            Live TV access by default
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -2454,8 +2448,9 @@
                           />
                           <span
                             data-i18n="config.oidc_enable_live_tv_management_label"
-                            >Enable Live TV Management By Default</span
                           >
+                            Live TV management by default
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -2632,15 +2627,15 @@
                               data-i18n-parts="config.base_url_override_help"
                             >
                               The canonical external base URL of this server,
-                              e.g.
-                              <code>https://jellyfin.example.com</code>. When
-                              set, the redirect URI and SAML base URL are built
-                              from it instead of the request host, so a spoofed
-                              or proxy-forwarded host cannot redirect the login
-                              elsewhere. It overrides the scheme and port
-                              overrides above. If Jellyfin runs under a path
-                              base (Dashboard, Networking, Base URL), include
-                              it: https://jellyfin.example.com/jellyfin.
+                              e.g. <code>https://jellyfin.example.com</code>.
+                              When set, the redirect URI and SAML base URL are
+                              built from it instead of the request host. A
+                              spoofed or proxy-forwarded host then cannot
+                              redirect the login elsewhere. It overrides the
+                              scheme and port overrides above. If Jellyfin runs
+                              under a path base (Dashboard, Networking, Base
+                              URL), include it:
+                              https://jellyfin.example.com/jellyfin.
                             </div>
                           </details>
                         </div>
@@ -2753,13 +2748,13 @@
                                 data-i18n="config.acr_values_help"
                               >
                                 Space-separated acr_values sent on the
-                                authorization request (OIDC Core §3.1.2.1),
-                                most-preferred first: the requested
-                                authentication-context references (e.g. an MFA
-                                reference your IdP advertises). Leave blank to
-                                send nothing (unchanged request). Also the
-                                allow-list Require Acr checks the returned acr
-                                against.
+                                authorization request, most-preferred first
+                                (OIDC Core §3.1.2.1). These are the requested
+                                authentication-context references, e.g. an MFA
+                                reference your IdP advertises. Leave blank to
+                                send nothing and keep the request unchanged.
+                                Require Acr checks the returned acr against this
+                                same list.
                               </div>
                             </details>
                           </div>
@@ -2936,10 +2931,9 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span data-i18n="config.provision_disabled_label"
-                              >Provision New Users Disabled (Pending
-                              Approval)</span
-                            >
+                            <span data-i18n="config.provision_disabled_label">
+                              New accounts await approval
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -2953,23 +2947,21 @@
                                 class="sso-help-body"
                                 data-i18n-parts="config.provision_disabled_help"
                               >
-                                When the identity provider's audience is broader
-                                than your intended Jellyfin audience: an unknown
-                                identity's first successful SSO login creates
-                                its account
+                                Creates an unknown identity's account
                                 <strong
                                   data-i18n="config.provision_disabled_emphasis"
                                   >disabled, with no permissions</strong
-                                >, and the login is refused with an "awaiting
-                                administrator approval" message instead of a
-                                session. Approve the account on the Accounts
-                                tab, in its Waiting for Approval panel, or by
-                                enabling it in the Jellyfin dashboard
-                                (Administration → Users). Off by default (new
-                                accounts are created enabled). This never
-                                disables an existing or adopted account, only a
-                                brand-new one, and each deferred provisioning is
-                                recorded as an audit event.
+                                >
+                                on its first login and refuses that login until
+                                an administrator approves it. Use it where the
+                                provider's audience is broader than the audience
+                                you intend for Jellyfin. Approve the account on
+                                the Accounts tab, in the Waiting for Approval
+                                panel, or enable it under Administration →
+                                Users. Off by default, so new accounts start
+                                enabled. An existing or adopted account is never
+                                disabled by this, and each deferral is recorded
+                                as an audit event.
                               </div>
                             </details>
                           </div>
@@ -2986,9 +2978,9 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span data-i18n="config.follow_renames_label"
-                              >Follow Username Renames From The Provider</span
-                            >
+                            <span data-i18n="config.follow_renames_label">
+                              Follow provider renames
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3003,23 +2995,22 @@
                                 data-i18n-parts="config.follow_renames_help"
                               >
                                 When someone is renamed at the identity
-                                provider, rename their Jellyfin account to match
-                                on their next SSO login. Off by default, in
-                                which case the Jellyfin name stays as it was and
-                                the two drift apart. This changes the
+                                provider, their Jellyfin account is renamed to
+                                match on their next SSO login. Off by default;
+                                the Jellyfin name then stays as it was and the
+                                two drift apart. This changes the
                                 <strong
                                   data-i18n="config.follow_renames_emphasis"
                                   >display name only</strong
                                 >: the account is found by its stable subject
-                                identifier either way, so turning this on cannot
-                                change which account a login reaches. The new
-                                name is cleaned up the same way a newly created
-                                one is. If another Jellyfin account already
-                                holds the name, the rename is skipped and both
-                                accounts keep their names. A rename that fails
-                                for any other reason is logged and the login
-                                still succeeds. Each rename is recorded as an
-                                audit event.
+                                identifier either way. Turning this on therefore
+                                cannot change which account a login reaches. The
+                                new name is cleaned up the same way a newly
+                                created one is. If another account already holds
+                                the name, the rename is skipped and both keep
+                                their names. A rename that fails for any other
+                                reason is logged and the login still succeeds.
+                                Each rename is recorded as an audit event.
                               </div>
                             </details>
                           </div>
@@ -3038,9 +3029,9 @@
                             />
                             <span
                               data-i18n="config.require_verified_email_adoption_label"
-                              >Require Verified Email For Adoption
-                              (Sensitive)</span
                             >
+                              Verified email for adoption (sensitive)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3055,17 +3046,16 @@
                                 data-i18n="config.require_verified_email_adoption_help"
                               >
                                 ⚠ Sensitive: only meaningful with Allow Adopting
-                                Existing Accounts above. Additionally requires
-                                the login to carry a provider-verified email
-                                (email_verified == true) before adopting a
-                                same-named account, narrowing who can exploit
-                                the name-based match. Needs the email scope so
-                                the provider actually returns email_verified;
-                                without it, every adoption is refused. Off by
-                                default so an existing deployment relying on
-                                adoption is not silently locked out. An
-                                administrator account is never adopted
-                                regardless of this setting.
+                                Existing Accounts above. The login must then
+                                carry a provider-verified email, with
+                                email_verified exactly true, before a same-named
+                                account is adopted. That narrows who can exploit
+                                the name-based match. Needs the email scope, or
+                                the provider never returns the claim and every
+                                adoption is refused. Off by default, so an
+                                existing deployment relying on adoption is not
+                                silently locked out. An administrator account is
+                                never adopted regardless of this setting.
                               </div>
                             </details>
                           </div>
@@ -3084,9 +3074,9 @@
                             />
                             <span
                               data-i18n="config.require_verified_email_login_label"
-                              >Require Verified Email For Login
-                              (Sensitive)</span
                             >
+                              Verified email for login (sensitive)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3100,21 +3090,17 @@
                                 class="sso-help-body"
                                 data-i18n="config.require_verified_email_login_help"
                               >
-                                ⚠ Sensitive: requires every OpenID login for
-                                this provider to carry a provider-verified email
-                                (email_verified == true), whether it adopts,
-                                creates, or signs in to an already-linked
-                                account, not only the adoption moment above. A
-                                login whose email_verified is not exactly true
-                                (absent, false, or unparseable) is refused.
-                                Needs the email scope so the provider actually
-                                returns email_verified; without it, every login
-                                is refused. Off by default so a deployment that
-                                does not set it, or an IdP that never emits the
-                                claim, is unaffected. Independent of Allow
-                                Adopting Existing Accounts and Require Verified
-                                Email For Adoption above (run either, both, or
-                                neither).
+                                ⚠ Sensitive: every OpenID login through this
+                                provider must carry a provider-verified email,
+                                with email_verified exactly true. A login whose
+                                email_verified is absent, false or unreadable is
+                                refused, whether it adopts, creates or signs in
+                                to a linked account. Needs the email scope, or
+                                the provider never returns the claim and every
+                                login is refused. Off by default, so a
+                                deployment that does not set it is unaffected.
+                                Independent of the two adoption settings above:
+                                run either, both or neither.
                               </div>
                             </details>
                           </div>
@@ -3178,9 +3164,9 @@
                                 data-i18n="config.disable_https_help"
                               >
                                 ⚠ Insecure: drops TLS on the discovery, JWKS and
-                                token endpoints, so the id_token signing keys
-                                can be swapped by a man-in-the-middle and a
-                                forged login accepted. Use only on a trusted
+                                token endpoints. A man-in-the-middle can then
+                                swap the id_token signing keys and a forged
+                                login is accepted. Use only on a trusted
                                 internal network. Enabling it is recorded as an
                                 audit warning.
                               </div>
@@ -3197,10 +3183,9 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span data-i18n="config.disable_par_label"
-                              >Disable Pushed Authorization (Insecure). May be
-                              needed for Authelia.</span
-                            >
+                            <span data-i18n="config.disable_par_label">
+                              Disable pushed authorization (insecure)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription"
@@ -3218,9 +3203,11 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span data-i18n="config.no_validate_endpoints_label"
-                              >Do Not Validate OpenID Endpoints (Insecure)</span
+                            <span
+                              data-i18n="config.no_validate_endpoints_label"
                             >
+                              Skip endpoint validation (insecure)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3270,20 +3257,19 @@
                                 class="sso-help-body"
                                 data-i18n="config.allow_private_network_help"
                               >
-                                ⚠ Insecure: relaxes the outbound SSRF /
-                                DNS-rebind guard for this provider, allowing
-                                connection to an OIDC provider hosted on a
-                                private network. The setting covers this
-                                provider's discovery, token and userinfo
-                                requests, and an avatar served from the origin
-                                of those endpoints up to the first redirect;
-                                every other avatar and SAML metadata are fetched
-                                without it. Permits RFC 1918, CGNAT and IPv6
-                                unique-local addresses. Loopback, link-local and
-                                cloud-metadata ranges remain blocked. Leave off
-                                for any provider reachable on the public
-                                internet. Enabling it is recorded as an audit
-                                warning.
+                                ⚠ Insecure: relaxes the outbound SSRF and
+                                DNS-rebind guard for this provider, so an OIDC
+                                provider on a private network can be reached. It
+                                covers this provider's discovery, token and
+                                userinfo requests, and an avatar served from the
+                                origin of those endpoints up to the first
+                                redirect. Every other avatar and SAML metadata
+                                are fetched without it. Permits RFC 1918, CGNAT
+                                and IPv6 unique-local addresses; loopback,
+                                link-local and cloud-metadata ranges stay
+                                blocked. Leave off for any provider reachable on
+                                the public internet. Enabling it is recorded as
+                                an audit warning.
                               </div>
                             </details>
                           </div>
@@ -3300,10 +3286,9 @@
                               type="checkbox"
                               class="sso-toggle"
                             />
-                            <span data-i18n="config.no_validate_issuer_label"
-                              >Do Not Validate OpenID Issuer Name
-                              (Insecure)</span
-                            >
+                            <span data-i18n="config.no_validate_issuer_label">
+                              Skip issuer validation (insecure)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3340,9 +3325,9 @@
                             />
                             <span
                               data-i18n="config.no_validate_response_issuer_label"
-                              >Do Not Validate Authorization-Response Issuer
-                              (Insecure)</span
                             >
+                              Skip response-issuer validation (insecure)
+                            </span>
                           </label>
                           <div
                             class="fieldDescription checkboxFieldDescription sso-help"
@@ -3401,12 +3386,12 @@
                           <strong data-i18n="config.test_saved_emphasis"
                             >saved</strong
                           >
-                          provider: the server fetches the OpenID discovery
-                          document over the same hardened, HTTPS-checked path
-                          the login uses and reports the issuer, endpoints and
-                          JWKS reachability. Save the provider first. Requires
-                          administrator privileges; the client secret is never
-                          shown.
+                          provider over the same hardened, HTTPS-checked path
+                          the login uses. The server fetches the discovery
+                          document and reports the issuer, the endpoints and
+                          whether the JWKS is reachable. Save the provider
+                          first. Requires administrator privileges; the client
+                          secret is never shown.
                         </div>
                       </details>
                     </div>
@@ -3898,7 +3883,7 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-SamlClientId"
                           data-i18n-parts="config.saml_client_id_label"
-                          >SAML Client ID (SP entity id):
+                          >SAML client id (entity id):
                           <span class="sso-required" aria-hidden="true"
                             >*</span
                           ></label
@@ -3990,8 +3975,9 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-AcsUrl"
                           data-i18n="config.saml_acs_url_label"
-                          >ACS URL (register this at your IdP):</label
                         >
+                          ACS URL (register at IdP):
+                        </label>
                         <div class="sso-redirect-uri-row">
                           <input
                             is="emby-input"
@@ -4034,8 +4020,9 @@
                           class="inputLabel inputLabelUnfocused"
                           for="saml-MetadataUrl"
                           data-i18n="config.saml_metadata_url_label"
-                          >SP metadata URL (hand this to your IdP):</label
                         >
+                          SP metadata URL (for IdP):
+                        </label>
                         <div class="sso-redirect-uri-row">
                           <input
                             is="emby-input"
@@ -4108,8 +4095,9 @@
                           />
                           <span
                             data-i18n="config.provider_hide_login_button_label"
-                            >Hide from managed login-page buttons</span
                           >
+                            Hide from managed login-page buttons
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -4124,11 +4112,11 @@
                               data-i18n="config.provider_hide_login_button_help"
                             >
                               Excludes this provider from the managed "Sign in
-                              with …" block on the login page while keeping it
-                              usable through its direct start URL. Only takes
-                              effect while the global "Manage login buttons on
-                              the login page" option is on; it never hides
-                              anything you added to the branding yourself.
+                              with …" block on the login page while keeping its
+                              direct start URL usable. Takes effect only while
+                              the global "Manage login buttons" option is on. It
+                              never hides anything you added to the branding
+                              yourself.
                             </div>
                           </details>
                         </div>
@@ -4164,10 +4152,10 @@
                             >
                               Custom label for this provider's managed
                               login-page button. Leave blank to use the provider
-                              name. Only takes effect while the global "Manage
-                              login buttons on the login page" option is on and
-                              the button is not hidden; any text is safe: it is
-                              always rendered inert, never as markup.
+                              name. Takes effect only while the global "Manage
+                              login buttons" option is on and the button is not
+                              hidden. Any text is safe: it is rendered inert,
+                              never as markup.
                             </div>
                           </details>
                         </div>
@@ -4305,10 +4293,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span data-i18n="config.provision_disabled_label"
-                            >Provision New Users Disabled (Pending
-                            Approval)</span
-                          >
+                          <span data-i18n="config.provision_disabled_label">
+                            New accounts await approval
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -4322,12 +4309,12 @@
                               class="sso-help-body"
                               data-i18n="config.saml_provision_disabled_help"
                             >
-                              An unknown identity's first login creates its
-                              account disabled, with no permissions, and is
-                              refused with an "awaiting administrator approval"
-                              message until an admin enables it. Off by default.
-                              Never disables an existing or adopted account, and
-                              each deferral is audited.
+                              Creates an unknown identity's account disabled,
+                              with no permissions, and refuses the login until
+                              an administrator enables it. The refusal says the
+                              account is awaiting administrator approval. Off by
+                              default. Never disables an existing or adopted
+                              account, and each deferral is audited.
                             </div>
                           </details>
                         </div>
@@ -4344,9 +4331,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span data-i18n="config.follow_renames_label"
-                            >Follow Username Renames From The Provider</span
-                          >
+                          <span data-i18n="config.follow_renames_label">
+                            Follow provider renames
+                          </span>
                         </label>
                         <div
                           class="fieldDescription checkboxFieldDescription sso-help"
@@ -4407,10 +4394,9 @@
                           >
                             What a brand-new account created by this provider
                             starts with. Every field is opt-in: anything you
-                            leave alone keeps Jellyfin's own default, and these
-                            values are written once, when the account is
-                            created, so a change made later survives every
-                            following login.
+                            leave alone keeps Jellyfin's own default. The values
+                            are written once, when the account is created, so a
+                            change made later survives every following login.
                           </div>
                         </details>
                       </div>
@@ -4460,11 +4446,11 @@
                               class="sso-help-body"
                               data-i18n="config.provisioning_profile_help"
                             >
-                              Take the starting policy from a profile defined in
-                              Provisioning Profiles above, instead of from the
-                              fields below. The two are mutually exclusive: a
-                              provider that names a profile and also carries its
-                              own inline fields is refused on save, because one
+                              Takes the starting policy from a profile defined
+                              in Provisioning Profiles above, instead of from
+                              the fields below. The two are mutually exclusive:
+                              a provider that names a profile and also carries
+                              inline fields is refused on save. One
                               account-creation policy has one source. Leave it
                               on (none), or set it back to (none) and save, to
                               use the fields below again.
@@ -4792,14 +4778,14 @@
                               data-i18n="config.template_home_sections_help"
                             >
                               The sections of the web client's home screen, one
-                              per line, top slot first: None, SmallLibraryTiles,
+                              per line, top slot first. Allowed names, spelled
+                              exactly so: None, SmallLibraryTiles,
                               LibraryButtons, ActiveRecordings, Resume,
                               ResumeAudio, LatestMedia, NextUp, LiveTv or
-                              ResumeBook, spelled exactly like that. Up to ten
-                              lines; the slots you do not fill show nothing, as
-                              they would after saving the client's own
-                              home-screen settings. Leave the box empty to keep
-                              Jellyfin's own layout.
+                              ResumeBook. Up to ten lines; a slot you do not
+                              fill shows nothing, as after saving the client's
+                              own home-screen settings. Leave the box empty to
+                              keep Jellyfin's own layout.
                             </div>
                           </details>
                         </div>
@@ -4809,7 +4795,7 @@
                           class="sso-subgroup-title"
                           data-i18n="config.template_permissions_label"
                         >
-                          Permissions written onto a new account
+                          Permissions for a new account
                         </p>
                         <div class="fieldDescription sso-help">
                           <span class="sso-help-lead"></span>
@@ -4826,9 +4812,9 @@
                               is not listed is never touched. The names come
                               from the server rather than from a list kept on
                               this page, so they cannot drift from what a save
-                              accepts; administrator, all-folders and Live TV
+                              accepts. Administrator, all-folders and Live TV
                               access are not offered here because each keeps its
-                              own setting above, and no account can be created
+                              own setting above. No account can be created
                               disabled from here.
                             </div>
                           </details>
@@ -5133,15 +5119,15 @@
                                 configuration does not manage. Off, a login
                                 replaces the account's library list with what
                                 the roles grant. On, a login keeps every library
-                                the account holds that is named neither in the
-                                enabled-folders list nor in any folder role
-                                mapping, and grants or revokes the managed ones
-                                by role as before. A folder dropped from the
-                                configuration stops being managed and stays on
-                                the account; to revoke one without deleting it,
-                                keep it in a mapping no role carries. With
-                                several providers, a login through this one
-                                leaves the other providers' folders alone too.
+                                named neither in the enabled-folders list nor in
+                                any folder role mapping. The managed ones are
+                                still granted or revoked by role as before. A
+                                folder dropped from the configuration stops
+                                being managed and stays on the account. To
+                                revoke one without deleting it, keep it in a
+                                mapping no role carries. With several providers,
+                                a login through this one leaves the other
+                                providers' folders alone too.
                               </div>
                             </details>
                           </div>
@@ -5250,9 +5236,9 @@
                             type="checkbox"
                             class="sso-toggle"
                           />
-                          <span data-i18n="config.saml_enable_livetv_label"
-                            >Enable Live TV Access (all users)</span
-                          >
+                          <span data-i18n="config.saml_enable_livetv_label">
+                            Live TV access (all users)
+                          </span>
                         </label>
                       </div>
 
@@ -5269,8 +5255,9 @@
                           />
                           <span
                             data-i18n="config.saml_enable_livetv_management_label"
-                            >Enable Live TV Management (all users)</span
                           >
+                            Live TV management (all users)
+                          </span>
                         </label>
                       </div>
                     </div>
@@ -5400,8 +5387,8 @@
                           server, e.g.
                           <code>https://jellyfin.example.com</code>. When set,
                           the ACS and SP metadata URLs are built from it instead
-                          of the request host, so a spoofed or proxy-forwarded
-                          host cannot redirect the login elsewhere. Overrides
+                          of the request host. A spoofed or proxy-forwarded host
+                          then cannot redirect the login elsewhere. Overrides
                           the scheme and port overrides above. If Jellyfin runs
                           under a path base (Dashboard, Networking, Base URL),
                           include it: https://jellyfin.example.com/jellyfin.
@@ -5625,11 +5612,10 @@
                                 class="sso-help-body"
                                 data-i18n="config.saml_signing_key_help"
                               >
-                                This service provider's PRIVATE signing key, as
-                                a Base64 PKCS#12 (PFX) blob. For security it is
-                                never sent back to this page: leave blank to
-                                keep the stored key, or enter a new one to
-                                replace it.
+                                This service provider's private signing key, as
+                                a Base64 PKCS#12 (PFX) blob. It is never sent
+                                back to this page: leave blank to keep the
+                                stored key, or enter a new one to replace it.
                               </div>
                             </details>
                           </div>
@@ -5640,7 +5626,7 @@
                             class="inputLabel inputLabelUnfocused"
                             for="saml-SamlRolloverSigningKeyPfx"
                             data-i18n-parts="config.saml_rollover_signing_key_label"
-                            >SP Rollover Signing Key (PFX/PKCS#12, Base64):
+                            >SP rollover key (PFX/PKCS#12, Base64):
                             <span
                               class="sso-optional"
                               data-i18n="config.optional_marker"
@@ -5721,10 +5707,10 @@
                                 class="sso-help-body"
                                 data-i18n="config.saml_secondary_certificate_help"
                               >
-                                An OPTIONAL second IdP PUBLIC signing
-                                certificate accepted during an inbound
-                                signing-key rotation: a response verifying
-                                against EITHER this or the primary certificate
+                                An optional second IdP public signing
+                                certificate, accepted during an inbound
+                                signing-key rotation. A response verifying
+                                against either this or the primary certificate
                                 is accepted. Base64 (DER) or PEM, like the
                                 primary.
                               </div>

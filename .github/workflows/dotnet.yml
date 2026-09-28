@@ -60,6 +60,8 @@ jobs:
       run: node tools/ui-help-census.js
     - name: The condensed help
       run: node tools/ui-condensed-help.js
+    - name: The help-text word budgets
+      run: node tools/ui-help-budget.js
     - name: The readiness rail
       run: node tools/ui-readiness-rail.js
     - name: The provider wizard

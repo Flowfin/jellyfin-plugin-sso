@@ -12,6 +12,11 @@ pull request and the wiki.
 
 ### Changed
 
+- **Every label, help text and error text of the settings page is held to a
+  word budget, and `tools/ui-help-budget.js` refuses a text over a hard cap
+  (#1901).** A label has at most 5 words, a short help one sentence of at most
+  25, a full text at most 100, an error at most 25; both catalogues were rewritten
+  to fit and the census page carries the budgets.
 - **The PR-hygiene gate caps the commit subject at 72 characters, the commit
   body at 25 lines and the pull-request body at 200 words outside one fenced
   block (#1900).** Each cap is refused by name; bots and merge commits are exempt.

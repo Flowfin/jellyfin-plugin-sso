@@ -75,7 +75,7 @@ public class SSOController : ControllerBase
     // this plugin's refusal surfaces are deliberately non-enumerating everywhere else. So the sentence
     // sent a locked-out operator to the log hunting a roster nothing produces, and it is gone rather than
     // answered by adding one.
-    private const string ServingDefaultsMessage = "Single sign-on is unavailable on this server: its SSO configuration could not be read and default settings are in use. The server log says what happened and where the unreadable file was kept. An administrator who has a Jellyfin password can sign in and restore the configuration.";
+    private const string ServingDefaultsMessage = "Single sign-on is unavailable: its configuration could not be read. See the server log; an administrator with a password can sign in and restore it.";
 
     // The refusal body a logout-ticket mint answers with when the ticket store is at capacity (#1768). It
     // says what still works, because the caller is a signed-in user pressing sign-out and the honest answer

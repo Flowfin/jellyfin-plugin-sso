@@ -67,6 +67,30 @@ about one.
 - **Markup the reader cannot walk**, named with the page, rather than a stack
   trace nobody can act on.
 
+## The word budgets every text is held to
+
+Since #1901 the texts themselves are measured, not only their places. The
+budgets are declared once, on the [Coding Standards](https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Coding-Standards)
+wiki page beside the comment charter, and `tools/ui-help-budget.js` holds both
+catalogues to them on every pull request (the `.NET` workflow runs it right
+after the condensed-help check):
+
+- a label of at most 5 words;
+- a short help of one sentence, at most 25 words (hard cap 40) - the short
+  help is the first sentence of the `*_help` row, split by the same rule
+  `SSO-Auth/Web/i18n.js` applies under the field, so what is measured is what
+  the field shows;
+- a full text of at most 100 words (hard cap 120), every sentence at most 25
+  words, no link and no repeat of the label in the short help;
+- an error text (`error.*`, `*_failed`, `*_refused`) of at most 25 words;
+- a German text between 0.8 and 1.6 times the length of the English one, for
+  help texts of ten English words or more.
+
+The hard caps refuse and the soft caps are reported, and the tool runs its own
+fixtures first - one pair inside every budget and one negative per refusal - and
+stops on a disagreement. What left the full texts when they were cut to size
+lives on the wiki, on the page the field's topic already had.
+
 ## What the columns mean
 
 - **Page** is the file under `SSO-Auth/Web/`. The census is per page on purpose:
