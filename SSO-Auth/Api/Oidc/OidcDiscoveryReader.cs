@@ -14,91 +14,44 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Reads a provider's OpenID discovery document ONCE at the challenge and returns both the two
-/// security-relevant facts - PKCE-S256 support (#141, RFC 9700 §2.1.1) and whether the authorization
-/// server advertises the RFC 9207 response-<c>iss</c> parameter (#210) - AND the
-/// <see cref="Duende.IdentityModel.OidcClient.ProviderInformation"/> the OidcClient login is fed. Before
-/// #450 the facts came from a SEPARATE best-effort probe, distinct from the discovery
-/// <see cref="OidcClient.PrepareLoginAsync"/> performs internally: the two could disagree, and a failed or
-/// omitted probe silently downgraded the RFC 9207 requirement. Sourcing both from one response removes that
-/// split - the facts and the login can no longer diverge, and there is no second fetch to fail.
-///
-/// The fetch is IdentityModel's own <see cref="HttpClientDiscoveryExtensions.GetDiscoveryDocumentAsync(System.Net.Http.HttpMessageInvoker, DiscoveryDocumentRequest, System.Threading.CancellationToken)"/>
-/// under the caller's <see cref="DiscoveryPolicy"/> (<c>RequireHttps</c> / <c>ValidateIssuerName</c> /
-/// <c>ValidateEndpoints</c> / the additional base addresses) - the exact call and policy OidcClient uses,
-/// so the plugin-owned read honours the same channel and endpoint validation rather than a bespoke,
-/// unvalidated GET (closing the earlier probe's <c>RequireHttps</c> gap). The resulting metadata is fed to
-/// PrepareLoginAsync via <see cref="OidcClientOptions.ProviderInformation"/>, which suppresses the library's
-/// own second discovery.
-///
-/// Stateless - a fresh read per challenge, exactly the per-challenge discovery the library performed before
-/// this change. Nothing is cached: least of all the JWKS the callback validates the id_token against, whose
-/// reuse stays bounded by a single authorize state's lifetime (#247), never widened by a process-wide cache.
-/// </summary>
+/// <summary>Reads a provider's OpenID discovery document once at the challenge and returns the PKCE-S256 (#141) and RFC 9207 response-<c>iss</c> (#210) facts together with the <see cref="Duende.IdentityModel.OidcClient.ProviderInformation"/> the login is fed.</summary>
+/// <remarks>
+/// Sourcing the facts and the login metadata from one response means the two cannot diverge and there is no
+/// second fetch to fail (#450). The fetch is the library's own discovery call under the caller's
+/// <see cref="DiscoveryPolicy"/>, so the plugin-owned read honours the same channel and endpoint validation, and
+/// the metadata is handed to <see cref="OidcClient.PrepareLoginAsync"/> through <see cref="OidcClientOptions.ProviderInformation"/>,
+/// which suppresses the library's second discovery. Nothing is cached, least of all the JWKS, whose reuse stays
+/// bounded by one authorize state's lifetime (#247).
+/// </remarks>
 internal static class OidcDiscoveryReader
 {
-    /// <summary>
-    /// How much of the library's error text the fail-closed warning may carry (#1194). The text quotes the
-    /// URL the fetch was connecting to, and on the JWKS leg that URL is PROVIDER-AUTHORED - the discovery
-    /// document named it in <c>jwks_uri</c>. Measured: a document advertising a 200 KB <c>jwks_uri</c> put a
-    /// 205,042-character entry in the log, driven by one anonymous challenge, and the response cap
-    /// (<see cref="Net.ProviderResponseSizeLimit.MaxProviderResponseBytes"/>, 1 MB) is the only thing that
-    /// bounded it at all.
-    ///
-    /// 512 is chosen to sit well above every error text a working deployment produces - the longest is
-    /// "Error connecting to " plus an endpoint URL plus the transport's reason - and far below the point
-    /// where repeating the request fills a disk. An operator who needs the whole string has the exception
-    /// itself on the catch-all arm below.
-    /// </summary>
+    /// <summary>How much of the library's error text the fail-closed warning may carry (#1194).</summary>
+    /// <remarks>
+    /// The text quotes the URL the fetch was connecting to, and on the JWKS leg that URL is provider-authored, so
+    /// without a bound one anonymous challenge writes as much log as the response cap allows. 512 sits above every
+    /// error text a working deployment produces and far below the point where repeating the request fills a disk.
+    /// </remarks>
     private const int MaxLoggedProviderErrorChars = 512;
 
     /// <summary>Marks an error text this reader cut, so a truncated entry is not read as the whole error.</summary>
     private const string ErrorTruncationMarker = "[truncated]";
 
-    /// <summary>
-    /// The bound on ONE discovery/JWKS fetch, so a slow or hanging authorization server cannot stall the
-    /// anonymous challenge endpoint. This is the login-critical discovery (its result is fed to
-    /// PrepareLoginAsync), so the bound is tighter than the platform-default ~100s the library's own
-    /// in-PrepareLoginAsync discovery ran under before #450 - a deliberate anonymous-endpoint DoS-hardening
-    /// trade-off: a pathologically slow IdP (a 10s+ cold start) is refused fail-closed and self-heals on the
-    /// next challenge, rather than tying up the endpoint. It keeps the 10s the pre-#450 probe already
-    /// applied.
-    /// <para>
-    /// Per ATTEMPT rather than per caller. A caller that reads more than once - the back-channel logout
-    /// path, which retries a transient failure rather than leaving an IdP-ordered revocation undone
-    /// (#1183) - multiplies this, and its own total budget is stated as a constant derived from it rather
-    /// than left implicit.
-    /// </para>
-    /// </summary>
+    /// <summary>The bound on one discovery or JWKS fetch, so a slow or hanging authorization server cannot stall the anonymous challenge endpoint.</summary>
+    /// <remarks>
+    /// Tighter than the platform default the library's own discovery ran under before #450: a pathologically slow
+    /// provider is refused fail-closed and self-heals on the next challenge. It is per attempt, so a caller that
+    /// retries, the back-channel logout path (#1183), states its own total budget as a constant derived from it.
+    /// </remarks>
     internal static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Reads the discovery document named by <paramref name="options"/> (its <c>Authority</c> and
-    /// <c>Policy.Discovery</c>) and returns the facts plus the provider metadata built from it, or
-    /// <see cref="OidcDiscoveryResult.Unavailable"/> when the document could not be read. Never throws - a
-    /// transient failure, a policy rejection (e.g. non-HTTPS under <c>RequireHttps</c>), a malformed document,
-    /// or a document refused by <see cref="RepeatedMemberScreen"/> for naming a member twice all return
-    /// <c>Unavailable</c> so the caller fails the login closed rather than proceeding on unverified facts.
-    /// The one exception is the caller's own <paramref name="cancellationToken"/> (#1558): a read the caller
-    /// abandoned is neither a provider failure nor a login decision, so it propagates as
-    /// <see cref="OperationCanceledException"/> instead of being logged as a fail-closed read and counted
-    /// against the provider. <see cref="FetchTimeout"/> still ends a read the caller is waiting on, and that
-    /// path is unchanged: it arrives with the token NOT cancelled and returns <c>Unavailable</c>.
-    /// </summary>
-    /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses - the same the login is built with.</param>
+    /// <summary>Reads the discovery document named by <paramref name="options"/> and returns the facts plus the provider metadata built from it, or <see cref="OidcDiscoveryResult.Unavailable"/> when it could not be read.</summary>
+    /// <remarks>It never throws for a provider failure, a policy rejection, a malformed document or a repeated member, so the caller fails the login closed; the one exception is the caller's own <paramref name="cancellationToken"/> (#1558), which propagates as <see cref="OperationCanceledException"/> because an abandoned read is neither a provider failure nor a login decision.</remarks>
+    /// <param name="options">The OidcClient options whose <c>Authority</c> and discovery policy the read uses, the same the login is built with.</param>
     /// <param name="provider">The provider name, for the failure warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the outbound fetch is built over.</param>
     /// <param name="logger">The logger for the fail-closed read-failure warning.</param>
-    /// <param name="allowPrivateNetworkAddresses">
-    /// The provider's <c>AllowPrivateNetworkAddresses</c> opt-in, selecting the private-permitted outbound
-    /// transport for this one read (#1179). Defaults to <see langword="false"/> - the full guard.
-    /// </param>
-    /// <param name="cancellationToken">
-    /// The caller's lifetime, passed to every request this read makes - the well-known document and the JWKS
-    /// it points at (#1558). A request that has gone away no longer holds the outbound connection until
-    /// <see cref="FetchTimeout"/> runs out on each of them.
-    /// </param>
+    /// <param name="allowPrivateNetworkAddresses">The provider's <c>AllowPrivateNetworkAddresses</c> opt-in, selecting the private-permitted outbound transport for this one read (#1179).</param>
+    /// <param name="cancellationToken">The caller's lifetime, passed to the well-known request and the JWKS request it points at (#1558).</param>
     /// <returns>The facts and provider metadata from the one discovery response, or <see cref="OidcDiscoveryResult.Unavailable"/>.</returns>
     internal static async Task<OidcDiscoveryResult> ReadAsync(OidcClientOptions options, string provider, IHttpClientFactory httpClientFactory, ILogger logger, bool allowPrivateNetworkAddresses = false, CancellationToken cancellationToken = default)
     {
@@ -132,23 +85,10 @@ internal static class OidcDiscoveryReader
 
             if (discovery.IsError)
             {
-                // The provider name and the library error are stripped of line endings inline at the log
-                // call so an admin-supplied value or a reflected server string cannot forge or split the
-                // entry (the log-forging sanitizer never crosses a helper boundary).
-                //
-                // The error is BOUNDED here too, for the same reason it is stripped here: it is not the
-                // plugin's string. It quotes the URL the library was connecting to, which on the JWKS leg
-                // the provider chose, so an unbounded entry lets one anonymous challenge write as much log
-                // as the response cap allows. The truncation is inline for the same reason the strip is -
-                // moving either into a helper takes the sanitizer out of the call the analyzer reads. The
-                // sanitizers run on the foreign text BEFORE the truncation marker is joined to it: the marker
-                // is this reader's own, and it opens with the bracket the substitution exists to remove (#1557).
-                //
-                // An issuer the policy refused is named beside the endpoint it was compared with (#1835). The
-                // library's text quotes ONE of the two values, unlabelled, so the entry never said which value
-                // was the field's and which the provider's, nor which of them belongs in the field. Both values
-                // are foreign - the endpoint is the administrator's, the issuer the provider's - and each is
-                // bounded and sanitized here, at the call, like the error.
+                // Both foreign values, the library error and the refused issuer beside the endpoint it was compared
+                // with (#1835), are bounded and stripped of line endings inline at the log call, because the
+                // log-forging sanitizer never crosses a helper boundary; the sanitizers run on the foreign text
+                // before this reader's own truncation marker is joined to it (#1557).
                 var endpoint = options.Authority ?? string.Empty;
                 var issuer = RefusedPublishedIssuer(discovery, options);
                 if (issuer is not null)
@@ -174,21 +114,10 @@ internal static class OidcDiscoveryReader
                             error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
                 }
 
-                // The screen's own record of what it refused, never a re-reading of the library's error
-                // text, so the reason the admin probe reports (#1064) cannot drift from the reason logged
-                // above. It is Unnamed when the read failed for any reason the screen did not raise - an
-                // unreachable endpoint, a policy rejection, the outbound size bound - and the caller then
-                // reports the generic cause rather than a specific wrong one. Nothing on the login path
-                // branches on it: that path fails closed on `Available` alone. The bound above is on the
-                // TEXT this entry carries, and none of it travels on that record: the reason is an enum.
-                // #1139: counted on THIS exit as well as on the catch-all below. The two are the same event
-                // to an operator - the document could not be read - and the library reports most real
-                // failures (unreachable, policy refusal, bad status) here without ever throwing, so counting
-                // only the catch would report a healthy provider through an outage.
-                //
-                // A refused issuer is the one reason this reader names itself (#1837), from the same policy
-                // comparison that chose the entry above, so the probe and the log report one cause. The screen
-                // cannot have refused on this path: it refuses with a status, which is never a policy violation.
+                // The refusal is the screen's own record, never a re-reading of the library's text, so the admin
+                // probe (#1064) cannot drift from the log; a refused issuer is the one reason this reader names
+                // itself (#1837). Counted here as well as on the catch-all (#1139), because the library reports most
+                // real failures without throwing and counting only the catch would report a healthy provider through an outage.
                 SsoMetrics.ProviderFetchFailed(ProviderFetchStage.Discovery);
                 return issuer is null ? OidcDiscoveryResult.Refused(screen.Refusal) : OidcDiscoveryResult.IssuerRefused(issuer);
             }
@@ -240,20 +169,10 @@ internal static class OidcDiscoveryReader
         }
     }
 
-    /// <summary>
-    /// Returns the issuer a failed read's document publishes when the policy refused THAT issuer (#1835), or
-    /// <see langword="null"/>. It asks the policy's own comparison rather than reading the library's error
-    /// text, so it agrees with the refusal by construction: a policy violation of any other kind - an endpoint
-    /// outside the authority - carries an issuer that passes, and a read that never received a document
-    /// carries none.
-    /// </summary>
-    /// <remarks>
-    /// The issuer is read from the raw body, through the one discovery parser, because the library drops its
-    /// parsed document on a policy violation and keeps only the bytes. Those bytes already passed
-    /// <see cref="RepeatedMemberScreen"/>: a body naming <c>issuer</c> twice is refused before it gets here.
-    /// </remarks>
+    /// <summary>Returns the issuer a failed read's document publishes when the policy refused that issuer (#1835), or <see langword="null"/>.</summary>
+    /// <remarks>It asks the policy's own comparison rather than the library's error text, so it agrees with the refusal by construction, and reads the raw body through the one discovery parser because the library keeps only the bytes on a policy violation; those bytes already passed <see cref="RepeatedMemberScreen"/>.</remarks>
     /// <param name="discovery">The failed discovery response.</param>
-    /// <param name="options">The options the read was made under - their authority and their policy.</param>
+    /// <param name="options">The options the read was made under, their authority and their policy.</param>
     /// <returns>The published issuer the configured authority refuses, or <see langword="null"/>.</returns>
     private static string? RefusedPublishedIssuer(DiscoveryDocumentResponse discovery, OidcClientOptions options)
     {

@@ -6,30 +6,14 @@ using System.Text.Json;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// The one member lookup on a <see cref="JsonElement"/> object that cannot throw, which is what
-/// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> does not promise. That method unescapes
-/// any candidate member name long enough to still match after unescaping, and an unpaired surrogate escape
-/// has no completion, so the decoder raises <see cref="InvalidOperationException"/> and the whole lookup is
-/// abandoned.
-///
-/// Every reader that states a total contract over provider-supplied JSON reads through here, so none of them
-/// carries that throw and the padding that decides which one is hit stops being a property of the lookup
-/// name's length. It was written for the two discovery flag readers (#1340) and is not about discovery: the
-/// back-channel <c>logout_token</c>'s <c>events</c> member is read through it too (#1349), which is why it
-/// lives in a type of its own rather than beside the discovery parse.
-///
-/// An undecodable name is SKIPPED and the walk CONTINUES, which is the load-bearing half rather than a
-/// detail. Answering "absent" for the whole object would let one member nobody asked about decide the
-/// caller's fact, and each of those facts refuses something: false on the PKCE flag refuses the login
-/// wherever <c>RequirePkce</c> is on, and false on the logout event refuses a termination the identity
-/// provider ordered. A document or token carrying an undecodable name BESIDE the real member would otherwise
-/// take a working provider offline. This is the same reasoning <c>PkceDiscovery.IsS256</c> already applies
-/// one level down, on the value side of the same decoder failure.
-///
-/// A name that does not decode also cannot equal the ASCII names these callers look for, so skipping it
-/// loses no match: what is dropped is a candidate that could only ever have answered no.
-/// </summary>
+/// <summary>The one member lookup on a <see cref="JsonElement"/> object that cannot throw, which <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> does not promise (#1340, #1349).</summary>
+/// <remarks>
+/// That method unescapes any candidate name long enough to still match, and an unpaired surrogate escape has no
+/// completion, so the decoder throws and the whole lookup is abandoned. An undecodable name is skipped and the
+/// walk continues, because each caller's fact refuses something and one member nobody asked about must not take
+/// a working provider offline; a name that does not decode cannot equal the ASCII names these callers look for,
+/// so skipping it loses no match.
+/// </remarks>
 internal static class JsonMember
 {
     /// <summary>

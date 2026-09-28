@@ -53,17 +53,8 @@ internal static class OidcSignatureKeys
 
     private static readonly ImmutableArray<string> ForeignToLogoutToken = [AccessTokenType, DpopProofType];
 
-    /// <summary>
-    /// Gets the asymmetric signature algorithms the plugin accepts (RFC 7518). Symmetric HS* would accept a
-    /// token minted by anyone holding the shared client secret, and <c>none</c> is unauthenticated by
-    /// definition - both are rejected regardless of what the discovery document advertises.
-    /// </summary>
-    /// <remarks>
-    /// Immutable, not just get-only: the same instance is handed by reference into the validation parameters
-    /// of BOTH token types, so a writable array would let one in-assembly write to element zero change what
-    /// the id_token and the back-channel logout_token accept, at once, with nothing else noticing. Freezing
-    /// the collection makes that write a compile error rather than a control nobody is watching (#1190).
-    /// </remarks>
+    /// <summary>Gets the asymmetric signature algorithms the plugin accepts (RFC 7518); symmetric HS* and <c>none</c> are rejected whatever discovery advertises.</summary>
+    /// <remarks>Immutable rather than get-only, because the same instance is handed by reference into the validation parameters of both token types, and a writable array would let one in-assembly write change what both accept with nothing noticing (#1190).</remarks>
     internal static ImmutableArray<string> AllowedSignatureAlgorithms { get; } =
     [
         "RS256", "RS384", "RS512",
@@ -71,22 +62,12 @@ internal static class OidcSignatureKeys
         "ES256", "ES384", "ES512",
     ];
 
-    /// <summary>
-    /// Whether a token-header <c>kid</c> may be used as a key-lookup value. Accepts the RFC 3986 unreserved
-    /// set only, up to <see cref="MaxKeyIdLength"/>.
-    /// <para>
-    /// There is no live sink today: the value is only ever compared ordinally against the in-memory
-    /// <see cref="SecurityKey.KeyId"/> values converted from the discovery JWKS, so it reaches no
-    /// filesystem, database, URL or parser. This is the standing mitigation for the JWT <c>kid</c>-injection
-    /// class applied ahead of a sink, so that any future consumer of the header value - a log line, a cache
-    /// key, a keyed store, a remote key fetch - is born behind the constraint instead of re-opening it.
-    /// </para>
-    /// <para>
-    /// An ABSENT <c>kid</c> is not a violation: it is the ordinary "try every advertised key" case and must
-    /// keep working, so null, empty and whitespace are accepted. That also makes the predicate indifferent
-    /// to whether the token library reports an absent header member as null or as an empty string.
-    /// </para>
-    /// </summary>
+    /// <summary>Whether a token-header <c>kid</c> may be used as a key-lookup value: the RFC 3986 unreserved set only, up to <see cref="MaxKeyIdLength"/>.</summary>
+    /// <remarks>
+    /// There is no live sink today, the value is only compared ordinally against in-memory key ids, so this is the
+    /// standing mitigation for the <c>kid</c>-injection class applied ahead of any future consumer. An absent
+    /// <c>kid</c> is the ordinary try-every-key case, so null, empty and whitespace are accepted.
+    /// </remarks>
     /// <param name="keyId">The <c>kid</c> read from the token header, or null when the header carries none.</param>
     /// <returns><c>true</c> when the value may reach a key lookup.</returns>
     internal static bool IsAcceptableKeyId(string? keyId)
@@ -117,17 +98,8 @@ internal static class OidcSignatureKeys
         return true;
     }
 
-    /// <summary>
-    /// Whether a compact-serialized JWT's header <c>kid</c> passes <see cref="IsAcceptableKeyId"/>. Both
-    /// token paths call this ahead of validation, so the constraint has ONE definition and the id_token and
-    /// <c>logout_token</c> postures cannot drift.
-    /// <para>
-    /// A token this cannot read at all is reported as acceptable rather than refused. That is deliberate and
-    /// it is not a fail-open: this gate is not the floor. A token whose header will not parse is refused
-    /// moments later by the handler, which owns signature, issuer, audience and lifetime, and reporting a
-    /// refusal from here would only replace an accurate rejection reason with a misleading one.
-    /// </para>
-    /// </summary>
+    /// <summary>Whether a compact-serialized JWT's header <c>kid</c> passes <see cref="IsAcceptableKeyId"/>; both token paths call this ahead of validation, so the constraint has one definition.</summary>
+    /// <remarks>A token this cannot read at all is reported as acceptable rather than refused, and that is not a fail-open: the handler that follows owns signature, issuer, audience and lifetime and refuses an unreadable token on its own terms, so a refusal from here would only replace an accurate reason with a misleading one.</remarks>
     /// <param name="token">The raw compact-serialized JWT.</param>
     /// <returns><c>false</c> only when a <c>kid</c> was positively read and is outside the allowlist.</returns>
     internal static bool TokenHasAcceptableKeyId(string? token)
@@ -160,29 +132,13 @@ internal static class OidcSignatureKeys
         return IsAcceptableKeyId(keyId);
     }
 
-    /// <summary>
-    /// Whether a compact-serialized JWT's header <c>alg</c> is one this plugin verifies, read from the same
-    /// <see cref="AllowedSignatureAlgorithms"/> the validation basis enforces. The handler refuses a
-    /// disallowed algorithm on its own, so this changes NOTHING about what is accepted; what it changes is
-    /// what the refusal can be called. Measured rather than assumed: <c>alg: none</c>, a case-variant
-    /// spelling and an HS256 token keyed with the advertised public key all surface from the handler as
-    /// <c>SecurityTokenInvalidSignatureException</c>, because <c>ValidAlgorithms</c> is evaluated per key
-    /// inside signature validation - so an operator reading the audit trail cannot tell an algorithm attack
-    /// from an ordinary bad signature unless the algorithm is judged before the handler runs (#1164).
-    /// <para>
-    /// Called by the back-channel <c>logout_token</c> path only. The id_token path keeps the handler's own
-    /// refusal because <c>OidcClient</c> depends on the <c>invalid_signature</c> contract it produces, which
-    /// is why #1164 excludes that path rather than sharing this call the way the <c>kid</c> and <c>crit</c>
-    /// gates are shared.
-    /// </para>
-    /// <para>
-    /// Comparison is Ordinal, so a case variant is refused rather than folded: the allowlist entries are the
-    /// exact RFC 7518 names, and a verifier that accepted <c>rs256</c> would be accepting a spelling the
-    /// basis does not list. A token this cannot read at all is reported as allowed rather than refused, the
-    /// same contract and the same reason as <see cref="TokenHasAcceptableKeyId"/>: this gate is not the
-    /// fail-closed floor.
-    /// </para>
-    /// </summary>
+    /// <summary>Whether a compact-serialized JWT's header <c>alg</c> is in <see cref="AllowedSignatureAlgorithms"/>, judged before the handler so an algorithm attack is audited as one rather than as a bad signature (#1164).</summary>
+    /// <remarks>
+    /// The handler refuses a disallowed algorithm on its own, so this changes nothing about what is accepted, only
+    /// what the refusal can be called. Called by the back-channel <c>logout_token</c> path only, because the id_token
+    /// path depends on the <c>invalid_signature</c> contract the handler produces. Comparison is ordinal, so a case
+    /// variant is refused; an unreadable token is reported as allowed for the same reason as <see cref="TokenHasAcceptableKeyId"/>.
+    /// </remarks>
     /// <param name="token">The raw compact-serialized JWT.</param>
     /// <returns><c>false</c> only when an <c>alg</c> was positively read and is outside the allowlist.</returns>
     internal static bool TokenHasAllowedAlgorithm(string? token)
@@ -211,38 +167,13 @@ internal static class OidcSignatureKeys
         return string.IsNullOrEmpty(algorithm) || AllowedSignatureAlgorithms.Contains(algorithm, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Whether a compact-serialized JWT's header is free of the <c>crit</c> parameter (RFC 7515 §4.1.11,
-    /// #1038). A recipient MUST reject a token whose <c>crit</c> names an extension it does not understand
-    /// AND process; this plugin implements no JWS extension at all, so the rule collapses to a presence
-    /// test: <c>crit</c> in the header means refuse. Both token paths call this, so the id_token and the
-    /// <c>logout_token</c> cannot drift on it, exactly as they share the algorithm allowlist.
-    /// <para>
-    /// Not exploitable on its own - the token must still carry a signature from a key in the discovery
-    /// JWKS. What it prevents is semantic: an IdP marks a header extension critical precisely because
-    /// ignoring it changes what the token asserts (a narrowed audience, a scope restriction, a
-    /// proof-of-possession binding), so accepting one means acting on an assertion whose stated
-    /// constraints were silently dropped.
-    /// </para>
-    /// <para>
-    /// The member is looked up by PRESENCE - <c>object</c>, the one type every JSON value converts to -
-    /// and not by reading it as the string array §4.1.11 says a well-formed <c>crit</c> is. Reading it as
-    /// a typed value is the mistake this spelling exists to avoid, and the difference is measured rather
-    /// than supposed: <c>TryGetHeaderValue&lt;JsonElement&gt;</c> reports a STRING-valued <c>crit</c> as
-    /// ABSENT, so a typed read admits <c>"crit":"urn:example:ext"</c> - a malformed <c>crit</c>, which the
-    /// RFC forbids too, walking through the guard meant to stop it. Presence subsumes every malformed
-    /// shape the RFC lists (non-array, empty array, empty or duplicate member, registered header name, a
-    /// bare null): no extension is processed here, so nothing about the value could make it acceptable.
-    /// </para>
-    /// <para>
-    /// A token this cannot read at all is reported as free of it rather than refused, the same contract
-    /// (and the same reason) as <see cref="TokenHasAcceptableKeyId"/>: this gate is not the fail-closed
-    /// floor. The handler that follows owns signature, issuer, audience and lifetime and refuses an
-    /// unreadable token on its own terms, and refusing from here would replace an accurate rejection
-    /// reason with a misleading one. It reads the header through the token library for the same reason
-    /// that predicate does - so the plugin gains no second, unscreened JSON parse over provider bytes.
-    /// </para>
-    /// </summary>
+    /// <summary>Whether a compact-serialized JWT's header is free of the <c>crit</c> parameter (RFC 7515 §4.1.11, #1038); this plugin implements no JWS extension, so the rule collapses to a presence test shared by both token paths.</summary>
+    /// <remarks>
+    /// A provider marks an extension critical because ignoring it changes what the token asserts, so accepting one
+    /// means acting on an assertion whose constraints were dropped. The member is looked up by presence as
+    /// <c>object</c> rather than read as a typed array, because a typed read reports a string-valued <c>crit</c> as
+    /// absent and admits a malformed header; an unreadable token is reported as free of it for the same reason as <see cref="TokenHasAcceptableKeyId"/>.
+    /// </remarks>
     /// <param name="token">The raw compact-serialized JWT.</param>
     /// <returns><c>false</c> only when a header member named <c>crit</c> was positively read.</returns>
     internal static bool TokenHasNoCriticalHeader(string? token)
@@ -291,18 +222,10 @@ internal static class OidcSignatureKeys
     /// <returns><c>false</c> only when the header positively declares one of the foreign media types.</returns>
     internal static bool TokenTypeIsAcceptableForLogoutToken(string? token) => !DeclaresForeignType(token, ForeignToLogoutToken);
 
-    // Whether the header declares one of the media types this plugin can attribute to another purpose.
-    //
-    // RFC 7519 §5.1 lets a producer omit the "application/" prefix, and media types are case-insensitive,
-    // so "application/Logout+JWT" and "logout+jwt" are the same declaration and both are matched. Comparing
-    // the raw header value with Ordinal equality is the one-character mistake that would let either spelling
-    // through, which is why the spellings have rows of their own in the test file.
-    //
-    // Absent, empty, non-string and unrecognised values all return false. That is the availability half of
-    // the decision and it is deliberate: typ is optional in an id_token, real providers omit it, send "JWT",
-    // or send a vendor value, so anything narrower than "declares a purpose this plugin knows is not this
-    // one" would refuse working providers. A value that is not a string declares nothing attributable and is
-    // not evidence of a foreign purpose - the token still has to pass every payload rule that follows.
+    // Whether the header declares one of the media types this plugin can attribute to another purpose. RFC 7519
+    // §5.1 lets a producer omit the "application/" prefix and media types are case-insensitive, so both spellings
+    // are matched rather than compared ordinally. Absent, empty, non-string and unrecognised values all return false,
+    // because typ is optional in an id_token and anything narrower would refuse working providers.
     private static bool DeclaresForeignType(string? token, ImmutableArray<string> foreign)
     {
         if (string.IsNullOrEmpty(token))
@@ -370,22 +293,8 @@ internal static class OidcSignatureKeys
         };
     }
 
-    /// <summary>
-    /// Converts the advertised JWKS into usable signing keys, skipping any key that is null, not a signing
-    /// key (<c>use != "sig"</c>), under the RSA size floor (#733), or of un-decodable/invalid material - so
-    /// one broken key in the set cannot take down verification against a good one. Never throws.
-    /// <para>
-    /// The <c>kid</c> the PROVIDER advertises is deliberately NOT screened against
-    /// <see cref="IsAcceptableKeyId"/>, and that is a decision rather than an omission (#1029). Every
-    /// exclusion above is a key that cannot do the job; a spelling is not one of them. The two sides of a
-    /// lookup are not symmetric: the token header is the needle and arrives from outside, the advertised
-    /// <c>kid</c> is what the haystack is searched THROUGH, and refusing a key over its alphabet - a
-    /// standard-base64 thumbprint rather than a base64url one is the ordinary case - would take a
-    /// well-behaved provider's signature verification down for nothing the header screen does not already
-    /// stop. The cost that comes with it is that such a key is reachable by trying every advertised key
-    /// but never by name, and <c>OidcSignatureKeysKidTests</c> pins both halves.
-    /// </para>
-    /// </summary>
+    /// <summary>Converts the advertised JWKS into usable signing keys, skipping a null entry, a non-signing key, a key under the RSA size floor (#733) or invalid material, so one broken key cannot take down verification against a good one; never throws.</summary>
+    /// <remarks>The advertised <c>kid</c> is not screened against <see cref="IsAcceptableKeyId"/>, and that is a decision (#1029): every exclusion is a key that cannot do the job, a spelling is not one, and refusing a key over its alphabet would take a well-behaved provider down for nothing the header screen does not already stop. Such a key is reachable by trying every key but never by name.</remarks>
     /// <param name="keySet">The advertised JSON Web Key Set (may be null/empty).</param>
     /// <param name="ephemeralKeys">Collects disposable ECDsa handles for the caller to release.</param>
     /// <returns>The usable signing keys (possibly empty).</returns>
@@ -409,19 +318,10 @@ internal static class OidcSignatureKeys
         return keys;
     }
 
-    // Converts one advertised JWK into a usable signing key, or reports that it is unusable (out false).
-    // The exclusions and the skip-on-malformed contract live here: a literal null entry (["keys":[null]])
-    // must be skipped rather than dereferenced (otherwise the whole verification 500s), a key marked
-    // use!="sig" is not a signing key, and un-decodable/invalid key material is caught and skipped so one
-    // broken key in the set cannot take down verification signed by a good one. Returns false - never
-    // throws - on every reject path so the caller drops the key without aborting the scan.
-    //
-    // The advertised kid is NOT one of the exclusions, and that is the decided contract rather than a
-    // gap (#1029, #1168): every exclusion above is a key that cannot do the job, and a spelling is not
-    // one of those. The set is also never refused whole over one entry - the odd key is kept, the good
-    // ones beside it keep working, and the token header's own kid is screened separately by
-    // IsAcceptableKeyId before any lookup. OidcSignatureKeysKidTests holds both directions of this,
-    // including what it costs: such a key is reachable by trying every advertised key, never by name.
+    // Converts one advertised JWK into a usable signing key, or reports it unusable: a literal null entry is skipped
+    // rather than dereferenced, use != "sig" is not a signing key, and invalid material is caught, so the caller
+    // drops the key without aborting the scan and never sees a throw. The advertised kid is not an exclusion, the
+    // decided contract of #1029 and #1168, and the set is never refused whole over one entry.
     private static bool TryConvertSigningKey(Duende.IdentityModel.Jwk.JsonWebKey? webKey, List<IDisposable> ephemeralKeys, [NotNullWhen(true)] out SecurityKey? key)
     {
         key = null;

@@ -8,59 +8,16 @@ using System.Text.Json;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Decides whether a JSON document names any member twice inside one object scope (#1005). A repeated member
-/// is accepted silently by every reader these documents reach, none of which raises an error, so which of the
-/// two values a consumer acts on is decided by parser internals rather than by anything this plugin controls.
-///
-/// What was MEASURED, so the claim stays the size of its evidence: on both target frameworks every reader in
-/// the dependency set - System.Text.Json, Newtonsoft, <c>JsonWebToken</c>, Duende's <c>JsonWebKeySet</c> -
-/// keeps the LAST occurrence when a name is indexed. They therefore agree today, and no divergence between
-/// two readers of these documents has been demonstrated. What differs is indexing versus ENUMERATION:
-/// <c>JsonDocument</c> indexes the last occurrence while <c>EnumerateObject</c> yields both properties, and
-/// Newtonsoft drops one at parse time, so a document carrying a repeat has no single answer to "what members
-/// does it have".
-///
-/// THREAT MODEL. This stops an authorization server, or anyone who can answer as one, from serving a document
-/// whose meaning rests on that unpinned last-wins behaviour rather than on the document itself - RFC 8259
-/// §4 leaves the handling of repeated names unspecified and calls such objects interoperability-unsafe, so
-/// the agreement measured above is a property of the current dependency set and not a guarantee any of them
-/// documents. A repeat in <c>issuer</c>, <c>jwks_uri</c>, or a JWKS entry is where that would decide a login
-/// anchor or a validation key. Deliberately out of scope: an operator who edits the plugin's own
-/// configuration, and any document nothing routes through this walk before parsing it - a decision function
-/// stops nothing on its own, and placing it on a path is the caller's job (#1061). This walk defends against
-/// a hostile provider, not against the person who administers the server, and
-/// review and branch protection are what cover the latter. Also out of scope, and worth stating because the
-/// two are easily conflated: this is not the control that stops a hostile <c>issuer</c> VALUE, which is
-/// <c>ValidateIssuerName</c>'s job whether that value is repeated or not.
-///
-/// Every member is compared, rather than a caller-supplied list of the members the caller happens to index.
-/// The screen sits ahead of the identity library, whose own typed mapping and key-set materialisation are
-/// consumers too, and their indexed-member sets are internal to two pinned versions - an allowlist would have
-/// to enumerate them and would go quietly wrong at the next bump. It is also the rule .NET 10's
-/// <c>JsonSerializerOptions.Strict</c> preset already enforces, so this converges on the platform posture
-/// rather than inventing one.
-///
-/// WHICH SCOPES those members are compared in is the caller's to narrow, and only that (#1324). A caller
-/// reading a document along a configured path knows where its reader goes even though it does not know which
-/// members the reader names once it is there, so it names the scopes and the members inside them are still all
-/// compared. The default is every scope, and the overload taking no key list is that default rather than a
-/// separate walk.
-///
-/// Deliberately a raw <see cref="Utf8JsonReader"/> walk rather than a <c>JsonSerializerOptions</c> setting.
-/// The plugin binds the HOST's System.Text.Json, and while the Jellyfin 10.11 line was a target that was
-/// .NET 9's, where <c>Strict</c> does not exist (referencing it failed the net9.0 build with CS0117). That
-/// leg ended in #1770, and #1043 then measured the preset against this walk's own corpus and KEPT the
-/// walk. What the callers here depend on and the preset does not carry: it has no BOM strip, so a provider
-/// serving a BOM-prefixed document is refused for its first byte; it refuses a repeat anywhere in the
-/// document and cannot narrow to the scopes a caller's reader enters, which is the availability cost
-/// #1324 exists to avoid; it signals every outcome by throwing, in a type that depends on what the
-/// caller deserializes into, so a repeat and a malformed body arrive on one channel; and it admits a
-/// document carrying no object at all, where this walk reports that it established nothing. The rows
-/// are in <c>StrictJsonTests</c>, beside the row that measures where the two agree. A tokenizer carries
-/// no duplicate policy of its own, so the decision here does not move when the host's
-/// System.Text.Json does.
-/// </summary>
+/// <summary>Decides whether a JSON document names any member twice inside one object scope (#1005), so a provider document's meaning never rests on which occurrence a parser happens to keep.</summary>
+/// <remarks>
+/// Every reader in the dependency set keeps the last occurrence today, and RFC 8259 §4 calls such objects
+/// interoperability-unsafe, so that agreement is a property of the pinned versions and not a guarantee. Every
+/// member is compared rather than a caller-supplied allowlist, because the library's indexed-member sets are
+/// internal to it; which scopes are compared is the caller's to narrow (#1324). It stays a raw
+/// <see cref="Utf8JsonReader"/> walk rather than the .NET 10 <c>JsonSerializerOptions.Strict</c> preset, which has no BOM strip, cannot
+/// narrow to scopes, signals by throwing and admits an objectless document (#1043). Out of scope: the operator who
+/// edits the configuration, and a hostile issuer value, which is <c>ValidateIssuerName</c>'s job (#1061).
+/// </remarks>
 internal static class StrictJson
 {
     // What this cannot do, stated because a decision function invites the assumption that it protects the
@@ -101,98 +58,25 @@ internal static class StrictJson
         Repeated,
     }
 
-    /// <summary>
-    /// Walks <paramref name="json"/> and reports whether any object scope names a member twice.
-    /// </summary>
+    /// <summary>Walks <paramref name="json"/> and reports whether any object scope names a member twice; never throws.</summary>
+    /// <remarks>
+    /// Names are compared ordinally and after unescaping, so an escaped spelling counts as its plain one. Ordinal is a
+    /// decision about this plugin's readers, all of which index a name they spell themselves, so a case-variant pair
+    /// is admitted and what that leaves open is written in the test row that measures it (#1191). An invalid escape
+    /// establishes no name, so the walk reports <see cref="Verdict.Unreadable"/> rather than accusing the provider of a repeat it did not write (#1197).
+    /// </remarks>
     /// <param name="json">The raw document, as received from the provider.</param>
-    /// <param name="repeatedMember">
-    /// The repeated member's name when the verdict is <see cref="Verdict.Repeated"/>; otherwise null. It is
-    /// provider-authored, so a caller that logs it strips line endings inline at its own log call.
-    /// </param>
-    /// <returns>
-    /// <see cref="Verdict.Repeated"/> when one object scope names a member twice;
-    /// <see cref="Verdict.Unreadable"/> when the walk could not complete - malformed, truncated, nested past
-    /// the depth cap, carrying a member name the decoder refuses (an unpaired surrogate escape is the
-    /// measured instance), carrying a char with no UTF-8 encoding at all (a RAW unpaired surrogate, refused
-    /// before the walk starts), or carrying no object at all - a null, empty or whitespace body, and equally a
-    /// bare scalar or a document whose root is not and contains no object. None of those establishes
-    /// anything, which is what <see cref="Verdict.Unreadable"/> means, and reporting <c>Clean</c> for them
-    /// would hand a caller an affirmative answer about a document nothing read.
-    /// <see cref="Verdict.Clean"/> otherwise. Names are compared ordinally - a decision about this plugin's
-    /// readers rather than a fact about consumers, see below - and AFTER unescaping, so a name spelled with a
-    /// <c>\u</c> escape counts as the same name as its plain spelling.
-    ///
-    /// Ordinal is a DECISION about this plugin's readers (#1191), not a fact about JSON consumers in general,
-    /// and the difference matters: a deserializer configured case-insensitively - which is what
-    /// <c>JsonSerializerDefaults.Web</c> gives you - resolves <c>ISSUER</c> onto <c>Issuer</c> and keeps the
-    /// last occurrence, while an indexing reader over the same bytes returns the first. Both readings are
-    /// measured, on those bytes, in <c>WhatAdmittingACaseVariantPairLeavesOpen_IsMeasuredRatherThanAssumed</c>.
-    ///
-    /// A case-variant pair is therefore ADMITTED, and what each direction costs is this. Refusing one takes
-    /// offline a provider whose document no reader on this login path misreads - every one of them indexes a
-    /// name it spells itself - and because every member at every scope is compared, the pair that took the
-    /// provider down need not be a member a login rests on at all; two unrelated vendor extensions differing
-    /// in case would do it. Admitting one costs nothing to any reader present today and leaves one thing
-    /// open: a future consumer on this path that folds case would answer differently from the indexing
-    /// readers beside it, and the divergence it would inherit is written down in that same row rather than
-    /// left to be rediscovered. Not established, and so not claimed: that no consumer anywhere folds case.
-    ///
-    /// An INVALID escape is the opposite question and has the opposite answer (#1197): it establishes no name
-    /// at all, so two members spelled with one are never folded into a single key. A raw unpaired surrogate
-    /// has no UTF-8 encoding and the document is refused before the walk starts; an escaped one is a name the
-    /// decoder cannot complete, and <c>GetString</c> refuses it. Either way the walk never holds two names to
-    /// compare and reports <see cref="Verdict.Unreadable"/> - nothing was established - rather than
-    /// <see cref="Verdict.Repeated"/>. The alternative is what a lenient decoder gives you: every unpaired
-    /// surrogate becomes U+FFFD, two different names collapse to one, and the walk accuses a provider of a
-    /// repeat its document does not contain. Both verdicts refuse the document, so the choice is between two
-    /// refusals and is made on which is honest about the bytes; the cost, stated rather than implied, is that
-    /// a provider naming a member with an unpaired surrogate is locked out of a login a lenient reader
-    /// downstream would have completed.
-    ///
-    /// .NET 10's <c>JsonSerializerOptions.Strict</c>, which #1043 measured against this walk and did not
-    /// replace it with, takes the same decision in both directions - it refuses a member named twice and
-    /// does not treat a case-variant pair as one. Measured in
-    /// <c>TheStrictPresetTakesTheSameDecisionOnCase</c>, so the posture below is the platform's too and
-    /// the reasons the walk was kept are elsewhere: they are about the BOM, the scope narrowing, the
-    /// throw and the objectless document, and none of them is about case.
-    ///
-    /// Never throws.
-    /// </returns>
+    /// <param name="repeatedMember">The repeated member's name when the verdict is <see cref="Verdict.Repeated"/>, otherwise null; it is provider-authored, so a caller that logs it strips line endings inline at its own log call.</param>
+    /// <returns><see cref="Verdict.Repeated"/> when one object scope names a member twice; <see cref="Verdict.Unreadable"/> when the walk could not complete or the document holds no object at all, because reporting Clean for them would hand a caller an affirmative answer about a document nothing read; <see cref="Verdict.Clean"/> otherwise.</returns>
     internal static Verdict Inspect(string? json, out string? repeatedMember) =>
         Inspect(json, null, out repeatedMember);
 
-    /// <summary>
-    /// Walks <paramref name="json"/> and reports whether a member is named twice in an object scope the
-    /// caller's reader actually enters (#1324).
-    /// </summary>
+    /// <summary>Walks <paramref name="json"/> and reports whether a member is named twice in an object scope the caller's reader actually enters (#1324).</summary>
+    /// <remarks>Naming scopes rather than members is the whole of the narrowing: inside a scope the reader enters, which members it indexes is not a thing this walk can know, but where the reader goes the caller states. A repeat in a sibling the reader never opens is admitted, because refusing it would let an unrelated vendor extension take a login offline.</remarks>
     /// <param name="json">The raw document, as received from the provider.</param>
-    /// <param name="enteredScopeKeys">
-    /// The member names the caller's reader descends through, in order, starting at the root object - which
-    /// is entered by definition, because a reader that indexes anything at all indexes it there. An object
-    /// reached by any other member is NOT entered, and neither is anything below it. Null means every object
-    /// scope is entered, which is the discovery posture: that caller hands the whole document to a library
-    /// whose indexed-member set it does not control, so there is no smaller set of scopes to name.
-    /// <para>
-    /// Naming SCOPES rather than members is the whole of the narrowing, and the reason is the one the class
-    /// summary gives for refusing member allowlists: inside a scope the reader enters, which members it
-    /// indexes today is not a thing this walk can know. What it can know is where the reader goes, because
-    /// the caller states it. So a repeat in a sibling the reader never opens is admitted - it changes nothing
-    /// the reader reads, and refusing it would let an unrelated vendor extension take a login offline - while
-    /// a repeat where the reader looks is refused whether or not the repeated member is one it names.
-    /// </para>
-    /// </param>
-    /// <param name="repeatedMember">
-    /// The repeated member's name when the verdict is <see cref="Verdict.Repeated"/>; otherwise null. It is
-    /// provider-authored, so a caller that logs it strips line endings inline at its own log call.
-    /// </param>
-    /// <returns>
-    /// The same three verdicts, decided the same way, over a narrower set of scopes.
-    /// <see cref="Verdict.Unreadable"/> is NOT narrowed and stays a fact about the whole document: bytes the
-    /// walk cannot get to the end of leave it unable to say where the scopes are at all, so a name it cannot
-    /// decode in a scope nobody enters still establishes nothing. Narrowing what is REFUSED is safe because
-    /// the unentered scope changes no reading; narrowing what is READ would be the walk claiming a scope
-    /// boundary it did not verify.
-    /// </returns>
+    /// <param name="enteredScopeKeys">The member names the caller's reader descends through, in order, from the root object, which is entered by definition; null means every scope is entered, the discovery posture.</param>
+    /// <param name="repeatedMember">The repeated member's name when the verdict is <see cref="Verdict.Repeated"/>, otherwise null; it is provider-authored, so a caller that logs it strips line endings inline at its own log call.</param>
+    /// <returns>The same three verdicts over a narrower set of scopes; <see cref="Verdict.Unreadable"/> is not narrowed and stays a fact about the whole document, because bytes the walk cannot finish leave it unable to say where the scopes are.</returns>
     internal static Verdict Inspect(string? json, IReadOnlyList<string>? enteredScopeKeys, out string? repeatedMember)
     {
         repeatedMember = null;

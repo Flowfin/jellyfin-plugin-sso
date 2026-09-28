@@ -12,31 +12,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Refuses a provider response whose body names a member twice, BEFORE the identity library parses it
-/// (#1005). It presents the plugin's SSRF-hardened outbound client as a transport handler, so both documents
-/// the discovery read fetches - the well-known document and the JWKS it points at - pass through one screen
-/// on their way to the library.
-///
-/// Position is the whole point. An equivalent check applied to the parsed result would report the problem
-/// after the fact: the library resolves a repeated <c>jwks_uri</c> to its last occurrence and dereferences
-/// it, so by the time a post-hoc check could speak, the fetch the repeat aimed at has already happened. Here
-/// the discovery response never reaches the library, so the JWKS URL it named is never requested at all.
-///
-/// The RESPONSE carries no provider-authored text. <see cref="HttpResponseMessage.ReasonPhrase"/> rejects
-/// CR/LF/NUL with a <see cref="FormatException"/>, so a member name spelled with an escaped line feed would
-/// make this handler throw while building its own refusal. The reason phrase is therefore a constant, and the
-/// member name travels only on this handler's own log entry, where it is bounded and neutralised inline at the
-/// log call (#1195). An operator needs it: the name is what identifies the defect to report to the provider,
-/// and no configuration relaxes the refusal, so an entry that withheld it would leave nothing to act on.
-///
-/// There is deliberately no <c>RepeatedMemberScreenTests</c>: a handler between the discovery read and the
-/// library has no property that is not a property of a request travelling through it, so its units are named
-/// for the property each pins and live beside the seams that exercise them. Which files those are is declared
-/// in <c>ArchitectureConformanceTests.TypesWithNoMirroredTestFile</c>, where a rule refuses the declaration
-/// once it stops describing the tree (#1189) - so this absence is a decision a reader can check rather than a
-/// gap they have to guess at.
-/// </summary>
+/// <summary>Refuses a provider response whose body names a member twice, before the identity library parses it (#1005).</summary>
+/// <remarks>
+/// It presents the SSRF-hardened outbound client as a transport handler, so the well-known document and the JWKS
+/// it points at pass through one screen. Position is the point: the library resolves a repeated <c>jwks_uri</c> to
+/// its last occurrence and dereferences it, so a post-hoc check would speak after the fetch the repeat aimed at.
+/// The refusal carries a constant reason phrase, because the platform rejects CR, LF and NUL in it, and the member
+/// name travels only on this handler's own log entry, bounded and neutralised at the call (#1195). Its units are
+/// named for the property each pins and live beside the seams that exercise them (#1189).
+/// </remarks>
 internal sealed class RepeatedMemberScreen : HttpMessageHandler
 {
     /// <summary>
@@ -49,19 +33,8 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
     /// <summary>The constant reason a response that could not be inspected as JSON travels under.</summary>
     internal const string UninspectableReason = "The provider response could not be inspected as JSON";
 
-    /// <summary>
-    /// How much of a provider-authored member name may reach the refusal entry. The name arrives with no
-    /// natural bound: measured before this bound existed, one anonymous challenge put an 800 KB name in front
-    /// of this call, and the only thing limiting it was the 1 MB response cap
-    /// (<see cref="Net.ProviderResponseSizeLimit.MaxProviderResponseBytes"/>).
-    /// <para>
-    /// 128 sits well above every member name these two documents carry - the longest name in the OpenID
-    /// discovery metadata registry is the 46-character <c>authorization_response_iss_parameter_supported</c>,
-    /// and a JWKS entry's are shorter still - and far below the point where repeating the request fills a
-    /// disk. Both directions are pinned by tests, because a ceiling-only proof passes against a bound
-    /// tightened to a stub, and a stub throws away the one thing the entry exists to carry.
-    /// </para>
-    /// </summary>
+    /// <summary>How much of a provider-authored member name may reach the refusal entry.</summary>
+    /// <remarks>The name arrives with no natural bound short of the response cap. 128 sits above every member name these two documents carry, the longest registered discovery name being 46 characters, and far below the point where repeating the request fills a disk; both directions are pinned, because a ceiling-only proof passes against a stub.</remarks>
     private const int MaxLoggedMemberNameChars = 128;
 
     /// <summary>Marks a member name this screen cut, so a truncated name is not read as the whole name.</summary>
@@ -128,18 +101,9 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException or IOException)
         {
-            // The body could not be obtained or decoded: a Content-Type naming a charset the runtime does not
-            // know is the measured instance, and it is provider-chosen. Refusing rather than letting the throw
-            // escape keeps the reason an operator needs, and keeps this handler from being the one fail path
-            // that reports nothing.
-            //
-            // Of the three types named above, only InvalidOperationException can arrive TODAY (#1196):
-            // the client this forwards through completes under the default ResponseContentRead, so the body is
-            // already buffered when SendAsync returns and a copy failure is raised one line above this try,
-            // measured, and wrapped into an HttpRequestException on the way. The other two arms are the net for
-            // the day the read is no longer pre-buffered, and
-            // ABodyThatCannotBeCopied_ReachesNeitherTheHttpRequestExceptionNorTheIOExceptionArm goes red on
-            // exactly that day, so keeping them stays a checkable claim rather than a decorative one.
+            // The body could not be obtained or decoded, a charset the runtime does not know being the measured
+            // instance; refusing keeps the reason an operator needs. Only InvalidOperationException can arrive today
+            // because the client pre-buffers the body (#1196), and the other two arms are the net for the day it no longer does.
             return Refuse(request, response, OidcDiscoveryRefusal.Uninspectable, repeatedMember: null, cause: e);
         }
 
@@ -157,42 +121,10 @@ internal sealed class RepeatedMemberScreen : HttpMessageHandler
             cause: null);
     }
 
-    // Records why the response is being withheld and returns the constant-reason refusal in its place.
-    //
-    // ONE value here is provider-authored: the repeated member name. Everything beside it is not - the reason
-    // is a compile-time constant, the provider name is the operator's own configuration value, the document
-    // is named by a constant chosen from the request rather than echoed out of it, and only the exception
-    // TYPE is logged because its message quotes the provider's own Content-Type back.
-    //
-    // The name is bounded and neutralised in THIS method, and that is not a style choice: the log-forging
-    // sanitizer this repository relies on does not propagate across a method boundary, so a filter lifted
-    // into a helper stops being one as far as the analyzer is concerned.
-    //
-    // Four classes come off it, each because ReplaceLineEndings - the strip applied to the operator's own
-    // provider name beside it - does not remove them:
-    //
-    //   * CONTROL characters. A raw vertical tab advances a line on a console sink and a raw NUL truncates
-    //     the record for a C-string consumer, and ReplaceLineEndings passes both through. The class also
-    //     covers CR, LF, FF and NEL, so it subsumes that strip rather than sitting beside it, which is why
-    //     the strip is not also applied here: it would make two of these four classes unkillable by their
-    //     own mutation and prove nothing the class arms do not already prove.
-    //   * FORMAT characters. A right-to-left override is neither a control nor a separator, and it reorders
-    //     the rest of the entry as it is displayed - forging by rearranging rather than by inserting.
-    //   * The LINE and PARAGRAPH separators, which a line-ending replacement treats as line endings but a
-    //     control-character test does not reach.
-    //   * The RECORD-MARKER bracket (#1557), which none of the three classes above touches and which is
-    //     what lets a member name reproduce the audit trail's record-marker prefix inside this entry. The
-    //     tree-wide conformance rule finds a foreign value by its line-ending strip, which this name
-    //     deliberately does not carry, so the substitution here is pinned by its own payload test instead.
-    //
-    // The fourth class named on #1195, the unpaired surrogate, has no arm, because a provider cannot put one
-    // here: a raw one has no UTF-8 encoding and StrictJson refuses the document before the walk starts, and
-    // an escaped one is a name GetString will not complete, so the walk reports Unreadable and never a name.
-    // AnUnpairedSurrogate_NeverBecomesARepeatedMemberName is what keeps that a measurement rather than a
-    // belief; a surrogate filter would instead mangle the legitimate astral names that arrive in pairs.
-    //
-    // What CAN manufacture one is the bound, by cutting between the halves of a pair, so the cut steps back
-    // off a high surrogate rather than through it.
+    // Records why the response is withheld and returns the constant-reason refusal. The repeated member name is the
+    // one provider-authored value and is bounded and neutralised here, because the log-forging sanitizer does not
+    // cross a method boundary: control and format characters, the line and paragraph separators and the record-marker
+    // bracket (#1557) are replaced, and the cut steps back off a high surrogate rather than through it (#1195).
     private HttpResponseMessage Refuse(HttpRequestMessage request, HttpResponseMessage response, OidcDiscoveryRefusal refusal, string? repeatedMember, Exception? cause)
     {
         // One mapping from the refusal to the words an operator reads, so the log entry and the admin probe

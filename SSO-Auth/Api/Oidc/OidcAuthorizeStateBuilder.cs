@@ -18,18 +18,14 @@ using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// Derives the per-login authorize-state values (username, login validity, admin, Live TV, folder
-/// access, avatar) from a verified OpenID login's claims and the provider configuration. It reads only
-/// (claims, config) and returns the derived values, which the OID callback assigns onto the fresh
-/// authorize state; its one side effect is the audit entry a REFUSED role claim leaves (#1149), emitted
-/// at the point the walk refused it because a gate downstream can only report that something went wrong
-/// somewhere. Passing no logger asks the same question with no side effect at all.
-/// Mirrors, one-for-one, the derivation that used to live inline in the
-/// callback - including its quirks (username is the last matching claim; the "sub" claim is a
-/// fallback only when no allow-list made the login valid; a null <c>Roles</c> array in that fallback
-/// still throws, an admin misconfiguration that fails closed).
-/// </summary>
+/// <summary>Derives the per-login authorize-state values from a verified OpenID login's claims and the provider configuration.</summary>
+/// <remarks>
+/// It reads only claims and config and returns the derived values the callback assigns onto the fresh authorize
+/// state; its one side effect is the audit entry a refused role claim leaves (#1149), and passing no logger asks
+/// the same question with none. The derivation mirrors the one that used to live inline in the callback: the
+/// username is the last matching claim, the <c>sub</c> fallback applies only when no allow-list made the login
+/// valid, and a null <c>Roles</c> array in that fallback still throws, an admin misconfiguration that fails closed.
+/// </remarks>
 internal static class OidcAuthorizeStateBuilder
 {
     // Splits the role-claim path on dots that are not escaped with a backslash ("a.b\.c" -> "a", "b.c").
@@ -40,28 +36,13 @@ internal static class OidcAuthorizeStateBuilder
     private static readonly Regex RoleClaimSplitRegex =
         new Regex(@"(?<!\\)\.", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
-    /// <summary>
-    /// Derives the authorize-state values from the login's claims and the provider configuration.
-    /// </summary>
+    /// <summary>Derives the authorize-state values from the login's claims and the provider configuration.</summary>
     /// <param name="claims">The claims of the verified OpenID login.</param>
     /// <param name="config">The OpenID provider configuration.</param>
-    /// <param name="issuer">
-    /// The validated id_token's issuer, read from the RAW token by the caller (#186). It is passed in rather
-    /// than scanned from <paramref name="claims"/> because OidcClient filters the standard protocol claims
-    /// (<c>iss</c>, <c>aud</c>, <c>exp</c>, …) out of the redeemed principal, so the claim list here never
-    /// carries <c>iss</c>. Null when the token carried none; the canonical link then stays un-stamped.
-    /// </param>
-    /// <param name="logger">
-    /// The logger a refused role claim is audited on (#1149), or null to audit nothing. Defaulted so the
-    /// property and unit tests that ask this builder a pure question keep calling it with two arguments.
-    /// </param>
+    /// <param name="issuer">The validated id_token issuer, read from the raw token by the caller because OidcClient filters <c>iss</c> out of the principal (#186); null leaves the canonical link un-stamped.</param>
+    /// <param name="logger">The logger a refused role claim is audited on (#1149), or null to audit nothing.</param>
     /// <param name="provider">The provider name the audit entry names; ignored when no logger is supplied.</param>
-    /// <param name="providerEndpoints">
-    /// The provider's own backchannel endpoints as the callback knows them - the configured discovery address
-    /// and the token and userinfo endpoints discovery advertised - against which the avatar URL earns the
-    /// private address tier (#1764). Null, the default for the tests that ask this builder a pure question,
-    /// names no origin, so the avatar keeps the strict tier.
-    /// </param>
+    /// <param name="providerEndpoints">The provider's own backchannel endpoints, against which the avatar URL earns the private address tier (#1764); null names no origin and keeps the strict tier.</param>
     /// <returns>The derived authorize-state values.</returns>
     internal static OidcAuthorizeState Build(IEnumerable<Claim> claims, OidConfig config, string? issuer = null, ILogger? logger = null, string? provider = null, IReadOnlyList<string?>? providerEndpoints = null)
     {
@@ -400,28 +381,11 @@ internal static class OidcAuthorizeStateBuilder
         return (username, valid, RolesFromCopies(copies, roleClaimSegments, config));
     }
 
-    /// <summary>
-    /// Reduces the copies of the role claim a document carried to the role set the login is granted.
-    /// </summary>
+    /// <summary>Reduces the copies of the role claim a document carried to the role set the login is granted.</summary>
     /// <remarks>
-    /// One copy is the ordinary case and stands as it is. SEVERAL copies of an OBJECT-VALUED role claim are
-    /// two statements about the same thing, and the plugin never sees the bytes behind them: with
-    /// <c>LoadProfile</c> on (the default) OidcClient merges the UNSIGNED UserInfo response into the
-    /// principal, so a UserInfo body naming the claim twice arrives here as two claims of one type, each
-    /// individually clean, which is why the value-level screen (#1005) never fires on it. Appending them
-    /// granted the UNION, so a second copy naming an extra role was granted that role (#1040).
-    /// <para>
-    /// Copies that AGREE still grant. A provider that emits the claim in both the id_token and the UserInfo
-    /// response says one thing twice, and refusing that would take every role from a normal deployment.
-    /// Copies that DISAGREE grant nothing: a document that says two things about the roles says nothing
-    /// this login can act on, and the fail-closed reading is the one that cannot be talked into a
-    /// privilege. The refusal is silent for now; the operator trail for a refused role claim is #1042.
-    /// </para>
-    /// <para>
-    /// Scoped to the object-valued shapes on purpose. A provider emitting one claim per group - a
-    /// one-segment path over plain string values - is a normal, documented shape whose copies are MEANT to
-    /// be unioned, so it keeps the append.
-    /// </para>
+    /// Several copies of an object-valued claim arrive as separate claims of one type when the unsigned UserInfo
+    /// response is merged in, and appending them granted the union (#1040); agreeing copies still grant, disagreeing
+    /// copies grant nothing, and a one-segment path over plain strings keeps the append as the documented group shape.
     /// </remarks>
     /// <param name="copies">The roles each copy of the role claim produced, in document order.</param>
     /// <param name="roleClaimSegments">The split role-claim path; more than one segment means the claim value is JSON.</param>
@@ -443,25 +407,13 @@ internal static class OidcAuthorizeStateBuilder
         return copies.TrueForAll(first.SetEquals) ? copies[0] : new List<string>();
     }
 
-    /// <summary>
-    /// The authorize-state values derived from an OpenID login.
-    /// </summary>
-    /// <param name="Username">The resolved username (last matching preferred-username or sub claim), or null when none is present.</param>
-    /// <param name="Subject">The stable subject identifier (the "sub" claim) used to key the account link, or null when absent.</param>
-    /// <param name="Issuer">The id_token issuer (the "iss" claim) the account link is issuer-bound to, or null when absent (#186).</param>
-    /// <param name="EmailVerified">The login's "email_verified" claim (true/false), or null when the claim is absent, used by the adoption gate (#218).</param>
-    /// <param name="Valid">Whether the login is permitted (no allow-list, or a role matched the allow-list).</param>
-    /// <param name="Admin">Whether the login grants administrator rights.</param>
-    /// <param name="EnableLiveTv">Whether the login grants Live TV access.</param>
-    /// <param name="EnableLiveTvManagement">Whether the login grants Live TV management.</param>
-    /// <param name="Folders">The enabled folders (statically enabled plus role-granted).</param>
-    /// <param name="Avatar">The resolved avatar candidate - the configured AvatarUrlFormat template with @{claim} tokens substituted, or - when no template is configured (null/empty) - the standard OIDC "picture" claim (#723) - bound to the address tier it earned against the provider's own endpoints (#1764); null when neither yields a value. Only a candidate: the fetch is still gated by AvatarUrlValidator under that tier.</param>
-    /// <param name="PermissionGrants">The generic role→permission grants (#164); null (treated as empty) when the feature is off.</param>
-    /// <param name="MaxParentalRatingScore">The parental-rating-score ceiling (#736); null when the feature is off or no mapping matched (leave the existing ceiling untouched).</param>
-    /// <param name="ExpiresAtUtc">The account-expiry instant the configured expiry claim resolved (#1143), in UTC; null when no claim is configured, the claim is absent, or its value is not a shape the reader understands.</param>
-    /// <param name="GuestAccessDuration">The fixed access duration the login's roles resolved (#1146); null when the provider maps no role to a duration or the login held none. Read only on the arm that provisions a brand-new account.</param>
-    /// <param name="ProvisioningProfile">The provisioning-profile name the login's roles selected (#1106); null when the provider configures no role rows or the login matched none, in which case the provider's own default resolution decides. Read only on the arm that provisions a brand-new account.</param>
-    /// <param name="SyncPlayAccess">The SyncPlay access level the login's roles resolved (#827); null when the feature is off or no mapping matched (leave the existing level untouched).</param>
+    /// <summary>The authorize-state values derived from an OpenID login: the identity the account link is keyed on, the validity and privilege gates, the folders, the avatar candidate and the role-resolved account settings.</summary>
+    /// <remarks>
+    /// A null value means the claim was absent or the feature is off and the caller leaves the existing setting
+    /// untouched. <c>Issuer</c> binds the link (#186), <c>EmailVerified</c> feeds the adoption gate (#218), <c>Avatar</c>
+    /// is only a candidate under the address tier it earned (#723, #1764), and <c>GuestAccessDuration</c> and
+    /// <c>ProvisioningProfile</c> are read only when a brand-new account is provisioned (#1146, #1106).
+    /// </remarks>
     internal readonly record struct OidcAuthorizeState(
         string? Username,
         string? Subject,

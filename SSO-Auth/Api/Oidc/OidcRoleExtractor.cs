@@ -60,34 +60,16 @@ internal static class OidcRoleExtractor
         Unreadable,
     }
 
-    /// <summary>
-    /// Extracts the role values from a claim value for the given role-claim path.
-    /// </summary>
-    /// <param name="roleClaimSegments">
-    /// The role-claim path already split on unescaped dots and un-escaped (segment[0] is the claim
-    /// name). Must be non-empty; the caller only invokes this for the claim whose type equals segment[0].
-    /// </param>
+    /// <summary>Extracts the role values from a claim value for the given role-claim path, with the reason when none resolve (#1147).</summary>
+    /// <remarks>
+    /// An array terminal yields its string elements, an object-map terminal its property names, and a one-segment
+    /// path the raw value; every non-resolving shape carries no roles and a refusal reason, so a parse failure fails
+    /// closed (#216), and a repeat in a scope the walk enters or an unreadable value is refused rather than handed to a second parser (#1324).
+    /// </remarks>
+    /// <param name="roleClaimSegments">The role-claim path already split on unescaped dots; segment[0] is the claim name and the caller only invokes this for the claim whose type equals it.</param>
     /// <param name="claimValue">The matched claim's value (a raw role, or a JSON object for a nested path).</param>
-    /// <param name="terminalIsObjectMap">
-    /// The provider's <c>RoleClaimIsObjectMap</c>: the terminal node is a JSON object whose property NAMES
-    /// are the roles (Zitadel, #934) instead of an array of role strings. Deliberately has no default so
-    /// every call site has to state which shape it reads.
-    /// </param>
-    /// <returns>
-    /// The extracted roles and why (#1147): for an array terminal, the string elements of the array reached
-    /// by walking the JSON path (non-string elements are ignored); for an object-map terminal, that object's
-    /// property names; and, only when the path is one segment and the terminal is not an object map, the raw
-    /// claim value as a single role. Every non-resolving shape (missing segment, non-object node, wrong
-    /// terminal type) and a malformed claim value carry no roles AND a refusal reason - a parse failure
-    /// fails closed rather than throwing (#216). The refusal reasons exist so a caller can tell a broken
-    /// path from a provider that legitimately sent no roles.
-    /// <para>
-    /// Two shapes carry no roles that once did, and both are #1324 rather than an accident. A claim value
-    /// naming a member twice in a scope this walk enters is refused instead of resolving to whichever
-    /// occurrence a parser happens to keep, and a claim value the screen cannot read to the end is refused
-    /// instead of being handed to a second parser that can. Everything else returns what it always returned.
-    /// </para>
-    /// </returns>
+    /// <param name="terminalIsObjectMap">The provider's <c>RoleClaimIsObjectMap</c> (Zitadel, #934); no default, so every call site states which shape it reads.</param>
+    /// <returns>The extracted roles and why.</returns>
     internal static Result ExtractRoles(string[] roleClaimSegments, string claimValue, bool terminalIsObjectMap)
     {
         // A single-segment path is not JSON: the claim value itself is the role. An object-map claim is the
@@ -97,19 +79,10 @@ internal static class OidcRoleExtractor
             return Resolved(new List<string> { claimValue });
         }
 
-        // The screen runs BEFORE Newtonsoft, and that ordering is the substance of #1324 rather than a
-        // preference. The round-2 finding on PR #1032 was not that an unreadable document produced no roles,
-        // it was that it produced "proceed" and the code then fell through to a second parser, which granted
-        // the attacker's last-occurrence roles. A refusal here consults no second reader, so the value's
-        // meaning never becomes a question of which parser read it.
-        //
-        // Only the scopes this walk enters are screened. A repeat anywhere the walk does not go changes
-        // nothing it reads, and refusing on one would let an unrelated sibling in the provider's own claim -
-        // a vendor extension repeating a name - wipe the role set of every login (#1324).
-        //
-        // The repeated member's NAME is deliberately dropped. This value carries group DNs and e-mail
-        // addresses, the audit trail below records the outcome's own name and never anything derived from the
-        // claim, and a member name is derived from the claim.
+        // The screen runs before Newtonsoft and consults no second reader, so the value's meaning never depends on
+        // which parser read it (#1324); only the scopes this walk enters are screened, so a vendor extension repeating
+        // a name elsewhere cannot wipe every login's roles. The repeated member's name is dropped, because this
+        // value carries group DNs and e-mail addresses and the audit trail records nothing derived from the claim.
         var screened = StrictJson.Inspect(claimValue, EnteredScopeKeys(roleClaimSegments, terminalIsObjectMap), out _);
         if (screened != StrictJson.Verdict.Clean)
         {

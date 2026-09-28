@@ -5,20 +5,10 @@ using Duende.IdentityModel.OidcClient;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Oidc;
 
-/// <summary>
-/// The outcome of the OpenID challenge's single discovery read (<see cref="OidcDiscoveryReader"/>, #450):
-/// the two security-relevant facts and the <see cref="Duende.IdentityModel.OidcClient.ProviderInformation"/>
-/// the login itself is fed - both derived from the SAME discovery response, so the enforcement facts and
-/// the login can never diverge, and neither can be silently weakened by a failed second probe.
-/// <see cref="Available"/> is <see langword="false"/> only when the document could not be read at all; the
-/// caller then fails the login closed rather than proceeding on unverified facts.
-/// </summary>
+/// <summary>The outcome of the OpenID challenge's single discovery read (#450): the two security facts and the <see cref="Duende.IdentityModel.OidcClient.ProviderInformation"/> the login is fed, both from the same response so they cannot diverge.</summary>
 /// <param name="Facts">The PKCE-S256 (#141) and RFC 9207 response-<c>iss</c> (#210) facts read from the document.</param>
 /// <param name="ProviderInformation">The provider metadata built from the same document, or null when the read failed.</param>
-/// <param name="Refusal">
-/// Why an unavailable result is unavailable (#1064), for the admin Test-connection probe. The login path
-/// never branches on it: <see cref="Available"/> alone decides, so no value of this can open a door.
-/// </param>
+/// <param name="Refusal">Why an unavailable result is unavailable (#1064), for the admin probe; the login path decides on <see cref="Available"/> alone.</param>
 internal readonly record struct OidcDiscoveryResult(DiscoveryFacts Facts, ProviderInformation ProviderInformation, OidcDiscoveryRefusal Refusal)
 {
     /// <summary>Gets a value indicating whether the discovery document was read (the facts and metadata are usable).</summary>
