@@ -13,30 +13,13 @@ using Microsoft.Net.Http.Headers;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 
-/// <summary>
-/// Gives the plugin's pages and page scripts, which the host serves from its own <c>web/ConfigurationPage</c>
-/// action, the lifetime answer the plugin's own asset route gives (#1627): the version tag and
-/// <c>no-cache</c>, and a 304 for a browser that already holds the current version.
-/// </summary>
+/// <summary>Gives the plugin's pages and page scripts, which the host serves from its own <c>web/ConfigurationPage</c> action, the version tag, <c>no-cache</c> and the 304 the plugin's own asset route gives (#1627).</summary>
 /// <remarks>
-/// <para>
-/// The host serves a plugin's registered pages with no validator and no lifetime, and its web client loads
-/// a page and its script under the registered name, so nothing on the plugin side can put a version into
-/// those URLs. What a plugin can do is register a result filter with the host's MVC options and act on that
-/// one action, for its own names only: every other action, and every other plugin's page, passes through
-/// exactly as the host built it.
-/// </para>
-/// <para>
-/// NOTHING HERE MAY FAIL A REQUEST. A filter registered with the options runs on every action of the
-/// server, so a failure inside it would fail responses that are not this plugin's to fail. The predicate
-/// and the stamping are wrapped: on any exception the response stands as it was at that moment, as the
-/// host built it or, once the 304 has been chosen, that 304, and the failure is logged at Warning.
-/// </para>
-/// <para>
-/// The action is reachable without authentication today, so the 304 grants nothing a 200 would not, and
-/// the tag is a digest of the build, which <see cref="SSOViewsController"/> has exposed the same way
-/// since #253 (T-I, decided on #1627), from the file version until #1705.
-/// </para>
+/// The host serves a registered page with no validator and its web client loads it under the registered name, so
+/// the plugin cannot put a version into those URLs; a result filter on that one action, for its own names only,
+/// can. Nothing here may fail a request, because the filter runs on every action of the server: the predicate and
+/// the stamping are wrapped and a failure leaves the response as the host built it. The action is reachable
+/// without authentication, so the 304 grants nothing a 200 would not.
 /// </remarks>
 internal sealed class PluginPageCacheFilter : IResultFilter
 {

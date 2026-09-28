@@ -18,33 +18,18 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SSO_Auth.Api.Http;
 
-/// <summary>
-/// Runs an admin-triggered Test-connection probe against a STORED provider configuration (#163) so an
-/// administrator can confirm connectivity and basic config before a user hits the failure at first login.
-/// The endpoints that call this are elevation-gated (see <see cref="SSOController"/>), and the probe fetches
-/// only the already-stored provider URL - the exact URL the (rate-limited) anonymous login challenge already
-/// fetches - so it adds no outbound-fetch surface beyond the login path.
-///
-/// OpenID: reads the discovery document through the SAME hardened reader the login uses
-/// (<see cref="OidcDiscoveryReader"/> under the provider's <see cref="OidcDiscoveryOptions"/> discovery
-/// policy - RequireHttps / ValidateIssuerName / ValidateEndpoints), and reports the issuer, endpoints and
-/// JWKS reachability from that one response. It never reveals the client secret (discovery needs no
-/// credential). SAML: parses the configured PUBLIC signing certificate and reports its non-secret facts;
-/// there is no SAML metadata-URL field, so the SAML probe makes no network call. Neither path ever puts a
-/// secret, signing key, or DEK into the <see cref="ProviderTestResult"/> or the log.
-///
-/// Every verdict and fact is a catalogue key from <see cref="ProviderTestKeys"/> (#1728), never a sentence:
-/// the page renders them in the administrator's language, and the conformance suite refuses a prose literal
-/// in this file so the next verdict cannot arrive as English the catalogue never sees.
-/// </summary>
+/// <summary>Runs an admin-triggered Test-connection probe against a stored provider configuration (#163), so an administrator can confirm connectivity before a user hits the failure at first login.</summary>
+/// <remarks>
+/// The endpoints that call this are elevation-gated and the probe fetches only the stored provider URL the login
+/// challenge already fetches, so it adds no outbound surface. OpenID reads discovery through the same hardened
+/// <see cref="OidcDiscoveryReader"/> under the provider's <see cref="OidcDiscoveryOptions"/> policy and never
+/// reveals the client secret; SAML parses the configured public certificate and makes no network call. Every
+/// verdict is a catalogue key from <see cref="ProviderTestKeys"/> (#1728), never a sentence, which the
+/// conformance suite refuses.
+/// </remarks>
 internal static class ProviderConnectionTester
 {
-    /// <summary>
-    /// Probes a stored OpenID provider: reads its discovery document under the login's hardened discovery
-    /// policy and reports the issuer, endpoints, JWKS reachability and the two discovery facts. Fail-closed
-    /// and actionable - an unreadable document or an invalid endpoint returns a non-Ok result whose verdict
-    /// names what to check, never a sensitive value, rather than throwing.
-    /// </summary>
+    /// <summary>Probes a stored OpenID provider under the login's hardened discovery policy and reports the issuer, endpoints, JWKS reachability and the two discovery facts; an unreadable document returns a non-Ok result naming what to check rather than throwing.</summary>
     /// <param name="config">The stored OpenID provider configuration.</param>
     /// <param name="provider">The provider name, for the reader's fail-closed warning only.</param>
     /// <param name="httpClientFactory">The shared HTTP client factory the hardened discovery fetch is built over.</param>
@@ -74,25 +59,10 @@ internal static class ProviderConnectionTester
         var discovery = await OidcDiscoveryReader.ReadAsync(options, provider, httpClientFactory, logger, config.AllowPrivateNetworkAddresses, cancellationToken).ConfigureAwait(false);
         if (!discovery.Available)
         {
-            // The reader already logged the fail-closed warning (with the library error, never a secret). The
-            // verdict describes THIS failure (#1064): the probe is the one in-product diagnostic on the recovery
-            // path, and a verdict that answers confidently and points somewhere else is worse than a vague one -
-            // an admin whose provider serves a document the screen refuses would otherwise be sent to look at
-            // reachability, the well-known path and TLS, none of which is wrong.
-            //
-            // The English rows of the two screened causes open with the SAME constant the server log carries
-            // (RepeatedMemberScreen.RefusalReason / UninspectableReason), which the probe's suite pins, so an
-            // admin matching the two on an English dashboard sees one wording rather than two paraphrases. On a
-            // translated dashboard the log is the English side of that pairing: that is the price of the page
-            // reading the administrator's language (#1728), paid on purpose. Neither row names the repeated
-            // member. The surface is elevation-gated, so that is not the login path's disclosure question, but
-            // the member name is a provider-authored string and every bound and filter it needs sits on the log
-            // entry (#1068, #1194) and nowhere else; pointing at the log spends nothing and keeps one place
-            // responsible for it.
-            //
-            // A refused issuer is the exception that names its values (#1837), because the value is the repair:
-            // the field has to carry the published issuer, and no log line on the recovery path should be needed
-            // to read it. Both facts are rendered inert by the page, like the issuer a successful read reports.
+            // The verdict describes this failure (#1064), because the probe is the one in-product diagnostic on the
+            // recovery path. The two screened causes open with the same constant the server log carries, so an
+            // administrator sees one wording; neither names the repeated member, whose bounds sit on the log entry
+            // alone (#1068, #1194). A refused issuer names its values (#1837), because the value is the repair.
             if (discovery.Refusal == OidcDiscoveryRefusal.IssuerMismatch)
             {
                 return ProviderTestResult.Failure(
