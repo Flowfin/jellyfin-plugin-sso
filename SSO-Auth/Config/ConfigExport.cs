@@ -5,30 +5,17 @@ using System;
 
 namespace Jellyfin.Plugin.SSO_Auth.Config;
 
-/// <summary>
-/// Builds the redacted, importable configuration export document (#161). It does NOT re-implement any
-/// redaction: the plugin configuration already withholds its secrets and server-managed link maps at the
-/// JSON boundary (the <see cref="WriteOnlySecretConverter"/> on the three secret fields, #189, and
-/// <c>[JsonIgnore]</c> on the canonical-link maps, #157/#186), so serializing the snapshot this builds is
-/// redacted by construction - the export reflects the same withholding an <c>OID/Get</c> response already
-/// does, reused rather than duplicated. This type only detaches the live configuration so the JSON
-/// formatter (which runs after the config lock is released) serializes a stable snapshot rather than a
-/// live, concurrently-mutated object.
-/// </summary>
+/// <summary>Builds the redacted, importable configuration export document (#161).</summary>
+/// <remarks>
+/// The redaction is the JSON boundary's own, so the snapshot is redacted by construction. See
+/// <see href="https://github.com/Flowfin/jellyfin-plugin-sso/wiki/Hardening-and-Options-Reference#the-export-is-redacted---secrets-never-leave-the-server"/>.
+/// </remarks>
 internal static class ConfigExport
 {
-    /// <summary>
-    /// The current export/import document format version. Bumped only on a breaking change to the document
-    /// shape; the import rejects any other version fail-closed (<see cref="ConfigImport.Apply"/>).
-    /// </summary>
+    /// <summary>The current export document format version; the import rejects any other.</summary>
     internal const int FormatVersion = 1;
 
-    /// <summary>
-    /// Builds the export document from the live configuration. Call it under the config lock (through
-    /// <c>ReadConfiguration</c>) so the snapshot is taken atomically; the returned document holds a detached
-    /// copy of the provider maps, so the JSON formatter serializing it later cannot tear against a concurrent
-    /// provider add/remove.
-    /// </summary>
+    /// <summary>Builds the export document from the live configuration; call it under the config lock.</summary>
     /// <param name="live">The live plugin configuration to snapshot.</param>
     /// <returns>The redacted export document.</returns>
     internal static ConfigExportDocument Build(PluginConfiguration live)
@@ -41,11 +28,7 @@ internal static class ConfigExport
         };
     }
 
-    // A fresh configuration carrying the live scalars and shallow copies of the provider maps. The provider
-    // objects are shared (not cloned): their secrets and link maps are withheld by the JSON converters, and
-    // the only in-place write on the login hot path is the NewPath scalar flip - which cannot tear a JSON
-    // serialization - so a shallow copy is the same safe snapshot SSOController.SnapshotConfigs relies on
-    // (#157/F-10).
+    // Shallow copies: the provider objects are shared, and the only in-place write on the login path is a scalar flip (#157).
     private static PluginConfiguration Snapshot(PluginConfiguration live) => new()
     {
         EnableRateLimit = live.EnableRateLimit,
@@ -54,11 +37,7 @@ internal static class ConfigExport
         OidConfigs = ShallowCopy(live.OidConfigs),
         SamlConfigs = ShallowCopy(live.SamlConfigs),
 
-        // The named provisioning profiles travel with the providers that point at them (#1105): a document
-        // carrying a provider whose profile it left behind would be refused on import by the validator, which
-        // is the fail-closed direction but would make the export useless. They hold no secret - a template is
-        // permissions and playback preferences - so the redaction the provider maps rely on has nothing to do
-        // here.
+        // The profiles travel with the providers that point at them, or the import would refuse the document (#1105).
         ProvisioningProfiles = ShallowCopy(live.ProvisioningProfiles),
     };
 
