@@ -44,18 +44,18 @@ public partial class ArchitectureConformanceTests
         // of around 68 sanitized arguments and the rest could lose the substitution with the suite green
         // (#1555). It reads the source, because the sanitizer cs/log-forging can see is the one written inline
         // in the argument list, and a helper doing the same work would satisfy reflection while breaking that.
-        var path = Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Audit", "SsoAudit.cs");
+        // The emitter is one partial class over several files, so every SsoAudit file is read.
+        var sanitizedLines = Directory
+            .EnumerateFiles(Path.Combine(RepoTree.Root, "SSO-Auth", "Api", "Audit"), "SsoAudit*.cs")
+            .Order(StringComparer.Ordinal)
+            .SelectMany(path => File.ReadLines(path)
+                .Select((line, index) => (File: Path.GetFileName(path), Line: line, Number: index + 1)))
+            .Where(l => l.Line.Contains(LineEndingSanitizer, StringComparison.Ordinal))
+            .ToList();
         var offenders = new List<string>();
 
-        var lineNumber = 0;
-        foreach (var line in File.ReadLines(path))
+        foreach (var (file, line, lineNumber) in sanitizedLines)
         {
-            lineNumber++;
-            if (!line.Contains(LineEndingSanitizer, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
             var exempt = AuditValuesPrintedExactly.Any(value =>
                 line.Contains(value + "?." + LineEndingSanitizer, StringComparison.Ordinal)
                 || line.Contains(value + "." + LineEndingSanitizer, StringComparison.Ordinal));
@@ -65,7 +65,7 @@ public partial class ArchitectureConformanceTests
             if (exempt == substituted)
             {
                 offenders.Add(
-                    "SsoAudit.cs:" + lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    file + ":" + lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     + (exempt
                         ? " prints a value this rule names as printed exactly, and substitutes its bracket anyway"
                         : " sanitizes a foreign value's line endings without substituting its record-marker bracket")
@@ -84,7 +84,7 @@ public partial class ArchitectureConformanceTests
     [Fact]
     public void TheAuditEmitter_IsTheOnlyPlaceThatWritesTheRecordMarker()
     {
-        // The substitution is only worth anything while ONE file can write the marker: a second writer with
+        // The substitution is only worth anything while ONE emitter, the SsoAudit partials, can write the marker: a second writer with
         // a foreign value in its template would reopen the hole from a direction this rule cannot see. The
         // marker WAS plantable through ordinary plugin log lines that are not audit entries at all, which
         // #1557 closed with the tree-wide rule below rather than with this one - but a second EMITTER of the
@@ -97,7 +97,14 @@ public partial class ArchitectureConformanceTests
             .ToList();
 
         Assert.Equal(
-            new[] { "SSO-Auth/Api/Audit/SsoAudit.cs", "SSO-Auth/Api/Session/SsoOnlyReconciliationService.cs" },
+            new[]
+            {
+                "SSO-Auth/Api/Audit/SsoAudit.Accounts.cs",
+                "SSO-Auth/Api/Audit/SsoAudit.Configuration.cs",
+                "SSO-Auth/Api/Audit/SsoAudit.Links.cs",
+                "SSO-Auth/Api/Audit/SsoAudit.Logout.cs",
+                "SSO-Auth/Api/Session/SsoOnlyReconciliationService.cs",
+            },
             sources);
     }
 

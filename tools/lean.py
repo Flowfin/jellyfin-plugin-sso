@@ -31,7 +31,7 @@ _MODIFIER = r"(?:public|private|protected|internal|static|async|override|virtual
 _SIGNATURE = re.compile(
     r"^\s*(?:" + _MODIFIER + r"\s+)+(?:[\w<>\[\],.?]+\s+)?(?P<name>\w+)\s*(?:<[^>]*>)?\s*\("
 )
-_STRING = re.compile(r'\$?@?"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
+_STRING = re.compile(r'(?:\$@|@\$|\$|@)?"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'')
 
 
 def classify(lines):
@@ -73,14 +73,38 @@ def _braces(text):
     return text.count("{"), text.count("}")
 
 
+def _outside_verbatim(text, inside):
+    """The part of a line outside a multi-line verbatim string, and whether the line ends inside one."""
+    if inside:
+        i = 0
+        while i < len(text):
+            if text[i] == '"':
+                if i + 1 < len(text) and text[i + 1] == '"':
+                    i += 2
+                    continue
+                return _outside_verbatim(text[i + 1:], False)
+            i += 1
+        return "", True
+    stripped = _STRING.sub('""', text).split("//", 1)[0]
+    at = stripped.find('@"')
+    if at < 0:
+        at = stripped.find('$@"') if '$@"' in stripped else stripped.find('@$"')
+    if at < 0:
+        return text, False
+    return stripped[:at], True
+
+
 def methods(classified):
     """Yield (name, body code lines) for every brace-bodied method or constructor."""
     depth = 0
     pending = None
     body = None
+    inside = False
     for kind, text in classified:
         if kind != "code":
             continue
+        # A verbatim string spanning lines is text, not members: braces and signatures inside it count for nothing.
+        text, inside = _outside_verbatim(text, inside)
         if body is not None:
             opened, closed = _braces(text)
             depth += opened - closed
@@ -175,14 +199,25 @@ def fixture(method_lines, block_lines, file_lines):
     return out
 
 
+def verbatim_fixture(script_lines):
+    """A C# file holding a script inside a verbatim string, then one method over METHOD_LIMIT lines."""
+    out = ["namespace Fixture;", "internal sealed class Sample", "{", '    private const string Script = @"']
+    out += ["async function main() {"] + ["    await sleep(100);"] * script_lines + ["}", '";']
+    out += ["    public void Run(int x)", "    {"] + ["        x++;"] * (METHOD_LIMIT + 1) + ["    }", "}"]
+    return out
+
+
 def calibrate():
     over = measure(fixture(METHOD_LIMIT + 1, BLOCK_LIMIT + 1, FILE_LIMIT + 1))
     under = measure(fixture(METHOD_LIMIT, BLOCK_LIMIT, FILE_LIMIT))
+    verbatim = measure(verbatim_fixture(METHOD_LIMIT + 1))
     positive = (over["code"] > FILE_LIMIT, over["blocks_over"] == 1, len(over["long_methods"]) == 1)
     negative = (under["code"] == FILE_LIMIT, under["blocks_over"] == 0, under["long_methods"] == [])
-    if not all(positive) or not all(negative):
-        sys.exit("lean: calibration failed - positive %s, negative %s" % (positive, negative))
-    print("lean: calibration ok - one fixture over each limit, one at each limit")
+    # The script in the string is not a method, and the method after it is still one.
+    verbatim_ok = [name for name, _ in verbatim["long_methods"]] == ["Run"]
+    if not all(positive) or not all(negative) or not verbatim_ok:
+        sys.exit("lean: calibration failed - positive %s, negative %s, verbatim %s" % (positive, negative, verbatim_ok))
+    print("lean: calibration ok - one fixture over each limit, one at each limit, one script in a string")
 
 
 def main(argv):

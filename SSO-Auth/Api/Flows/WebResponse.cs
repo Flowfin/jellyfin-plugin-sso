@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: The jellyfin-plugin-sso authors
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Jellyfin.Plugin.SSO_Auth.Api.Localization;
@@ -245,47 +247,11 @@ function showReturnLink() {
 
 ";
 
-    /// <summary>Renders the auth page with the server-derived values encoded as JSON constants.</summary>
-    /// <param name="data">The opaque value the page posts back to the mint leg: a one-time token, or a base64 assertion on the SAML linking path.</param>
-    /// <param name="provider">The name of the provider to callback to.</param>
-    /// <param name="baseUrl">The base URL of the Jellyfin installation.</param>
-    /// <param name="mode">The mode of the function; SAML or OID.</param>
-    /// <param name="nonce">The per-response CSP nonce emitted on the inline script and style tags.</param>
-    /// <param name="isLinking">Whether this request is to link accounts rather than authenticate.</param>
-    /// <param name="culture">The culture the page's own text is rendered in, or null for English (#913).</param>
-    /// <returns>A string with the HTML to serve to the client.</returns>
-    public static string Generator(string data, string provider, string baseUrl, string mode, string nonce, bool isLinking = false, string? culture = null)
-    {
-        System.ArgumentNullException.ThrowIfNull(baseUrl);
-
-        // The domain is converted to Punycode; a base URL with no scheme separator fails closed rather than mis-splitting.
-        var idnMapping = new IdnMapping();
-        var protocolSeparatorIndex = baseUrl.IndexOf("//", System.StringComparison.Ordinal);
-
-        if (protocolSeparatorIndex < 0)
-        {
-            throw new System.ArgumentException("baseUrl must contain a protocol separator ('//').", nameof(baseUrl));
-        }
-
-        var protocol = baseUrl.Substring(0, protocolSeparatorIndex + 2);
-        var domain = baseUrl.Substring(protocolSeparatorIndex + 2);
-        var punycodeDomain = idnMapping.GetAscii(domain);
-        var punycodeBaseUrl = protocol + punycodeDomain;
-
-        // HTML-context strings are HTML-encoded and script-context strings JSON-encoded, so no value can end the script element (#913).
-        string Localize(string key) => SsoLocalizer.GetString(key, culture);
-        var head = Base
-            .Replace("{{NONCE}}", nonce, System.StringComparison.Ordinal)
-            .Replace("{{LANG}}", HtmlEncoder.Default.Encode(culture ?? SsoLocalizer.FallbackCulture), System.StringComparison.Ordinal)
-            .Replace("{{LOGGING_IN}}", HtmlEncoder.Default.Encode(Localize("page.logging_in")), System.StringComparison.Ordinal)
-            .Replace("{{ENABLE_JS}}", HtmlEncoder.Default.Encode(Localize("page.enable_javascript")), System.StringComparison.Ordinal)
-            .Replace("{{RETURN_LINK_JS}}", JsonSerializer.Serialize(Localize("error.return_to_login")), System.StringComparison.Ordinal);
-
-        // The base URL and the provider derive from the request, so both are treated as untrusted.
-        return head + @"
-const ssoBaseUrl = " + JsonSerializer.Serialize(punycodeBaseUrl) + @";
-const ssoProvider = " + JsonSerializer.Serialize(provider) + @";
-const ssoMode = " + JsonSerializer.Serialize(mode) + @";
+    // The page's script, with the per-request values as placeholders; the localized texts are the catalogue keys.
+    private const string Script = @"
+const ssoBaseUrl = {{BASE_URL}};
+const ssoProvider = {{PROVIDER}};
+const ssoMode = {{MODE}};
 async function link(jfCredentials, request) {
     if (jfCredentials == null) return;
 
@@ -321,14 +287,14 @@ async function link(jfCredentials, request) {
 async function main() {
     // The link leg needs the current tab's session, captured before the login leg's credential wipe below.
     var preLinkCredentials = null;
-    if (" + (isLinking ? "true" : "false") + @") {
+    if ({{IS_LINKING}}) {
         var preLinkCredentialsString = localStorage.getItem(""jellyfin_credentials"");
         if (preLinkCredentialsString != null) {
             preLinkCredentials = JSON.parse(preLinkCredentialsString);
         }
     }
 
-    var data = " + JsonSerializer.Serialize(data) + @";
+    var data = {{DATA}};
 
     if (preLinkCredentials != null && preLinkCredentials['Servers']?.[0]?.['UserId'] != null) {
         // A live session is in hand, so the wipe-and-reload the login leg needs is skipped.
@@ -347,10 +313,10 @@ async function main() {
             const linked = linkStatus >= 200 && linkStatus < 300;
             document.querySelector('p').textContent =
                 linked
-                    ? " + JsonSerializer.Serialize(Localize("page.account_linked")) + @"
+                    ? {{page.account_linked}}
                     : linkStatus === 429
-                        ? " + JsonSerializer.Serialize(Localize("error.rate_limited")) + @"
-                        : " + JsonSerializer.Serialize(Localize("page.link_failed")) + @";
+                        ? {{error.rate_limited}}
+                        : {{page.link_failed}};
             if (!linked) {
                 showReturnLink();
             }
@@ -365,7 +331,7 @@ async function main() {
     if (serverUrl === null || serverUrl.origin !== pageOrigin) {
         // The page's origin carries the server's path base, so the suggested override keeps its prefix.
         var pageBase = pageOrigin + (serverUrl === null ? '' : serverUrl.pathname.replace(/\/+$/, ''));
-        document.querySelector('p').textContent = " + JsonSerializer.Serialize(Localize("page.address_mismatch")) + @"
+        document.querySelector('p').textContent = {{page.address_mismatch}}
             .split('{page}').join(pageBase).split('{server}').join(ssoBaseUrl);
         showReturnLink();
         return;
@@ -380,7 +346,7 @@ async function main() {
     while (localStorage.getItem(""_deviceId2"") == null || storedServerId() == null) {
         if (!waitNoticeShown && Date.now() - waitingSince > 20000) {
             waitNoticeShown = true;
-            document.querySelector('p').textContent = " + JsonSerializer.Serialize(Localize("page.still_waiting")) + @"
+            document.querySelector('p').textContent = {{page.still_waiting}}
                 .split('{server}').join(ssoBaseUrl);
             showReturnLink();
         }
@@ -419,8 +385,8 @@ async function main() {
         // A throttled or failed authentication surfaces as text rather than an endless wait.
         document.querySelector('p').textContent =
             response && response.status === 429
-                ? " + JsonSerializer.Serialize(Localize("error.login_rate_limited")) + @"
-                : " + JsonSerializer.Serialize(Localize("page.login_failed")) + @";
+                ? {{error.login_rate_limited}}
+                : {{page.login_failed}};
         showReturnLink();
         return;
     }
@@ -441,5 +407,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // https://stackoverflow.com/a/25435165
 </script><iframe id='iframe-main' sandbox='allow-same-origin allow-forms allow-scripts' src=''></iframe></body></html>";
+
+    private static readonly string[] ScriptTexts = { "page.account_linked", "error.rate_limited", "page.link_failed", "page.address_mismatch", "page.still_waiting", "error.login_rate_limited", "page.login_failed" };
+
+    /// <summary>Renders the auth page with the server-derived values encoded as JSON constants.</summary>
+    /// <param name="data">The opaque value the page posts back to the mint leg: a one-time token, or a base64 assertion on the SAML linking path.</param>
+    /// <param name="provider">The name of the provider to callback to.</param>
+    /// <param name="baseUrl">The base URL of the Jellyfin installation.</param>
+    /// <param name="mode">The mode of the function; SAML or OID.</param>
+    /// <param name="nonce">The per-response CSP nonce emitted on the inline script and style tags.</param>
+    /// <param name="isLinking">Whether this request is to link accounts rather than authenticate.</param>
+    /// <param name="culture">The culture the page's own text is rendered in, or null for English (#913).</param>
+    /// <returns>A string with the HTML to serve to the client.</returns>
+    public static string Generator(string data, string provider, string baseUrl, string mode, string nonce, bool isLinking = false, string? culture = null)
+    {
+        System.ArgumentNullException.ThrowIfNull(baseUrl);
+
+        // The domain is converted to Punycode; a base URL with no scheme separator fails closed rather than mis-splitting.
+        var idnMapping = new IdnMapping();
+        var protocolSeparatorIndex = baseUrl.IndexOf("//", System.StringComparison.Ordinal);
+
+        if (protocolSeparatorIndex < 0)
+        {
+            throw new System.ArgumentException("baseUrl must contain a protocol separator ('//').", nameof(baseUrl));
+        }
+
+        var protocol = baseUrl.Substring(0, protocolSeparatorIndex + 2);
+        var domain = baseUrl.Substring(protocolSeparatorIndex + 2);
+        var punycodeDomain = idnMapping.GetAscii(domain);
+        var punycodeBaseUrl = protocol + punycodeDomain;
+
+        // HTML-context strings are HTML-encoded and script-context strings JSON-encoded, so no value can end the script element (#913).
+        string Localize(string key) => SsoLocalizer.GetString(key, culture);
+        var head = Base
+            .Replace("{{NONCE}}", nonce, System.StringComparison.Ordinal)
+            .Replace("{{LANG}}", HtmlEncoder.Default.Encode(culture ?? SsoLocalizer.FallbackCulture), System.StringComparison.Ordinal)
+            .Replace("{{LOGGING_IN}}", HtmlEncoder.Default.Encode(Localize("page.logging_in")), System.StringComparison.Ordinal)
+            .Replace("{{ENABLE_JS}}", HtmlEncoder.Default.Encode(Localize("page.enable_javascript")), System.StringComparison.Ordinal)
+            .Replace("{{RETURN_LINK_JS}}", JsonSerializer.Serialize(Localize("error.return_to_login")), System.StringComparison.Ordinal);
+
+        // The base URL and the provider derive from the request, so both are treated as untrusted.
+        var values = new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["BASE_URL"] = JsonSerializer.Serialize(punycodeBaseUrl),
+            ["PROVIDER"] = JsonSerializer.Serialize(provider),
+            ["MODE"] = JsonSerializer.Serialize(mode),
+            ["IS_LINKING"] = isLinking ? "true" : "false",
+            ["DATA"] = JsonSerializer.Serialize(data),
+        };
+        foreach (var key in ScriptTexts)
+        {
+            values[key] = JsonSerializer.Serialize(Localize(key));
+        }
+
+        return head + FillScript(values);
+    }
+
+    // One pass over the template, so a substituted value is never read as a placeholder.
+    private static string FillScript(Dictionary<string, string> values)
+    {
+        var page = new StringBuilder(Script.Length + 1024);
+        var at = 0;
+        while (true)
+        {
+            var open = Script.IndexOf("{{", at, System.StringComparison.Ordinal);
+            if (open < 0)
+            {
+                return page.Append(Script, at, Script.Length - at).ToString();
+            }
+
+            var close = Script.IndexOf("}}", open, System.StringComparison.Ordinal);
+            page.Append(Script, at, open - at).Append(values[Script[(open + 2)..close]]);
+            at = close + 2;
+        }
     }
 }

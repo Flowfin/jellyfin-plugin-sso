@@ -89,30 +89,8 @@ internal static class OidcDiscoveryReader
                 // with (#1835), are bounded and stripped of line endings inline at the log call, because the
                 // log-forging sanitizer never crosses a helper boundary; the sanitizers run on the foreign text
                 // before this reader's own truncation marker is joined to it (#1557).
-                var endpoint = options.Authority ?? string.Empty;
                 var issuer = RefusedPublishedIssuer(discovery, options);
-                if (issuer is not null)
-                {
-                    logger.LogWarning(
-                        "Could not read the OpenID discovery document for provider {Provider}: the issuer it publishes does not match the endpoint configured, and the endpoint field has to carry the published issuer exactly.\nConfigured endpoint: {Endpoint}\nPublished issuer: {Issuer}\nThe login fails closed rather than proceeding on unverified discovery facts.",
-                        provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                        string.Concat(
-                            endpoint[..Math.Min(endpoint.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
-                            endpoint.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty),
-                        string.Concat(
-                            issuer[..Math.Min(issuer.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
-                            issuer.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
-                }
-                else
-                {
-                    var error = discovery.Error ?? string.Empty;
-                    logger.LogWarning(
-                        "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
-                        provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
-                        string.Concat(
-                            error[..Math.Min(error.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
-                            error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
-                }
+                LogDiscoveryRefusal(logger, provider, options.Authority ?? string.Empty, issuer, discovery.Error ?? string.Empty);
 
                 // The refusal is the screen's own record, never a re-reading of the library's text, so the admin
                 // probe (#1064) cannot drift from the log; a refused issuer is the one reason this reader names
@@ -132,19 +110,7 @@ internal static class OidcDiscoveryReader
             // this back into PrepareLoginAsync reproduces the library's own login setup from the very
             // response the facts were read from (#450). Populated only from this policy-validated fetch, so
             // the DiscoveryPolicy is not bypassed.
-            var providerInformation = new ProviderInformation
-            {
-                IssuerName = discovery.Issuer,
-                KeySet = discovery.KeySet,
-                AuthorizeEndpoint = discovery.AuthorizeEndpoint,
-                PushedAuthorizationRequestEndpoint = discovery.PushedAuthorizationRequestEndpoint,
-                TokenEndpoint = discovery.TokenEndpoint,
-                EndSessionEndpoint = discovery.EndSessionEndpoint,
-                UserInfoEndpoint = discovery.UserInfoEndpoint,
-                TokenEndPointAuthenticationMethods = discovery.TokenEndpointAuthenticationMethodsSupported,
-            };
-
-            return OidcDiscoveryResult.From(facts, providerInformation);
+            return OidcDiscoveryResult.From(facts, ProviderInformationFrom(discovery));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -218,4 +184,45 @@ internal static class OidcDiscoveryReader
             PkceDiscovery.SupportsS256(root),
             OidcResponseIssuer.DiscoveryAdvertisesResponseIssuer(root));
     }
+
+    // Both foreign values are bounded and stripped of line endings inline at the log call, because the log-forging
+    // sanitizer never crosses a helper boundary (#1557); the refused issuer stands beside the endpoint it was
+    // compared with (#1835).
+    private static void LogDiscoveryRefusal(ILogger logger, string provider, string endpoint, string? issuer, string error)
+    {
+        if (issuer is not null)
+        {
+            logger.LogWarning(
+                "Could not read the OpenID discovery document for provider {Provider}: the issuer it publishes does not match the endpoint configured, and the endpoint field has to carry the published issuer exactly.\nConfigured endpoint: {Endpoint}\nPublished issuer: {Issuer}\nThe login fails closed rather than proceeding on unverified discovery facts.",
+                provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+                string.Concat(
+                    endpoint[..Math.Min(endpoint.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    endpoint.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty),
+                string.Concat(
+                    issuer[..Math.Min(issuer.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                    issuer.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
+            return;
+        }
+
+        logger.LogWarning(
+            "Could not read the OpenID discovery document for provider {Provider}: {Error}. The login fails closed rather than proceeding on unverified discovery facts.",
+            provider?.ReplaceLineEndings(string.Empty).Replace('[', '('),
+            string.Concat(
+                error[..Math.Min(error.Length, MaxLoggedProviderErrorChars)].ReplaceLineEndings(string.Empty).Replace('[', '('),
+                error.Length > MaxLoggedProviderErrorChars ? ErrorTruncationMarker : string.Empty));
+    }
+
+    // The discovery to ProviderInformation mapping OidcClient performs internally, from the policy-validated
+    // response the facts were read from (#450), so PrepareLoginAsync reproduces the library's own login setup.
+    private static ProviderInformation ProviderInformationFrom(DiscoveryDocumentResponse discovery) => new()
+    {
+        IssuerName = discovery.Issuer,
+        KeySet = discovery.KeySet,
+        AuthorizeEndpoint = discovery.AuthorizeEndpoint,
+        PushedAuthorizationRequestEndpoint = discovery.PushedAuthorizationRequestEndpoint,
+        TokenEndpoint = discovery.TokenEndpoint,
+        EndSessionEndpoint = discovery.EndSessionEndpoint,
+        UserInfoEndpoint = discovery.UserInfoEndpoint,
+        TokenEndPointAuthenticationMethods = discovery.TokenEndpointAuthenticationMethodsSupported,
+    };
 }

@@ -93,7 +93,7 @@ public partial class ArchitectureConformanceTests
         // and exactly one clears it. Another disabler is another lockout vector, and another enabler is a
         // second route by which an account is admitted without passing the record check.
         var apiRoot = Path.Combine(RepoTree.Root, "SSO-Auth", "Api");
-        var seam = Path.Combine("Linking", "CanonicalLinkService.cs");
+        var seam = Path.Combine("Linking", "CanonicalLinkService.");
         var offenders = new List<string>();
         var disables = 0;
         var enables = 0;
@@ -107,7 +107,7 @@ public partial class ArchitectureConformanceTests
                     continue;
                 }
 
-                if (!src.EndsWith(seam, StringComparison.Ordinal))
+                if (!src.Contains(seam, StringComparison.Ordinal))
                 {
                     offenders.Add($"{Path.GetFileName(src)}:{i + 1}");
                 }
