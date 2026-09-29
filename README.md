@@ -1,5 +1,7 @@
 <!-- markdownlint-disable MD041 -->
 
+> **Development has ended.** My English is too poor to run a project like this properly, and AI (Claude) cannot close that gap to my satisfaction, so I am ending the project here. The repository stays online, read-only and unsupported.
+
 <h1 align="center">Community SSO for Jellyfin</h1>
 
 <p align="center">
